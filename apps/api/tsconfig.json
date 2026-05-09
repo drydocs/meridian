@@ -1,12 +1,14 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "lib": ["ES2020"],
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "baseUrl": ".",
     "outDir": "dist",
     "paths": {
-      "@meridian/shared": ["../../packages/shared/src"],
-      "@meridian/stellar-sdk-helpers": ["../../packages/stellar-sdk-helpers/src"]
+      "@meridian/shared": ["../../packages/shared/src/index.ts"],
+      "@meridian/stellar-sdk-helpers": ["../../packages/stellar-sdk-helpers/src/index.ts"]
     }
   },
   "include": ["src"]
