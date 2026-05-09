@@ -1,23 +1,22 @@
-import { fromStroops } from "@meridian/shared";
-import type { VaultInfo } from "../../types";
+import type { ApiVault } from "../../lib/api";
 
 interface VaultCardProps {
-  vault: VaultInfo;
+  vault: ApiVault;
   onDeposit: (vaultId: string) => void;
 }
 
-const PROTOCOL_LABELS: Record<VaultInfo["protocol"], string> = {
+const PROTOCOL_LABELS: Record<ApiVault["protocol"], string> = {
   blend: "Blend",
   defindex: "DeFindex",
 };
 
-const PROTOCOL_COLORS: Record<VaultInfo["protocol"], string> = {
+const PROTOCOL_COLORS: Record<ApiVault["protocol"], string> = {
   blend: "bg-blue-900/50 text-blue-300 border-blue-700/50",
   defindex: "bg-violet-900/50 text-violet-300 border-violet-700/50",
 };
 
 export function VaultCard({ vault, onDeposit }: VaultCardProps) {
-  const tvlDisplay = fromStroops(vault.tvl).toLocaleString("en-US", {
+  const tvlDisplay = vault.tvl.toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,

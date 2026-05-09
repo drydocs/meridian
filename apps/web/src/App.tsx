@@ -1,9 +1,12 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { VaultList } from "./components/dashboard/VaultList";
 import { PortfolioSummary } from "./components/dashboard/PortfolioSummary";
 import { WalletConnect } from "./components/onboarding/WalletConnect";
 import { useWalletStore } from "./store/wallet";
 
-export default function App() {
+const queryClient = new QueryClient();
+
+function AppInner() {
   const { connected } = useWalletStore();
 
   return (
@@ -18,5 +21,13 @@ export default function App() {
         <VaultList />
       </div>
     </main>
+  );
+}
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppInner />
+    </QueryClientProvider>
   );
 }

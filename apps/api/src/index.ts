@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { vaultsRoute } from "./routes/vaults";
+import { positionsRoute } from "./routes/positions";
 import { txRoute } from "./routes/tx";
 
 const app = Fastify({ logger: true });
@@ -10,6 +11,7 @@ await app.register(cors, { origin: process.env.ALLOWED_ORIGIN ?? "*" });
 await app.register(rateLimit, { max: 100, timeWindow: "1 minute" });
 
 app.register(vaultsRoute, { prefix: "/api/v1/vaults" });
+app.register(positionsRoute, { prefix: "/api/v1/positions" });
 app.register(txRoute, { prefix: "/api/v1/tx" });
 
 app.get("/health", async () => ({ status: "ok" }));
