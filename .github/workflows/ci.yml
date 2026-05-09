@@ -38,18 +38,19 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
 
-  contracts:
-    name: Soroban Contract Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Install Stellar CLI
-        run: cargo install stellar-cli --locked
-      - name: Build & test contracts
-        working-directory: packages/contracts
-        run: |
-          stellar contract build
-          cargo test
+  # TODO(#issue-8): restore when packages/contracts has a Cargo.toml
+  # contracts:
+  #   name: Soroban Contract Tests
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         targets: wasm32-unknown-unknown
+  #     - name: Install Stellar CLI
+  #       run: cargo install stellar-cli --locked
+  #     - name: Build & test contracts
+  #       working-directory: packages/contracts
+  #       run: |
+  #         stellar contract build
+  #         cargo test

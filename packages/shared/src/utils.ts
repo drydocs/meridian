@@ -11,6 +11,10 @@ export function parseUsdAmount(display: string, decimals = 7): bigint {
   return BigInt(whole) * BigInt(10 ** decimals) + BigInt(fracPadded);
 }
 
+export function fromStroops(stroops: bigint, decimals = 7): number {
+  return Number(stroops) / 10 ** decimals;
+}
+
 export function shortenAddress(address: string, chars = 4): string {
   return `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }

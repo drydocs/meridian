@@ -1,4 +1,3 @@
-"use client";
 import { useWalletStore } from "../../store/wallet";
 import { shortenAddress } from "@meridian/shared";
 

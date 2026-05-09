@@ -9,16 +9,16 @@ export interface DefindexVaultConfig {
 }
 
 export async function getDefindexVaultInfo(
-  config: DefindexVaultConfig
+  _config: DefindexVaultConfig
 ): Promise<Pick<VaultInfo, "apy" | "tvl">> {
   // TODO(#issue-5): implement DeFindex vault data decoding
   throw new Error("Not implemented — see issue #5");
 }
 
 export async function buildDefindexDepositTx(
-  config: DefindexVaultConfig,
-  depositor: string,
-  amount: bigint
+  _config: DefindexVaultConfig,
+  _depositor: string,
+  _amount: bigint
 ) {
   // TODO(#issue-5): build and return unsigned Soroban transaction
   throw new Error("Not implemented — see issue #5");

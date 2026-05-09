@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "outDir": "dist",
+    "declaration": true,
+    "paths": {
+      "@meridian/shared": ["../shared/src"]
+    }
+  },
+  "include": ["src"]
+}

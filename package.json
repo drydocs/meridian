@@ -2,11 +2,7 @@
   "name": "meridian",
   "version": "0.1.0",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
-  "scripts": {
+"scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
