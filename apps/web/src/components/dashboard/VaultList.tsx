@@ -1,12 +1,12 @@
 import { MOCK_VAULTS } from "../../lib/mockData";
 import { VaultCard } from "./VaultCard";
 
-export function VaultList() {
-  function handleDeposit(vaultId: string) {
-    // TODO(#issue-7): open deposit modal and build unsigned tx
-    console.log("Deposit into", vaultId);
-  }
+function handleDeposit(vaultId: string) {
+  // TODO(#issue-7): open deposit modal and build unsigned tx
+  console.log("Deposit into", vaultId);
+}
 
+export function VaultList() {
   return (
     <section>
       <h2 className="text-lg font-semibold mb-4">Available Vaults</h2>

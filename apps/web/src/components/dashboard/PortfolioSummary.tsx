@@ -8,7 +8,7 @@ export function PortfolioSummary() {
   return (
     <section>
       <h2 className="text-lg font-semibold mb-4">Your Portfolio</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
         <StatCard label="Total Deposited" value={`$${formatUsdAmount(totalDeposited)}`} />
         <StatCard label="Total Earned" value={`$${formatUsdAmount(totalEarned)}`} accent />
         <StatCard label="Active Positions" value={String(MOCK_POSITIONS.length)} />

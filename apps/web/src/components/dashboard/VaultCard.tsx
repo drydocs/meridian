@@ -1,3 +1,4 @@
+import { fromStroops } from "@meridian/shared";
 import type { VaultInfo } from "../../types";
 
 interface VaultCardProps {
@@ -16,7 +17,7 @@ const PROTOCOL_COLORS: Record<VaultInfo["protocol"], string> = {
 };
 
 export function VaultCard({ vault, onDeposit }: VaultCardProps) {
-  const tvlDisplay = (Number(vault.tvl) / 1e7).toLocaleString("en-US", {
+  const tvlDisplay = fromStroops(vault.tvl).toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
