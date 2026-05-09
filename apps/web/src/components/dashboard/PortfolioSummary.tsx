@@ -1,6 +1,7 @@
 import { usePositions } from "../../hooks/usePositions";
 import { useWalletStore } from "../../store/wallet";
 import { useVaults } from "../../hooks/useVaults";
+import { EmptyState } from "../ui/EmptyState";
 
 function formatUsd(stroops: number): string {
   return (stroops / 1e7).toLocaleString("en-US", {
@@ -36,9 +37,15 @@ export function PortfolioSummary() {
     return (
       <section>
         <h2 className="text-lg font-semibold mb-4">Your Portfolio</h2>
-        <p className="text-gray-400 text-sm">
-          No active positions. Deposit into a vault below to get started.
-        </p>
+        <EmptyState
+          icon={
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" />
+            </svg>
+          }
+          title="No active positions"
+          description="Deposit into a vault below to start earning yield on your stablecoins."
+        />
       </section>
     );
   }
