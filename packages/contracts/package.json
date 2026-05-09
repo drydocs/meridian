@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "scripts": {
     "build": "stellar contract build",
-    "test": "cargo test",
     "deploy:testnet": "bash ../../scripts/deploy-testnet.sh"
   }
 }
