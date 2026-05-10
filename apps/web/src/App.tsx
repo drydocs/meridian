@@ -1,10 +1,8 @@
-import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { VaultList } from "./components/dashboard/VaultList";
 import { PortfolioSummary } from "./components/dashboard/PortfolioSummary";
 import { WalletConnect } from "./components/onboarding/WalletConnect";
 import { useWalletStore } from "./store/wallet";
-import { LandingPage } from "./landing/LandingPage";
 
 const queryClient = new QueryClient();
 
@@ -27,19 +25,6 @@ function Dashboard() {
 }
 
 export default function App() {
-  const [view, setView] = useState<"landing" | "app">(() =>
-    window.location.hash === "#app" ? "app" : "landing"
-  );
-
-  function launchApp() {
-    window.location.hash = "app";
-    setView("app");
-  }
-
-  if (view === "landing") {
-    return <LandingPage onLaunchApp={launchApp} />;
-  }
-
   return (
     <QueryClientProvider client={queryClient}>
       <Dashboard />
