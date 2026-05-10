@@ -24,7 +24,6 @@
       --muted:         rgba(240, 244, 255, 0.52);
       --dim:           rgba(240, 244, 255, 0.26);
       --blue:          #3b82f6;
-      --blue-glow:     rgba(59, 130, 246, 0.16);
       --green:         #10b981;
       --green-glow:    rgba(16, 185, 129, 0.12);
     }
@@ -53,7 +52,6 @@
       position: absolute;
       border-radius: 50%;
       filter: blur(130px);
-      will-change: transform;
     }
 
     .orb-blue {
@@ -74,7 +72,6 @@
       bottom: 15%; left: 25%;
     }
 
-    /* Grain */
     body::after {
       content: '';
       position: fixed;
@@ -143,9 +140,13 @@
     .nav-gh:hover { color: var(--text); border-color: var(--border-strong); }
 
     /* ── Hero ── */
-    .hero {
-      padding: 168px 0 128px;
-      text-align: center;
+    .hero { padding: 160px 0 120px; }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 72px;
+      align-items: center;
     }
 
     .hero-pill {
@@ -160,7 +161,7 @@
       font-weight: 500;
       color: var(--muted);
       letter-spacing: 0.02em;
-      margin-bottom: 36px;
+      margin-bottom: 32px;
     }
 
     .hero-pill-dot {
@@ -171,11 +172,11 @@
     }
 
     h1 {
-      font-size: clamp(48px, 7.5vw, 88px);
+      font-size: clamp(40px, 5.5vw, 72px);
       font-weight: 900;
-      line-height: 1.02;
+      line-height: 1.03;
       letter-spacing: -0.035em;
-      margin-bottom: 26px;
+      margin-bottom: 24px;
     }
 
     .grad {
@@ -186,29 +187,29 @@
     }
 
     .hero-sub {
-      font-size: 18px;
+      font-size: 17px;
       color: var(--muted);
-      max-width: 500px;
-      margin: 0 auto 48px;
+      max-width: 420px;
+      margin-bottom: 40px;
       line-height: 1.65;
     }
 
     .waitlist-row {
       display: flex;
       gap: 10px;
-      max-width: 430px;
-      margin: 0 auto 28px;
+      max-width: 420px;
+      margin-bottom: 24px;
     }
 
     .waitlist-input {
       flex: 1;
       min-width: 0;
-      padding: 14px 18px;
+      padding: 13px 16px;
       border-radius: 10px;
       border: 1px solid var(--border);
       background: rgba(255,255,255,0.04);
       color: var(--text);
-      font-size: 15px;
+      font-size: 14.5px;
       font-family: inherit;
       outline: none;
       transition: border-color 0.2s, background 0.2s;
@@ -218,37 +219,32 @@
     .waitlist-input:focus { border-color: var(--blue); background: rgba(255,255,255,0.06); }
 
     .btn {
-      padding: 14px 22px;
+      padding: 13px 20px;
       border-radius: 10px;
       border: none;
       background: var(--blue);
       color: #fff;
-      font-size: 15px;
+      font-size: 14.5px;
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
       white-space: nowrap;
       transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
-      box-shadow: 0 0 0 0 rgba(59,130,246,0);
     }
 
-    .btn:hover {
-      background: #2563eb;
-      box-shadow: 0 0 28px rgba(59,130,246,0.35);
-    }
-
+    .btn:hover { background: #2563eb; box-shadow: 0 0 28px rgba(59,130,246,0.35); }
     .btn:active { transform: scale(0.97); }
 
     .waitlist-success {
       display: none;
-      max-width: 430px;
-      margin: 0 auto 28px;
-      padding: 16px 22px;
+      max-width: 420px;
+      margin-bottom: 24px;
+      padding: 14px 20px;
       border-radius: 12px;
       border: 1px solid rgba(16,185,129,0.28);
       background: var(--green-glow);
       color: var(--green);
-      font-size: 15px;
+      font-size: 14.5px;
       font-weight: 500;
     }
 
@@ -259,6 +255,107 @@
       font-size: 13px;
       color: var(--dim);
     }
+
+    /* ── Product Mockup ── */
+    .mock-wrap {
+      position: relative;
+    }
+
+    .mock-wrap::before {
+      content: '';
+      position: absolute;
+      inset: -60px;
+      background: radial-gradient(ellipse at 50% 40%, rgba(59,130,246,0.12), transparent 65%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .mock-window {
+      position: relative;
+      z-index: 1;
+      border-radius: 14px;
+      border: 1px solid var(--border-strong);
+      background: rgba(9, 16, 30, 0.95);
+      overflow: hidden;
+      box-shadow: 0 40px 100px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04);
+    }
+
+    .mock-chrome {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .mock-dots { display: flex; gap: 6px; }
+
+    .mock-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+    }
+
+    .mock-dot-r { background: #ff5f57; }
+    .mock-dot-y { background: #febc2e; }
+    .mock-dot-g { background: #28c840; }
+
+    .mock-url {
+      flex: 1;
+      text-align: center;
+      font-size: 11px;
+      color: var(--dim);
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 4px 10px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    .mock-body { padding: 18px; }
+
+    .mock-section-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--dim);
+      margin-bottom: 10px;
+    }
+
+    .mock-portfolio {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+
+    .mock-stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px 12px;
+    }
+
+    .mock-stat-label { font-size: 9px; color: var(--dim); margin-bottom: 4px; }
+    .mock-stat-val   { font-size: 14px; font-weight: 800; letter-spacing: -0.02em; }
+    .mock-stat-val.pos { color: var(--green); }
+
+    .mock-vaults { display: flex; flex-direction: column; gap: 7px; }
+
+    .mock-vault {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 11px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .mock-vault-name  { font-size: 12px; font-weight: 600; }
+    .mock-vault-proto { font-size: 10px; color: var(--dim); margin-top: 2px; }
+    .mock-vault-apy   { font-size: 16px; font-weight: 900; color: var(--green); letter-spacing: -0.02em; }
 
     /* ── Section labels ── */
     .label {
@@ -287,7 +384,6 @@
 
     /* ── Problem ── */
     .problem { background: var(--bg-2); }
-
     .problem-header { margin-bottom: 60px; }
 
     .stats {
@@ -313,17 +409,30 @@
       pointer-events: none;
     }
 
+    .stat-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+
+    .stat-icon-red    { background: rgba(248, 113, 113, 0.12); color: #f87171; }
+    .stat-icon-amber  { background: rgba(251, 191,  36, 0.12); color: #fbbf24; }
+    .stat-icon-green  { background: rgba( 16, 185, 129, 0.12); color: var(--green); }
+
     .stat-num {
-      font-size: 54px;
+      font-size: 52px;
       font-weight: 900;
       letter-spacing: -0.04em;
       line-height: 1;
       margin-bottom: 10px;
     }
 
-    .num-red    { color: #f87171; }
-    .num-amber  { color: #fbbf24; }
-    .num-green  { color: var(--green); }
+    .num-red   { color: #f87171; }
+    .num-amber { color: #fbbf24; }
+    .num-green { color: var(--green); }
 
     .stat-name {
       font-size: 11px;
@@ -369,6 +478,18 @@
       margin-bottom: 24px;
       position: relative;
       z-index: 1;
+    }
+
+    .step-icon {
+      width: 44px; height: 44px;
+      border-radius: 12px;
+      background: rgba(59,130,246,0.08);
+      border: 1px solid rgba(59,130,246,0.18);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--blue);
+      margin-bottom: 20px;
     }
 
     .step h3 {
@@ -418,10 +539,7 @@
       pointer-events: none;
     }
 
-    .proto-card:hover {
-      border-color: var(--border-strong);
-      background: var(--surface-2);
-    }
+    .proto-card:hover { border-color: var(--border-strong); background: var(--surface-2); }
 
     .proto-arrow {
       position: absolute;
@@ -447,29 +565,11 @@
     .tag-blue   { background: rgba(59,130,246,0.14);  color: #93c5fd; }
     .tag-violet { background: rgba(139,92,246,0.14);  color: #c4b5fd; }
 
-    .proto-name {
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: -0.022em;
-      margin-bottom: 10px;
-    }
-
-    .proto-desc {
-      font-size: 14.5px;
-      color: var(--muted);
-      line-height: 1.65;
-      margin-bottom: 28px;
-    }
+    .proto-name { font-size: 22px; font-weight: 800; letter-spacing: -0.022em; margin-bottom: 10px; }
+    .proto-desc { font-size: 14.5px; color: var(--muted); line-height: 1.65; margin-bottom: 28px; }
 
     .apy-row { display: flex; align-items: baseline; gap: 10px; }
-
-    .apy-num {
-      font-size: 30px;
-      font-weight: 900;
-      letter-spacing: -0.025em;
-      color: var(--green);
-    }
-
+    .apy-num  { font-size: 30px; font-weight: 900; letter-spacing: -0.025em; color: var(--green); }
     .apy-label { font-size: 12px; color: var(--dim); line-height: 1.4; }
 
     /* ── Built in public ── */
@@ -497,10 +597,7 @@
       transition: border-color 0.2s, background 0.2s;
     }
 
-    .pub-link:hover {
-      border-color: var(--border-strong);
-      background: var(--surface-2);
-    }
+    .pub-link:hover { border-color: var(--border-strong); background: var(--surface-2); }
 
     .pub-icon {
       width: 40px; height: 40px;
@@ -516,22 +613,14 @@
     .pub-text { flex: 1; }
     .pub-title { font-size: 14.5px; font-weight: 600; margin-bottom: 2px; }
     .pub-sub   { font-size: 12.5px; color: var(--dim); }
-
     .pub-chevron { color: var(--dim); font-size: 16px; }
 
-    .wave-link {
-      border-color: rgba(59,130,246,0.2);
-      background: rgba(59,130,246,0.05);
-    }
-
-    .wave-link .pub-icon  { background: rgba(59,130,246,0.12); color: #60a5fa; }
-    .wave-link .pub-sub   { color: #60a5fa; }
+    .wave-link { border-color: rgba(59,130,246,0.2); background: rgba(59,130,246,0.05); }
+    .wave-link .pub-icon { background: rgba(59,130,246,0.12); color: #60a5fa; }
+    .wave-link .pub-sub  { color: #60a5fa; }
 
     /* ── Footer ── */
-    footer {
-      padding: 36px 0;
-      border-top: 1px solid var(--border);
-    }
+    footer { padding: 36px 0; border-top: 1px solid var(--border); }
 
     .foot-row {
       display: flex;
@@ -551,10 +640,7 @@
 
     .foot-wordmark { font-weight: 700; color: var(--muted); font-size: 14px; }
 
-    .foot-right {
-      display: flex;
-      gap: 22px;
-    }
+    .foot-right { display: flex; gap: 22px; }
 
     .foot-right a {
       font-size: 13.5px;
@@ -566,10 +652,14 @@
     .foot-right a:hover { color: var(--muted); }
 
     /* ── Responsive ── */
+    @media (max-width: 900px) {
+      .hero-grid { grid-template-columns: 1fr; }
+      .mock-wrap { display: none; }
+    }
+
     @media (max-width: 768px) {
       section { padding: 88px 0; }
-      .hero   { padding: 128px 0 88px; }
-      h1 { letter-spacing: -0.028em; }
+      .hero   { padding: 128px 0 80px; }
       .waitlist-row { flex-direction: column; }
       .stats { grid-template-columns: 1fr; }
       .steps { grid-template-columns: 1fr; gap: 36px; }
@@ -583,7 +673,6 @@
 </head>
 <body>
 
-<!-- Background canvas -->
 <div class="bg-canvas" aria-hidden="true">
   <div class="orb orb-blue"></div>
   <div class="orb orb-green"></div>
@@ -596,9 +685,7 @@
     <div class="nav-row">
       <span class="wordmark">Meridian</span>
       <a class="nav-gh" href="https://github.com/collinsezedike/meridian" target="_blank" rel="noopener">
-        <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/>
-        </svg>
+        <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/></svg>
         View on GitHub
       </a>
     </div>
@@ -608,33 +695,98 @@
 <!-- ── Hero ── -->
 <section class="hero">
   <div class="wrap">
-    <div class="hero-pill">
-      <span class="hero-pill-dot"></span>
-      Drips Stellar Wave Program &middot; Building in public
-    </div>
-    <h1>
-      Earn dollar yields<br>
-      <span class="grad">from anywhere.</span>
-    </h1>
-    <p class="hero-sub">
-      Meridian routes your USDC into the highest-yielding vaults on Stellar.
-      No bank account. No gas fees. Built for West Africa.
-    </p>
+    <div class="hero-grid">
 
-    <div class="waitlist-row" id="waitlist-form">
-      <input class="waitlist-input" id="email" type="email" placeholder="your@email.com" autocomplete="email" aria-label="Email address">
-      <button class="btn" id="cta-btn">Get early access</button>
-    </div>
-    <div class="waitlist-success" id="waitlist-success">
-      You're on the list — we'll reach out when early access opens.
-    </div>
+      <!-- Copy -->
+      <div class="hero-copy">
+        <div class="hero-pill">
+          <span class="hero-pill-dot"></span>
+          Drips Stellar Wave Program &middot; Building in public
+        </div>
+        <h1>
+          Earn dollar yields<br>
+          <span class="grad">from anywhere.</span>
+        </h1>
+        <p class="hero-sub">
+          Meridian routes your USDC into the highest-yielding vaults on Stellar.
+          No bank account. No gas fees. Built for West Africa.
+        </p>
 
-    <div class="stellar-mark">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <circle cx="12" cy="12" r="11" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
-        <path d="M7 12h10M12 7v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
-      </svg>
-      Built on Stellar Network
+        <div class="waitlist-row" id="waitlist-form">
+          <input class="waitlist-input" id="email" type="email" placeholder="your@email.com" autocomplete="email" aria-label="Email address">
+          <button class="btn" id="cta-btn">Get early access</button>
+        </div>
+        <div class="waitlist-success" id="waitlist-success">
+          You're on the list — we'll reach out when early access opens.
+        </div>
+
+        <div class="stellar-mark">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="11" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
+            <path d="M7 12h10M12 7v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+          </svg>
+          Built on Stellar Network
+        </div>
+      </div>
+
+      <!-- Product mockup -->
+      <div class="mock-wrap" aria-hidden="true">
+        <div class="mock-window">
+          <div class="mock-chrome">
+            <div class="mock-dots">
+              <span class="mock-dot mock-dot-r"></span>
+              <span class="mock-dot mock-dot-y"></span>
+              <span class="mock-dot mock-dot-g"></span>
+            </div>
+            <div class="mock-url">meridian.app</div>
+          </div>
+          <div class="mock-body">
+
+            <div class="mock-section-label">Your Portfolio</div>
+            <div class="mock-portfolio">
+              <div class="mock-stat">
+                <div class="mock-stat-label">Deposited</div>
+                <div class="mock-stat-val">$2,400</div>
+              </div>
+              <div class="mock-stat">
+                <div class="mock-stat-label">Earned</div>
+                <div class="mock-stat-val pos">+$312.50</div>
+              </div>
+              <div class="mock-stat">
+                <div class="mock-stat-label">Positions</div>
+                <div class="mock-stat-val">3</div>
+              </div>
+            </div>
+
+            <div class="mock-section-label">Available Vaults</div>
+            <div class="mock-vaults">
+              <div class="mock-vault">
+                <div>
+                  <div class="mock-vault-name">Blend · USDC</div>
+                  <div class="mock-vault-proto">Lending Protocol</div>
+                </div>
+                <div class="mock-vault-apy">15.8%</div>
+              </div>
+              <div class="mock-vault">
+                <div>
+                  <div class="mock-vault-name">DeFindex · USDC</div>
+                  <div class="mock-vault-proto">Yield Strategy</div>
+                </div>
+                <div class="mock-vault-apy">13.2%</div>
+              </div>
+              <div class="mock-vault">
+                <div>
+                  <div class="mock-vault-name">Blend · EURC</div>
+                  <div class="mock-vault-proto">Lending Protocol</div>
+                </div>
+                <div class="mock-vault-apy">8.9%</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </section>
@@ -652,28 +804,28 @@
     </div>
     <div class="stats">
       <div class="stat">
+        <div class="stat-icon stat-icon-red">
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941"/></svg>
+        </div>
         <div class="stat-num num-red">33.7%</div>
         <div class="stat-name">Nigeria inflation rate</div>
-        <p class="stat-body">
-          Nigeria's average inflation in 2024, per the National Bureau of Statistics.
-          Every naira saved in a bank loses a third of its purchasing power in a year.
-        </p>
+        <p class="stat-body">Nigeria's average inflation in 2024, per the National Bureau of Statistics. Every naira saved in a bank loses a third of its purchasing power in a year.</p>
       </div>
       <div class="stat">
+        <div class="stat-icon stat-icon-amber">
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z"/></svg>
+        </div>
         <div class="stat-num num-amber">6.2%</div>
         <div class="stat-name">Cost to receive $200</div>
-        <p class="stat-body">
-          The average fee to receive a remittance in West Africa, per the World Bank 2023 report.
-          Banks extract hundreds of millions in transfer fees every year.
-        </p>
+        <p class="stat-body">The average fee to receive a remittance in West Africa, per the World Bank 2023 report. Banks extract hundreds of millions in transfer fees every year.</p>
       </div>
       <div class="stat">
+        <div class="stat-icon stat-icon-green">
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"/></svg>
+        </div>
         <div class="stat-num num-green">&lt;$0.001</div>
         <div class="stat-name">Stellar transaction fee</div>
-        <p class="stat-body">
-          The cost to move any amount of USDC on Stellar, settling in 5 seconds. Not $50 in
-          Ethereum gas. A fraction of a cent — designed for real people.
-        </p>
+        <p class="stat-body">The cost to move any amount of USDC on Stellar, settling in 5 seconds. Not $50 in Ethereum gas. A fraction of a cent — designed for real people.</p>
       </div>
     </div>
   </div>
@@ -686,16 +838,25 @@
     <h2 class="section-title">Three clicks to earning yield.</h2>
     <div class="steps">
       <div class="step">
+        <div class="step-icon">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9M3 12V9m18-3a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v3h18V6Z"/></svg>
+        </div>
         <div class="step-num">01</div>
         <h3>Connect your Freighter wallet</h3>
         <p>Freighter is a free Stellar browser extension. No seed phrase sharing, no custodial risk. You hold your keys — always.</p>
       </div>
       <div class="step">
+        <div class="step-icon">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg>
+        </div>
         <div class="step-num">02</div>
         <h3>See live APY across all vaults</h3>
         <p>Meridian pulls real-time rates from Blend Capital and DeFindex. Every vault ranked by yield. No spreadsheets, no guesswork.</p>
       </div>
       <div class="step">
+        <div class="step-icon">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+        </div>
         <div class="step-num">03</div>
         <h3>Deposit in one click</h3>
         <p>Approve a single transaction in Freighter. Meridian builds the unsigned XDR — your private key never leaves your device.</p>
@@ -722,11 +883,7 @@
         <span class="proto-arrow">↗</span>
         <span class="proto-tag tag-blue">Lending Protocol</span>
         <h3 class="proto-name">Blend Capital</h3>
-        <p class="proto-desc">
-          The leading decentralized lending and borrowing protocol on Stellar.
-          Open-source, audited, and actively maintained. Deep USDC liquidity
-          with a proven track record in production.
-        </p>
+        <p class="proto-desc">The leading decentralized lending and borrowing protocol on Stellar. Open-source, audited, and actively maintained. Deep USDC liquidity with a proven track record in production.</p>
         <div class="apy-row">
           <span class="apy-num">12–18%</span>
           <span class="apy-label">Current APY range<br>on USDC deposits</span>
@@ -736,11 +893,7 @@
         <span class="proto-arrow">↗</span>
         <span class="proto-tag tag-violet">Yield Strategies</span>
         <h3 class="proto-name">DeFindex</h3>
-        <p class="proto-desc">
-          Automated yield vaults built on Stellar smart contracts. Composable,
-          capital-efficient strategies designed to optimize return over time —
-          without manual intervention.
-        </p>
+        <p class="proto-desc">Automated yield vaults built on Stellar smart contracts. Composable, capital-efficient strategies designed to optimize return over time — without manual intervention.</p>
         <div class="apy-row">
           <span class="apy-num">Optimized</span>
           <span class="apy-label">Automated routing<br>for maximum yield</span>
@@ -758,18 +911,16 @@
         <p class="label">Open source</p>
         <h2 class="section-title">Built in public,<br>for the community.</h2>
         <p class="section-sub">
-          Meridian is part of the Drips Stellar Wave Program — a grant initiative
-          accelerating open-source development on Stellar. Every commit, every design
-          decision, and every issue is public. If you build on Stellar or care about
-          financial access in emerging markets, there is a place for you here.
+          Meridian is part of the Drips Stellar Wave Program — a grant initiative accelerating
+          open-source development on Stellar. Every commit, every design decision, and every
+          issue is public. If you build on Stellar or care about financial access in emerging
+          markets, there is a place for you here.
         </p>
       </div>
       <div class="public-links">
         <a class="pub-link" href="https://github.com/collinsezedike/meridian" target="_blank" rel="noopener">
           <div class="pub-icon">
-            <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/>
-            </svg>
+            <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/></svg>
           </div>
           <div class="pub-text">
             <div class="pub-title">collinsezedike/meridian</div>
@@ -779,11 +930,7 @@
         </a>
         <a class="pub-link" href="https://github.com/collinsezedike/meridian/issues" target="_blank" rel="noopener">
           <div class="pub-icon">
-            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           </div>
           <div class="pub-text">
             <div class="pub-title">Open Issues</div>
@@ -793,9 +940,7 @@
         </a>
         <div class="pub-link wave-link">
           <div class="pub-icon">
-            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
-            </svg>
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/></svg>
           </div>
           <div class="pub-text">
             <div class="pub-title">Drips Stellar Wave Program</div>
@@ -826,13 +971,11 @@
 </footer>
 
 <script>
-  // Nav backdrop on scroll
   const nav = document.getElementById('nav');
   window.addEventListener('scroll', () => {
     nav.classList.toggle('stuck', window.scrollY > 24);
   }, { passive: true });
 
-  // Waitlist submit
   const form    = document.getElementById('waitlist-form');
   const success = document.getElementById('waitlist-success');
   const emailEl = document.getElementById('email');
