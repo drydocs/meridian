@@ -6,7 +6,7 @@ import { useWalletStore } from "./store/wallet";
 
 const queryClient = new QueryClient();
 
-function AppInner() {
+function Dashboard() {
   const { connected } = useWalletStore();
 
   return (
@@ -27,7 +27,7 @@ function AppInner() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AppInner />
+      <Dashboard />
     </QueryClientProvider>
   );
 }

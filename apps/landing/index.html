@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meridian — Stablecoin Yield on Stellar</title>
+  <meta name="description" content="Earn the best USDC yields on Stellar. No bank account. No gas fees. Built for West Africa. Powered by Blend Capital and DeFindex.">
+  <meta property="og:title" content="Meridian — Stablecoin Yield on Stellar">
+  <meta property="og:description" content="Earn the best USDC yields on Stellar. Built for West Africa.">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:            #070d19;
+      --bg-2:          #0b1220;
+      --surface:       rgba(255, 255, 255, 0.03);
+      --surface-2:     rgba(255, 255, 255, 0.06);
+      --border:        rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --text:          #f0f4ff;
+      --muted:         rgba(240, 244, 255, 0.52);
+      --dim:           rgba(240, 244, 255, 0.26);
+      --blue:          #3b82f6;
+      --blue-glow:     rgba(59, 130, 246, 0.16);
+      --green:         #10b981;
+      --green-glow:    rgba(16, 185, 129, 0.12);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+      line-height: 1.6;
+    }
+
+    /* ── Background ── */
+    .bg-canvas {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(130px);
+      will-change: transform;
+    }
+
+    .orb-blue {
+      width: 800px; height: 800px;
+      background: radial-gradient(circle at center, rgba(59,130,246,0.22), transparent 65%);
+      top: -320px; left: -200px;
+    }
+
+    .orb-green {
+      width: 700px; height: 700px;
+      background: radial-gradient(circle at center, rgba(16,185,129,0.14), transparent 65%);
+      top: -100px; right: -250px;
+    }
+
+    .orb-deep {
+      width: 600px; height: 600px;
+      background: radial-gradient(circle at center, rgba(59,130,246,0.07), transparent 65%);
+      bottom: 15%; left: 25%;
+    }
+
+    /* Grain */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+      opacity: 0.028;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* ── Layout ── */
+    .wrap {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 28px;
+      position: relative;
+      z-index: 2;
+    }
+
+    section { padding: 128px 0; }
+
+    /* ── Nav ── */
+    nav {
+      position: fixed;
+      inset: 0 0 auto;
+      z-index: 100;
+      padding: 20px 0;
+      transition: background 0.3s, border-color 0.3s;
+      border-bottom: 1px solid transparent;
+    }
+
+    nav.stuck {
+      background: rgba(7, 13, 25, 0.82);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-color: var(--border);
+    }
+
+    .nav-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .wordmark {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text);
+    }
+
+    .nav-gh {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 16px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      font-size: 13.5px;
+      font-weight: 500;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    .nav-gh:hover { color: var(--text); border-color: var(--border-strong); }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 168px 0 128px;
+      text-align: center;
+    }
+
+    .hero-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 100px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+      margin-bottom: 36px;
+    }
+
+    .hero-pill-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+    }
+
+    h1 {
+      font-size: clamp(48px, 7.5vw, 88px);
+      font-weight: 900;
+      line-height: 1.02;
+      letter-spacing: -0.035em;
+      margin-bottom: 26px;
+    }
+
+    .grad {
+      background: linear-gradient(135deg, var(--green) 0%, #34d399 40%, #60a5fa 80%, var(--blue) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-sub {
+      font-size: 18px;
+      color: var(--muted);
+      max-width: 500px;
+      margin: 0 auto 48px;
+      line-height: 1.65;
+    }
+
+    .waitlist-row {
+      display: flex;
+      gap: 10px;
+      max-width: 430px;
+      margin: 0 auto 28px;
+    }
+
+    .waitlist-input {
+      flex: 1;
+      min-width: 0;
+      padding: 14px 18px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font-size: 15px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .waitlist-input::placeholder { color: var(--dim); }
+    .waitlist-input:focus { border-color: var(--blue); background: rgba(255,255,255,0.06); }
+
+    .btn {
+      padding: 14px 22px;
+      border-radius: 10px;
+      border: none;
+      background: var(--blue);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+      box-shadow: 0 0 0 0 rgba(59,130,246,0);
+    }
+
+    .btn:hover {
+      background: #2563eb;
+      box-shadow: 0 0 28px rgba(59,130,246,0.35);
+    }
+
+    .btn:active { transform: scale(0.97); }
+
+    .waitlist-success {
+      display: none;
+      max-width: 430px;
+      margin: 0 auto 28px;
+      padding: 16px 22px;
+      border-radius: 12px;
+      border: 1px solid rgba(16,185,129,0.28);
+      background: var(--green-glow);
+      color: var(--green);
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    .stellar-mark {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--dim);
+    }
+
+    /* ── Section labels ── */
+    .label {
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 14px;
+    }
+
+    .section-title {
+      font-size: clamp(30px, 4vw, 46px);
+      font-weight: 800;
+      letter-spacing: -0.027em;
+      line-height: 1.08;
+      margin-bottom: 18px;
+    }
+
+    .section-sub {
+      font-size: 16.5px;
+      color: var(--muted);
+      line-height: 1.65;
+      max-width: 460px;
+    }
+
+    /* ── Problem ── */
+    .problem { background: var(--bg-2); }
+
+    .problem-header { margin-bottom: 60px; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+
+    .stat {
+      padding: 36px 30px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(140deg, rgba(255,255,255,0.024) 0%, transparent 55%);
+      pointer-events: none;
+    }
+
+    .stat-num {
+      font-size: 54px;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      margin-bottom: 10px;
+    }
+
+    .num-red    { color: #f87171; }
+    .num-amber  { color: #fbbf24; }
+    .num-green  { color: var(--green); }
+
+    .stat-name {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .stat-body { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+    /* ── Steps ── */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 48px;
+      margin-top: 72px;
+      position: relative;
+    }
+
+    .steps::before {
+      content: '';
+      position: absolute;
+      top: 23px;
+      left: calc(16.67% + 10px);
+      right: calc(16.67% + 10px);
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, var(--border) 20%, var(--border) 80%, transparent 100%);
+    }
+
+    .step-num {
+      width: 46px; height: 46px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--blue);
+      margin-bottom: 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .step h3 {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+      margin-bottom: 10px;
+    }
+
+    .step p { font-size: 14.5px; color: var(--muted); line-height: 1.65; }
+
+    /* ── Protocols ── */
+    .protocols { background: var(--bg-2); }
+
+    .proto-head {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: end;
+      margin-bottom: 52px;
+    }
+
+    .proto-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+    }
+
+    .proto-card {
+      display: block;
+      padding: 36px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      text-decoration: none;
+      color: inherit;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.22s, background 0.22s;
+    }
+
+    .proto-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(140deg, rgba(255,255,255,0.025) 0%, transparent 50%);
+      pointer-events: none;
+    }
+
+    .proto-card:hover {
+      border-color: var(--border-strong);
+      background: var(--surface-2);
+    }
+
+    .proto-arrow {
+      position: absolute;
+      top: 30px; right: 30px;
+      font-size: 18px;
+      color: var(--dim);
+      transition: color 0.2s;
+    }
+
+    .proto-card:hover .proto-arrow { color: var(--muted); }
+
+    .proto-tag {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 22px;
+    }
+
+    .tag-blue   { background: rgba(59,130,246,0.14);  color: #93c5fd; }
+    .tag-violet { background: rgba(139,92,246,0.14);  color: #c4b5fd; }
+
+    .proto-name {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.022em;
+      margin-bottom: 10px;
+    }
+
+    .proto-desc {
+      font-size: 14.5px;
+      color: var(--muted);
+      line-height: 1.65;
+      margin-bottom: 28px;
+    }
+
+    .apy-row { display: flex; align-items: baseline; gap: 10px; }
+
+    .apy-num {
+      font-size: 30px;
+      font-weight: 900;
+      letter-spacing: -0.025em;
+      color: var(--green);
+    }
+
+    .apy-label { font-size: 12px; color: var(--dim); line-height: 1.4; }
+
+    /* ── Built in public ── */
+    .public-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 96px;
+      align-items: center;
+    }
+
+    .public-copy .section-sub { margin-bottom: 0; }
+
+    .public-links { display: flex; flex-direction: column; gap: 12px; }
+
+    .pub-link {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 18px 22px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .pub-link:hover {
+      border-color: var(--border-strong);
+      background: var(--surface-2);
+    }
+
+    .pub-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      background: var(--surface-2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--muted);
+    }
+
+    .pub-text { flex: 1; }
+    .pub-title { font-size: 14.5px; font-weight: 600; margin-bottom: 2px; }
+    .pub-sub   { font-size: 12.5px; color: var(--dim); }
+
+    .pub-chevron { color: var(--dim); font-size: 16px; }
+
+    .wave-link {
+      border-color: rgba(59,130,246,0.2);
+      background: rgba(59,130,246,0.05);
+    }
+
+    .wave-link .pub-icon  { background: rgba(59,130,246,0.12); color: #60a5fa; }
+    .wave-link .pub-sub   { color: #60a5fa; }
+
+    /* ── Footer ── */
+    footer {
+      padding: 36px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .foot-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .foot-left {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      font-size: 13.5px;
+      color: var(--dim);
+    }
+
+    .foot-wordmark { font-weight: 700; color: var(--muted); font-size: 14px; }
+
+    .foot-right {
+      display: flex;
+      gap: 22px;
+    }
+
+    .foot-right a {
+      font-size: 13.5px;
+      color: var(--dim);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .foot-right a:hover { color: var(--muted); }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      section { padding: 88px 0; }
+      .hero   { padding: 128px 0 88px; }
+      h1 { letter-spacing: -0.028em; }
+      .waitlist-row { flex-direction: column; }
+      .stats { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: 1fr; gap: 36px; }
+      .steps::before { display: none; }
+      .proto-head { grid-template-columns: 1fr; gap: 24px; }
+      .proto-grid { grid-template-columns: 1fr; }
+      .public-grid { grid-template-columns: 1fr; gap: 52px; }
+      .foot-row { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Background canvas -->
+<div class="bg-canvas" aria-hidden="true">
+  <div class="orb orb-blue"></div>
+  <div class="orb orb-green"></div>
+  <div class="orb orb-deep"></div>
+</div>
+
+<!-- ── Nav ── -->
+<nav id="nav">
+  <div class="wrap">
+    <div class="nav-row">
+      <span class="wordmark">Meridian</span>
+      <a class="nav-gh" href="https://github.com/collinsezedike/meridian" target="_blank" rel="noopener">
+        <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/>
+        </svg>
+        View on GitHub
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Hero ── -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-pill">
+      <span class="hero-pill-dot"></span>
+      Drips Stellar Wave Program &middot; Building in public
+    </div>
+    <h1>
+      Earn dollar yields<br>
+      <span class="grad">from anywhere.</span>
+    </h1>
+    <p class="hero-sub">
+      Meridian routes your USDC into the highest-yielding vaults on Stellar.
+      No bank account. No gas fees. Built for West Africa.
+    </p>
+
+    <div class="waitlist-row" id="waitlist-form">
+      <input class="waitlist-input" id="email" type="email" placeholder="your@email.com" autocomplete="email" aria-label="Email address">
+      <button class="btn" id="cta-btn">Get early access</button>
+    </div>
+    <div class="waitlist-success" id="waitlist-success">
+      You're on the list — we'll reach out when early access opens.
+    </div>
+
+    <div class="stellar-mark">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="11" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
+        <path d="M7 12h10M12 7v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+      </svg>
+      Built on Stellar Network
+    </div>
+  </div>
+</section>
+
+<!-- ── Problem ── -->
+<section class="problem">
+  <div class="wrap">
+    <div class="problem-header">
+      <p class="label">The problem</p>
+      <h2 class="section-title">Inflation is winning.<br>Your savings are losing.</h2>
+      <p class="section-sub">
+        Across West Africa, inflation runs double-digit while savings accounts pay a fraction of that.
+        Most DeFi makes it worse — not better.
+      </p>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-num num-red">33.7%</div>
+        <div class="stat-name">Nigeria inflation rate</div>
+        <p class="stat-body">
+          Nigeria's average inflation in 2024, per the National Bureau of Statistics.
+          Every naira saved in a bank loses a third of its purchasing power in a year.
+        </p>
+      </div>
+      <div class="stat">
+        <div class="stat-num num-amber">6.2%</div>
+        <div class="stat-name">Cost to receive $200</div>
+        <p class="stat-body">
+          The average fee to receive a remittance in West Africa, per the World Bank 2023 report.
+          Banks extract hundreds of millions in transfer fees every year.
+        </p>
+      </div>
+      <div class="stat">
+        <div class="stat-num num-green">&lt;$0.001</div>
+        <div class="stat-name">Stellar transaction fee</div>
+        <p class="stat-body">
+          The cost to move any amount of USDC on Stellar, settling in 5 seconds. Not $50 in
+          Ethereum gas. A fraction of a cent — designed for real people.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── How it works ── -->
+<section>
+  <div class="wrap">
+    <p class="label">How it works</p>
+    <h2 class="section-title">Three clicks to earning yield.</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">01</div>
+        <h3>Connect your Freighter wallet</h3>
+        <p>Freighter is a free Stellar browser extension. No seed phrase sharing, no custodial risk. You hold your keys — always.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <h3>See live APY across all vaults</h3>
+        <p>Meridian pulls real-time rates from Blend Capital and DeFindex. Every vault ranked by yield. No spreadsheets, no guesswork.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <h3>Deposit in one click</h3>
+        <p>Approve a single transaction in Freighter. Meridian builds the unsigned XDR — your private key never leaves your device.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Protocols ── -->
+<section class="protocols">
+  <div class="wrap">
+    <div class="proto-head">
+      <div>
+        <p class="label">Powered by</p>
+        <h2 class="section-title">Battle-tested<br>protocols.</h2>
+      </div>
+      <p class="section-sub">
+        Meridian doesn't reinvent the wheel. It aggregates the best yield from two of
+        the most credible protocols already running in production on Stellar.
+      </p>
+    </div>
+    <div class="proto-grid">
+      <a class="proto-card" href="https://blend.capital" target="_blank" rel="noopener">
+        <span class="proto-arrow">↗</span>
+        <span class="proto-tag tag-blue">Lending Protocol</span>
+        <h3 class="proto-name">Blend Capital</h3>
+        <p class="proto-desc">
+          The leading decentralized lending and borrowing protocol on Stellar.
+          Open-source, audited, and actively maintained. Deep USDC liquidity
+          with a proven track record in production.
+        </p>
+        <div class="apy-row">
+          <span class="apy-num">12–18%</span>
+          <span class="apy-label">Current APY range<br>on USDC deposits</span>
+        </div>
+      </a>
+      <a class="proto-card" href="https://defindex.io" target="_blank" rel="noopener">
+        <span class="proto-arrow">↗</span>
+        <span class="proto-tag tag-violet">Yield Strategies</span>
+        <h3 class="proto-name">DeFindex</h3>
+        <p class="proto-desc">
+          Automated yield vaults built on Stellar smart contracts. Composable,
+          capital-efficient strategies designed to optimize return over time —
+          without manual intervention.
+        </p>
+        <div class="apy-row">
+          <span class="apy-num">Optimized</span>
+          <span class="apy-label">Automated routing<br>for maximum yield</span>
+        </div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Built in public ── -->
+<section>
+  <div class="wrap">
+    <div class="public-grid">
+      <div class="public-copy">
+        <p class="label">Open source</p>
+        <h2 class="section-title">Built in public,<br>for the community.</h2>
+        <p class="section-sub">
+          Meridian is part of the Drips Stellar Wave Program — a grant initiative
+          accelerating open-source development on Stellar. Every commit, every design
+          decision, and every issue is public. If you build on Stellar or care about
+          financial access in emerging markets, there is a place for you here.
+        </p>
+      </div>
+      <div class="public-links">
+        <a class="pub-link" href="https://github.com/collinsezedike/meridian" target="_blank" rel="noopener">
+          <div class="pub-icon">
+            <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/>
+            </svg>
+          </div>
+          <div class="pub-text">
+            <div class="pub-title">collinsezedike/meridian</div>
+            <div class="pub-sub">View the source on GitHub</div>
+          </div>
+          <span class="pub-chevron">→</span>
+        </a>
+        <a class="pub-link" href="https://github.com/collinsezedike/meridian/issues" target="_blank" rel="noopener">
+          <div class="pub-icon">
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </div>
+          <div class="pub-text">
+            <div class="pub-title">Open Issues</div>
+            <div class="pub-sub">Pick one up and contribute</div>
+          </div>
+          <span class="pub-chevron">→</span>
+        </a>
+        <div class="pub-link wave-link">
+          <div class="pub-icon">
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
+            </svg>
+          </div>
+          <div class="pub-text">
+            <div class="pub-title">Drips Stellar Wave Program</div>
+            <div class="pub-sub">Wave Program submission &middot; 2025</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer>
+  <div class="wrap">
+    <div class="foot-row">
+      <div class="foot-left">
+        <span class="foot-wordmark">Meridian</span>
+        <span>MIT License</span>
+        <span>&copy; 2025</span>
+      </div>
+      <div class="foot-right">
+        <a href="https://github.com/collinsezedike/meridian" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/collinsezedike/meridian/issues" target="_blank" rel="noopener">Issues</a>
+        <a href="https://stellar.org" target="_blank" rel="noopener">Built on Stellar</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Nav backdrop on scroll
+  const nav = document.getElementById('nav');
+  window.addEventListener('scroll', () => {
+    nav.classList.toggle('stuck', window.scrollY > 24);
+  }, { passive: true });
+
+  // Waitlist submit
+  const form    = document.getElementById('waitlist-form');
+  const success = document.getElementById('waitlist-success');
+  const emailEl = document.getElementById('email');
+
+  function submit() {
+    const val = emailEl.value.trim();
+    if (!val || !val.includes('@') || !val.includes('.')) {
+      emailEl.focus();
+      emailEl.style.borderColor = '#f87171';
+      setTimeout(() => { emailEl.style.borderColor = ''; }, 1800);
+      return;
+    }
+    form.style.display = 'none';
+    success.style.display = 'block';
+  }
+
+  document.getElementById('cta-btn').addEventListener('click', submit);
+  emailEl.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+</script>
+</body>
+</html>
