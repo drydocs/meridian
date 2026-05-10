@@ -1,5 +1,5 @@
 {
-  "buildCommand": null,
+  "buildCommand": "",
   "outputDirectory": "apps/landing",
-  "installCommand": null
+  "installCommand": ""
 }
