@@ -20,3 +20,7 @@ cp -r "$ROOT/apps/web/dist/." "$OUT/app/"
 
 echo "✓ dist/ structure:"
 find "$OUT" -maxdepth 2 | sort
+
+echo ""
+echo "  Landing : $OUT/index.html ($(wc -c < "$OUT/index.html") bytes)"
+echo "  App     : $OUT/app/index.html ($(wc -c < "$OUT/app/index.html") bytes)"
