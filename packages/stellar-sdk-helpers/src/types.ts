@@ -3,14 +3,14 @@ export interface VaultInfo {
   protocol: "blend" | "defindex";
   asset: string;
   apy: number;
-  tvl: bigint;
-  userBalance: bigint;
+  tvl: number;
+  userBalance: number;
 }
 
 export interface YieldPosition {
   vaultId: string;
-  deposited: bigint;
-  earned: bigint;
+  deposited: number;
+  earned: number;
   entryTime: number;
 }
 
