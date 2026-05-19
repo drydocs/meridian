@@ -1,4 +1,4 @@
-import { getStellarStablecoinPools, getDefindexVaultInfo } from "@meridian/stellar-sdk-helpers";
+import { getStellarStablecoinPools, getDefindexVaultInfo, assessPoolRisk, type RiskLevel } from "@meridian/stellar-sdk-helpers";
 import { CONTRACT_ADDRESSES, STELLAR_NETWORKS } from "@meridian/shared";
 
 export interface ApiVault {
@@ -10,6 +10,7 @@ export interface ApiVault {
   apy: number;
   tvl: number;
   userBalance: number;
+  riskLevel: RiskLevel;
 }
 
 const KNOWN_POOLS: Record<string, Pick<ApiVault, "id" | "name" | "protocol" | "label">> = {
@@ -44,6 +45,7 @@ export async function fetchAllVaults(): Promise<ApiVault[]> {
         apy: Number(pool.apy.toFixed(2)),
         tvl: Math.round(pool.tvlUsd),
         userBalance: 0,
+        riskLevel: assessPoolRisk(pool),
       });
     }
   } else {
@@ -60,6 +62,7 @@ export async function fetchAllVaults(): Promise<ApiVault[]> {
       apy: Number(defindexResult.value.apy.toFixed(2)),
       tvl: Math.round(defindexResult.value.tvl),
       userBalance: 0,
+      riskLevel: "safe" as RiskLevel,
     });
   } else {
     console.error("[vaults] defindex:", defindexResult.reason);

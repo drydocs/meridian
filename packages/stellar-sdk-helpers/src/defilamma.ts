@@ -4,9 +4,42 @@ export interface DefiLlamaPool {
   symbol: string;
   tvlUsd: number;
   apy: number;
+  apyPct1D: number | null;
+  apyPct7D: number | null;
+  apyPct30D: number | null;
   poolMeta: string | null;
   stablecoin: boolean;
   chain: string;
+}
+
+export type RiskLevel = "safe" | "caution" | "risky";
+
+/**
+ * Score-based heuristic — three independent signals, each additive:
+ *   TVL depth  : low liquidity = harder to exit
+ *   APY swing  : high 7-day volatility = rate instability
+ *   APY ceiling: stablecoin yield >12 % is suspicious
+ *
+ * score 0-1 → safe | 2-3 → caution | 4+ → risky
+ */
+export function assessPoolRisk(pool: DefiLlamaPool): RiskLevel {
+  let score = 0;
+
+  if (pool.tvlUsd < 10_000)           score += 3;
+  else if (pool.tvlUsd < 100_000)     score += 2;
+  else if (pool.tvlUsd < 2_000_000)   score += 1;
+
+  const vol7d = Math.abs(pool.apyPct7D ?? 0);
+  if (vol7d > 30)     score += 3;
+  else if (vol7d > 5) score += 2;
+  else if (vol7d > 1) score += 1;
+
+  if (pool.apy > 20)      score += 2;
+  else if (pool.apy > 12) score += 1;
+
+  if (score >= 4) return "risky";
+  if (score >= 2) return "caution";
+  return "safe";
 }
 
 const POOLS_URL = "https://yields.llama.fi/pools";

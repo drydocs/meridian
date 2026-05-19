@@ -26,6 +26,7 @@ export interface ApiVault {
   apy: number;
   tvl: number;
   userBalance: number;
+  riskLevel: "safe" | "caution" | "risky";
 }
 
 export interface ApiPosition {
