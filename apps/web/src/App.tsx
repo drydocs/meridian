@@ -2,25 +2,30 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { VaultList } from "./components/dashboard/VaultList";
 import { PortfolioSummary } from "./components/dashboard/PortfolioSummary";
 import { WalletConnect } from "./components/onboarding/WalletConnect";
-import { useWalletStore } from "./store/wallet";
 
 const queryClient = new QueryClient();
 
 function Dashboard() {
-  const { connected } = useWalletStore();
-
   return (
-    <main className="min-h-screen bg-gray-950 text-white">
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-        <span className="font-bold text-xl tracking-tight">Meridian</span>
-        <WalletConnect />
+    <div className="min-h-screen bg-[#0d1117] text-white">
+      <header className="sticky top-0 z-50 border-b border-gray-800 bg-[#0d1117]/95 backdrop-blur-sm">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          <span className="font-extrabold text-lg tracking-tight text-white">Meridian</span>
+          <WalletConnect />
+        </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-6 py-10 space-y-10">
-        {connected && <PortfolioSummary />}
-        <VaultList />
-      </div>
-    </main>
+      <main className="max-w-6xl mx-auto px-6 py-10">
+        <div className="flex flex-col lg:flex-row gap-8 items-start">
+          <div className="flex-1 min-w-0">
+            <VaultList />
+          </div>
+          <div className="w-full lg:w-72 shrink-0">
+            <PortfolioSummary />
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }
 

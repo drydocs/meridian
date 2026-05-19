@@ -1,11 +1,7 @@
 import { useVaults } from "../../hooks/useVaults";
+import { useWalletStore } from "../../store/wallet";
 import { VaultCard } from "./VaultCard";
 import { EmptyState } from "../ui/EmptyState";
-
-function handleDeposit(vaultId: string) {
-  // TODO(#issue-7): open deposit modal and build unsigned tx
-  console.log("Deposit into", vaultId);
-}
 
 function VaultSkeleton() {
   return (
@@ -34,17 +30,31 @@ function VaultSkeleton() {
 
 export function VaultList() {
   const { data: vaults, isLoading, isError } = useVaults();
+  const { connected } = useWalletStore();
+
+  function handleDeposit(vaultId: string) {
+    if (!connected) return;
+    // TODO(#issue-7): open deposit modal and build unsigned tx
+    console.log("deposit", vaultId);
+  }
 
   return (
     <section>
-      <h2 className="text-lg font-semibold mb-4">Available Vaults</h2>
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold text-white">Available Vaults</h2>
+        <p className="text-sm text-gray-500 mt-1">Live yield from Blend Capital and DeFindex on Stellar.</p>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {isLoading &&
           Array.from({ length: 4 }).map((_, i) => <VaultSkeleton key={i} />)}
 
         {vaults?.map((vault) => (
-          <VaultCard key={vault.id} vault={vault} onDeposit={handleDeposit} />
+          <VaultCard
+            key={vault.id}
+            vault={vault}
+            onDeposit={handleDeposit}
+          />
         ))}
 
         {!isLoading && (isError || vaults?.length === 0) && (

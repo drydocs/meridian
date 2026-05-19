@@ -3,23 +3,25 @@ import { shortenAddress } from "@meridian/shared";
 
 // TODO(#issue-2): wire up Freighter / Albedo wallet adapter
 export function WalletConnect() {
-  const { connected, publicKey, connect, disconnect } = useWalletStore();
+  const { connected, publicKey, disconnect } = useWalletStore();
 
   if (connected && publicKey) {
     return (
       <button
         onClick={disconnect}
-        className="text-sm border border-gray-700 rounded-lg px-3 py-1.5 hover:bg-gray-800 transition"
+        className="flex items-center gap-2 text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150"
       >
-        {shortenAddress(publicKey)} · Disconnect
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+        {shortenAddress(publicKey)}
+        <span className="text-gray-600">·</span>
+        <span className="text-gray-500">Disconnect</span>
       </button>
     );
   }
 
   return (
     <button
-      onClick={() => connect("PLACEHOLDER_PUBLIC_KEY")}
-      className="text-sm bg-indigo-600 hover:bg-indigo-500 rounded-lg px-4 py-1.5 font-medium transition"
+      className="text-sm border border-gray-700 rounded-lg px-4 py-1.5 font-medium text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150"
     >
       Connect Wallet
     </button>
