@@ -12,6 +12,12 @@ const VAULT_META: Record<string, { name: string; subtitle: string; dot: string; 
     dot: "bg-emerald-400",
     badge: "bg-emerald-500/10 text-emerald-300 border-emerald-500/25",
   },
+  "blend-eurc": {
+    name: "Blend Capital",
+    subtitle: "EURC Lending Pool",
+    dot: "bg-blue-400",
+    badge: "bg-blue-500/10 text-blue-300 border-blue-500/25",
+  },
   "defindex-usdc": {
     name: "DeFindex",
     subtitle: "USDC Yield Strategy",

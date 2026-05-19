@@ -1,4 +1,4 @@
-import { getBlendPoolInfo, getDefindexVaultInfo } from "@meridian/stellar-sdk-helpers";
+import { getBlendPoolInfo, getDefindexVaultInfo, BLEND_DEFILLAMA_POOLS } from "@meridian/stellar-sdk-helpers";
 import { CONTRACT_ADDRESSES, STELLAR_NETWORKS } from "@meridian/shared";
 
 export interface ApiVault {
@@ -14,10 +14,17 @@ const network = STELLAR_NETWORKS.testnet;
 const addr = CONTRACT_ADDRESSES.testnet;
 
 export async function fetchAllVaults(): Promise<ApiVault[]> {
-  const [blendResult, defindexResult] = await Promise.allSettled([
+  const [blendUsdcResult, blendEurcResult, defindexResult] = await Promise.allSettled([
     getBlendPoolInfo({
       contractId: addr.blend.pool,
       assetId: addr.usdc,
+      defiLlamaPoolId: BLEND_DEFILLAMA_POOLS.USDC,
+      network,
+    }),
+    getBlendPoolInfo({
+      contractId: addr.blend.pool,
+      assetId: addr.eurc,
+      defiLlamaPoolId: BLEND_DEFILLAMA_POOLS.EURC,
       network,
     }),
     getDefindexVaultInfo({
@@ -28,17 +35,30 @@ export async function fetchAllVaults(): Promise<ApiVault[]> {
 
   const vaults: ApiVault[] = [];
 
-  if (blendResult.status === "fulfilled") {
+  if (blendUsdcResult.status === "fulfilled") {
     vaults.push({
       id: "blend-usdc",
       protocol: "blend",
       asset: "USDC",
-      apy: Number(blendResult.value.apy.toFixed(2)),
-      tvl: Math.round(blendResult.value.tvl),
+      apy: Number(blendUsdcResult.value.apy.toFixed(2)),
+      tvl: Math.round(blendUsdcResult.value.tvl),
       userBalance: 0,
     });
   } else {
-    console.error("[vaults] blend:", blendResult.reason);
+    console.error("[vaults] blend-usdc:", blendUsdcResult.reason);
+  }
+
+  if (blendEurcResult.status === "fulfilled") {
+    vaults.push({
+      id: "blend-eurc",
+      protocol: "blend",
+      asset: "EURC",
+      apy: Number(blendEurcResult.value.apy.toFixed(2)),
+      tvl: Math.round(blendEurcResult.value.tvl),
+      userBalance: 0,
+    });
+  } else {
+    console.error("[vaults] blend-eurc:", blendEurcResult.reason);
   }
 
   if (defindexResult.status === "fulfilled") {

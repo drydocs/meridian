@@ -3,15 +3,21 @@ import type { VaultInfo, StellarNetwork } from "./types";
 export interface BlendPoolConfig {
   contractId: string;
   assetId: string;
+  defiLlamaPoolId: string;
   network: StellarNetwork;
 }
 
-// DeFiLlama chart UUID for the Blend Capital USDC Fixed Pool (mainnet)
-// https://yields.llama.fi/chart/ecf788e3-d2ef-4fdd-9ece-8a2d96226ddf
-const DEFILLAMA_BLEND_USDC =
-  "https://yields.llama.fi/chart/ecf788e3-d2ef-4fdd-9ece-8a2d96226ddf";
+const DEFILLAMA_CHART_BASE = "https://yields.llama.fi/chart";
 
-const FALLBACK: Pick<VaultInfo, "apy" | "tvl"> = { apy: 6.8, tvl: 180_000 };
+export const BLEND_DEFILLAMA_POOLS = {
+  USDC: "ecf788e3-d2ef-4fdd-9ece-8a2d96226ddf",
+  EURC: "3a61420f-6f6e-45f9-accc-8d23f5a32d33",
+} as const;
+
+const FALLBACKS: Record<string, Pick<VaultInfo, "apy" | "tvl">> = {
+  [BLEND_DEFILLAMA_POOLS.USDC]: { apy: 6.8, tvl: 180_000 },
+  [BLEND_DEFILLAMA_POOLS.EURC]: { apy: 5.5, tvl: 60_000 },
+};
 
 interface DeFiLlamaChart {
   status: string;
@@ -19,10 +25,11 @@ interface DeFiLlamaChart {
 }
 
 export async function getBlendPoolInfo(
-  _config: BlendPoolConfig
+  config: BlendPoolConfig
 ): Promise<Pick<VaultInfo, "apy" | "tvl">> {
+  const fallback = FALLBACKS[config.defiLlamaPoolId] ?? { apy: 5.0, tvl: 0 };
   try {
-    const res = await fetch(DEFILLAMA_BLEND_USDC, {
+    const res = await fetch(`${DEFILLAMA_CHART_BASE}/${config.defiLlamaPoolId}`, {
       signal: AbortSignal.timeout(4_000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -34,7 +41,7 @@ export async function getBlendPoolInfo(
     return { apy: latest.apy, tvl: latest.tvlUsd };
   } catch (err) {
     console.warn("[blend] DeFiLlama fetch failed, using fallback:", (err as Error).message);
-    return FALLBACK;
+    return fallback;
   }
 }
 
