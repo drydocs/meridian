@@ -1,0 +1,39 @@
+import { useState } from "react";
+import { useWalletStore } from "../store/wallet";
+import { isFreighterInstalled, connectFreighter } from "../lib/wallet";
+
+export type ConnectStatus = "idle" | "connecting" | "no-extension";
+
+export function useWalletConnect() {
+  const { connect } = useWalletStore();
+  const [status, setStatus] = useState<ConnectStatus>("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleConnect() {
+    setError(null);
+
+    const installed = await isFreighterInstalled();
+    if (!installed) {
+      setStatus("no-extension");
+      return;
+    }
+
+    setStatus("connecting");
+    try {
+      const key = await connectFreighter();
+      connect(key);
+      setStatus("idle");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      // User closed the popup — not an error worth surfacing
+      if (!message || /cancel|decline|reject/i.test(message)) {
+        setStatus("idle");
+        return;
+      }
+      setError(message);
+      setStatus("idle");
+    }
+  }
+
+  return { handleConnect, status, error };
+}

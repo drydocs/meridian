@@ -78,6 +78,9 @@ importers:
       '@meridian/stellar-sdk-helpers':
         specifier: workspace:*
         version: link:../../packages/stellar-sdk-helpers
+      '@stellar/freighter-api':
+        specifier: ^3.1.0
+        version: 3.1.0
       '@stellar/stellar-sdk':
         specifier: ^12.0.0
         version: 12.3.0
@@ -797,6 +800,9 @@ packages:
 
   '@sinclair/typebox@0.27.10':
     resolution: {integrity: sha512-MTBk/3jGLNB2tVxv6uLlFh1iu64iYOQ2PbdOSK3NW8JZsmlaOh2q6sdtKowBhfw8QFLmYNzTW4/oK4uATIi6ZA==}
+
+  '@stellar/freighter-api@3.1.0':
+    resolution: {integrity: sha512-hsoZwAR/jNVIt8ee6aHYcRKVk09hDLHmsfK2nUfqHUo7LuHtuHI59y/mDyrT4bp/qlklGZNd2nr0hRJyjau8WQ==}
 
   '@stellar/js-xdr@3.1.2':
     resolution: {integrity: sha512-VVolPL5goVEIsvuGqDc5uiKxV03lzfWdvYg1KikvwheDmTBO68CKDji3bAZ/kppZrx5iTA8z3Ld5yuytcvhvOQ==}
@@ -2947,6 +2953,11 @@ snapshots:
     optional: true
 
   '@sinclair/typebox@0.27.10': {}
+
+  '@stellar/freighter-api@3.1.0':
+    dependencies:
+      buffer: 6.0.3
+      semver: 7.7.4
 
   '@stellar/js-xdr@3.1.2': {}
 
