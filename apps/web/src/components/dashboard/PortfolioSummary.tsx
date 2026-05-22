@@ -14,7 +14,7 @@ function formatUsd(value: number): string {
 
 export function PortfolioSummary() {
   const { connected, publicKey } = useWalletStore();
-  const { handleConnect, status } = useWalletConnect();
+  const { handleConnect, status, error } = useWalletConnect();
   const { data: positions = [], isLoading } = usePositions(publicKey);
   const { data: vaults = [] } = useVaults();
 
@@ -35,13 +35,16 @@ export function PortfolioSummary() {
             Install Freighter
           </a>
         ) : (
-          <button
-            onClick={handleConnect}
-            disabled={status === "connecting"}
-            className="w-full rounded-lg border border-gray-700 bg-transparent hover:border-gray-600 hover:text-white active:scale-[0.98] text-gray-300 text-sm font-medium py-2.5 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {status === "connecting" ? "Connecting..." : "Connect Wallet"}
-          </button>
+          <div className="space-y-1">
+            <button
+              onClick={handleConnect}
+              disabled={status === "connecting"}
+              className="w-full rounded-lg border border-gray-700 bg-transparent hover:border-gray-600 hover:text-white active:scale-[0.98] text-gray-300 text-sm font-medium py-2.5 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {status === "connecting" ? "Connecting..." : "Connect Wallet"}
+            </button>
+            {error && <p className="text-xs text-red-400">{error}</p>}
+          </div>
         )}
       </aside>
     );
