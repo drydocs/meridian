@@ -1,6 +1,7 @@
 import { usePositions } from "../../hooks/usePositions";
 import { useWalletStore } from "../../store/wallet";
 import { useVaults } from "../../hooks/useVaults";
+import { useWalletConnect } from "../../hooks/useWalletConnect";
 
 function formatUsd(value: number): string {
   return value.toLocaleString("en-US", {
@@ -13,6 +14,7 @@ function formatUsd(value: number): string {
 
 export function PortfolioSummary() {
   const { connected, publicKey } = useWalletStore();
+  const { handleConnect, status } = useWalletConnect();
   const { data: positions = [], isLoading } = usePositions(publicKey);
   const { data: vaults = [] } = useVaults();
 
@@ -24,9 +26,11 @@ export function PortfolioSummary() {
           Connect your Freighter wallet to track positions and earned yield.
         </p>
         <button
-          className="w-full rounded-lg border border-gray-700 bg-transparent hover:border-gray-600 hover:text-white active:scale-[0.98] text-gray-300 text-sm font-medium py-2.5 transition-colors duration-150"
+          onClick={handleConnect}
+          disabled={status === "connecting"}
+          className="w-full rounded-lg border border-gray-700 bg-transparent hover:border-gray-600 hover:text-white active:scale-[0.98] text-gray-300 text-sm font-medium py-2.5 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Connect Wallet
+          {status === "connecting" ? "Connecting..." : "Connect Wallet"}
         </button>
       </aside>
     );
