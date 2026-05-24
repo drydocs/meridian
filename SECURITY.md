@@ -52,7 +52,7 @@ Use **GitHub's private vulnerability reporting**:
 2. Fill in the advisory form with as much detail as possible (see below)
 3. Submit — this creates a private draft advisory visible only to you and the maintainer
 
-Alternatively, email **[collinsezedike@gmail.com](mailto:collinsezedike@gmail.com)** with the subject line `[SECURITY] Meridian — <brief description>`.
+Alternatively, open a thread in [GitHub Discussions](https://github.com/collinsezedike/meridian/discussions) with the subject line `[SECURITY] Meridian — <brief description>`.
 
 ### What to Include in Your Report
 
@@ -74,9 +74,9 @@ Alternatively, email **[collinsezedike@gmail.com](mailto:collinsezedike@gmail.co
 | Fix or mitigation for Critical/High    | Within **14 days** where technically feasible |
 | Public disclosure                      | Coordinated with reporter after fix deploys   |
 
-¹ Meridian is solo-maintained. For Critical reports, email directly in addition to the advisory to improve response time.
+¹ Meridian is solo-maintained. For Critical reports, open a GitHub Discussions thread in addition to the advisory to improve response time.
 
-We will keep you informed at each stage. If you do not receive an acknowledgement within 48 hours, follow up via email.
+We will keep you informed at each stage. If you do not receive an acknowledgement within 48 hours, follow up via GitHub Discussions.
 
 ---
 
