@@ -1,10 +1,8 @@
-const API_BASE = import.meta.env.VITE_API_URL ?? (() => {
-  if (import.meta.env.PROD) console.warn("VITE_API_URL is not set; API requests may fail in production");
-  return "";
-})();
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
+    signal: AbortSignal.timeout(10_000),
     headers: { "Content-Type": "application/json" },
     ...init,
   });
@@ -18,11 +16,14 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 // JSON-safe vault shape (bigints serialised as numbers by the API)
 export interface ApiVault {
   id: string;
-  protocol: "blend" | "defindex";
+  protocol: "blend" | "defindex" | "ondo";
   asset: string;
+  name: string;
+  label: string;
   apy: number;
   tvl: number;
   userBalance: number;
+  riskLevel: "safe" | "caution" | "risky";
 }
 
 export interface ApiPosition {

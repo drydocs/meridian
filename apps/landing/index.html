@@ -15,7 +15,7 @@
 
     :root {
       --bg:            #070d19;
-      --bg-2:          #0b1220;
+      --bg-2:          #0d1e35;
       --surface:       rgba(255, 255, 255, 0.03);
       --surface-2:     rgba(255, 255, 255, 0.06);
       --border:        rgba(255, 255, 255, 0.08);
@@ -45,31 +45,8 @@
       inset: 0;
       pointer-events: none;
       z-index: 0;
-      overflow: hidden;
-    }
-
-    .orb {
-      position: absolute;
-      border-radius: 50%;
-      filter: blur(130px);
-    }
-
-    .orb-blue {
-      width: 800px; height: 800px;
-      background: radial-gradient(circle at center, rgba(59,130,246,0.22), transparent 65%);
-      top: -320px; left: -200px;
-    }
-
-    .orb-green {
-      width: 700px; height: 700px;
-      background: radial-gradient(circle at center, rgba(16,185,129,0.14), transparent 65%);
-      top: -100px; right: -250px;
-    }
-
-    .orb-deep {
-      width: 600px; height: 600px;
-      background: radial-gradient(circle at center, rgba(59,130,246,0.07), transparent 65%);
-      bottom: 15%; left: 25%;
+      background-image: radial-gradient(circle, rgba(255,255,255,0.13) 1px, transparent 1px);
+      background-size: 28px 28px;
     }
 
     body::after {
@@ -99,15 +76,13 @@
       inset: 0 0 auto;
       z-index: 100;
       padding: 20px 0;
-      transition: background 0.3s, border-color 0.3s;
-      border-bottom: 1px solid transparent;
+      transition: background 0.3s;
     }
 
     nav.stuck {
       background: rgba(7, 13, 25, 0.82);
       backdrop-filter: blur(18px);
       -webkit-backdrop-filter: blur(18px);
-      border-color: var(--border);
     }
 
     .nav-row {
@@ -139,8 +114,31 @@
 
     .nav-gh:hover { color: var(--text); border-color: var(--border-strong); }
 
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .nav-launch {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 1px solid rgba(16,185,129,0.45);
+      background: transparent;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--green);
+      text-decoration: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .nav-launch:hover { border-color: var(--green); background: rgba(16,185,129,0.06); }
+
     /* ── Hero ── */
-    .hero { padding: 72px 0 120px; overflow: hidden; }
+    .hero { padding: 120px 0 120px; overflow: hidden; }
 
     .hero-content {
       position: relative;
@@ -153,43 +151,16 @@
       z-index: 2;
     }
 
-    .hero-pill {
-      display: flex;
-      width: fit-content;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 14px;
-      border-radius: 100px;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--muted);
-      letter-spacing: 0.02em;
-      margin: 0 auto 32px;
-    }
-
-    .hero-pill-dot {
-      width: 6px; height: 6px;
-      border-radius: 50%;
-      background: var(--green);
-      flex-shrink: 0;
-    }
 
     h1 {
-      font-size: clamp(40px, 5.5vw, 72px);
+      font-size: clamp(52px, 6.5vw, 84px);
       font-weight: 900;
       line-height: 1.03;
       letter-spacing: -0.035em;
       margin-bottom: 24px;
     }
 
-    .grad {
-      background: linear-gradient(135deg, var(--green) 0%, #34d399 40%, #60a5fa 80%, var(--blue) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
+    .grad { color: var(--green); }
 
     .hero-sub {
       font-size: 17px;
@@ -227,7 +198,7 @@
       padding: 13px 20px;
       border-radius: 10px;
       border: none;
-      background: var(--blue);
+      background: var(--green);
       color: #fff;
       font-size: 14.5px;
       font-weight: 600;
@@ -237,7 +208,7 @@
       transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
     }
 
-    .btn:hover { background: #2563eb; box-shadow: 0 0 28px rgba(59,130,246,0.35); }
+    .btn:hover { background: #059669; box-shadow: 0 0 28px rgba(16,185,129,0.35); }
     .btn:active { transform: scale(0.97); }
 
     .waitlist-success {
@@ -271,14 +242,6 @@
       z-index: 1;
     }
 
-    .mock-wrap::before {
-      content: '';
-      position: absolute;
-      inset: -60px;
-      background: radial-gradient(ellipse at 50% 40%, rgba(59,130,246,0.12), transparent 65%);
-      pointer-events: none;
-      z-index: 0;
-    }
 
     .mock-wrap::after {
       content: '';
@@ -405,7 +368,30 @@
     }
 
     /* ── Problem ── */
-    .problem { background: var(--bg-2); }
+    .alt-section {
+      background: var(--bg-2);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      --text:  #ddeeff;
+      --muted: rgba(200, 225, 255, 0.56);
+      --dim:   rgba(200, 225, 255, 0.28);
+      color: var(--text);
+    }
+
+    .light-section {
+      background-color: #dce6f7;
+      background-image: radial-gradient(circle, rgba(59,130,246,0.39) 1px, transparent 1px);
+      background-size: 28px 28px;
+      border-top: 1px solid rgba(0, 0, 0, 0.07);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+      --text:   #0d1929;
+      --muted:  rgba(13, 25, 41, 0.58);
+      --dim:    rgba(13, 25, 41, 0.36);
+      --border: rgba(0, 0, 0, 0.1);
+      --surface: rgba(0, 0, 0, 0.04);
+      color: var(--text);
+    }
+
     .problem-header { margin-bottom: 60px; }
 
     .stats {
@@ -524,7 +510,7 @@
     .step p { font-size: 14.5px; color: var(--muted); line-height: 1.65; }
 
     /* ── Protocols ── */
-    .protocols { background: var(--bg-2); }
+    /* .protocols shares .alt-section */
 
     .proto-head {
       margin-bottom: 52px;
@@ -652,12 +638,14 @@
     .pub-sub   { font-size: 12.5px; color: var(--dim); }
     .pub-chevron { color: var(--dim); font-size: 16px; }
 
-    .wave-link { border-color: rgba(59,130,246,0.2); background: rgba(59,130,246,0.05); }
-    .wave-link .pub-icon { background: rgba(59,130,246,0.12); color: #60a5fa; }
-    .wave-link .pub-sub  { color: #60a5fa; }
 
     /* ── Footer ── */
-    footer { padding: 36px 0; border-top: 1px solid var(--border); }
+    footer {
+      padding: 36px 0;
+      background: rgba(7, 13, 25, 0.82);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
 
     .foot-row {
       display: flex;
@@ -690,27 +678,34 @@
 
     /* ── Responsive ── */
     @media (max-width: 900px) {
-      .hero-copy { max-width: 100%; }
+      .hero-copy { max-width: 100%; text-align: center; }
+
+      .hero-sub { max-width: 100%; margin-left: auto; margin-right: auto; }
+      .waitlist-row { margin-left: auto; margin-right: auto; }
+      .waitlist-success { margin-left: auto; margin-right: auto; }
+      .stellar-mark { justify-content: center; }
       .mock-wrap {
         width: 100%;
         right: 0;
         top: 50%;
         transform: translateX(-50%) translateY(-50%);
         left: 50%;
-        opacity: 0.38;
+        opacity: 0.28;
         display: flex;
         justify-content: center;
+        filter: blur(3px);
       }
       .mock-wrap::after {
         background:
-          linear-gradient(to bottom, var(--bg) 0%, transparent 15%, var(--bg) 88%),
-          linear-gradient(to right, var(--bg) 0%, transparent 20%, var(--bg) 80%);
+          linear-gradient(to bottom, var(--bg) 0%, transparent 20%, var(--bg) 85%),
+          linear-gradient(to right, var(--bg) 0%, transparent 25%, var(--bg) 75%);
       }
     }
 
     @media (max-width: 768px) {
       section { padding: 88px 0; }
       .hero   { padding: 128px 0 80px; }
+      h1 { font-size: clamp(44px, 13vw, 68px); }
       .waitlist-row { flex-direction: column; }
       .stats { grid-template-columns: 1fr; }
       .steps { grid-template-columns: 1fr; gap: 36px; }
@@ -724,21 +719,20 @@
 </head>
 <body>
 
-<div class="bg-canvas" aria-hidden="true">
-  <div class="orb orb-blue"></div>
-  <div class="orb orb-green"></div>
-  <div class="orb orb-deep"></div>
-</div>
+<div class="bg-canvas" aria-hidden="true"></div>
 
 <!-- ── Nav ── -->
 <nav id="nav">
   <div class="wrap">
     <div class="nav-row">
       <span class="wordmark">Meridian</span>
-      <a class="nav-gh" href="https://github.com/collinsezedike/meridian" target="_blank" rel="noopener">
-        <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/></svg>
-        View on GitHub
-      </a>
+      <div class="nav-actions">
+        <a class="nav-gh" href="https://github.com/collinsezedike/meridian" target="_blank" rel="noopener">
+          <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/></svg>
+          GitHub
+        </a>
+        <a class="nav-launch" href="/app">Launch App ↗</a>
+      </div>
     </div>
   </div>
 </nav>
@@ -746,10 +740,7 @@
 <!-- ── Hero ── -->
 <section class="hero">
   <div class="wrap">
-    <div class="hero-pill">
-      <span class="hero-pill-dot"></span>
-      Drips Stellar Wave Program &middot; Building in public
-    </div>
+
 
     <div class="hero-content">
       <!-- Copy -->
@@ -775,7 +766,7 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path d="M12.003 1.716c-1.37 0-2.7.27-3.948.78A10.18 10.18 0 0 0 2.66 7.901a10.136 10.136 0 0 0-.797 3.954c0 .258.01.516.027.775a1.942 1.942 0 0 1-1.055 1.88L0 14.934v1.902l2.463-1.26.072-.032v.005l.77-.39.758-.385.066-.039 14.807-7.56 1.666-.847 3.392-1.732V2.694L17.792 5.86 3.744 13.025l-.104.055-.017-.115a8.286 8.286 0 0 1-.071-1.105c0-2.255.88-4.377 2.474-5.977a8.462 8.462 0 0 1 2.71-1.82 8.513 8.513 0 0 1 3.2-.654h.067a8.41 8.41 0 0 1 4.09 1.055l1.628-.83.126-.066a10.11 10.11 0 0 0-5.845-1.853zM24 7.143 5.047 16.808l-1.666.847L0 19.382v1.902l3.282-1.671 2.91-1.485 14.058-7.153.105-.055.016.115c.05.369.072.743.072 1.11 0 2.255-.88 4.383-2.475 5.978a8.461 8.461 0 0 1-2.71 1.82 8.305 8.305 0 0 1-3.2.654h-.06c-1.441 0-2.86-.369-4.102-1.061l-.066.033-1.683.857c.594.418 1.232.776 1.903 1.062a10.11 10.11 0 0 0 3.947.797 10.09 10.09 0 0 0 7.17-2.975 10.136 10.136 0 0 0 2.969-7.18c0-.259-.005-.523-.027-.781a1.942 1.942 0 0 1 1.055-1.88L24 9.044z" opacity="0.6"/>
           </svg>
-          Built on Stellar Network
+          Built on Stellar
         </div>
       </div>
 
@@ -842,10 +833,9 @@
 </section>
 
 <!-- ── Problem ── -->
-<section class="problem">
+<section class="problem alt-section">
   <div class="wrap">
     <div class="problem-header">
-      <p class="label">The problem</p>
       <h2 class="section-title">Inflation is winning.<br>Your savings are losing.</h2>
       <p class="section-sub">
         Across West Africa, inflation runs double-digit while savings accounts pay a fraction of that.
@@ -882,7 +872,7 @@
 </section>
 
 <!-- ── How it works ── -->
-<section>
+<section class="light-section">
   <div class="wrap">
     <p class="label">How it works</p>
     <h2 class="section-title">Three clicks to earning yield.</h2>
@@ -907,13 +897,10 @@
 </section>
 
 <!-- ── Protocols ── -->
-<section class="protocols">
+<section class="protocols alt-section">
   <div class="wrap">
     <div class="proto-head">
-      <div>
-        <p class="label">Powered by</p>
-        <h2 class="section-title">Battle-tested<br>protocols.</h2>
-      </div>
+      <h2 class="section-title">Battle-tested protocols.</h2>
       <p class="section-sub">
         Meridian doesn't reinvent the wheel. It aggregates the best yield from two of
         the most credible protocols already running in production on Stellar.
@@ -958,8 +945,7 @@
         <p class="label">Open source</p>
         <h2 class="section-title">Built in public,<br>for the community.</h2>
         <p class="section-sub">
-          Meridian is part of the Drips Stellar Wave Program — a grant initiative accelerating
-          open-source development on Stellar. Every commit, every design decision, and every
+          Meridian is fully open-source. Every commit, every design decision, and every
           issue is public. If you build on Stellar or care about financial access in emerging
           markets, there is a place for you here.
         </p>
@@ -985,15 +971,16 @@
           </div>
           <span class="pub-chevron">→</span>
         </a>
-        <div class="pub-link wave-link">
+        <a class="pub-link" href="https://github.com/collinsezedike/meridian/discussions" target="_blank" rel="noopener">
           <div class="pub-icon">
-            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/></svg>
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/></svg>
           </div>
           <div class="pub-text">
-            <div class="pub-title">Drips Stellar Wave Program</div>
-            <div class="pub-sub">Wave Program submission &middot; 2026</div>
+            <div class="pub-title">Discussions</div>
+            <div class="pub-sub">Roadmap, ideas, and feedback</div>
           </div>
-        </div>
+          <span class="pub-chevron">→</span>
+        </a>
       </div>
     </div>
   </div>
