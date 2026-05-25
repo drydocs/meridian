@@ -2,7 +2,7 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(15_000),
     headers: { "Content-Type": "application/json" },
     ...init,
   });

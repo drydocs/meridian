@@ -45,6 +45,7 @@ export function VaultPanel() {
   }
 
   const bestVault = vaults?.reduce((best, v) => (v.apy > best.apy ? v : best), vaults[0]);
+  // Single-vault architecture: the user holds at most one position. Revisit if multi-vault is added.
   const position = positions[0];
   const hasPosition = position && position.deposited > 0;
 
@@ -193,7 +194,11 @@ export function VaultPanel() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium text-gray-500">Amount</span>
-                <span className="text-xs text-gray-600">Balance: —</span>
+                {hasPosition && (
+                  <span className="text-xs text-gray-600">
+                    Balance: {formatUsd(position.deposited)}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3 rounded-xl border border-gray-700 bg-gray-900/70 px-4 py-3.5 focus-within:border-gray-500 transition-colors duration-150">
                 <input

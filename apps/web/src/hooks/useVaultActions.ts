@@ -16,20 +16,21 @@ export function useVaultActions() {
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function runTx(buildFn: () => Promise<{ xdr: string }>) {
-    if (!publicKey) return;
+  async function runTx(key: string, buildFn: (caller: string) => Promise<{ xdr: string }>) {
+    if (!publicKey) throw new Error("Wallet not connected");
+    const passphrase = NETWORK_PASSPHRASE[network];
+    if (!passphrase) throw new Error(`Unknown network: ${network}`);
     setError(null);
-    const { xdr } = await buildFn();
-    const signedXdr = await signTransaction(xdr, NETWORK_PASSPHRASE[network]);
+    const { xdr } = await buildFn(publicKey);
+    const signedXdr = await signTransaction(xdr, passphrase);
     await api.submitTx({ xdr: signedXdr });
-    // Invalidate positions so the balance refreshes automatically.
-    queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
+    queryClient.invalidateQueries({ queryKey: ["positions", key] });
   }
 
   async function deposit(amount: string) {
     setIsDepositing(true);
     try {
-      await runTx(() => api.buildDeposit({ caller: publicKey, amount }));
+      await runTx(publicKey!, (caller) => api.buildDeposit({ caller, amount }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deposit failed");
     } finally {
@@ -40,7 +41,7 @@ export function useVaultActions() {
   async function withdraw(shares: string) {
     setIsWithdrawing(true);
     try {
-      await runTx(() => api.buildWithdraw({ caller: publicKey, shares }));
+      await runTx(publicKey!, (caller) => api.buildWithdraw({ caller, shares }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Withdrawal failed");
     } finally {
