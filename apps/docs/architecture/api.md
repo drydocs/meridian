@@ -96,7 +96,7 @@ Builds an unsigned Soroban withdraw transaction.
 }
 ```
 
-**Response:** same shape as deposit — `{ xdr, fee }`.
+**Response:** same shape as deposit: `{ xdr, fee }`.
 
 ### `POST /api/v1/tx/submit`
 

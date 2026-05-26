@@ -124,6 +124,6 @@ With the contract deployed and `VAULT_CONTRACT_ID` set:
 
 1. Open the app, connect Freighter (testnet mode).
 2. Enter a USDC amount and click **Deposit**.
-3. Freighter should display the transaction details — verify the contract address matches `VAULT_CONTRACT_ID`.
+3. Freighter should display the transaction details; verify the contract address matches `VAULT_CONTRACT_ID`.
 4. Approve the transaction.
 5. After ~5 seconds, the position summary should update with your deposited amount.

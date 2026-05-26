@@ -3,7 +3,7 @@
 ## Prerequisites
 
 | Tool | Version | Install |
-|---|---|---|
+| --- | --- | --- |
 | Node.js | ≥ 20 | [nodejs.org](https://nodejs.org) |
 | pnpm | ≥ 9 | `npm i -g pnpm` |
 | Rust | stable | [rustup.rs](https://rustup.rs) |
@@ -29,9 +29,9 @@ Turborepo starts all `dev` tasks in parallel:
 
 - **Web** at `http://localhost:3000/app/` (Vite dev server with HMR)
 - **API** at `http://localhost:3001` (Fastify with `tsx watch`)
-- **Docs** at `http://localhost:3000/docs/` (VitePress, proxied from port 4321)
+- **Docs** at `http://localhost:3000/docs/` (VitePress, proxied from port 3002)
 
-The Vite dev server proxies `/api/*` to `http://localhost:3001` and `/docs/*` to the VitePress dev server at port 4321.
+The Vite dev server proxies `/api/*` to `http://localhost:3001` and `/docs/*` to the VitePress dev server at port 3002.
 
 ## Running services individually
 

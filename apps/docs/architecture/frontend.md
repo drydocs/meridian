@@ -28,9 +28,9 @@ App
 
 `VaultPanel` is the only stateful UI component. It pulls from three hooks:
 
-- `useVaults()` — fetches `GET /api/v1/vaults`, picks `bestVault` by APY.
-- `usePositions(publicKey)` — fetches `GET /api/v1/positions/:key`, enabled only when connected.
-- `useVaultActions()` — orchestrates the build → sign → submit cycle.
+- `useVaults()`: fetches `GET /api/v1/vaults`, picks `bestVault` by APY.
+- `usePositions(publicKey)`: fetches `GET /api/v1/positions/:key`, enabled only when connected.
+- `useVaultActions()`: orchestrates the build → sign → submit cycle.
 
 ## Data flow
 
@@ -61,7 +61,7 @@ useVaultActions.deposit(amount, vaultId)
 }
 ```
 
-Connection is triggered by `useWalletConnect`, which calls `connectFreighter()` and persists the public key. The store is not persisted to `localStorage` — users re-connect on page load.
+Connection is triggered by `useWalletConnect`, which calls `connectFreighter()` and persists the public key. The store is not persisted to `localStorage`; users re-connect on page load.
 
 ## API client
 

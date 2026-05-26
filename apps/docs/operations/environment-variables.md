@@ -6,7 +6,7 @@
 |---|---|---|---|
 | `VITE_API_URL` | No | `""` | Base URL of the API server. Empty means same origin. In local dev, Vite proxies `/api` to `localhost:3001` so this is not needed. |
 
-## API — serverless (`api/v1/`) and Fastify (`apps/api`)
+## API: serverless (`api/v1/`) and Fastify (`apps/api`)
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
