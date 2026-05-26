@@ -209,7 +209,7 @@ export function VaultPanel() {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   onKeyDown={onAmountKeyDown}
-                  className="flex-1 bg-transparent text-white text-xl font-semibold outline-none placeholder:text-gray-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  className="flex-1 min-w-0 bg-transparent text-white text-xl font-semibold outline-none placeholder:text-gray-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
                 <span className="rounded-lg bg-gray-800 border border-gray-700 px-2.5 py-1 text-xs font-semibold text-gray-300 shrink-0">
                   USDC
@@ -250,7 +250,7 @@ export function VaultPanel() {
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
                       onKeyDown={onAmountKeyDown}
-                      className="flex-1 bg-transparent text-white text-xl font-semibold outline-none placeholder:text-gray-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      className="flex-1 min-w-0 bg-transparent text-white text-xl font-semibold outline-none placeholder:text-gray-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <span className="rounded-lg bg-gray-800 border border-gray-700 px-2.5 py-1 text-xs font-semibold text-gray-300 shrink-0">
                       mUSDC
