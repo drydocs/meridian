@@ -27,27 +27,31 @@ export function useVaultActions() {
     queryClient.invalidateQueries({ queryKey: ["positions", key] });
   }
 
-  async function deposit(amount: string, vaultId: string) {
+  async function deposit(amount: string, vaultId: string): Promise<boolean> {
     setIsDepositing(true);
     try {
       await runTx(publicKey!, (walletAddress) =>
         api.buildDeposit({ walletAddress, vaultId, amount })
       );
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deposit failed");
+      return false;
     } finally {
       setIsDepositing(false);
     }
   }
 
-  async function withdraw(shares: string, vaultId: string) {
+  async function withdraw(shares: string, vaultId: string): Promise<boolean> {
     setIsWithdrawing(true);
     try {
       await runTx(publicKey!, (walletAddress) =>
         api.buildWithdraw({ walletAddress, vaultId, shares })
       );
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Withdrawal failed");
+      return false;
     } finally {
       setIsWithdrawing(false);
     }
