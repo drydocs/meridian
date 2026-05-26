@@ -27,10 +27,12 @@ export function useVaultActions() {
     queryClient.invalidateQueries({ queryKey: ["positions", key] });
   }
 
-  async function deposit(amount: string) {
+  async function deposit(amount: string, vaultId: string) {
     setIsDepositing(true);
     try {
-      await runTx(publicKey!, (caller) => api.buildDeposit({ caller, amount }));
+      await runTx(publicKey!, (walletAddress) =>
+        api.buildDeposit({ walletAddress, vaultId, amount })
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deposit failed");
     } finally {
@@ -38,10 +40,12 @@ export function useVaultActions() {
     }
   }
 
-  async function withdraw(shares: string) {
+  async function withdraw(shares: string, vaultId: string) {
     setIsWithdrawing(true);
     try {
-      await runTx(publicKey!, (caller) => api.buildWithdraw({ caller, shares }));
+      await runTx(publicKey!, (walletAddress) =>
+        api.buildWithdraw({ walletAddress, vaultId, shares })
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Withdrawal failed");
     } finally {

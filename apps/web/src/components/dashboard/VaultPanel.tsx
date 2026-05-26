@@ -50,14 +50,14 @@ export function VaultPanel() {
   const hasPosition = position && position.deposited > 0;
 
   async function handleDeposit() {
-    if (!amount) return;
-    await deposit(amount);
+    if (!amount || !bestVault) return;
+    await deposit(amount, bestVault.id);
     setAmount("");
   }
 
   async function handleWithdraw() {
-    if (!amount) return;
-    await withdraw(amount);
+    if (!amount || !bestVault) return;
+    await withdraw(amount, bestVault.id);
     setAmount("");
   }
 
@@ -219,7 +219,7 @@ export function VaultPanel() {
             {actionError && <p className="text-xs text-red-400">{actionError}</p>}
             <button
               onClick={handleDeposit}
-              disabled={!amount || isDepositing}
+              disabled={!amount || !bestVault || isDepositing}
               className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3.5 transition-all duration-150 disabled:cursor-not-allowed"
             >
               {isDepositing ? "Waiting for signature…" : "Deposit"}
@@ -260,7 +260,7 @@ export function VaultPanel() {
                 {actionError && <p className="text-xs text-red-400">{actionError}</p>}
                 <button
                   onClick={handleWithdraw}
-                  disabled={!amount || isWithdrawing}
+                  disabled={!amount || !bestVault || isWithdrawing}
                   className="w-full rounded-xl border border-gray-700 bg-gray-900/50 hover:border-gray-500 hover:bg-gray-900 hover:text-white text-gray-300 text-sm font-semibold py-3.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isWithdrawing ? "Waiting for signature…" : "Withdraw"}
