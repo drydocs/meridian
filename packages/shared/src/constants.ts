@@ -15,6 +15,7 @@ export const CONTRACT_ADDRESSES = {
     },
     usdc: "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
     eurc: "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
+    vault: "", // set after testnet deployment
   },
 } as const;
 

@@ -1,3 +1,5 @@
+import { buildDepositXdr } from "./_shared";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -10,6 +12,11 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: `Missing required fields: ${missing}` });
   }
 
-  // TODO(#issue-7): build unsigned Soroban deposit tx, return XDR for wallet signing
-  res.status(501).json({ error: "Deposit signing not yet implemented" });
+  try {
+    const result = await buildDepositXdr(walletAddress, vaultId, amount);
+    res.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to build deposit transaction";
+    res.status(500).json({ error: msg });
+  }
 }

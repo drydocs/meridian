@@ -9,7 +9,11 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck"
   },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^12.0.0"
+  },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "turbo": "^2.9.14",
     "typescript": "^5.4.0",
     "prettier": "^3.2.0",
