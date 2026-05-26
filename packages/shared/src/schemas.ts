@@ -3,7 +3,7 @@ import { z } from "zod";
 export const DepositRequestSchema = z.object({
   walletAddress: z.string().length(56),
   vaultId: z.string(),
-  amount: z.string().regex(/^\d+$/),
+  amount: z.string().regex(/^\d+(\.\d{1,7})?$/),
   slippageBps: z.number().int().min(0).max(1000).default(50),
 });
 
