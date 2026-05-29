@@ -2,6 +2,7 @@
   "buildCommand": "bash scripts/build-vercel.sh",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/app/:path*", "destination": "/app/index.html" }
+    { "source": "/app/:path*", "destination": "/app/index.html" },
+    { "source": "/docs/:path*", "destination": "/docs/:path*" }
   ]
 }

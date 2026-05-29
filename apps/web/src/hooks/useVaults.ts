@@ -5,10 +5,13 @@ export function useVaults() {
   return useQuery<ApiVault[], Error>({
     queryKey: ["vaults"],
     queryFn: async () => {
-      const data = await api.getVaults();
+      const [data] = await Promise.all([
+        api.getVaults(),
+        new Promise((r) => setTimeout(r, 2_000)),
+      ]);
       return data.vaults;
     },
-    staleTime: 60_000,
-    retry: 2,
+    staleTime: 5 * 60_000,
+    retry: 1,
   });
 }

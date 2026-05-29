@@ -1,0 +1,99 @@
+import {
+  Contract,
+  TransactionBuilder,
+  Address,
+  nativeToScVal,
+  rpc,
+  xdr,
+  Networks,
+} from "@stellar/stellar-sdk";
+import type { StellarNetwork } from "./types";
+
+const BASE_FEE = "100";
+
+function toStroops(value: string): bigint {
+  const [whole = "0", frac = ""] = value.split(".");
+  const fracPadded = frac.padEnd(7, "0").slice(0, 7);
+  return BigInt(whole) * 10_000_000n + BigInt(fracPadded);
+}
+
+function resolveProtocol(vaultId: string): "Blend" | "DeFindex" {
+  if (vaultId.startsWith("blend-")) return "Blend";
+  if (vaultId.startsWith("defindex-")) return "DeFindex";
+  throw new Error(`No protocol mapping for vault: ${vaultId}`);
+}
+
+export async function buildDepositTx(
+  contractId: string,
+  walletAddress: string,
+  vaultId: string,
+  amount: string,
+  network: StellarNetwork
+): Promise<{ xdr: string; fee: string }> {
+  const protocol = resolveProtocol(vaultId);
+  const passphrase = network.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+
+  const server = new rpc.Server(network.rpcUrl);
+  const account = await server.getAccount(walletAddress);
+  const contract = new Contract(contractId);
+
+  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: passphrase })
+    .addOperation(
+      contract.call(
+        "deposit",
+        Address.fromString(walletAddress).toScVal(),
+        nativeToScVal(toStroops(amount), { type: "i128" }),
+        xdr.ScVal.scvSymbol(protocol),
+      )
+    )
+    .setTimeout(300)
+    .build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim)) throw new Error(`Simulation failed: ${sim.error}`);
+
+  const prepared = rpc.assembleTransaction(tx, sim).build();
+  return { xdr: prepared.toEnvelope().toXDR("base64"), fee: sim.minResourceFee };
+}
+
+export async function buildWithdrawTx(
+  contractId: string,
+  walletAddress: string,
+  shares: string,
+  network: StellarNetwork
+): Promise<{ xdr: string; fee: string }> {
+  const passphrase = network.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+
+  const server = new rpc.Server(network.rpcUrl);
+  const account = await server.getAccount(walletAddress);
+  const contract = new Contract(contractId);
+
+  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: passphrase })
+    .addOperation(
+      contract.call(
+        "withdraw",
+        Address.fromString(walletAddress).toScVal(),
+        nativeToScVal(toStroops(shares), { type: "i128" }),
+      )
+    )
+    .setTimeout(300)
+    .build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim)) throw new Error(`Simulation failed: ${sim.error}`);
+
+  const prepared = rpc.assembleTransaction(tx, sim).build();
+  return { xdr: prepared.toEnvelope().toXDR("base64"), fee: sim.minResourceFee };
+}
+
+export async function submitTx(
+  signedXdr: string,
+  network: StellarNetwork
+): Promise<{ hash: string }> {
+  const passphrase = network.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+  const server = new rpc.Server(network.rpcUrl);
+  const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
+  const result = await server.sendTransaction(tx);
+  if (result.status === "ERROR") throw new Error(`Transaction rejected (${result.status})`);
+  return { hash: result.hash };
+}

@@ -9,11 +9,20 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck"
   },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^12.0.0"
+  },
   "devDependencies": {
-    "turbo": "^2.0.0",
+    "@types/node": "^20.0.0",
+    "turbo": "^2.9.14",
     "typescript": "^5.4.0",
     "prettier": "^3.2.0",
     "eslint": "^8.57.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-uri": "^3.1.2"
+    }
   },
   "engines": {
     "node": ">=20.0.0",
