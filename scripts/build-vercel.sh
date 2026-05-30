@@ -18,6 +18,11 @@ echo "▶ Assembling combined output…"
 # Landing page → dist/index.html
 cp "$ROOT/apps/landing/index.html" "$OUT/index.html"
 
+# Landing favicons and OG image → dist/
+cp "$ROOT/apps/landing/favicon-32x32.png" "$OUT/favicon-32x32.png"
+cp "$ROOT/apps/landing/favicon-180x180.png" "$OUT/favicon-180x180.png"
+cp "$ROOT/apps/landing/og_image.png" "$OUT/og_image.png"
+
 # React SPA build → dist/app/
 cp -r "$ROOT/apps/web/dist/." "$OUT/app/"
 
