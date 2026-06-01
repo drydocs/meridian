@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useWalletStore } from "../store/wallet";
 import { signTransaction } from "../lib/wallet";
 import { api } from "../lib/api";
+import { useToastStore } from "../store/toast";
 
 const NETWORK_PASSPHRASE: Record<string, string> = {
   testnet: "Test SDF Network ; September 2015",
@@ -16,6 +17,7 @@ function isMissingTrustline(msg: string) {
 export function useVaultActions() {
   const { publicKey, network } = useWalletStore();
   const queryClient = useQueryClient();
+  const { push } = useToastStore();
   const [isDepositing, setIsDepositing] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,9 +37,12 @@ export function useVaultActions() {
       await signAndSubmit(xdr);
       setNeedsTrustline(false);
       setError(null);
+      push("success", "Vault assets added to wallet");
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add USDC trustline");
+      const msg = err instanceof Error ? err.message : "Failed to add vault assets";
+      setError(msg);
+      push("error", msg);
       return false;
     }
   }
@@ -51,14 +56,16 @@ export function useVaultActions() {
       await signAndSubmit(xdr);
       setNeedsTrustline(false);
       queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
+      push("success", `Deposited ${amount} USDC`);
       return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Deposit failed";
       if (isMissingTrustline(msg)) {
         setNeedsTrustline(true);
-        setError("Your wallet doesn't have a USDC trustline yet. Click below to add it, then try again.");
+        setError("Your wallet is missing a required trustline. Click below to add it, then try again.");
       } else {
         setError(msg);
+        push("error", msg);
       }
       return false;
     } finally {
@@ -74,9 +81,12 @@ export function useVaultActions() {
       const { xdr } = await api.buildWithdraw({ walletAddress: publicKey, vaultId, shares });
       await signAndSubmit(xdr);
       queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
+      push("success", `Withdrew ${shares} mUSDC`);
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Withdrawal failed");
+      const msg = err instanceof Error ? err.message : "Withdrawal failed";
+      setError(msg);
+      push("error", msg);
       return false;
     } finally {
       setIsWithdrawing(false);

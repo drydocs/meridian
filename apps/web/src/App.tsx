@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
 import { WalletConnect } from "./components/onboarding/WalletConnect";
+import { Toasts } from "./components/ui/Toasts";
 
 const queryClient = new QueryClient();
 
@@ -25,6 +26,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Dashboard />
+      <Toasts />
     </QueryClientProvider>
   );
 }

@@ -1,15 +1,22 @@
 import { useWalletStore } from "../../store/wallet";
+import { useToastStore } from "../../store/toast";
 import { shortenAddress } from "@meridian/shared";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
 
 export function WalletConnect() {
   const { connected, publicKey, disconnect } = useWalletStore();
+  const { push } = useToastStore();
   const { handleConnect, status, error } = useWalletConnect();
+
+  function handleDisconnect() {
+    disconnect();
+    push("info", "Wallet disconnected");
+  }
 
   if (connected && publicKey) {
     return (
       <button
-        onClick={disconnect}
+        onClick={handleDisconnect}
         className="flex items-center gap-2 text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150"
       >
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
