@@ -31,9 +31,9 @@ type Tab = "deposit" | "withdraw";
 export function VaultPanel() {
   const { data: vaults, isLoading: vaultsLoading } = useVaults();
   const { connected, publicKey } = useWalletStore();
-  const { handleConnect, status: connectStatus, error: connectError } = useWalletConnect();
+  const { handleConnect, status: connectStatus } = useWalletConnect();
   const { data: positions = [] } = usePositions(publicKey);
-  const { deposit, withdraw, addTrustline, needsTrustline, isDepositing, isWithdrawing, error: actionError, clearError } = useVaultActions();
+  const { deposit, withdraw, addTrustline, needsTrustline, isDepositing, isWithdrawing, clearNeedsTrustline } = useVaultActions();
 
   const [tab, setTab] = useState<Tab>("deposit");
   const [amount, setAmount] = useState("");
@@ -64,7 +64,7 @@ export function VaultPanel() {
   function handleTabChange(next: Tab) {
     setTab(next);
     setAmount("");
-    clearError();
+    clearNeedsTrustline();
   }
 
   return (
@@ -187,7 +187,6 @@ export function VaultPanel() {
                 {connectStatus === "connecting" ? "Connecting..." : "Connect Wallet"}
               </button>
             )}
-            {connectError && <p className="text-xs text-red-400">{connectError}</p>}
           </div>
         ) : tab === "deposit" ? (
           <div className="space-y-4">
@@ -216,13 +215,12 @@ export function VaultPanel() {
                 </span>
               </div>
             </div>
-            {actionError && <p className="text-xs text-red-400">{actionError}</p>}
             {needsTrustline && (
               <button
                 onClick={addTrustline}
                 className="w-full rounded-xl border border-amber-800/70 bg-amber-950/20 hover:border-amber-700 text-amber-400 hover:text-amber-300 text-sm font-medium py-3 transition-colors duration-150"
               >
-                Add USDC to wallet
+                Add vault assets to wallet
               </button>
             )}
             <button
@@ -265,8 +263,7 @@ export function VaultPanel() {
                     </span>
                   </div>
                 </div>
-                {actionError && <p className="text-xs text-red-400">{actionError}</p>}
-                <button
+                    <button
                   onClick={handleWithdraw}
                   disabled={!amount || !bestVault || isWithdrawing}
                   className="w-full rounded-xl border border-gray-700 bg-gray-900/50 hover:border-gray-500 hover:bg-gray-900 hover:text-white text-gray-300 text-sm font-semibold py-3.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
