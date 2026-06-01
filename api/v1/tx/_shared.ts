@@ -8,7 +8,7 @@ import {
   Networks,
 } from "@stellar/stellar-sdk";
 
-const VAULT_CONTRACT_ID = process.env.VAULT_CONTRACT_ID ?? "";
+const VAULT_CONTRACT_ID = process.env.VAULT_CONTRACT_ID ?? "CBK5RI4BCA7TLSD2S5Q5TH2LUQAT55GF34OBTWPFUKWZ5O6YXSQDAWOJ";
 const RPC_URL = "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE = Networks.TESTNET;
 const BASE_FEE = "100";
