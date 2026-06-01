@@ -138,12 +138,7 @@ export async function buildDepositTx(
     .build();
 
   const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) {
-    if (sim.error.includes("trustline entry is missing")) {
-      throw new Error("Trustline missing — add the vault assets to your wallet before depositing");
-    }
-    throw new Error(`Simulation failed: ${sim.error}`);
-  }
+  if (rpc.Api.isSimulationError(sim)) throw new Error(`Simulation failed: ${sim.error}`);
 
   const prepared = rpc.assembleTransaction(tx, sim).build();
   return { xdr: prepared.toEnvelope().toXDR("base64"), fee: sim.minResourceFee };

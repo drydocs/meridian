@@ -37,9 +37,6 @@ function resolveProtocol(vaultId: string): "Blend" | "DeFindex" {
   throw new Error(`No protocol mapping for vault: ${vaultId}`);
 }
 
-function isMissingTrustlineError(error: string): boolean {
-  return error.includes("trustline entry is missing") || error.includes("Error(Contract, #13)");
-}
 
 function hasTrustlineInBalances(
   balances: Horizon.HorizonApi.BalanceLine[],
@@ -112,12 +109,7 @@ export async function buildDepositXdr(
     .build();
 
   const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) {
-    if (isMissingTrustlineError(sim.error)) {
-      throw new Error("USDC trustline missing — add the USDC asset to your wallet before depositing");
-    }
-    throw new Error(`Simulation failed: ${sim.error}`);
-  }
+  if (rpc.Api.isSimulationError(sim)) throw new Error(`Simulation failed: ${sim.error}`);
 
   const prepared = rpc.assembleTransaction(tx, sim).build();
   return { xdr: prepared.toEnvelope().toXDR("base64"), fee: sim.minResourceFee };
