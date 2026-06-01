@@ -9,33 +9,57 @@ const NETWORK_PASSPHRASE: Record<string, string> = {
   mainnet: "Public Global Stellar Network ; September 2015",
 };
 
+function isMissingTrustline(msg: string) {
+  return msg.toLowerCase().includes("trustline");
+}
+
 export function useVaultActions() {
   const { publicKey, network } = useWalletStore();
   const queryClient = useQueryClient();
   const [isDepositing, setIsDepositing] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsTrustline, setNeedsTrustline] = useState(false);
 
-  async function runTx(key: string, buildFn: (caller: string) => Promise<{ xdr: string }>) {
-    if (!publicKey) throw new Error("Wallet not connected");
-    const passphrase = NETWORK_PASSPHRASE[network];
-    if (!passphrase) throw new Error(`Unknown network: ${network}`);
-    setError(null);
-    const { xdr } = await buildFn(publicKey);
+  const passphrase = NETWORK_PASSPHRASE[network];
+
+  async function signAndSubmit(xdr: string) {
     const signedXdr = await signTransaction(xdr, passphrase);
     await api.submitTx({ xdr: signedXdr });
-    queryClient.invalidateQueries({ queryKey: ["positions", key] });
+  }
+
+  async function addTrustline(): Promise<boolean> {
+    if (!publicKey || !passphrase) return false;
+    try {
+      const { xdr } = await api.addTrustline(publicKey);
+      await signAndSubmit(xdr);
+      setNeedsTrustline(false);
+      setError(null);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add USDC trustline");
+      return false;
+    }
   }
 
   async function deposit(amount: string, vaultId: string): Promise<boolean> {
+    if (!publicKey || !passphrase) return false;
     setIsDepositing(true);
+    setError(null);
     try {
-      await runTx(publicKey!, (walletAddress) =>
-        api.buildDeposit({ walletAddress, vaultId, amount })
-      );
+      const { xdr } = await api.buildDeposit({ walletAddress: publicKey, vaultId, amount });
+      await signAndSubmit(xdr);
+      setNeedsTrustline(false);
+      queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Deposit failed");
+      const msg = err instanceof Error ? err.message : "Deposit failed";
+      if (isMissingTrustline(msg)) {
+        setNeedsTrustline(true);
+        setError("Your wallet doesn't have a USDC trustline yet. Click below to add it, then try again.");
+      } else {
+        setError(msg);
+      }
       return false;
     } finally {
       setIsDepositing(false);
@@ -43,11 +67,13 @@ export function useVaultActions() {
   }
 
   async function withdraw(shares: string, vaultId: string): Promise<boolean> {
+    if (!publicKey || !passphrase) return false;
     setIsWithdrawing(true);
+    setError(null);
     try {
-      await runTx(publicKey!, (walletAddress) =>
-        api.buildWithdraw({ walletAddress, vaultId, shares })
-      );
+      const { xdr } = await api.buildWithdraw({ walletAddress: publicKey, vaultId, shares });
+      await signAndSubmit(xdr);
+      queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Withdrawal failed");
@@ -57,5 +83,14 @@ export function useVaultActions() {
     }
   }
 
-  return { deposit, withdraw, isDepositing, isWithdrawing, error, clearError: () => setError(null) };
+  return {
+    deposit,
+    withdraw,
+    addTrustline,
+    needsTrustline,
+    isDepositing,
+    isWithdrawing,
+    error,
+    clearError: () => { setError(null); setNeedsTrustline(false); },
+  };
 }

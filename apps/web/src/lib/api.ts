@@ -46,6 +46,11 @@ export const api = {
     apiFetch<{ positions: ApiPosition[] }>(
       `/api/v1/positions/${publicKey}`
     ),
+  addTrustline: (walletAddress: string) =>
+    apiFetch<{ xdr: string }>("/api/v1/tx/add-trustline", {
+      method: "POST",
+      body: JSON.stringify({ walletAddress }),
+    }),
   buildDeposit: (body: unknown) =>
     apiFetch<{ xdr: string }>("/api/v1/tx/deposit", {
       method: "POST",

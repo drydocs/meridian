@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { DepositRequestSchema, WithdrawRequestSchema, CONTRACT_ADDRESSES, STELLAR_NETWORKS } from "@meridian/shared";
-import { buildDepositTx, buildWithdrawTx, submitTx } from "@meridian/stellar-sdk-helpers";
+import { buildDepositTx, buildWithdrawTx, buildAddTrustlineTx, submitTx } from "@meridian/stellar-sdk-helpers";
 
 const network = STELLAR_NETWORKS.testnet;
 const vaultContractId = process.env.VAULT_CONTRACT_ID ?? CONTRACT_ADDRESSES.testnet.vault;
@@ -40,6 +40,18 @@ export const txRoute: FastifyPluginAsync = async (app) => {
       reply.send(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to build withdraw transaction";
+      reply.code(500).send({ error: msg });
+    }
+  });
+
+  app.post("/add-trustline", async (req, reply) => {
+    const { walletAddress } = (req.body ?? {}) as { walletAddress?: string };
+    if (!walletAddress) return reply.code(400).send({ error: "Missing required field: walletAddress" });
+    try {
+      const result = await buildAddTrustlineTx(walletAddress, network);
+      reply.send(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to build trustline transaction";
       reply.code(500).send({ error: msg });
     }
   });

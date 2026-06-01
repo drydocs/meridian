@@ -33,7 +33,7 @@ export function VaultPanel() {
   const { connected, publicKey } = useWalletStore();
   const { handleConnect, status: connectStatus, error: connectError } = useWalletConnect();
   const { data: positions = [] } = usePositions(publicKey);
-  const { deposit, withdraw, isDepositing, isWithdrawing, error: actionError, clearError } = useVaultActions();
+  const { deposit, withdraw, addTrustline, needsTrustline, isDepositing, isWithdrawing, error: actionError, clearError } = useVaultActions();
 
   const [tab, setTab] = useState<Tab>("deposit");
   const [amount, setAmount] = useState("");
@@ -217,6 +217,14 @@ export function VaultPanel() {
               </div>
             </div>
             {actionError && <p className="text-xs text-red-400">{actionError}</p>}
+            {needsTrustline && (
+              <button
+                onClick={addTrustline}
+                className="w-full rounded-xl border border-amber-800/70 bg-amber-950/20 hover:border-amber-700 text-amber-400 hover:text-amber-300 text-sm font-medium py-3 transition-colors duration-150"
+              >
+                Add USDC to wallet
+              </button>
+            )}
             <button
               onClick={handleDeposit}
               disabled={!amount || !bestVault || isDepositing}
