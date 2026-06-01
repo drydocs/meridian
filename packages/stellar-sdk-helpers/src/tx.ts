@@ -2,12 +2,18 @@ import {
   Contract,
   TransactionBuilder,
   Address,
+  Asset,
+  Horizon,
+  Operation,
   nativeToScVal,
   rpc,
   xdr,
   Networks,
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "./types";
+
+const USDC_ISSUER_TESTNET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+const USDC_ASSET_TESTNET = new Asset("USDC", USDC_ISSUER_TESTNET);
 
 const BASE_FEE = "100";
 
@@ -21,6 +27,27 @@ function resolveProtocol(vaultId: string): "Blend" | "DeFindex" {
   if (vaultId.startsWith("blend-")) return "Blend";
   if (vaultId.startsWith("defindex-")) return "DeFindex";
   throw new Error(`No protocol mapping for vault: ${vaultId}`);
+}
+
+export async function buildAddTrustlineTx(
+  walletAddress: string,
+  network: StellarNetwork
+): Promise<{ xdr: string }> {
+  const horizonUrl = network.network === "mainnet"
+    ? "https://horizon.stellar.org"
+    : "https://horizon-testnet.stellar.org";
+  const passphrase = network.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+  const asset = network.network === "mainnet" ? USDC_ASSET_TESTNET : USDC_ASSET_TESTNET;
+
+  const horizon = new Horizon.Server(horizonUrl);
+  const account = await horizon.loadAccount(walletAddress);
+
+  const tx = new TransactionBuilder(account, { fee: "100", networkPassphrase: passphrase })
+    .addOperation(Operation.changeTrust({ asset }))
+    .setTimeout(300)
+    .build();
+
+  return { xdr: tx.toEnvelope().toXDR("base64") };
 }
 
 export async function buildDepositTx(
