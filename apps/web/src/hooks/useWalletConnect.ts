@@ -1,17 +1,16 @@
 import { useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import { isFreighterInstalled, connectFreighter } from "../lib/wallet";
+import { useToastStore } from "../store/toast";
 
 export type ConnectStatus = "idle" | "connecting" | "no-extension";
 
 export function useWalletConnect() {
   const { connect } = useWalletStore();
+  const { push } = useToastStore();
   const [status, setStatus] = useState<ConnectStatus>("idle");
-  const [error, setError] = useState<string | null>(null);
 
   async function handleConnect() {
-    setError(null);
-
     const installed = await isFreighterInstalled();
     if (!installed) {
       setStatus("no-extension");
@@ -23,6 +22,7 @@ export function useWalletConnect() {
       const key = await connectFreighter();
       connect(key);
       setStatus("idle");
+      push("success", "Wallet connected");
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
       // User closed the popup — not an error worth surfacing
@@ -30,10 +30,10 @@ export function useWalletConnect() {
         setStatus("idle");
         return;
       }
-      setError(message);
+      push("error", message);
       setStatus("idle");
     }
   }
 
-  return { handleConnect, status, error };
+  return { handleConnect, status };
 }

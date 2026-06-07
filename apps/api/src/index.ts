@@ -1,3 +1,10 @@
+import { config } from "dotenv";
+import { resolve } from "node:path";
+
+// Load .env.local first (developer overrides), then fall back to .env
+config({ path: resolve(process.cwd(), "../../.env.local") });
+config({ path: resolve(process.cwd(), "../../.env") });
+
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";

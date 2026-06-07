@@ -2,13 +2,16 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(15_000),
     headers: { "Content-Type": "application/json" },
     ...init,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error ?? "API error");
+    const msg =
+      (typeof err.error === "string" ? err.error : err.error?.message ?? err.message) ||
+      `Request failed (${res.status})`;
+    throw new Error(msg);
   }
   return res.json() as Promise<T>;
 }
@@ -43,6 +46,11 @@ export const api = {
     apiFetch<{ positions: ApiPosition[] }>(
       `/api/v1/positions/${publicKey}`
     ),
+  addTrustline: (walletAddress: string) =>
+    apiFetch<{ xdr: string }>("/api/v1/tx/add-trustline", {
+      method: "POST",
+      body: JSON.stringify({ walletAddress }),
+    }),
   buildDeposit: (body: unknown) =>
     apiFetch<{ xdr: string }>("/api/v1/tx/deposit", {
       method: "POST",
@@ -50,6 +58,11 @@ export const api = {
     }),
   buildWithdraw: (body: unknown) =>
     apiFetch<{ xdr: string }>("/api/v1/tx/withdraw", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  submitTx: (body: { xdr: string }) =>
+    apiFetch<{ hash: string }>("/api/v1/tx/submit", {
       method: "POST",
       body: JSON.stringify(body),
     }),
