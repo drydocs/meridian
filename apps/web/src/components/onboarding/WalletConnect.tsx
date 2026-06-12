@@ -29,7 +29,7 @@ export function WalletConnect() {
 
   if (connected && publicKey) {
     return (
-      <div className="flex items-center gap-2 text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150">
+      <div className="flex items-center gap-2 text-sm border border-gray-700 rounded-lg px-3 py-2 text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
         <span>{shortenAddress(publicKey)}</span>
         <button
@@ -58,7 +58,7 @@ export function WalletConnect() {
         href="https://freighter.app"
         target="_blank"
         rel="noopener noreferrer"
-        className="text-sm border border-amber-800 rounded-lg px-4 py-1.5 font-medium text-amber-400 hover:border-amber-600 hover:text-amber-300 transition-colors duration-150"
+        className="text-sm border border-amber-800 rounded-lg px-4 py-2 font-medium text-amber-400 hover:border-amber-600 hover:text-amber-300 transition-colors duration-150"
       >
         Install Freighter
       </a>
@@ -69,7 +69,7 @@ export function WalletConnect() {
     <button
       onClick={handleConnect}
       disabled={status === "connecting"}
-      className="text-sm border border-gray-700 rounded-lg px-4 py-1.5 font-medium text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+      className="text-sm border border-gray-700 rounded-lg px-4 py-2 font-medium text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {status === "connecting" ? "Connecting..." : "Connect Wallet"}
     </button>
