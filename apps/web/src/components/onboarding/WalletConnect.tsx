@@ -2,12 +2,24 @@ import { useWalletStore } from "../../store/wallet";
 import { useToastStore } from "../../store/toast";
 import { shortenAddress } from "@meridian/shared";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
+import { Copy, Check } from "lucide-react";
+import { useState } from "react";
 
 export function WalletConnect() {
   const { connected, publicKey, disconnect } = useWalletStore();
   const { push } = useToastStore();
   const { handleConnect, status } = useWalletConnect();
+  const [copied, setCopied] = useState(false); 
 
+  const handleCopy = async () => {
+    if (!publicKey) return;
+    await navigator.clipboard.writeText(publicKey);
+    setCopied(true);
+    setTimeout(() => {
+      setCopied(false);
+    }, 2000);
+  };
+  
   function handleDisconnect() {
     disconnect();
     push("info", "Wallet disconnected");
@@ -15,15 +27,26 @@ export function WalletConnect() {
 
   if (connected && publicKey) {
     return (
-      <button
-        onClick={handleDisconnect}
-        className="flex items-center gap-2 text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150"
-      >
+      <div className="flex items-center gap-2 text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-        {shortenAddress(publicKey)}
+        <span>{shortenAddress(publicKey)}</span>
+        <button
+          onClick={handleCopy}
+          title={copied ? "Copied!" : "Copy address"}
+          aria-label={copied ? "Copied!" : "Copy address"}
+          className="text-gray-400 hover:text-white transition-colors duration-150"
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </button>
+
         <span className="text-gray-600">·</span>
-        <span className="text-gray-500">Disconnect</span>
-      </button>
+        <span
+         onClick={handleDisconnect}
+         className="flex items-center gap-2 text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150"
+         >
+        Disconnect
+        </span>
+      </div>
     );
   }
 
