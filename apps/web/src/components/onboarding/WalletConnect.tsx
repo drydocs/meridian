@@ -40,12 +40,12 @@ export function WalletConnect() {
         </button>
 
         <span className="text-gray-600">·</span>
-        <span
-         onClick={handleDisconnect}
-         className="flex items-center gap-2 text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150"
-         >
-        Disconnect
-        </span>
+        <button
+          onClick={handleDisconnect}
+          className="text-gray-400 hover:text-white transition-colors duration-150"
+        >
+          Disconnect
+        </button>
       </div>
     );
   }
