@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
 import { WalletConnect } from "./components/onboarding/WalletConnect";
 import { Toasts } from "./components/ui/Toasts";
+import { useWalletStore } from "./store/wallet";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +25,11 @@ function Dashboard() {
 }
 
 export default function App() {
+  // Evict a stale persisted wallet if Freighter is no longer available.
+  useEffect(() => {
+    void useWalletStore.getState().revalidate();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <Dashboard />
