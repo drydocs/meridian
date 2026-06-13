@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **MeridianVault: per-user deposit entry time.** The contract now stamps
+  `env.ledger().timestamp()` on a user's first deposit (top-ups keep the original;
+  a full withdrawal clears it) and exposes it via `get_entry_time`. The
+  `/api/v1/positions` endpoint (and the local Fastify route) now return the real
+  `entryTime` instead of the previous hardcoded `0`. Covered by
+  `deposit_records_entry_time`, `topup_keeps_original_entry_time`,
+  `full_withdraw_clears_entry_time`, and `entry_time_defaults_to_zero`.
+
 ### Security
 
 - **MeridianVault: add admin safety rails.** New `set_paused`/`is_paused` emergency

@@ -44,11 +44,12 @@ export default async function handler(req: any, res: any) {
     const server = new rpc.Server(RPC_URL);
     const callerScVal = Address.fromString(publicKey).toScVal();
 
-    const [shares, totalShares, totalAssets] = (await Promise.all([
+    const [shares, totalShares, totalAssets, entryTime] = (await Promise.all([
       simulateView(server, "get_position", callerScVal),
       simulateView(server, "get_total_shares"),
       simulateView(server, "get_total_assets"),
-    ])) as [bigint | number, bigint | number, bigint | number];
+      simulateView(server, "get_entry_time", callerScVal),
+    ])) as [bigint | number, bigint | number, bigint | number, bigint | number];
 
     const sharesBig = BigInt(shares ?? 0);
 
@@ -70,7 +71,7 @@ export default async function handler(req: any, res: any) {
           shares: Number(sharesBig) / 1e7,
           deposited,
           earned: 0, // contract does not track yield per user yet
-          entryTime: 0, // contract does not record deposit timestamp yet
+          entryTime: Number(entryTime ?? 0), // ledger timestamp of the deposit
         },
       ],
     });

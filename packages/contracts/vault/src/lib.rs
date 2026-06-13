@@ -41,6 +41,7 @@ pub enum Protocol {
 #[derive(Clone)]
 pub enum DataKey {
     Balance(Address),
+    Entry(Address),
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +121,14 @@ impl MeridianVault {
         let prev: i128 = env.storage().persistent().get(&key).unwrap_or(0);
         env.storage().persistent().set(&key, &(prev + shares_to_mint));
 
+        // Stamp the entry time on the user's first deposit so positions can show
+        // how long funds have been deposited. Topping up an existing position
+        // keeps the original entry time.
+        if prev == 0 {
+            let entry_key = DataKey::Entry(caller.clone());
+            env.storage().persistent().set(&entry_key, &env.ledger().timestamp());
+        }
+
         shares_to_mint
     }
 
@@ -163,9 +172,13 @@ impl MeridianVault {
         env.storage()
             .instance()
             .set(&TOTAL_SH, &(total_shares - shares));
-        env.storage()
-            .persistent()
-            .set(&key, &(caller_shares - shares));
+        let remaining = caller_shares - shares;
+        env.storage().persistent().set(&key, &remaining);
+
+        // A full exit clears the entry time so a later re-deposit starts fresh.
+        if remaining == 0 {
+            env.storage().persistent().remove(&DataKey::Entry(caller.clone()));
+        }
 
         usdc_out
     }
@@ -173,6 +186,13 @@ impl MeridianVault {
     /// Returns the caller's mUSDC share balance.
     pub fn get_position(env: Env, address: Address) -> i128 {
         let key = DataKey::Balance(address);
+        env.storage().persistent().get(&key).unwrap_or(0)
+    }
+
+    /// Returns the ledger timestamp of the address's current deposit, or 0 if it
+    /// holds no position. Reset whenever the position is fully withdrawn.
+    pub fn get_entry_time(env: Env, address: Address) -> u64 {
+        let key = DataKey::Entry(address);
         env.storage().persistent().get(&key).unwrap_or(0)
     }
 
@@ -250,7 +270,7 @@ impl MeridianVault {
 mod tests {
     use super::*;
     use soroban_sdk::{
-        testutils::Address as _,
+        testutils::{Address as _, Ledger as _},
         token::{StellarAssetClient, TokenClient},
         Address, Env,
     };
@@ -378,6 +398,45 @@ mod tests {
         // The victim is made whole — they recover essentially their full deposit.
         let victim_out = vault.withdraw(&victim, &victim_shares);
         assert!(victim_out > victim_deposit * 99 / 100, "victim must not be robbed");
+    }
+
+    #[test]
+    fn entry_time_defaults_to_zero() {
+        let (env, _admin, user, _usdc, _musdc, vault) = setup();
+        let _ = env;
+        assert_eq!(vault.get_entry_time(&user), 0);
+    }
+
+    #[test]
+    fn deposit_records_entry_time() {
+        let (env, _admin, user, _usdc, _musdc, vault) = setup();
+        env.ledger().set_timestamp(1_700_000_000);
+
+        vault.deposit(&user, &100_0000000_i128, &Protocol::Blend);
+        assert_eq!(vault.get_entry_time(&user), 1_700_000_000);
+    }
+
+    #[test]
+    fn topup_keeps_original_entry_time() {
+        let (env, _admin, user, _usdc, _musdc, vault) = setup();
+        env.ledger().set_timestamp(1_700_000_000);
+        vault.deposit(&user, &100_0000000_i128, &Protocol::Blend);
+
+        // A later top-up must not reset the original entry time.
+        env.ledger().set_timestamp(1_700_500_000);
+        vault.deposit(&user, &50_0000000_i128, &Protocol::Blend);
+        assert_eq!(vault.get_entry_time(&user), 1_700_000_000);
+    }
+
+    #[test]
+    fn full_withdraw_clears_entry_time() {
+        let (env, _admin, user, _usdc, _musdc, vault) = setup();
+        env.ledger().set_timestamp(1_700_000_000);
+        vault.deposit(&user, &100_0000000_i128, &Protocol::Blend);
+
+        let shares = vault.get_position(&user);
+        vault.withdraw(&user, &shares);
+        assert_eq!(vault.get_entry_time(&user), 0);
     }
 
     #[test]
