@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **MeridianVault: fix first-depositor share inflation attack.** Share price is now
+  computed against a virtual shares/assets offset (OpenZeppelin ERC-4626 mitigation)
+  instead of the raw on-chain USDC balance, so an attacker can no longer donate USDC
+  directly to the contract to skim later depositors via rounding. Added the
+  `inflation_attack_is_unprofitable` regression test.
+
+### CI
+
+- Re-enabled the Soroban contract job (`cargo test` + wasm release build) now that
+  `packages/contracts` has a `Cargo.toml`.
+
 ### Planned
 
 - Freighter wallet adapter integration

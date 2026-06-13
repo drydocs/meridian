@@ -16,6 +16,15 @@ const MUSDC: Symbol = symbol_short!("MUSDC");
 const PROTOCOL: Symbol = symbol_short!("PROTOCOL");
 const TOTAL_SH: Symbol = symbol_short!("TOTAL_SH");
 
+// Virtual shares/assets offset (OpenZeppelin ERC-4626 mitigation against the
+// first-depositor inflation attack). Share price is computed against
+// `vault_balance + OFFSET` over `total_shares + OFFSET` instead of the raw
+// on-chain balance. The virtual liquidity belongs to no one, so an attacker who
+// donates USDC directly to the contract to inflate the share price recovers only
+// ~1/OFFSET of the donation, making the skim strictly unprofitable. For honest
+// depositors the offset is negligible (1_000 stroops = 0.0001 USDC).
+const OFFSET: i128 = 1_000;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -78,18 +87,15 @@ impl MeridianVault {
         let vault_balance = TokenClient::new(&env, &usdc)
             .balance(&env.current_contract_address());
 
-        // Share price: if no shares exist yet, 1 share = 1 stroop of USDC.
-        // Otherwise maintain the existing share price.
-        let shares_to_mint = if total_shares == 0 || vault_balance == 0 {
-            amount
-        } else {
-            // shares_to_mint = amount * total_shares / vault_balance
-            amount
-                .checked_mul(total_shares)
-                .expect("overflow")
-                .checked_div(vault_balance)
-                .expect("div zero")
-        };
+        // shares_to_mint = amount * (total_shares + OFFSET) / (vault_balance + OFFSET)
+        // The virtual offset makes the first deposit price 1 share = 1 stroop
+        // (amount * OFFSET / OFFSET == amount) while neutralising the inflation
+        // attack on every subsequent deposit.
+        let shares_to_mint = amount
+            .checked_mul(total_shares + OFFSET)
+            .expect("overflow")
+            .checked_div(vault_balance + OFFSET)
+            .expect("div zero");
 
         assert!(shares_to_mint > 0, "deposit too small");
 
@@ -134,11 +140,13 @@ impl MeridianVault {
         let caller_shares: i128 = env.storage().persistent().get(&key).unwrap_or(0);
         assert!(caller_shares >= shares, "insufficient shares");
 
-        // usdc_out = shares * vault_balance / total_shares
+        // usdc_out = shares * (vault_balance + OFFSET) / (total_shares + OFFSET)
+        // Mirrors the deposit pricing so the virtual offset cancels for honest
+        // round-trips and absorbs an attacker's donation into the virtual pool.
         let usdc_out = shares
-            .checked_mul(vault_balance)
+            .checked_mul(vault_balance + OFFSET)
             .expect("overflow")
-            .checked_div(total_shares)
+            .checked_div(total_shares + OFFSET)
             .expect("div zero");
 
         assert!(usdc_out > 0, "withdrawal too small");
@@ -298,6 +306,42 @@ mod tests {
         let shares1 = vault.get_position(&user);
         let usdc_out = vault.withdraw(&user, &shares1);
         assert!(usdc_out > amount, "first depositor should profit from yield");
+    }
+
+    #[test]
+    fn inflation_attack_is_unprofitable() {
+        let (env, _admin, attacker, usdc_id, _musdc, vault) = setup();
+        let usdc = TokenClient::new(&env, &usdc_id);
+
+        // 1. Attacker is the first depositor with the smallest possible amount.
+        let attacker_deposit = 1_i128;
+        let attacker_shares = vault.deposit(&attacker, &attacker_deposit, &Protocol::Blend);
+        assert_eq!(attacker_shares, 1);
+
+        // 2. Attacker donates USDC straight to the vault to inflate the share
+        //    price before the victim deposits (the classic inflation attack).
+        let donation = 100_0000000_i128; // 100 USDC
+        usdc.transfer(&attacker, &vault.address, &donation);
+
+        // 3. Victim deposits 100 USDC.
+        let victim = Address::generate(&env);
+        let victim_deposit = 100_0000000_i128;
+        StellarAssetClient::new(&env, &usdc_id).mint(&victim, &victim_deposit);
+        let victim_shares = vault.deposit(&victim, &victim_deposit, &Protocol::Blend);
+        assert!(victim_shares > 0, "victim must receive shares");
+
+        // 4. Attacker withdraws their single share to skim the victim.
+        let attacker_out = vault.withdraw(&attacker, &attacker_shares);
+
+        // The virtual offset absorbs the donation: the attacker recovers a
+        // negligible fraction of the capital they committed, so the attack loses
+        // money instead of profiting.
+        let attacker_in = attacker_deposit + donation;
+        assert!(attacker_out * 100 < attacker_in, "inflation attack must not be profitable");
+
+        // The victim is made whole — they recover essentially their full deposit.
+        let victim_out = vault.withdraw(&victim, &victim_shares);
+        assert!(victim_out > victim_deposit * 99 / 100, "victim must not be robbed");
     }
 
     #[test]
