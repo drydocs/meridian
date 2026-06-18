@@ -1,9 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
 import { CONTRACT_ADDRESSES, STELLAR_NETWORKS } from "@meridian/shared";
-import { fetchPosition } from "@meridian/stellar-sdk-helpers";
+import { fetchBlendPositions } from "@meridian/stellar-sdk-helpers";
 
 const network = STELLAR_NETWORKS.testnet;
-const vaultContractId = process.env.VAULT_CONTRACT_ID ?? CONTRACT_ADDRESSES.testnet.vault;
+const addresses = CONTRACT_ADDRESSES.testnet;
 
 export const positionsRoute: FastifyPluginAsync = async (app) => {
   app.get("/:publicKey", async (req, reply) => {
@@ -14,7 +14,10 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
     }
 
     try {
-      const positions = await fetchPosition(network, vaultContractId, publicKey);
+      const positions = await fetchBlendPositions(network, addresses.blend.pool, publicKey, [
+        { assetId: addresses.usdc, vaultId: "blend-usdc-fixed" },
+        { assetId: addresses.eurc, vaultId: "blend-eurc-fixed" },
+      ]);
       reply.send({ positions });
     } catch (err) {
       app.log.error(err, "[positions] read failed");

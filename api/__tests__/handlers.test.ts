@@ -12,8 +12,8 @@ vi.mock("@meridian/stellar-sdk-helpers", () => ({
   buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
   submitTx: vi.fn(async () => ({ hash: "HASH" })),
   fetchAllVaults: vi.fn(async () => [{ id: "blend-usdc-fixed", protocol: "blend" }]),
-  fetchPosition: vi.fn(async () => [
-    { vaultId: "v", shares: 1, deposited: 1, earned: 0, entryTime: 0 },
+  fetchBlendPositions: vi.fn(async () => [
+    { vaultId: "blend-usdc-fixed", shares: 1, deposited: 1, earned: 0, entryTime: 0 },
   ]),
 }));
 
@@ -23,7 +23,7 @@ import trustlineHandler from "../v1/tx/add-trustline";
 import submitHandler from "../v1/tx/submit";
 import vaultsHandler from "../v1/vaults/index";
 import positionsHandler from "../v1/positions/[publicKey]";
-import { buildBlendDepositTx, fetchPosition } from "@meridian/stellar-sdk-helpers";
+import { buildBlendDepositTx, fetchBlendPositions } from "@meridian/stellar-sdk-helpers";
 
 // A 56-char Stellar public key shape (only the length is validated).
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -156,20 +156,20 @@ describe("GET /api/v1/positions/:publicKey", () => {
     const res = makeRes();
     await positionsHandler({ method: "GET", query: { publicKey: "too-short" } }, res);
     expect(res.statusCode).toBe(400);
-    expect(fetchPosition).not.toHaveBeenCalled();
+    expect(fetchBlendPositions).not.toHaveBeenCalled();
   });
 
   it("returns the resolved positions for a valid key", async () => {
     const res = makeRes();
     await positionsHandler({ method: "GET", query: { publicKey: PUBKEY } }, res);
     expect(res.body).toEqual({
-      positions: [{ vaultId: "v", shares: 1, deposited: 1, earned: 0, entryTime: 0 }],
+      positions: [{ vaultId: "blend-usdc-fixed", shares: 1, deposited: 1, earned: 0, entryTime: 0 }],
     });
-    expect(fetchPosition).toHaveBeenCalledOnce();
+    expect(fetchBlendPositions).toHaveBeenCalledOnce();
   });
 
   it("degrades to an empty list if the read throws", async () => {
-    vi.mocked(fetchPosition).mockRejectedValueOnce(new Error("rpc down"));
+    vi.mocked(fetchBlendPositions).mockRejectedValueOnce(new Error("rpc down"));
     const res = makeRes();
     await positionsHandler({ method: "GET", query: { publicKey: PUBKEY } }, res);
     expect(res.body).toEqual({ positions: [] });

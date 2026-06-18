@@ -12,19 +12,20 @@ Submitted to the **Drips Stellar Wave Program**.
 
 Meridian is a **testnet technical preview**, not a finished product. Be clear-eyed about what exists today before depositing real funds (you can't yet — mainnet is not wired).
 
-**Working today**
+**Working today (testnet)**
 - Live APY / TVL feed across Stellar stablecoin pools (via DeFiLlama) with a risk heuristic
 - Non-custodial signing flow: the API builds an unsigned Soroban XDR, your wallet (Freighter) signs and submits it — keys never leave the browser
-- Testnet `MeridianVault` Soroban contract (deposit / withdraw, ERC-4626-style share accounting hardened against the first-depositor inflation attack, pause + admin-rotation rails) with unit tests
-- Position reads (shares, principal, entry time, earned)
+- **Direct deposit / withdraw against a real Blend pool** (#4): funds supply straight into Blend from your wallet and the resulting bToken position is yours — no Meridian-controlled custody
+- Live position reads from the Blend pool (current supplied value)
+- `MeridianVault` Soroban contract (ERC-4626-style share accounting hardened against the first-depositor inflation attack, pause + admin-rotation rails) with unit tests — reserved for the v2 single-transaction rebalancing router (#8)
 
 **In progress — the core promise is not finished**
-- Direct deposit/withdraw against real Blend pools (#4) — *being wired now*
 - Direct deposit/withdraw against real DeFindex vaults (#5)
-- Best-rate routing API that picks the winning pool (#6)
+- Best-rate routing API that automatically picks the winning pool (#6)
+- Per-position yield earned (cost-basis tracking for a direct Blend supply)
 - Mainnet configuration and a security audit before any real-funds use
 
-Until #4–#6 land, displayed APYs are **informational**: the testnet vault holds USDC but does not yet forward it to an external yield source. Track progress in the [Roadmap](#roadmap) and [open issues](../../issues).
+DeFindex routes currently return `501` rather than silently routing elsewhere. Track progress in the [Roadmap](#roadmap) and [open issues](../../issues).
 
 ---
 

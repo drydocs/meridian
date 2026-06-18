@@ -1,6 +1,7 @@
 import { Networks, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
-import { PoolContractV2, RequestType } from "@blend-capital/blend-sdk";
+import { PoolContractV2, PoolV2, RequestType } from "@blend-capital/blend-sdk";
 import type { StellarNetwork } from "./types";
+import type { PositionInfo } from "./positions";
 
 const BASE_FEE = "100";
 
@@ -88,4 +89,41 @@ export function buildBlendWithdrawTx(
   amount: bigint
 ): Promise<{ xdr: string; fee: string }> {
   return buildPoolRequestTx(config, withdrawer, RequestType.WithdrawCollateral, amount);
+}
+
+export interface BlendReserveRef {
+  // Reserve asset contract (the USDC/EURC Stellar Asset Contract).
+  assetId: string;
+  // Meridian vault id the resulting position is reported under.
+  vaultId: string;
+}
+
+/**
+ * Read a user's live supply position in a Blend pool, one entry per reserve the
+ * user holds. The pool ledger state is loaded once and each reserve is valued
+ * via the SDK (collateral + plain supply, in underlying asset units).
+ *
+ * `deposited` is the current value of the position; `shares` mirrors it so the
+ * UI's "withdraw max" reflects the full withdrawable amount. `earned` is 0 for
+ * now — a direct Blend supply carries no on-chain cost basis, so yield can't be
+ * derived without event indexing (tracked separately).
+ */
+export async function fetchBlendPositions(
+  network: StellarNetwork,
+  poolId: string,
+  publicKey: string,
+  reserves: BlendReserveRef[]
+): Promise<PositionInfo[]> {
+  const pool = await PoolV2.load({ rpc: network.rpcUrl, passphrase: network.passphrase }, poolId);
+  const user = await pool.loadUser(publicKey);
+
+  const positions: PositionInfo[] = [];
+  for (const { assetId, vaultId } of reserves) {
+    const reserve = pool.reserves.get(assetId);
+    if (!reserve) continue;
+    const value = user.getCollateralFloat(reserve) + user.getSupplyFloat(reserve);
+    if (value <= 0) continue;
+    positions.push({ vaultId, shares: value, deposited: value, earned: 0, entryTime: 0 });
+  }
+  return positions;
 }

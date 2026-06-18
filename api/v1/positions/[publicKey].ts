@@ -1,8 +1,8 @@
-import { fetchPosition } from "@meridian/stellar-sdk-helpers";
+import { fetchBlendPositions } from "@meridian/stellar-sdk-helpers";
 import { CONTRACT_ADDRESSES, STELLAR_NETWORKS } from "@meridian/shared";
 
 const network = STELLAR_NETWORKS.testnet;
-const vaultContractId = process.env.VAULT_CONTRACT_ID ?? CONTRACT_ADDRESSES.testnet.vault;
+const addresses = CONTRACT_ADDRESSES.testnet;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default async function handler(req: any, res: any) {
@@ -13,7 +13,10 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const positions = await fetchPosition(network, vaultContractId, publicKey);
+    const positions = await fetchBlendPositions(network, addresses.blend.pool, publicKey, [
+      { assetId: addresses.usdc, vaultId: "blend-usdc-fixed" },
+      { assetId: addresses.eurc, vaultId: "blend-eurc-fixed" },
+    ]);
     res.json({ positions });
   } catch (err) {
     console.error("[positions] error:", err);
