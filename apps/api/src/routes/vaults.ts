@@ -1,10 +1,22 @@
 import type { FastifyPluginAsync } from "fastify";
+import { selectBestVault } from "@meridian/stellar-sdk-helpers";
+import { CONTRACT_ADDRESSES } from "@meridian/shared";
 import { fetchAllVaults } from "../services/vaults.js";
+
+const defindexConfigured = Boolean(
+  process.env.DEFINDEX_VAULT_ID ?? CONTRACT_ADDRESSES.testnet.defindex.vault
+);
 
 export const vaultsRoute: FastifyPluginAsync = async (app) => {
   app.get("/", async (_req, reply) => {
     const vaults = await fetchAllVaults();
-    return reply.send({ vaults, updatedAt: new Date().toISOString(), cached: false });
+    const best = selectBestVault(vaults, { defindexConfigured });
+    return reply.send({
+      vaults,
+      recommendedVaultId: best?.id ?? null,
+      updatedAt: new Date().toISOString(),
+      cached: false,
+    });
   });
 
   app.get("/:vaultId", async (req, reply) => {

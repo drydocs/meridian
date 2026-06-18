@@ -29,7 +29,8 @@ function formatTvl(value: number): string {
 type Tab = "deposit" | "withdraw";
 
 export function VaultPanel() {
-  const { data: vaults, isLoading: vaultsLoading } = useVaults();
+  const { data, isLoading: vaultsLoading } = useVaults();
+  const vaults = data?.vaults;
   const { connected, publicKey } = useWalletStore();
   const { handleConnect, status: connectStatus } = useWalletConnect();
   const { data: positions = [] } = usePositions(publicKey);
@@ -44,7 +45,9 @@ export function VaultPanel() {
     e.preventDefault();
   }
 
-  const bestVault = vaults?.reduce((best, v) => (v.apy > best.apy ? v : best), vaults[0]);
+  // Route to the server's recommendation: the highest-APY vault Meridian can
+  // actually deposit into (excludes display-only protocols and risky pools).
+  const bestVault = vaults?.find((v) => v.id === data?.recommendedVaultId);
   // Single-vault architecture: the user holds at most one position. Revisit if multi-vault is added.
   const position = positions[0];
   const hasPosition = position && position.deposited > 0;

@@ -39,9 +39,12 @@ export interface ApiPosition {
 
 export const api = {
   getVaults: () =>
-    apiFetch<{ vaults: ApiVault[]; updatedAt: string; cached: boolean }>(
-      "/api/v1/vaults"
-    ),
+    apiFetch<{
+      vaults: ApiVault[];
+      recommendedVaultId: string | null;
+      updatedAt: string;
+      cached: boolean;
+    }>("/api/v1/vaults"),
   getPositions: (publicKey: string) =>
     apiFetch<{ positions: ApiPosition[] }>(
       `/api/v1/positions/${publicKey}`

@@ -3,6 +3,7 @@ export * from "./defilamma";
 export * from "./defindex";
 export * from "./horizon";
 export * from "./positions";
+export * from "./routing";
 export * from "./tx";
 export * from "./types";
 export * from "./vaults";

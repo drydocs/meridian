@@ -12,6 +12,7 @@ vi.mock("@meridian/stellar-sdk-helpers", () => ({
   buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
   submitTx: vi.fn(async () => ({ hash: "HASH" })),
   fetchAllVaults: vi.fn(async () => [{ id: "blend-usdc-fixed", protocol: "blend" }]),
+  selectBestVault: vi.fn(() => ({ id: "blend-usdc-fixed" })),
   fetchBlendPositions: vi.fn(async () => [
     { vaultId: "blend-usdc-fixed", shares: 1, deposited: 1, earned: 0, entryTime: 0 },
   ]),
@@ -148,7 +149,11 @@ describe("GET /api/v1/vaults", () => {
     await vaultsHandler({ method: "GET" }, res);
     expect(res.statusCode).toBe(200);
     expect(res.headers["Cache-Control"]).toContain("s-maxage=60");
-    expect(res.body).toMatchObject({ vaults: [{ id: "blend-usdc-fixed" }], cached: false });
+    expect(res.body).toMatchObject({
+      vaults: [{ id: "blend-usdc-fixed" }],
+      recommendedVaultId: "blend-usdc-fixed",
+      cached: false,
+    });
   });
 });
 

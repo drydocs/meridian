@@ -17,11 +17,11 @@ Meridian is a **testnet technical preview**, not a finished product. Be clear-ey
 - Non-custodial signing flow: the API builds an unsigned Soroban XDR, your wallet (Freighter) signs and submits it — keys never leave the browser
 - **Direct deposit / withdraw against a real Blend pool** (#4): funds supply straight into Blend from your wallet and the resulting bToken position is yours — no Meridian-controlled custody
 - Live position reads from the Blend pool and (when a DeFindex vault is configured) DeFindex vault — current supplied value
+- Best-rate routing (#6): the API recommends the highest-APY vault it can actually deposit into, skipping display-only protocols and pools flagged risky
 - `MeridianVault` Soroban contract (ERC-4626-style share accounting hardened against the first-depositor inflation attack, pause + admin-rotation rails) with unit tests — reserved for the v2 single-transaction rebalancing router (#8)
 
 **In progress — the core promise is not finished**
 - Direct deposit/withdraw against real DeFindex vaults (#5) — *transaction builders are implemented locally (no hosted API); gated behind `DEFINDEX_VAULT_ID` until a real testnet vault is wired*
-- Best-rate routing API that automatically picks the winning pool (#6)
 - Per-position yield earned (cost-basis tracking for direct Blend/DeFindex positions)
 - Mainnet configuration and a security audit before any real-funds use
 
