@@ -56,7 +56,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  buildWithdraw: (body: { walletAddress: string; vaultId: string; shares: string }) =>
+  buildWithdraw: (body: { walletAddress: string; vaultId: string; amount: string }) =>
     apiFetch<{ xdr: string }>("/api/v1/tx/withdraw", {
       method: "POST",
       body: JSON.stringify(body),

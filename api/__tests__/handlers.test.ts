@@ -4,8 +4,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // contract (method guards, field validation, status codes, payload shape), not
 // the Soroban transaction building, which is unit-tested in the helpers package.
 vi.mock("@meridian/stellar-sdk-helpers", () => ({
-  buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
-  buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
+  buildBlendDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
+  buildBlendWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
+  blendAssetForVault: vi.fn(() => "usdc"),
+  resolveProtocol: vi.fn(() => "Blend"),
+  toStroops: vi.fn(() => 100_000_000n),
   buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
   submitTx: vi.fn(async () => ({ hash: "HASH" })),
   fetchAllVaults: vi.fn(async () => [{ id: "blend-usdc-fixed", protocol: "blend" }]),
@@ -20,7 +23,7 @@ import trustlineHandler from "../v1/tx/add-trustline";
 import submitHandler from "../v1/tx/submit";
 import vaultsHandler from "../v1/vaults/index";
 import positionsHandler from "../v1/positions/[publicKey]";
-import { buildDepositTx, fetchPosition } from "@meridian/stellar-sdk-helpers";
+import { buildBlendDepositTx, fetchPosition } from "@meridian/stellar-sdk-helpers";
 
 // A 56-char Stellar public key shape (only the length is validated).
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -77,11 +80,11 @@ describe("POST /api/v1/tx/deposit", () => {
     );
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ xdr: "DEPOSIT_XDR", fee: "100" });
-    expect(buildDepositTx).toHaveBeenCalledOnce();
+    expect(buildBlendDepositTx).toHaveBeenCalledOnce();
   });
 
   it("surfaces builder errors as 500", async () => {
-    vi.mocked(buildDepositTx).mockRejectedValueOnce(new Error("USDC trustline missing"));
+    vi.mocked(buildBlendDepositTx).mockRejectedValueOnce(new Error("USDC trustline missing"));
     const res = makeRes();
     await depositHandler(
       { method: "POST", body: { walletAddress: PUBKEY, vaultId: "blend-usdc-fixed", amount: "10" } },
@@ -93,17 +96,17 @@ describe("POST /api/v1/tx/deposit", () => {
 });
 
 describe("POST /api/v1/tx/withdraw", () => {
-  it("returns 400 when shares are missing", async () => {
+  it("returns 400 when the amount is missing", async () => {
     const res = makeRes();
     await withdrawHandler({ method: "POST", body: { walletAddress: PUBKEY, vaultId: "v" } }, res);
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({ error: "Missing required fields: shares" });
+    expect(res.body).toEqual({ error: "Missing required fields: amount" });
   });
 
   it("builds the withdraw transaction", async () => {
     const res = makeRes();
     await withdrawHandler(
-      { method: "POST", body: { walletAddress: PUBKEY, vaultId: "v", shares: "5" } },
+      { method: "POST", body: { walletAddress: PUBKEY, vaultId: "blend-usdc-fixed", amount: "5" } },
       res
     );
     expect(res.body).toEqual({ xdr: "WITHDRAW_XDR", fee: "100" });

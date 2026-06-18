@@ -9,7 +9,8 @@ export const DepositRequestSchema = z.object({
 export const WithdrawRequestSchema = z.object({
   walletAddress: z.string().length(56),
   vaultId: z.string(),
-  shares: z.string().regex(/^\d+(\.\d{1,7})?$/),
+  // Underlying asset amount (USDC/EURC) to withdraw from the pool.
+  amount: z.string().regex(/^\d+(\.\d{1,7})?$/),
 });
 
 export type DepositRequest = z.infer<typeof DepositRequestSchema>;

@@ -65,14 +65,14 @@ export function useVaultActions() {
     }
   }
 
-  async function withdraw(shares: string, vaultId: string): Promise<boolean> {
+  async function withdraw(amount: string, vaultId: string): Promise<boolean> {
     if (!publicKey || !passphrase) return false;
     setIsWithdrawing(true);
     try {
-      const { xdr } = await api.buildWithdraw({ walletAddress: publicKey, vaultId, shares });
+      const { xdr } = await api.buildWithdraw({ walletAddress: publicKey, vaultId, amount });
       await signAndSubmit(xdr);
       queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
-      push("success", `Withdrew ${shares} mUSDC`);
+      push("success", `Withdrew ${amount} USDC`);
       return true;
     } catch (err) {
       push("error", err instanceof Error ? err.message : "Withdrawal failed");

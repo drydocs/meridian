@@ -2,9 +2,29 @@
 
 **Stablecoin yield aggregator on Stellar, built for emerging market savers.**
 
-Meridian is a savings dashboard that routes USDC deposits to the highest-yielding vaults across [Blend](https://blend.capital) and [DeFindex](https://defindex.io) on the Stellar network. It targets users in West Africa and other emerging markets where dollar-denominated savings yield meaningful real returns compared to local currency alternatives.
+Meridian is a savings dashboard that surfaces live USDC yields across [Blend](https://blend.capital) and [DeFindex](https://defindex.io) on the Stellar network and builds the deposit transactions your own wallet signs. Its goal is to route deposits to the highest-yielding vault automatically. It targets users in West Africa and other emerging markets where dollar-denominated savings yield meaningful real returns compared to local currency alternatives.
 
 Submitted to the **Drips Stellar Wave Program**.
+
+---
+
+## Project status
+
+Meridian is a **testnet technical preview**, not a finished product. Be clear-eyed about what exists today before depositing real funds (you can't yet — mainnet is not wired).
+
+**Working today**
+- Live APY / TVL feed across Stellar stablecoin pools (via DeFiLlama) with a risk heuristic
+- Non-custodial signing flow: the API builds an unsigned Soroban XDR, your wallet (Freighter) signs and submits it — keys never leave the browser
+- Testnet `MeridianVault` Soroban contract (deposit / withdraw, ERC-4626-style share accounting hardened against the first-depositor inflation attack, pause + admin-rotation rails) with unit tests
+- Position reads (shares, principal, entry time, earned)
+
+**In progress — the core promise is not finished**
+- Direct deposit/withdraw against real Blend pools (#4) — *being wired now*
+- Direct deposit/withdraw against real DeFindex vaults (#5)
+- Best-rate routing API that picks the winning pool (#6)
+- Mainnet configuration and a security audit before any real-funds use
+
+Until #4–#6 land, displayed APYs are **informational**: the testnet vault holds USDC but does not yet forward it to an external yield source. Track progress in the [Roadmap](#roadmap) and [open issues](../../issues).
 
 ---
 

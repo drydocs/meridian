@@ -1,9 +1,17 @@
 import type { FastifyPluginAsync } from "fastify";
 import { DepositRequestSchema, WithdrawRequestSchema, CONTRACT_ADDRESSES, STELLAR_NETWORKS } from "@meridian/shared";
-import { buildDepositTx, buildWithdrawTx, buildAddTrustlineTx, submitTx } from "@meridian/stellar-sdk-helpers";
+import {
+  buildBlendDepositTx,
+  buildBlendWithdrawTx,
+  blendAssetForVault,
+  resolveProtocol,
+  toStroops,
+  buildAddTrustlineTx,
+  submitTx,
+} from "@meridian/stellar-sdk-helpers";
 
 const network = STELLAR_NETWORKS.testnet;
-const vaultContractId = process.env.VAULT_CONTRACT_ID ?? CONTRACT_ADDRESSES.testnet.vault;
+const addresses = CONTRACT_ADDRESSES.testnet;
 
 export const txRoute: FastifyPluginAsync = async (app) => {
   app.post("/deposit", async (req, reply) => {
@@ -13,11 +21,18 @@ export const txRoute: FastifyPluginAsync = async (app) => {
       const msg = Object.entries(fields).map(([k, v]) => `${k}: ${v?.join(", ")}`).join("; ");
       return reply.code(400).send({ error: msg || "Invalid request" });
     }
-    if (!vaultContractId) return reply.code(503).send({ error: "Vault contract not yet deployed" });
 
     try {
       const { walletAddress, vaultId, amount } = parsed.data;
-      const result = await buildDepositTx(vaultContractId, walletAddress, vaultId, amount, network);
+      if (resolveProtocol(vaultId) !== "Blend") {
+        return reply.code(501).send({ error: "DeFindex deposits are not implemented yet. See issue #5." });
+      }
+      const asset = blendAssetForVault(vaultId);
+      const result = await buildBlendDepositTx(
+        { poolId: addresses.blend.pool, assetId: addresses[asset], network },
+        walletAddress,
+        toStroops(amount)
+      );
       reply.send(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to build deposit transaction";
@@ -32,11 +47,18 @@ export const txRoute: FastifyPluginAsync = async (app) => {
       const msg = Object.entries(fields).map(([k, v]) => `${k}: ${v?.join(", ")}`).join("; ");
       return reply.code(400).send({ error: msg || "Invalid request" });
     }
-    if (!vaultContractId) return reply.code(503).send({ error: "Vault contract not yet deployed" });
 
     try {
-      const { walletAddress, shares } = parsed.data;
-      const result = await buildWithdrawTx(vaultContractId, walletAddress, shares, network);
+      const { walletAddress, vaultId, amount } = parsed.data;
+      if (resolveProtocol(vaultId) !== "Blend") {
+        return reply.code(501).send({ error: "DeFindex withdrawals are not implemented yet. See issue #5." });
+      }
+      const asset = blendAssetForVault(vaultId);
+      const result = await buildBlendWithdrawTx(
+        { poolId: addresses.blend.pool, assetId: addresses[asset], network },
+        walletAddress,
+        toStroops(amount)
+      );
       reply.send(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to build withdraw transaction";
