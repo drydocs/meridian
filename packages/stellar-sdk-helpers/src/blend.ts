@@ -1,8 +1,8 @@
-import { TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
+import { xdr } from "@stellar/stellar-sdk";
 import { PoolContractV2, PoolV2, RequestType } from "@blend-capital/blend-sdk";
+import { prepareSorobanTx } from "./tx";
 import type { StellarNetwork } from "./types";
 import type { PositionInfo } from "./positions";
-import { BASE_FEE, passphraseFor } from "./internal";
 
 export interface BlendPoolConfig {
   // Blend pool contract (C...) the request is submitted to.
@@ -29,10 +29,6 @@ async function buildPoolRequestTx(
 ): Promise<{ xdr: string; fee: string }> {
   if (amount <= 0n) throw new Error("amount must be positive");
 
-  const passphrase = passphraseFor(config.network);
-  const server = new rpc.Server(config.network.rpcUrl);
-  const account = await server.getAccount(caller);
-
   // PoolContractV2.submit returns a base64 Soroban operation; we wrap it in a
   // transaction, simulate to obtain the resource footprint + fee, then assemble.
   const pool = new PoolContractV2(config.poolId);
@@ -43,17 +39,7 @@ async function buildPoolRequestTx(
     requests: [{ request_type: requestType, address: config.assetId, amount }],
   });
   const op = xdr.Operation.fromXDR(opXdr, "base64");
-
-  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: passphrase })
-    .addOperation(op)
-    .setTimeout(300)
-    .build();
-
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) throw new Error(`Simulation failed: ${sim.error}`);
-
-  const prepared = rpc.assembleTransaction(tx, sim).build();
-  return { xdr: prepared.toEnvelope().toXDR("base64"), fee: sim.minResourceFee };
+  return prepareSorobanTx(config.network, caller, op);
 }
 
 /**
