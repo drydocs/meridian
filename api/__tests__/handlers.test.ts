@@ -4,11 +4,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // contract (method guards, field validation, status codes, payload shape), not
 // the Soroban transaction building, which is unit-tested in the helpers package.
 vi.mock("@meridian/stellar-sdk-helpers", () => ({
-  buildBlendDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
-  buildBlendWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
-  blendAssetForVault: vi.fn(() => "usdc"),
-  resolveProtocol: vi.fn(() => "Blend"),
-  toStroops: vi.fn(() => 100_000_000n),
+  buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
+  buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
   buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
   submitTx: vi.fn(async () => ({ hash: "HASH" })),
   fetchAllVaults: vi.fn(async () => [{ id: "blend-usdc-fixed", protocol: "blend" }]),
@@ -25,7 +22,7 @@ import trustlineHandler from "../v1/tx/add-trustline";
 import submitHandler from "../v1/tx/submit";
 import vaultsHandler from "../v1/vaults/index";
 import positionsHandler from "../v1/positions/[publicKey]";
-import { buildBlendDepositTx, fetchBlendPositions } from "@meridian/stellar-sdk-helpers";
+import { buildDepositTx, fetchBlendPositions } from "@meridian/stellar-sdk-helpers";
 
 // A 56-char Stellar public key shape (only the length is validated).
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -82,11 +79,11 @@ describe("POST /api/v1/tx/deposit", () => {
     );
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ xdr: "DEPOSIT_XDR", fee: "100" });
-    expect(buildBlendDepositTx).toHaveBeenCalledOnce();
+    expect(buildDepositTx).toHaveBeenCalledOnce();
   });
 
   it("surfaces builder errors as 500", async () => {
-    vi.mocked(buildBlendDepositTx).mockRejectedValueOnce(new Error("USDC trustline missing"));
+    vi.mocked(buildDepositTx).mockRejectedValueOnce(new Error("USDC trustline missing"));
     const res = makeRes();
     await depositHandler(
       { method: "POST", body: { walletAddress: PUBKEY, vaultId: "blend-usdc-fixed", amount: "10" } },

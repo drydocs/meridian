@@ -2,11 +2,9 @@ import {
   Account,
   Contract,
   TransactionBuilder,
-  Address,
   Asset,
   Horizon,
   Operation,
-  nativeToScVal,
   scValToNative,
   rpc,
   xdr,
@@ -58,18 +56,6 @@ function hasAssetTrustline(
       (b as Horizon.HorizonApi.BalanceLine<"credit_alphanum4">).asset_code === code &&
       (b as Horizon.HorizonApi.BalanceLine<"credit_alphanum4">).asset_issuer === issuer
   );
-}
-
-async function assertTrustlines(walletAddress: string, network: StellarNetwork): Promise<void> {
-  const horizon = horizonServer(network);
-  const account = await horizon.loadAccount(walletAddress);
-
-  if (!hasAssetTrustline(account.balances, "USDC", USDC_ISSUER[network.network] ?? "")) {
-    throw new Error("USDC trustline missing. Add vault assets to your wallet before depositing.");
-  }
-  if (MUSDC_ISSUER[network.network] && !hasAssetTrustline(account.balances, "MUSDC", MUSDC_ISSUER[network.network])) {
-    throw new Error("mUSDC trustline missing. Add vault assets to your wallet before depositing.");
-  }
 }
 
 export function toStroops(value: string): bigint {
@@ -146,41 +132,6 @@ export async function buildAddTrustlineTx(
   const tx = builder.setTimeout(300).build();
 
   return { xdr: tx.toEnvelope().toXDR("base64") };
-}
-
-export async function buildDepositTx(
-  contractId: string,
-  walletAddress: string,
-  vaultId: string,
-  amount: string,
-  network: StellarNetwork
-): Promise<{ xdr: string; fee: string }> {
-  await assertTrustlines(walletAddress, network);
-
-  const protocol = resolveProtocol(vaultId);
-  const contract = new Contract(contractId);
-  const op = contract.call(
-    "deposit",
-    Address.fromString(walletAddress).toScVal(),
-    nativeToScVal(toStroops(amount), { type: "i128" }),
-    xdr.ScVal.scvVec([xdr.ScVal.scvSymbol(protocol)]),
-  );
-  return prepareSorobanTx(network, walletAddress, op);
-}
-
-export async function buildWithdrawTx(
-  contractId: string,
-  walletAddress: string,
-  shares: string,
-  network: StellarNetwork
-): Promise<{ xdr: string; fee: string }> {
-  const contract = new Contract(contractId);
-  const op = contract.call(
-    "withdraw",
-    Address.fromString(walletAddress).toScVal(),
-    nativeToScVal(toStroops(shares), { type: "i128" }),
-  );
-  return prepareSorobanTx(network, walletAddress, op);
 }
 
 // Default polling cadence for confirmation. Soroban testnet/mainnet close
