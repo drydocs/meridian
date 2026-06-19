@@ -12,10 +12,17 @@ import type { StellarNetwork } from "./types";
 import type { PositionInfo } from "./positions";
 
 const BASE_FEE = "100";
-const STROOPS_PER_UNIT = 1e7;
+const STROOPS = 10_000_000n;
 
 function toBigInt(value: unknown): bigint {
   return BigInt((value as bigint | number | null) ?? 0);
+}
+
+// Converts a stroop-denominated bigint to a floating-point unit value without
+// precision loss: the whole-unit part stays in bigint space until it fits
+// safely in a Number, then the sub-unit remainder is added as a fraction.
+export function stroopsToUnits(stroops: bigint): number {
+  return Number(stroops / STROOPS) + Number(stroops % STROOPS) / 1e7;
 }
 
 export interface DefindexVaultConfig {
@@ -136,8 +143,8 @@ export async function fetchDefindexPosition(
   return [
     {
       vaultId: reportVaultId,
-      shares: Number(shares) / STROOPS_PER_UNIT,
-      deposited: Number(underlying) / STROOPS_PER_UNIT,
+      shares: stroopsToUnits(shares),
+      deposited: stroopsToUnits(underlying),
       earned: 0,
       entryTime: 0,
     },

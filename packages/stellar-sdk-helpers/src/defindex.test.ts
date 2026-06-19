@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildDefindexDepositTx, buildDefindexWithdrawTx } from "./defindex";
+import { buildDefindexDepositTx, buildDefindexWithdrawTx, stroopsToUnits } from "./defindex";
 import type { StellarNetwork } from "./types";
 
 const network: StellarNetwork = {
@@ -22,5 +22,23 @@ describe("buildDefindexDepositTx", () => {
 describe("buildDefindexWithdrawTx", () => {
   it("rejects non-positive shares", async () => {
     await expect(buildDefindexWithdrawTx(config, ADDR, 0n)).rejects.toThrow(/positive/);
+  });
+});
+
+describe("stroopsToUnits", () => {
+  it("converts small values exactly", () => {
+    expect(stroopsToUnits(10_000_000n)).toBe(1);
+    expect(stroopsToUnits(5_000_000n)).toBe(0.5);
+  });
+
+  it("preserves precision for values above Number.MAX_SAFE_INTEGER stroops", () => {
+    // 1 billion units = 10_000_000_000_000_000 stroops (1e16), above MAX_SAFE_INTEGER
+    const stroops = 10_000_000_000_000_000n;
+    expect(stroopsToUnits(stroops)).toBe(1_000_000_000);
+  });
+
+  it("handles fractional units correctly", () => {
+    // 1.0000001 units = 10_000_001 stroops
+    expect(stroopsToUnits(10_000_001n)).toBeCloseTo(1.0000001, 7);
   });
 });
