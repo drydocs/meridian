@@ -1,9 +1,8 @@
-import { Networks, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
+import { TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
 import { PoolContractV2, PoolV2, RequestType } from "@blend-capital/blend-sdk";
 import type { StellarNetwork } from "./types";
 import type { PositionInfo } from "./positions";
-
-const BASE_FEE = "100";
+import { BASE_FEE, passphraseFor } from "./internal";
 
 export interface BlendPoolConfig {
   // Blend pool contract (C...) the request is submitted to.
@@ -11,10 +10,6 @@ export interface BlendPoolConfig {
   // Reserve asset contract — the USDC/EURC Stellar Asset Contract being moved.
   assetId: string;
   network: StellarNetwork;
-}
-
-function passphraseFor(network: StellarNetwork): string {
-  return network.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 }
 
 // Map a Meridian vault id (e.g. "blend-usdc-fixed") to the reserve asset whose

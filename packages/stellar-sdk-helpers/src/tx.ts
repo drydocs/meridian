@@ -13,6 +13,7 @@ import {
   Networks,
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "./types";
+import { BASE_FEE } from "./internal";
 
 const USDC_ISSUER: Record<string, string> = {
   testnet: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
@@ -29,8 +30,6 @@ const HORIZON_URL: Record<string, string> = {
   testnet: "https://horizon-testnet.stellar.org",
   mainnet: "https://horizon.stellar.org",
 };
-
-const BASE_FEE = "100";
 
 function usdcAsset(network: StellarNetwork): Asset {
   const issuer = USDC_ISSUER[network.network];
@@ -94,7 +93,7 @@ export async function simulateView(
 ): Promise<unknown> {
   const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
   const contract = new Contract(contractId);
-  const tx = new TransactionBuilder(dummyAccount, { fee: "100", networkPassphrase })
+  const tx = new TransactionBuilder(dummyAccount, { fee: BASE_FEE, networkPassphrase })
     .addOperation(contract.call(method, ...args))
     .setTimeout(0)
     .build();
