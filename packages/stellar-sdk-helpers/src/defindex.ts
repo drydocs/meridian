@@ -1,7 +1,6 @@
 import {
   Address,
   Contract,
-  Networks,
   TransactionBuilder,
   nativeToScVal,
   rpc,
@@ -10,13 +9,9 @@ import {
 import { simulateView } from "./tx";
 import type { StellarNetwork } from "./types";
 import type { PositionInfo } from "./positions";
+import { BASE_FEE, toBigInt, passphraseFor } from "./internal";
 
-const BASE_FEE = "100";
 const STROOPS = 10_000_000n;
-
-function toBigInt(value: unknown): bigint {
-  return BigInt((value as bigint | number | null) ?? 0);
-}
 
 // Converts a stroop-denominated bigint to a floating-point unit value without
 // precision loss: the whole-unit part stays in bigint space until it fits
@@ -29,10 +24,6 @@ export interface DefindexVaultConfig {
   // DeFindex vault contract (C...) the request targets.
   vaultId: string;
   network: StellarNetwork;
-}
-
-function passphraseFor(network: StellarNetwork): string {
-  return network.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 }
 
 function i128(value: bigint): xdr.ScVal {

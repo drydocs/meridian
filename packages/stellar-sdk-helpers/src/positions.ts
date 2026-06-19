@@ -1,6 +1,7 @@
 import { rpc, Address, xdr } from "@stellar/stellar-sdk";
 import { simulateView } from "./tx";
 import type { StellarNetwork } from "./types";
+import { STROOPS_PER_UNIT, toBigInt } from "./internal";
 
 export interface PositionInfo {
   vaultId: string;
@@ -20,8 +21,6 @@ export interface RawPosition {
   principal: bigint | null;
   entryTime: bigint;
 }
-
-const STROOPS_PER_UNIT = 1e7;
 
 /**
  * Derive the display position from raw on-chain figures. Pure and total — no
@@ -50,10 +49,6 @@ export function computePosition(vaultId: string, raw: RawPosition): PositionInfo
       entryTime: Number(raw.entryTime),
     },
   ];
-}
-
-function toBigInt(value: unknown): bigint {
-  return BigInt((value as bigint | number | null) ?? 0);
 }
 
 /**
