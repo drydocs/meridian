@@ -174,10 +174,11 @@ describe("GET /api/v1/positions/:publicKey", () => {
     expect(fetchBlendPositions).toHaveBeenCalledOnce();
   });
 
-  it("degrades to an empty list if the read throws", async () => {
+  it("returns 503 when the Blend read throws", async () => {
     vi.mocked(fetchBlendPositions).mockRejectedValueOnce(new Error("rpc down"));
     const res = makeRes();
     await positionsHandler({ method: "GET", query: { publicKey: PUBKEY } }, res);
-    expect(res.body).toEqual({ positions: [] });
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({ error: "Failed to read positions" });
   });
 });

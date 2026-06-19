@@ -33,7 +33,7 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
       reply.send({ positions });
     } catch (err) {
       app.log.error(err, "[positions] read failed");
-      reply.send({ positions: [] });
+      reply.code(503).send({ error: "Failed to read positions" });
     }
   });
 };

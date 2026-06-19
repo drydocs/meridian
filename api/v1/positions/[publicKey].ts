@@ -32,6 +32,6 @@ export default async function handler(req: any, res: any) {
     res.json({ positions });
   } catch (err) {
     console.error("[positions] error:", err);
-    res.json({ positions: [] });
+    res.status(503).json({ error: "Failed to read positions" });
   }
 }
