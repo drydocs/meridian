@@ -27,5 +27,8 @@ export function selectBestVault(vaults: ApiVault[], opts: RouteOptions): ApiVaul
   const safe = routable.filter((v) => v.riskLevel !== "risky");
   const candidates = safe.length > 0 ? safe : routable;
 
-  return candidates.reduce((best, v) => (v.apy > best.apy ? v : best));
+  // Tie-break by id (alphabetical) so the result is stable across requests.
+  return candidates.reduce((best, v) =>
+    v.apy > best.apy || (v.apy === best.apy && v.id < best.id) ? v : best
+  );
 }

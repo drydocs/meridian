@@ -79,4 +79,11 @@ describe("selectBestVault", () => {
     expect(selectBestVault([vault({ protocol: "ondo" })], opts)).toBeNull();
     expect(selectBestVault([], opts)).toBeNull();
   });
+
+  it("breaks APY ties deterministically by vault id regardless of input order", () => {
+    const a = vault({ id: "blend-eurc-fixed", apy: 5 });
+    const b = vault({ id: "blend-usdc-fixed", apy: 5 });
+    expect(selectBestVault([a, b], opts)?.id).toBe("blend-eurc-fixed");
+    expect(selectBestVault([b, a], opts)?.id).toBe("blend-eurc-fixed");
+  });
 });
