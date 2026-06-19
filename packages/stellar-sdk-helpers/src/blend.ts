@@ -101,12 +101,13 @@ export interface BlendReserveRef {
 /**
  * Read a user's live supply position in a Blend pool, one entry per reserve the
  * user holds. The pool ledger state is loaded once and each reserve is valued
- * via the SDK (collateral + plain supply, in underlying asset units).
+ * via the SDK in underlying asset units.
  *
- * `deposited` is the current value of the position; `shares` mirrors it so the
- * UI's "withdraw max" reflects the full withdrawable amount. `earned` is 0 for
- * now — a direct Blend supply carries no on-chain cost basis, so yield can't be
- * derived without event indexing (tracked separately).
+ * `shares` is the collateral-only balance because Meridian withdrawals use
+ * RequestType.WithdrawCollateral; including plain-supply in `shares` would cause
+ * the withdraw-max flow to submit an amount the pool contract would reject.
+ * `deposited` is the full balance (collateral + plain supply) for display.
+ * `earned` is 0 -- a direct Blend supply has no on-chain cost basis.
  */
 export async function fetchBlendPositions(
   network: StellarNetwork,
@@ -121,9 +122,10 @@ export async function fetchBlendPositions(
   for (const { assetId, vaultId } of reserves) {
     const reserve = pool.reserves.get(assetId);
     if (!reserve) continue;
-    const value = user.getCollateralFloat(reserve) + user.getSupplyFloat(reserve);
-    if (value <= 0) continue;
-    positions.push({ vaultId, shares: value, deposited: value, earned: 0, entryTime: 0 });
+    const collateral = user.getCollateralFloat(reserve);
+    const total = collateral + user.getSupplyFloat(reserve);
+    if (total <= 0) continue;
+    positions.push({ vaultId, shares: collateral, deposited: total, earned: 0, entryTime: 0 });
   }
   return positions;
 }
