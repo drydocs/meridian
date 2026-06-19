@@ -5,11 +5,10 @@ import {
   resolveProtocol,
   toStroops,
 } from "@meridian/stellar-sdk-helpers";
-import { CONTRACT_ADDRESSES, STELLAR_NETWORKS } from "@meridian/shared";
+import { CONTRACT_ADDRESSES, STELLAR_NETWORKS, defindexContractForVault } from "@meridian/shared";
 
 const network = STELLAR_NETWORKS.testnet;
 const addresses = CONTRACT_ADDRESSES.testnet;
-const defindexVaultId = process.env.DEFINDEX_VAULT_ID ?? addresses.defindex.vault;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default async function handler(req: any, res: any) {
@@ -36,13 +35,12 @@ export default async function handler(req: any, res: any) {
       return res.json(result);
     }
 
-    if (!defindexVaultId) {
-      return res
-        .status(501)
-        .json({ error: "DeFindex vault not configured. Set DEFINDEX_VAULT_ID. See issue #5." });
+    const contractId = defindexContractForVault(vaultId, addresses);
+    if (!contractId) {
+      return res.status(400).json({ error: `DeFindex vault '${vaultId}' is not configured` });
     }
     const result = await buildDefindexDepositTx(
-      { vaultId: defindexVaultId, network },
+      { vaultId: contractId, network },
       walletAddress,
       toStroops(amount)
     );

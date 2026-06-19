@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { DepositRequestSchema, WithdrawRequestSchema, CONTRACT_ADDRESSES, STELLAR_NETWORKS } from "@meridian/shared";
+import { DepositRequestSchema, WithdrawRequestSchema, CONTRACT_ADDRESSES, STELLAR_NETWORKS, defindexContractForVault } from "@meridian/shared";
 import {
   buildBlendDepositTx,
   buildBlendWithdrawTx,
@@ -14,7 +14,6 @@ import {
 
 const network = STELLAR_NETWORKS.testnet;
 const addresses = CONTRACT_ADDRESSES.testnet;
-const defindexVaultId = process.env.DEFINDEX_VAULT_ID ?? addresses.defindex.vault;
 
 export const txRoute: FastifyPluginAsync = async (app) => {
   app.post("/deposit", async (req, reply) => {
@@ -36,11 +35,12 @@ export const txRoute: FastifyPluginAsync = async (app) => {
         );
         return reply.send(result);
       }
-      if (!defindexVaultId) {
-        return reply.code(501).send({ error: "DeFindex vault not configured. Set DEFINDEX_VAULT_ID. See issue #5." });
+      const contractId = defindexContractForVault(vaultId, addresses);
+      if (!contractId) {
+        return reply.code(400).send({ error: `DeFindex vault '${vaultId}' is not configured` });
       }
       const result = await buildDefindexDepositTx(
-        { vaultId: defindexVaultId, network },
+        { vaultId: contractId, network },
         walletAddress,
         toStroops(amount)
       );
@@ -70,12 +70,13 @@ export const txRoute: FastifyPluginAsync = async (app) => {
         );
         return reply.send(result);
       }
-      if (!defindexVaultId) {
-        return reply.code(501).send({ error: "DeFindex vault not configured. Set DEFINDEX_VAULT_ID. See issue #5." });
+      const contractId = defindexContractForVault(vaultId, addresses);
+      if (!contractId) {
+        return reply.code(400).send({ error: `DeFindex vault '${vaultId}' is not configured` });
       }
       // For a DeFindex vault, `amount` is the number of dfToken shares to burn.
       const result = await buildDefindexWithdrawTx(
-        { vaultId: defindexVaultId, network },
+        { vaultId: contractId, network },
         walletAddress,
         toStroops(amount)
       );
