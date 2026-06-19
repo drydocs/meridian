@@ -1,15 +1,14 @@
 import {
   Address,
   Contract,
-  TransactionBuilder,
   nativeToScVal,
   rpc,
   xdr,
 } from "@stellar/stellar-sdk";
-import { simulateView } from "./tx";
+import { simulateView, prepareSorobanTx } from "./tx";
 import type { StellarNetwork } from "./types";
 import type { PositionInfo } from "./positions";
-import { BASE_FEE, toBigInt, passphraseFor } from "./internal";
+import { toBigInt } from "./internal";
 
 const STROOPS = 10_000_000n;
 
@@ -28,29 +27,6 @@ export interface DefindexVaultConfig {
 
 function i128(value: bigint): xdr.ScVal {
   return nativeToScVal(value, { type: "i128" });
-}
-
-async function prepareVaultTx(
-  config: DefindexVaultConfig,
-  caller: string,
-  method: string,
-  args: xdr.ScVal[]
-): Promise<{ xdr: string; fee: string }> {
-  const passphrase = passphraseFor(config.network);
-  const server = new rpc.Server(config.network.rpcUrl);
-  const account = await server.getAccount(caller);
-  const contract = new Contract(config.vaultId);
-
-  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: passphrase })
-    .addOperation(contract.call(method, ...args))
-    .setTimeout(300)
-    .build();
-
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) throw new Error(`Simulation failed: ${sim.error}`);
-
-  const prepared = rpc.assembleTransaction(tx, sim).build();
-  return { xdr: prepared.toEnvelope().toXDR("base64"), fee: sim.minResourceFee };
 }
 
 /**
@@ -74,12 +50,13 @@ export async function buildDefindexDepositTx(
 ): Promise<{ xdr: string; fee: string }> {
   if (amount <= 0n) throw new Error("amount must be positive");
   const minAmount = amount - (amount * slippageBps) / 10_000n;
-  return prepareVaultTx(config, depositor, "deposit", [
+  const contract = new Contract(config.vaultId);
+  return prepareSorobanTx(config.network, depositor, contract.call("deposit",
     xdr.ScVal.scvVec([i128(amount)]),
     xdr.ScVal.scvVec([i128(minAmount)]),
     Address.fromString(depositor).toScVal(),
     xdr.ScVal.scvBool(true),
-  ]);
+  ));
 }
 
 /**
@@ -96,11 +73,12 @@ export async function buildDefindexWithdrawTx(
   shares: bigint
 ): Promise<{ xdr: string; fee: string }> {
   if (shares <= 0n) throw new Error("shares must be positive");
-  return prepareVaultTx(config, withdrawer, "withdraw", [
+  const contract = new Contract(config.vaultId);
+  return prepareSorobanTx(config.network, withdrawer, contract.call("withdraw",
     i128(shares),
     xdr.ScVal.scvVec([i128(0n)]),
     Address.fromString(withdrawer).toScVal(),
-  ]);
+  ));
 }
 
 /**
