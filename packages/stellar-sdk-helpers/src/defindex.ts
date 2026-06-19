@@ -69,18 +69,23 @@ async function prepareVaultTx(
  * returned XDR and holds the resulting dfToken shares directly — non-custodial.
  *
  * Contract ABI: deposit(amounts_desired: Vec<i128>, amounts_min: Vec<i128>,
- * from: Address, invest: bool). Single-asset vault, so each Vec has one element
- * and amounts_min equals amounts_desired (no slippage for a 1:1 deposit).
+ * from: Address, invest: bool). Single-asset vault, so each Vec has one element.
+ *
+ * `slippageBps` (default 10 = 0.1%) controls the gap between amounts_desired
+ * and amounts_min so minor share-price rounding between simulation and submission
+ * does not revert the transaction. Pass 0 only in tests.
  */
 export async function buildDefindexDepositTx(
   config: DefindexVaultConfig,
   depositor: string,
-  amount: bigint
+  amount: bigint,
+  slippageBps = 10n
 ): Promise<{ xdr: string; fee: string }> {
   if (amount <= 0n) throw new Error("amount must be positive");
+  const minAmount = amount - (amount * slippageBps) / 10_000n;
   return prepareVaultTx(config, depositor, "deposit", [
     xdr.ScVal.scvVec([i128(amount)]),
-    xdr.ScVal.scvVec([i128(amount)]),
+    xdr.ScVal.scvVec([i128(minAmount)]),
     Address.fromString(depositor).toScVal(),
     xdr.ScVal.scvBool(true),
   ]);

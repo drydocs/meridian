@@ -42,3 +42,19 @@ describe("stroopsToUnits", () => {
     expect(stroopsToUnits(10_000_001n)).toBeCloseTo(1.0000001, 7);
   });
 });
+
+describe("slippage tolerance", () => {
+  it("default 0.1% tolerance produces minAmount strictly less than amount", () => {
+    const amount = 1_000_000_000n;
+    const slippageBps = 10n;
+    const minAmount = amount - (amount * slippageBps) / 10_000n;
+    expect(minAmount).toBe(999_000_000n);
+    expect(minAmount).toBeLessThan(amount);
+  });
+
+  it("zero slippage keeps minAmount equal to amount", () => {
+    const amount = 1_000_000_000n;
+    const minAmount = amount - (amount * 0n) / 10_000n;
+    expect(minAmount).toBe(amount);
+  });
+});
