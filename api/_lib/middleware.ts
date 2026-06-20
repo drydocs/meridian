@@ -22,6 +22,11 @@ export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
 // not shared across invocation instances. For a distributed limit use Upstash
 // Redis or Vercel KV and swap this implementation.
 const counts = new Map<string, { n: number; resetAt: number }>();
+
+/** Clears all rate-limit buckets. Exposed for tests only. */
+export function resetRateLimitForTesting(): void {
+  counts.clear();
+}
 const LIMIT = 20;
 const WINDOW_MS = 60_000;
 
