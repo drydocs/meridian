@@ -6,8 +6,7 @@ export interface RouteOptions {
 }
 
 // A vault is routable only if Meridian can build a deposit for its protocol.
-// Blend is always supported; DeFindex once a vault is configured; everything
-// else (e.g. Ondo, or an unknown protocol) is display-only.
+// Blend is always supported; DeFindex once a vault contract is configured.
 function isRoutable(vault: ApiVault, opts: RouteOptions): boolean {
   if (vault.protocol === "blend") return true;
   if (vault.protocol === "defindex") return opts.defindexConfigured;

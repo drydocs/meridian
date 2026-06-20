@@ -8,7 +8,6 @@ import { useWalletConnect } from "../../hooks/useWalletConnect";
 const PROTOCOL_LABEL: Record<string, string> = {
   blend: "Blend Capital",
   defindex: "DeFindex",
-  ondo: "Ondo",
 };
 
 function formatUsd(value: number): string {
