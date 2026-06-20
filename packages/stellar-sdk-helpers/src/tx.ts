@@ -8,10 +8,9 @@ import {
   scValToNative,
   rpc,
   xdr,
-  Networks,
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "./types";
-import { BASE_FEE } from "./internal";
+import { BASE_FEE, passphraseFor } from "./internal";
 
 const USDC_ISSUER: Record<string, string> = {
   testnet: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
@@ -94,7 +93,7 @@ export async function prepareSorobanTx(
   caller: string,
   op: xdr.Operation
 ): Promise<{ xdr: string; fee: string }> {
-  const passphrase = network.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+  const passphrase = passphraseFor(network);
   const server = new rpc.Server(network.rpcUrl);
   const account = await server.getAccount(caller);
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: passphrase })
@@ -111,7 +110,7 @@ export async function buildAddTrustlineTx(
   walletAddress: string,
   network: StellarNetwork
 ): Promise<{ xdr: string }> {
-  const passphrase = network.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+  const passphrase = passphraseFor(network);
   const horizon = horizonServer(network);
   const account = await horizon.loadAccount(walletAddress);
   const balances = account.balances;
@@ -222,7 +221,7 @@ export async function submitTx(
   network: StellarNetwork,
   opts: ConfirmOptions = {}
 ): Promise<SubmitResult> {
-  const passphrase = network.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+  const passphrase = passphraseFor(network);
   const server = new rpc.Server(network.rpcUrl);
   const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
 
