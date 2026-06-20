@@ -1,6 +1,13 @@
-import { describe, it, expect } from "vitest";
-import { buildDefindexDepositTx, buildDefindexWithdrawTx, stroopsToUnits } from "./defindex";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { buildDefindexDepositTx, buildDefindexWithdrawTx, stroopsToUnits, fetchDefindexPosition } from "./defindex";
 import type { StellarNetwork } from "./types";
+
+vi.mock("./tx", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./tx")>();
+  return { ...actual, simulateView: vi.fn() };
+});
+
+import { simulateView } from "./tx";
 
 const network: StellarNetwork = {
   network: "testnet",
@@ -40,6 +47,52 @@ describe("stroopsToUnits", () => {
   it("handles fractional units correctly", () => {
     // 1.0000001 units = 10_000_001 stroops
     expect(stroopsToUnits(10_000_001n)).toBeCloseTo(1.0000001, 7);
+  });
+});
+
+describe("fetchDefindexPosition", () => {
+  const VAULT_ID = "CVAULT000000000000000000000000000000000000000000000000000";
+  const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns [] when the user holds zero shares", async () => {
+    vi.mocked(simulateView).mockResolvedValue(0n);
+    const result = await fetchDefindexPosition(network, VAULT_ID, "defindex-usdc", PUBKEY);
+    expect(result).toEqual([]);
+    expect(simulateView).toHaveBeenCalledOnce();
+  });
+
+  it("maps shares and underlying amount into a PositionInfo", async () => {
+    vi.mocked(simulateView)
+      .mockResolvedValueOnce(5_000_000n)          // balance: 0.5 dfTokens
+      .mockResolvedValueOnce([10_000_000n]);       // get_asset_amounts_per_shares: 1 USDC
+
+    const result = await fetchDefindexPosition(network, VAULT_ID, "defindex-usdc", PUBKEY);
+    expect(result).toHaveLength(1);
+    expect(result[0].vaultId).toBe("defindex-usdc");
+    expect(result[0].shares).toBeCloseTo(0.5, 7);
+    expect(result[0].deposited).toBeCloseTo(1, 7);
+    expect(result[0].earned).toBe(0);
+    expect(result[0].entryTime).toBe(0);
+  });
+
+  it("sets deposited to 0 when amounts array is null", async () => {
+    vi.mocked(simulateView)
+      .mockResolvedValueOnce(5_000_000n)
+      .mockResolvedValueOnce(null);
+
+    const [pos] = await fetchDefindexPosition(network, VAULT_ID, "defindex-usdc", PUBKEY);
+    expect(pos.deposited).toBe(0);
+  });
+
+  it("sets deposited to 0 when amounts array is empty", async () => {
+    vi.mocked(simulateView)
+      .mockResolvedValueOnce(5_000_000n)
+      .mockResolvedValueOnce([]);
+
+    const [pos] = await fetchDefindexPosition(network, VAULT_ID, "defindex-usdc", PUBKEY);
+    expect(pos.deposited).toBe(0);
   });
 });
 
