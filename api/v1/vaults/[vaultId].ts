@@ -1,8 +1,8 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { fetchAllVaults } from "@meridian/stellar-sdk-helpers";
 import { applyCors } from "../../_lib/middleware";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   const { vaultId } = req.query as { vaultId: string };
 

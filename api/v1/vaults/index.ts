@@ -1,3 +1,4 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { fetchAllVaults, selectBestVault } from "@meridian/stellar-sdk-helpers";
 import { APP_ADDRESSES } from "@meridian/shared";
 import { applyCors } from "../../_lib/middleware";
@@ -10,8 +11,7 @@ const CACHE_CONTROL = "public, s-maxage=60, stale-while-revalidate=300";
 
 const defindexConfigured = Boolean(process.env.DEFINDEX_VAULT_ID ?? APP_ADDRESSES.defindex.vault);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   try {
     const vaults = await fetchAllVaults();
