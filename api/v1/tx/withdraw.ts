@@ -11,17 +11,16 @@ export default async function handler(req: any, res: any) {
   if (!checkRateLimit(req, res)) return;
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  // `amount` is the underlying asset amount (USDC/EURC) to withdraw from the pool.
-  const { walletAddress, vaultId, amount } = req.body ?? {};
-  if (!walletAddress || !vaultId || !amount) {
-    const missing = (["walletAddress", "vaultId", "amount"] as const)
+  const { walletAddress, vaultId, shares } = req.body ?? {};
+  if (!walletAddress || !vaultId || !shares) {
+    const missing = (["walletAddress", "vaultId", "shares"] as const)
       .filter((k) => !req.body?.[k])
       .join(", ");
     return res.status(400).json({ error: `Missing required fields: ${missing}` });
   }
 
   try {
-    const result = await buildWithdrawTx(vaultId, walletAddress, amount, {
+    const result = await buildWithdrawTx(vaultId, walletAddress, shares, {
       blendPool: addresses.blend.pool,
       usdc: addresses.usdc,
       eurc: addresses.eurc,

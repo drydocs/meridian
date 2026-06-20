@@ -43,9 +43,8 @@ export const txRoute: FastifyPluginAsync = async (app) => {
     }
 
     try {
-      const { walletAddress, vaultId, amount } = parsed.data;
-      // For a DeFindex vault, `amount` is the number of dfToken shares to burn.
-      const result = await buildWithdrawTx(vaultId, walletAddress, amount, {
+      const { walletAddress, vaultId, shares } = parsed.data;
+      const result = await buildWithdrawTx(vaultId, walletAddress, shares, {
         blendPool: addresses.blend.pool,
         usdc: addresses.usdc,
         eurc: addresses.eurc,

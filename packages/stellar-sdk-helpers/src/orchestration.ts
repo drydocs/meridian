@@ -38,7 +38,7 @@ export async function buildDepositTx(
 export async function buildWithdrawTx(
   vaultId: string,
   walletAddress: string,
-  amount: string,
+  shares: string,
   addresses: ProtocolAddresses,
   network: StellarNetwork
 ): Promise<{ xdr: string; fee: string }> {
@@ -47,7 +47,7 @@ export async function buildWithdrawTx(
     return buildBlendWithdrawTx(
       { poolId: addresses.blendPool, assetId: addresses[asset], network },
       walletAddress,
-      toStroops(amount)
+      toStroops(shares)
     );
   }
   if (!addresses.defindexVault) {
@@ -56,6 +56,6 @@ export async function buildWithdrawTx(
   return buildDefindexWithdrawTx(
     { vaultId: addresses.defindexVault, network },
     walletAddress,
-    toStroops(amount)
+    toStroops(shares)
   );
 }

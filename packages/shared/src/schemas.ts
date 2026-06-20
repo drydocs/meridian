@@ -9,8 +9,9 @@ export const DepositRequestSchema = z.object({
 export const WithdrawRequestSchema = z.object({
   walletAddress: z.string().length(56),
   vaultId: z.string(),
-  // Underlying asset amount (USDC/EURC) to withdraw from the pool.
-  amount: z.string().regex(/^\d+(\.\d{1,7})?$/),
+  // Protocol share count to burn: bToken collateral for Blend, dfToken count
+  // for DeFindex. Both come from `position.shares` in the frontend.
+  shares: z.string().regex(/^\d+(\.\d{1,7})?$/),
 });
 
 export type DepositRequest = z.infer<typeof DepositRequestSchema>;

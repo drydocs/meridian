@@ -95,17 +95,17 @@ describe("POST /api/v1/tx/deposit", () => {
 });
 
 describe("POST /api/v1/tx/withdraw", () => {
-  it("returns 400 when the amount is missing", async () => {
+  it("returns 400 when shares is missing", async () => {
     const res = makeRes();
     await withdrawHandler({ method: "POST", body: { walletAddress: PUBKEY, vaultId: "v" } }, res);
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({ error: "Missing required fields: amount" });
+    expect(res.body).toEqual({ error: "Missing required fields: shares" });
   });
 
   it("builds the withdraw transaction", async () => {
     const res = makeRes();
     await withdrawHandler(
-      { method: "POST", body: { walletAddress: PUBKEY, vaultId: "blend-usdc-fixed", amount: "5" } },
+      { method: "POST", body: { walletAddress: PUBKEY, vaultId: "blend-usdc-fixed", shares: "5" } },
       res
     );
     expect(res.body).toEqual({ xdr: "WITHDRAW_XDR", fee: "100" });

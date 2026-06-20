@@ -69,7 +69,7 @@ export function useVaultActions() {
     if (!publicKey || !passphrase) return false;
     setIsWithdrawing(true);
     try {
-      const { xdr } = await api.buildWithdraw({ walletAddress: publicKey, vaultId, amount });
+      const { xdr } = await api.buildWithdraw({ walletAddress: publicKey, vaultId, shares: amount });
       await signAndSubmit(xdr);
       queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
       push("success", `Withdrew ${amount} USDC`);
