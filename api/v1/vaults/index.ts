@@ -1,5 +1,6 @@
 import { fetchAllVaults, selectBestVault } from "@meridian/stellar-sdk-helpers";
 import { CONTRACT_ADDRESSES } from "@meridian/shared";
+import { applyCors } from "../../_lib/middleware";
 
 // Cache the aggregated vault list at the Vercel CDN. APY/TVL move slowly, so a
 // short fresh window keeps DeFiLlama call volume low, and the stale-while-
@@ -12,7 +13,8 @@ const defindexConfigured = Boolean(
 );
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default async function handler(_req: any, res: any) {
+export default async function handler(req: any, res: any) {
+  if (applyCors(req, res)) return;
   try {
     const vaults = await fetchAllVaults();
     const best = selectBestVault(vaults, { defindexConfigured });

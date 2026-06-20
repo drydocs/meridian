@@ -1,5 +1,6 @@
 import { fetchBlendPositions, fetchDefindexPosition } from "@meridian/stellar-sdk-helpers";
 import { CONTRACT_ADDRESSES, STELLAR_NETWORKS } from "@meridian/shared";
+import { applyCors } from "../../_lib/middleware";
 
 const network = STELLAR_NETWORKS.testnet;
 const addresses = CONTRACT_ADDRESSES.testnet;
@@ -7,6 +8,7 @@ const defindexVaultId = process.env.DEFINDEX_VAULT_ID ?? addresses.defindex.vaul
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default async function handler(req: any, res: any) {
+  if (applyCors(req, res)) return;
   const { publicKey } = req.query as { publicKey: string };
 
   if (!publicKey || publicKey.length !== 56) {

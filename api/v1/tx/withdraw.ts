@@ -1,11 +1,14 @@
 import { buildWithdrawTx } from "@meridian/stellar-sdk-helpers";
 import { CONTRACT_ADDRESSES, STELLAR_NETWORKS } from "@meridian/shared";
+import { applyCors, checkRateLimit } from "../../_lib/middleware";
 
 const network = STELLAR_NETWORKS.testnet;
 const addresses = CONTRACT_ADDRESSES.testnet;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default async function handler(req: any, res: any) {
+  if (applyCors(req, res)) return;
+  if (!checkRateLimit(req, res)) return;
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   // `amount` is the underlying asset amount (USDC/EURC) to withdraw from the pool.
