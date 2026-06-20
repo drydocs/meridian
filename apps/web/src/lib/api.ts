@@ -19,7 +19,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 // JSON-safe vault shape (bigints serialised as numbers by the API)
 export interface ApiVault {
   id: string;
-  protocol: "blend" | "defindex" | "ondo";
+  protocol: "blend" | "defindex";
   asset: string;
   name: string;
   label: string;

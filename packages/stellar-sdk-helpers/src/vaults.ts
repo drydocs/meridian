@@ -3,7 +3,7 @@ import { KNOWN_POOLS } from "./known-pools";
 
 export interface ApiVault {
   id: string;
-  protocol: "blend" | "defindex" | "ondo";
+  protocol: "blend" | "defindex";
   asset: string;
   name: string;
   label: string;
