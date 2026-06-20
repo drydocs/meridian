@@ -1,7 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Req = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Res = any;
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? "https://usemeridian.vercel.app";
 
@@ -10,10 +7,10 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? "https://usemeridian.vercel
  * preflight OPTIONS and has been fully handled — the caller should return
  * immediately in that case.
  */
-export function applyCors(req: Req, res: Res): boolean {
-  res.setHeader?.("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
-  res.setHeader?.("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader?.("Access-Control-Allow-Headers", "Content-Type");
+export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
+  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return true;
@@ -28,8 +25,8 @@ const counts = new Map<string, { n: number; resetAt: number }>();
 const LIMIT = 20;
 const WINDOW_MS = 60_000;
 
-function clientIp(req: Req): string {
-  const fwd = req.headers?.["x-forwarded-for"];
+function clientIp(req: VercelRequest): string {
+  const fwd = req.headers["x-forwarded-for"];
   return (typeof fwd === "string" ? fwd.split(",")[0].trim() : null) ??
     req.socket?.remoteAddress ??
     "unknown";
@@ -40,7 +37,7 @@ function clientIp(req: Req): string {
  * Writes a 429 response and returns false when the limit is exceeded — the
  * caller should return immediately.
  */
-export function checkRateLimit(req: Req, res: Res): boolean {
+export function checkRateLimit(req: VercelRequest, res: VercelResponse): boolean {
   const ip = clientIp(req);
   const now = Date.now();
   const entry = counts.get(ip);

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 // Stub the workspace builders/readers — these tests exercise the HTTP handler
 // contract (method guards, field validation, status codes, payload shape), not
@@ -27,6 +28,8 @@ import { buildDepositTx, fetchBlendPositions } from "@meridian/stellar-sdk-helpe
 // A 56-char Stellar public key shape (only the length is validated).
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
+const fakeReq = (obj: object) => ({ headers: {}, ...obj }) as unknown as VercelRequest;
+
 interface FakeRes {
   statusCode: number;
   body: unknown;
@@ -36,23 +39,24 @@ interface FakeRes {
   setHeader(key: string, value: string): void;
 }
 
-function makeRes(): FakeRes {
-  return {
+function makeRes(): FakeRes & VercelResponse {
+  const r: FakeRes = {
     statusCode: 200,
     body: undefined,
     headers: {},
-    status(code) {
-      this.statusCode = code;
-      return this;
+    status(code: number) {
+      r.statusCode = code;
+      return r;
     },
-    json(payload) {
-      this.body = payload;
-      return this;
+    json(payload: unknown) {
+      r.body = payload;
+      return r;
     },
-    setHeader(key, value) {
-      this.headers[key] = value;
+    setHeader(key: string, value: string) {
+      r.headers[key] = value;
     },
   };
+  return r as unknown as FakeRes & VercelResponse;
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -60,13 +64,13 @@ beforeEach(() => vi.clearAllMocks());
 describe("POST /api/v1/tx/deposit", () => {
   it("rejects non-POST methods with 405", async () => {
     const res = makeRes();
-    await depositHandler({ method: "GET", body: {} }, res);
+    await depositHandler(fakeReq({ method: "GET", body: {} }), res);
     expect(res.statusCode).toBe(405);
   });
 
   it("returns 400 listing the missing fields", async () => {
     const res = makeRes();
-    await depositHandler({ method: "POST", body: { walletAddress: PUBKEY } }, res);
+    await depositHandler(fakeReq({ method: "POST", body: { walletAddress: PUBKEY } }), res);
     expect(res.statusCode).toBe(400);
     expect(res.body).toEqual({ error: "vaultId: Required; amount: Required" });
   });
@@ -74,7 +78,7 @@ describe("POST /api/v1/tx/deposit", () => {
   it("builds the deposit transaction and returns the XDR", async () => {
     const res = makeRes();
     await depositHandler(
-      { method: "POST", body: { walletAddress: PUBKEY, vaultId: "blend-usdc-fixed", amount: "10" } },
+      fakeReq({ method: "POST", body: { walletAddress: PUBKEY, vaultId: "blend-usdc-fixed", amount: "10" } }),
       res
     );
     expect(res.statusCode).toBe(200);
@@ -86,7 +90,7 @@ describe("POST /api/v1/tx/deposit", () => {
     vi.mocked(buildDepositTx).mockRejectedValueOnce(new Error("USDC trustline missing"));
     const res = makeRes();
     await depositHandler(
-      { method: "POST", body: { walletAddress: PUBKEY, vaultId: "blend-usdc-fixed", amount: "10" } },
+      fakeReq({ method: "POST", body: { walletAddress: PUBKEY, vaultId: "blend-usdc-fixed", amount: "10" } }),
       res
     );
     expect(res.statusCode).toBe(500);
@@ -97,7 +101,7 @@ describe("POST /api/v1/tx/deposit", () => {
 describe("POST /api/v1/tx/withdraw", () => {
   it("returns 400 when shares is missing", async () => {
     const res = makeRes();
-    await withdrawHandler({ method: "POST", body: { walletAddress: PUBKEY, vaultId: "v" } }, res);
+    await withdrawHandler(fakeReq({ method: "POST", body: { walletAddress: PUBKEY, vaultId: "v" } }), res);
     expect(res.statusCode).toBe(400);
     expect(res.body).toEqual({ error: "shares: Required" });
   });
@@ -105,7 +109,7 @@ describe("POST /api/v1/tx/withdraw", () => {
   it("builds the withdraw transaction", async () => {
     const res = makeRes();
     await withdrawHandler(
-      { method: "POST", body: { walletAddress: PUBKEY, vaultId: "blend-usdc-fixed", shares: "5" } },
+      fakeReq({ method: "POST", body: { walletAddress: PUBKEY, vaultId: "blend-usdc-fixed", shares: "5" } }),
       res
     );
     expect(res.body).toEqual({ xdr: "WITHDRAW_XDR", fee: "100" });
@@ -115,13 +119,13 @@ describe("POST /api/v1/tx/withdraw", () => {
 describe("POST /api/v1/tx/add-trustline", () => {
   it("returns 400 without a wallet address", async () => {
     const res = makeRes();
-    await trustlineHandler({ method: "POST", body: {} }, res);
+    await trustlineHandler(fakeReq({ method: "POST", body: {} }), res);
     expect(res.statusCode).toBe(400);
   });
 
   it("returns the trustline XDR", async () => {
     const res = makeRes();
-    await trustlineHandler({ method: "POST", body: { walletAddress: PUBKEY } }, res);
+    await trustlineHandler(fakeReq({ method: "POST", body: { walletAddress: PUBKEY } }), res);
     expect(res.body).toEqual({ xdr: "TRUST_XDR" });
   });
 });
@@ -129,13 +133,13 @@ describe("POST /api/v1/tx/add-trustline", () => {
 describe("POST /api/v1/tx/submit", () => {
   it("returns 400 without an xdr", async () => {
     const res = makeRes();
-    await submitHandler({ method: "POST", body: {} }, res);
+    await submitHandler(fakeReq({ method: "POST", body: {} }), res);
     expect(res.statusCode).toBe(400);
   });
 
   it("submits and returns the tx hash", async () => {
     const res = makeRes();
-    await submitHandler({ method: "POST", body: { xdr: "SIGNED" } }, res);
+    await submitHandler(fakeReq({ method: "POST", body: { xdr: "SIGNED" } }), res);
     expect(res.body).toEqual({ hash: "HASH" });
   });
 });
@@ -143,7 +147,7 @@ describe("POST /api/v1/tx/submit", () => {
 describe("GET /api/v1/vaults", () => {
   it("returns the vault list with a CDN cache header", async () => {
     const res = makeRes();
-    await vaultsHandler({ method: "GET" }, res);
+    await vaultsHandler(fakeReq({ method: "GET" }), res);
     expect(res.statusCode).toBe(200);
     expect(res.headers["Cache-Control"]).toContain("s-maxage=60");
     expect(res.body).toMatchObject({
@@ -157,14 +161,14 @@ describe("GET /api/v1/vaults", () => {
 describe("GET /api/v1/positions/:publicKey", () => {
   it("rejects a malformed public key with 400", async () => {
     const res = makeRes();
-    await positionsHandler({ method: "GET", query: { publicKey: "too-short" } }, res);
+    await positionsHandler(fakeReq({ method: "GET", query: { publicKey: "too-short" } }), res);
     expect(res.statusCode).toBe(400);
     expect(fetchBlendPositions).not.toHaveBeenCalled();
   });
 
   it("returns the resolved positions for a valid key", async () => {
     const res = makeRes();
-    await positionsHandler({ method: "GET", query: { publicKey: PUBKEY } }, res);
+    await positionsHandler(fakeReq({ method: "GET", query: { publicKey: PUBKEY } }), res);
     expect(res.body).toEqual({
       positions: [{ vaultId: "blend-usdc-fixed", shares: 1, deposited: 1, earned: 0, entryTime: 0 }],
     });
@@ -174,7 +178,7 @@ describe("GET /api/v1/positions/:publicKey", () => {
   it("returns 503 when the Blend read throws", async () => {
     vi.mocked(fetchBlendPositions).mockRejectedValueOnce(new Error("rpc down"));
     const res = makeRes();
-    await positionsHandler({ method: "GET", query: { publicKey: PUBKEY } }, res);
+    await positionsHandler(fakeReq({ method: "GET", query: { publicKey: PUBKEY } }), res);
     expect(res.statusCode).toBe(503);
     expect(res.body).toEqual({ error: "Failed to read positions" });
   });

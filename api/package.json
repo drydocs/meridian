@@ -12,6 +12,7 @@
     "@stellar/stellar-sdk": "^12.0.0"
   },
   "devDependencies": {
+    "@vercel/node": "^5.8.17",
     "vitest": "^4.1.8"
   }
 }
