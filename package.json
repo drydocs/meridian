@@ -20,11 +20,6 @@
     "prettier": "^3.2.0",
     "eslint": "^8.57.0"
   },
-  "pnpm": {
-    "overrides": {
-      "fast-uri": "^3.1.2"
-    }
-  },
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
