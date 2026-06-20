@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { APP_NETWORK, APP_ADDRESSES } from "@meridian/shared";
+import { APP_NETWORK, APP_ADDRESSES, isValidStellarAddress } from "@meridian/shared";
 import { fetchBlendPositions, fetchDefindexPosition } from "@meridian/stellar-sdk-helpers";
 
 const defindexVaultId = process.env.DEFINDEX_VAULT_ID ?? APP_ADDRESSES.defindex.vault;
@@ -8,7 +8,7 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
   app.get("/:publicKey", async (req, reply) => {
     const { publicKey } = req.params as { publicKey: string };
 
-    if (!publicKey || !/^G[A-Z2-7]{55}$/.test(publicKey)) {
+    if (!publicKey || !isValidStellarAddress(publicKey)) {
       return reply.code(400).send({ error: "Invalid public key" });
     }
 

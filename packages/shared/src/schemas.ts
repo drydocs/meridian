@@ -1,11 +1,9 @@
 import { z } from "zod";
+import { isValidStellarAddress } from "./utils";
 
-// Stellar G-address: starts with 'G', followed by 55 chars from the base32
-// alphabet (A-Z and 2-7), totalling 56 characters. This catches all malformed
-// addresses without requiring the full CRC16 checksum from the Stellar SDK.
 const stellarAddress = z
   .string()
-  .regex(/^G[A-Z2-7]{55}$/, "Invalid Stellar public key");
+  .refine(isValidStellarAddress, { message: "Invalid Stellar public key" });
 
 export const DepositRequestSchema = z.object({
   walletAddress: stellarAddress,
