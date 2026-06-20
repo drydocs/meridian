@@ -11,6 +11,7 @@ import {
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "./types";
 import { BASE_FEE, passphraseFor } from "./internal";
+import { withRetry } from "@meridian/shared";
 
 const USDC_ISSUER: Record<string, string> = {
   testnet: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
@@ -95,7 +96,7 @@ export async function prepareSorobanTx(
 ): Promise<{ xdr: string; fee: string }> {
   const passphrase = passphraseFor(network);
   const server = new rpc.Server(network.rpcUrl);
-  const account = await server.getAccount(caller);
+  const account = await withRetry(() => server.getAccount(caller));
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: passphrase })
     .addOperation(op)
     .setTimeout(300)
