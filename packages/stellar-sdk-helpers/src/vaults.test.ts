@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { fetchAllVaults, clearVaultCache } from "./vaults";
 
 // Maps to blend-usdc-fixed in known-pools.ts.
@@ -29,8 +29,10 @@ function stubPools(data: unknown[]) {
 }
 
 describe("fetchAllVaults", () => {
+  beforeEach(() => clearVaultCache());
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
     clearVaultCache();
   });
 
@@ -65,5 +67,19 @@ describe("fetchAllVaults", () => {
     await fetchAllVaults();
 
     expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("re-fetches from DeFiLlama after the 60 s TTL expires", async () => {
+    vi.useFakeTimers();
+    const mockFetch = vi.fn(async () =>
+      new Response(JSON.stringify({ data: [llamaPool()] }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    await fetchAllVaults();
+    vi.advanceTimersByTime(61_000);
+    await fetchAllVaults();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });
