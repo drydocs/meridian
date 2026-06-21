@@ -55,12 +55,12 @@ export const api = {
       body: JSON.stringify({ walletAddress }),
     }),
   buildDeposit: (body: { walletAddress: string; vaultId: string; amount: string }) =>
-    apiFetch<{ xdr: string }>("/api/v1/tx/deposit", {
+    apiFetch<{ xdr: string; fee: string }>("/api/v1/tx/deposit", {
       method: "POST",
       body: JSON.stringify(body),
     }),
   buildWithdraw: (body: { walletAddress: string; vaultId: string; shares: string }) =>
-    apiFetch<{ xdr: string }>("/api/v1/tx/withdraw", {
+    apiFetch<{ xdr: string; fee: string }>("/api/v1/tx/withdraw", {
       method: "POST",
       body: JSON.stringify(body),
     }),
