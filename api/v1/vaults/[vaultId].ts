@@ -6,7 +6,9 @@ const CACHE_CONTROL = "public, s-maxage=60, stale-while-revalidate=300";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
-  const { vaultId } = req.query as { vaultId: string };
+  const raw = req.query["vaultId"];
+  const vaultId = typeof raw === "string" ? raw : undefined;
+  if (!vaultId) return res.status(400).json({ error: "vaultId is required" });
 
   try {
     const vaults = await fetchAllVaults();
