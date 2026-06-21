@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { fetchAllVaults, selectBestVault, isVaultCacheWarm } from "@meridian/stellar-sdk-helpers";
 import { APP_ADDRESSES } from "@meridian/shared";
-import { applyCors } from "../../_lib/middleware";
+import { applyCors, checkRateLimit } from "../../_lib/middleware";
 
 // Cache the aggregated vault list at the Vercel CDN. APY/TVL move slowly, so a
 // short fresh window keeps DeFiLlama call volume low, and the stale-while-
@@ -13,6 +13,7 @@ const defindexConfigured = Boolean(process.env.DEFINDEX_VAULT_ID ?? APP_ADDRESSE
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
+  if (!checkRateLimit(req, res)) return;
   try {
     const cached = isVaultCacheWarm();
     const vaults = await fetchAllVaults();

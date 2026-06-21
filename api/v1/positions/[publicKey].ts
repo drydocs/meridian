@@ -1,12 +1,13 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { fetchBlendPositions, fetchDefindexPosition } from "@meridian/stellar-sdk-helpers";
 import { APP_NETWORK, APP_ADDRESSES, isValidStellarAddress } from "@meridian/shared";
-import { applyCors } from "../../_lib/middleware";
+import { applyCors, checkRateLimit } from "../../_lib/middleware";
 
 const defindexVaultId = process.env.DEFINDEX_VAULT_ID ?? APP_ADDRESSES.defindex.vault;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
+  if (!checkRateLimit(req, res)) return;
   const { publicKey } = req.query as { publicKey: string };
 
   if (!publicKey || !isValidStellarAddress(publicKey)) {
