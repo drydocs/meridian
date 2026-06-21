@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { rpc, Horizon } from "@stellar/stellar-sdk";
-import { toStroops, resolveProtocol, waitForTransaction, simErrorMessage, buildAddTrustlineTx } from "./tx";
+import { toStroops, resolveProtocol, waitForTransaction, simErrorMessage, buildAddTrustlineTx, simulateView } from "./tx";
 import type { StellarNetwork } from "./types";
 
 const { SUCCESS, FAILED, NOT_FOUND } = rpc.Api.GetTransactionStatus;
@@ -41,6 +41,42 @@ describe("simErrorMessage", () => {
   it("returns a fallback for empty or whitespace-only errors", () => {
     expect(simErrorMessage("")).toBe("Simulation failed (no detail)");
     expect(simErrorMessage("\n\n")).toBe("Simulation failed (no detail)");
+  });
+});
+
+describe("simulateView RPC timeout", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("registers a 10 s deadline for each Soroban RPC call", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    // The server mock resolves immediately so we don't need to wait for the
+    // timeout — we only need to verify the deadline was registered.
+    const server = {
+      simulateTransaction: vi.fn(async () => ({
+        id: "1",
+        events: [],
+        minResourceFee: "100",
+        results: [],
+        transactionData: new (await import("@stellar/stellar-sdk")).rpc.Server(
+          "https://soroban-testnet.stellar.org"
+        ),
+      } as unknown as Awaited<ReturnType<rpc.Server["simulateTransaction"]>>)),
+    } as unknown as rpc.Server;
+
+    try {
+      await simulateView(
+        server,
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+        "Test SDF Network ; September 2015",
+        "method"
+      );
+    } catch {
+      // The simulation result is not valid — only setTimeout registration matters.
+    }
+
+    const timeouts = setTimeoutSpy.mock.calls.map(([, ms]) => ms);
+    expect(timeouts).toContain(10_000);
   });
 });
 

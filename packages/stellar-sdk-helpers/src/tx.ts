@@ -14,6 +14,21 @@ import { BASE_FEE, passphraseFor } from "./internal";
 import { withRetry } from "@meridian/shared";
 import { buildHorizonServer } from "./horizon";
 
+// The Soroban RPC SDK does not surface an AbortSignal option, so we race each
+// call against a manual timeout rejection. 10 s is enough for testnet under
+// normal load; callers get a fast, actionable error instead of hanging until
+// the Vercel function-level deadline fires.
+const SOROBAN_RPC_TIMEOUT_MS = 10_000;
+
+function withSorobanTimeout<T>(fn: () => Promise<T>, ms = SOROBAN_RPC_TIMEOUT_MS): Promise<T> {
+  return Promise.race([
+    fn(),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Soroban RPC timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 const USDC_ISSUER: Record<string, string> = {
   testnet: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
   mainnet: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -73,13 +88,13 @@ export async function simulateView(
   method: string,
   ...args: xdr.ScVal[]
 ): Promise<unknown> {
-  const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
+  const dummyAccount = new Account("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", "0");
   const contract = new Contract(contractId);
   const tx = new TransactionBuilder(dummyAccount, { fee: BASE_FEE, networkPassphrase })
     .addOperation(contract.call(method, ...args))
     .setTimeout(0)
     .build();
-  const sim = await server.simulateTransaction(tx);
+  const sim = await withSorobanTimeout(() => server.simulateTransaction(tx));
   if (rpc.Api.isSimulationError(sim)) throw new Error(simErrorMessage(sim.error));
   if (!rpc.Api.isSimulationSuccess(sim) || !sim.result) return null;
   return scValToNative(sim.result.retval);
@@ -92,12 +107,12 @@ export async function prepareSorobanTx(
 ): Promise<{ xdr: string; fee: string }> {
   const passphrase = passphraseFor(network);
   const server = new rpc.Server(network.rpcUrl);
-  const account = await withRetry(() => server.getAccount(caller));
+  const account = await withRetry(() => withSorobanTimeout(() => server.getAccount(caller)));
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: passphrase })
     .addOperation(op)
     .setTimeout(300)
     .build();
-  const sim = await server.simulateTransaction(tx);
+  const sim = await withSorobanTimeout(() => server.simulateTransaction(tx));
   if (rpc.Api.isSimulationError(sim)) throw new Error(`Simulation failed: ${simErrorMessage(sim.error)}`);
   const prepared = rpc.assembleTransaction(tx, sim).build();
   return { xdr: prepared.toEnvelope().toXDR("base64"), fee: sim.minResourceFee };
@@ -222,7 +237,7 @@ export async function submitTx(
   const server = new rpc.Server(network.rpcUrl);
   const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
 
-  const sent = await server.sendTransaction(tx);
+  const sent = await withSorobanTimeout(() => server.sendTransaction(tx));
   if (sent.status === "ERROR") {
     throw new Error(`Transaction rejected at submission: ${describeSendError(sent)}`);
   }
