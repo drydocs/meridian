@@ -11,6 +11,7 @@ vi.mock("@meridian/stellar-sdk-helpers", () => ({
   submitTx: vi.fn(async () => ({ hash: "HASH" })),
   fetchAllVaults: vi.fn(async () => [{ id: "blend-usdc-fixed", protocol: "blend" }]),
   selectBestVault: vi.fn(() => ({ id: "blend-usdc-fixed" })),
+  isVaultCacheWarm: vi.fn(() => false),
   fetchBlendPositions: vi.fn(async () => [
     { vaultId: "blend-usdc-fixed", shares: 1, deposited: 1, earned: 0, entryTime: 0 },
   ]),

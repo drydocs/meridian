@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { fetchAllVaults, selectBestVault } from "@meridian/stellar-sdk-helpers";
+import { fetchAllVaults, selectBestVault, isVaultCacheWarm } from "@meridian/stellar-sdk-helpers";
 import { APP_ADDRESSES } from "@meridian/shared";
 import { applyCors } from "../../_lib/middleware";
 
@@ -14,6 +14,7 @@ const defindexConfigured = Boolean(process.env.DEFINDEX_VAULT_ID ?? APP_ADDRESSE
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   try {
+    const cached = isVaultCacheWarm();
     const vaults = await fetchAllVaults();
     const best = selectBestVault(vaults, { defindexConfigured });
     res.setHeader("Cache-Control", CACHE_CONTROL);
@@ -21,7 +22,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       vaults,
       recommendedVaultId: best?.id ?? null,
       updatedAt: new Date().toISOString(),
-      cached: false,
+      cached,
     });
   } catch (err) {
     console.error("[vaults] fetch error:", err);

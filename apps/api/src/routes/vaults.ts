@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { selectBestVault } from "@meridian/stellar-sdk-helpers";
+import { selectBestVault, isVaultCacheWarm } from "@meridian/stellar-sdk-helpers";
 import { APP_ADDRESSES } from "@meridian/shared";
 import { fetchAllVaults } from "../services/vaults.js";
 
@@ -8,13 +8,14 @@ const defindexConfigured = Boolean(process.env.DEFINDEX_VAULT_ID ?? APP_ADDRESSE
 export const vaultsRoute: FastifyPluginAsync = async (app) => {
   app.get("/", async (_req, reply) => {
     try {
+      const cached = isVaultCacheWarm();
       const vaults = await fetchAllVaults();
       const best = selectBestVault(vaults, { defindexConfigured });
       return reply.send({
         vaults,
         recommendedVaultId: best?.id ?? null,
         updatedAt: new Date().toISOString(),
-        cached: false,
+        cached,
       });
     } catch (err) {
       app.log.error(err, "[vaults] failed to fetch vaults");
