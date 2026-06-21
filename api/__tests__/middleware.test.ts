@@ -62,18 +62,18 @@ describe("applyCors", () => {
 // checkRateLimit ------------------------------------------------------------------
 
 describe("checkRateLimit", () => {
-  it("allows the first 20 requests from the same IP", () => {
+  it("allows the first 100 requests from the same IP", () => {
     const ip = "1.2.3.4";
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 100; i++) {
       const res = fakeRes();
       expect(checkRateLimit(fakeReq("POST", { "x-forwarded-for": ip }), res)).toBe(true);
       expect(res.statusCode).toBe(200);
     }
   });
 
-  it("blocks the 21st request with 429", () => {
+  it("blocks the 101st request with 429", () => {
     const ip = "1.2.3.5";
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 100; i++) {
       checkRateLimit(fakeReq("POST", { "x-forwarded-for": ip }), fakeRes());
     }
     const res = fakeRes();
@@ -84,7 +84,7 @@ describe("checkRateLimit", () => {
   it("resets the counter after the 60 s window expires", () => {
     vi.useFakeTimers();
     const ip = "1.2.3.6";
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 100; i++) {
       checkRateLimit(fakeReq("POST", { "x-forwarded-for": ip }), fakeRes());
     }
     // Advance past the 60 s window.
@@ -97,7 +97,7 @@ describe("checkRateLimit", () => {
   it("tracks two different IPs independently", () => {
     const ipA = "10.0.0.1";
     const ipB = "10.0.0.2";
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 100; i++) {
       checkRateLimit(fakeReq("POST", { "x-forwarded-for": ipA }), fakeRes());
     }
     // ipA is blocked but ipB should still be allowed.

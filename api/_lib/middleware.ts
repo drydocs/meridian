@@ -18,16 +18,16 @@ export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
   return false;
 }
 
-// In-memory rate limit: per-IP, 20 req / 60 s. Resets on cold start and is
-// not shared across invocation instances. For a distributed limit use Upstash
-// Redis or Vercel KV and swap this implementation.
+// In-memory rate limit: per-IP, 100 req / 60 s — matches the Fastify server's
+// @fastify/rate-limit config. Resets on cold start and is not shared across
+// invocation instances. For a distributed limit use Upstash Redis or Vercel KV.
 const counts = new Map<string, { n: number; resetAt: number }>();
 
 /** Clears all rate-limit buckets. Exposed for tests only. */
 export function resetRateLimitForTesting(): void {
   counts.clear();
 }
-const LIMIT = 20;
+const LIMIT = 100;
 const WINDOW_MS = 60_000;
 
 function clientIp(req: VercelRequest): string {
