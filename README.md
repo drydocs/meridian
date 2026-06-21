@@ -15,17 +15,18 @@ Meridian is a **testnet technical preview**, not a finished product. Be clear-ey
 **Working today (testnet)**
 - Live APY / TVL feed across Stellar stablecoin pools (via DeFiLlama) with a risk heuristic
 - Non-custodial signing flow: the API builds an unsigned Soroban XDR, your wallet (Freighter) signs and submits it — keys never leave the browser
-- **Direct deposit / withdraw against a real Blend pool** (#4): funds supply straight into Blend from your wallet and the resulting bToken position is yours — no Meridian-controlled custody
+- **Direct deposit / withdraw against a real Blend pool**: funds supply straight into Blend from your wallet and the resulting bToken position is yours — no Meridian-controlled custody
 - Live position reads from the Blend pool and (when a DeFindex vault is configured) DeFindex vault — current supplied value
-- Best-rate routing (#6): the API recommends the highest-APY vault it can actually deposit into, skipping display-only protocols and pools flagged risky
-- `MeridianVault` Soroban contract (ERC-4626-style share accounting hardened against the first-depositor inflation attack, pause + admin-rotation rails) with unit tests — reserved for the v2 single-transaction rebalancing router (#8)
+- Best-rate routing: the API recommends the highest-APY vault it can actually deposit into, skipping display-only protocols and pools flagged risky
+- `MeridianVault` Soroban contract (ERC-4626-style share accounting hardened against the first-depositor inflation attack, pause + admin-rotation rails) with unit tests — reserved for the v2 single-transaction rebalancing router
 
 **In progress — the core promise is not finished**
-- Direct deposit/withdraw against real DeFindex vaults (#5) — *transaction builders are implemented locally (no hosted API); gated behind `DEFINDEX_VAULT_ID` until a real testnet vault is wired*
+
+- Direct deposit/withdraw against real DeFindex vaults — *transaction builders are implemented; gated behind `DEFINDEX_VAULT_ID` until a real testnet vault is wired*
 - Per-position yield earned (cost-basis tracking for direct Blend/DeFindex positions)
 - Mainnet configuration and a security audit before any real-funds use
 
-Until a DeFindex vault is configured, DeFindex routes return `501` rather than silently routing elsewhere. Track progress in the [Roadmap](#roadmap) and [open issues](../../issues).
+Until a DeFindex vault is configured, the DeFindex deposit path throws a configuration error rather than silently routing elsewhere. Track progress in the [Roadmap](#roadmap) and [open issues](../../issues).
 
 ---
 
@@ -40,8 +41,10 @@ Inflation in many West African economies regularly exceeds 20 % annually. Access
 ```text
 meridian/
 ├── apps/
-│   ├── web/          # Vite + React 18 dashboard (TypeScript, Tailwind, Zustand)
-│   └── api/          # Fastify REST API (local dev): builds Soroban txs, aggregates APY
+│   ├── web/          # Vite + React 19 dashboard (TypeScript, Tailwind, Zustand)
+│   ├── api/          # Fastify REST API (local dev): builds Soroban txs, aggregates APY
+│   ├── docs/         # Internal architecture and operations docs
+│   └── landing/      # Marketing landing page
 ├── packages/
 │   ├── stellar-sdk-helpers/  # Blend & DeFindex client wrappers
 │   ├── shared/               # Zod schemas, constants, pure utils
@@ -73,7 +76,7 @@ The API never holds private keys. It builds an unsigned Soroban transaction, ret
 
 | Layer | Technology |
 | --- | --- |
-| Frontend | Vite 5, React 18, Tailwind CSS, Zustand, TanStack Query |
+| Frontend | Vite 8, React 19, Tailwind CSS, Zustand, TanStack Query |
 | Backend (prod) | Vercel Serverless Functions, Zod validation |
 | Backend (local) | Fastify |
 | Blockchain | Stellar Soroban, `@stellar/stellar-sdk` v12 |
@@ -154,7 +157,7 @@ We welcome contributions. See [open issues](../../issues) for a range of tasks a
 3. Run `pnpm lint && pnpm typecheck && pnpm test` before opening a PR
 4. Reference the relevant GitHub issue in your PR description
 
-Issues are tagged `good first issue`, `medium`, and `hard`, and carry the `Stellar Wave` label. Pick your level.
+Issues are tagged `good first issue`, `medium`, and `hard`. Pick your level.
 
 ---
 
