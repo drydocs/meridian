@@ -1,6 +1,24 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { buildDefindexDepositTx, buildDefindexWithdrawTx, stroopsToUnits, fetchDefindexPosition } from "./defindex";
 import type { StellarNetwork } from "./types";
+
+// Track rpc.Server constructor calls so we can assert on the timeout option.
+const capturedServerArgs: unknown[][] = [];
+vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
+  return {
+    ...actual,
+    rpc: {
+      ...actual.rpc,
+      Server: class extends actual.rpc.Server {
+        constructor(...args: ConstructorParameters<typeof actual.rpc.Server>) {
+          capturedServerArgs.push(args);
+          super(...args);
+        }
+      },
+    },
+  };
+});
 
 vi.mock("./tx", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./tx")>();
@@ -55,6 +73,18 @@ describe("fetchDefindexPosition", () => {
   const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
   beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  it("constructs rpc.Server with an 8 s HTTP timeout", async () => {
+    vi.mocked(simulateView).mockResolvedValue(0n);
+    capturedServerArgs.length = 0;
+
+    await fetchDefindexPosition(network, VAULT_ID, "defindex-usdc", PUBKEY);
+
+    expect(capturedServerArgs).toHaveLength(1);
+    expect(capturedServerArgs[0][0]).toBe(network.rpcUrl);
+    expect(capturedServerArgs[0][1]).toMatchObject({ timeout: 8_000 });
+  });
 
   it("returns [] when the user holds zero shares", async () => {
     vi.mocked(simulateView).mockResolvedValue(0n);
