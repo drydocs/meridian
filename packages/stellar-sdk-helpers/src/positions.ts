@@ -1,7 +1,4 @@
-import { rpc, Address, xdr } from "@stellar/stellar-sdk";
-import { simulateView } from "./tx";
-import type { StellarNetwork } from "./types";
-import { STROOPS_PER_UNIT, toBigInt } from "./internal";
+import { STROOPS_PER_UNIT } from "./internal";
 
 export interface PositionInfo {
   vaultId: string;
@@ -51,41 +48,3 @@ export function computePosition(vaultId: string, raw: RawPosition): PositionInfo
   ];
 }
 
-/**
- * Read an address's vault position via read-only contract simulation. Returns
- * `[]` if the address holds nothing. `get_principal` is fetched defensively so
- * the call still succeeds against a vault deployed before principal tracking
- * existed (earned simply reads 0 until the contract is upgraded).
- */
-export async function fetchPosition(
-  network: StellarNetwork,
-  vaultContractId: string,
-  publicKey: string
-): Promise<PositionInfo[]> {
-  const server = new rpc.Server(network.rpcUrl);
-  const caller = Address.fromString(publicKey).toScVal();
-  const view = (method: string, ...args: xdr.ScVal[]) =>
-    simulateView(server, vaultContractId, network.passphrase, method, ...args);
-
-  const [shares, totalShares, totalAssets, entryTime] = await Promise.all([
-    view("get_position", caller),
-    view("get_total_shares"),
-    view("get_total_assets"),
-    view("get_entry_time", caller),
-  ]);
-
-  let principal: bigint | null;
-  try {
-    principal = toBigInt(await view("get_principal", caller));
-  } catch {
-    principal = null;
-  }
-
-  return computePosition(vaultContractId, {
-    shares: toBigInt(shares),
-    totalShares: toBigInt(totalShares),
-    totalAssets: toBigInt(totalAssets),
-    principal,
-    entryTime: toBigInt(entryTime),
-  });
-}
