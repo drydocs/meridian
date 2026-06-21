@@ -97,7 +97,7 @@ export async function fetchDefindexPosition(
   reportVaultId: string,
   publicKey: string
 ): Promise<PositionInfo[]> {
-  const server = new rpc.Server(network.rpcUrl);
+  const server = new rpc.Server(network.rpcUrl, { timeout: 8_000 });
   const caller = Address.fromString(publicKey).toScVal();
 
   const shares = toBigInt(
