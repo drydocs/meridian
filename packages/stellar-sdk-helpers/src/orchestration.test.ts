@@ -1,25 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { buildDepositTx, buildWithdrawTx, type ProtocolAddresses } from "./orchestration";
+import { buildDepositTx, buildWithdrawTx, resolvePositions, type ProtocolAddresses } from "./orchestration";
 import type { StellarNetwork } from "./types";
+import type { PositionInfo } from "./positions";
+
+const BLEND_USDC: PositionInfo = { vaultId: "blend-usdc-fixed", shares: 10, deposited: 10, earned: 0, entryTime: 0 };
+const DFX_USDC: PositionInfo = { vaultId: "defindex-usdc", shares: 5, deposited: 5, earned: 0, entryTime: 0 };
 
 vi.mock("./blend", () => ({
   blendAssetForVault: vi.fn((vaultId: string) => (vaultId.includes("-eurc") ? "eurc" : "usdc")),
   buildBlendDepositTx: vi.fn(async () => ({ xdr: "BLEND_DEPOSIT_XDR", fee: "200" })),
   buildBlendWithdrawTx: vi.fn(async () => ({ xdr: "BLEND_WITHDRAW_XDR", fee: "200" })),
+  fetchBlendPositions: vi.fn(async () => [BLEND_USDC]),
 }));
 
 vi.mock("./defindex", () => ({
   buildDefindexDepositTx: vi.fn(async () => ({ xdr: "DFX_DEPOSIT_XDR", fee: "300" })),
   buildDefindexWithdrawTx: vi.fn(async () => ({ xdr: "DFX_WITHDRAW_XDR", fee: "300" })),
+  fetchDefindexPosition: vi.fn(async () => [DFX_USDC]),
 }));
 
 import {
   buildBlendDepositTx,
   buildBlendWithdrawTx,
+  fetchBlendPositions,
 } from "./blend";
 import {
   buildDefindexDepositTx,
   buildDefindexWithdrawTx,
+  fetchDefindexPosition,
 } from "./defindex";
 
 const network: StellarNetwork = {
@@ -117,5 +125,35 @@ describe("buildWithdrawTx", () => {
     await expect(buildWithdrawTx("ondo-usdy", WALLET, "5", addresses, network)).rejects.toThrow(
       /No protocol mapping/
     );
+  });
+});
+
+describe("resolvePositions", () => {
+  it("calls fetchBlendPositions with the correct reserves and returns its result", async () => {
+    const positions = await resolvePositions(WALLET, network, addresses);
+    expect(fetchBlendPositions).toHaveBeenCalledWith(network, "CPOOL", WALLET, [
+      { assetId: "CUSDC", vaultId: "blend-usdc-fixed" },
+      { assetId: "CEURC", vaultId: "blend-eurc-fixed" },
+    ]);
+    expect(positions).toContainEqual(BLEND_USDC);
+  });
+
+  it("appends DeFindex positions when defindexVault is set", async () => {
+    const positions = await resolvePositions(WALLET, network, addresses);
+    expect(fetchDefindexPosition).toHaveBeenCalledWith(network, "CDFX", "defindex-usdc", WALLET);
+    expect(positions).toContainEqual(DFX_USDC);
+  });
+
+  it("skips DeFindex fetch when defindexVault is empty", async () => {
+    const noVault = { ...addresses, defindexVault: "" };
+    const positions = await resolvePositions(WALLET, network, noVault);
+    expect(fetchDefindexPosition).not.toHaveBeenCalled();
+    expect(positions).toEqual([BLEND_USDC]);
+  });
+
+  it("returns Blend positions even when the DeFindex fetch throws", async () => {
+    vi.mocked(fetchDefindexPosition).mockRejectedValueOnce(new Error("RPC down"));
+    const positions = await resolvePositions(WALLET, network, addresses);
+    expect(positions).toEqual([BLEND_USDC]);
   });
 });
