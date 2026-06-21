@@ -7,6 +7,7 @@ import {
   TrustlineRequestSchema,
   SubmitRequestSchema,
   formatZodError,
+  sanitizeTxError,
 } from "@meridian/shared";
 import {
   buildDepositTx,
@@ -29,8 +30,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
       );
       reply.send(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to build deposit transaction";
-      reply.code(500).send({ error: msg });
+      reply.code(500).send({ error: sanitizeTxError(err, "Failed to build deposit transaction") });
     }
   });
 
@@ -47,8 +47,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
       );
       reply.send(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to build withdraw transaction";
-      reply.code(500).send({ error: msg });
+      reply.code(500).send({ error: sanitizeTxError(err, "Failed to build withdraw transaction") });
     }
   });
 
@@ -60,8 +59,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
       const result = await buildAddTrustlineTx(parsed.data.walletAddress, APP_NETWORK);
       reply.send(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to build trustline transaction";
-      reply.code(500).send({ error: msg });
+      reply.code(500).send({ error: sanitizeTxError(err, "Failed to build trustline transaction") });
     }
   });
 
@@ -73,8 +71,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
       const result = await submitTx(parsed.data.xdr, APP_NETWORK);
       reply.send(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to submit transaction";
-      reply.code(500).send({ error: msg });
+      reply.code(500).send({ error: sanitizeTxError(err, "Failed to submit transaction") });
     }
   });
 };

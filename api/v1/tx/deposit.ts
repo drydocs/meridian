@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { buildDepositTx } from "@meridian/stellar-sdk-helpers";
-import { APP_NETWORK, buildTxAddresses, DepositRequestSchema, formatZodError } from "@meridian/shared";
+import { APP_NETWORK, buildTxAddresses, DepositRequestSchema, formatZodError, sanitizeTxError } from "@meridian/shared";
 import { applyCors, checkRateLimit } from "../../_lib/middleware";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -20,7 +20,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     );
     return res.json(result);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to build deposit transaction";
-    res.status(500).json({ error: msg });
+    res.status(500).json({ error: sanitizeTxError(err, "Failed to build deposit transaction") });
   }
 }

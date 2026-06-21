@@ -1,3 +1,19 @@
+// Matches patterns that reveal internal deployment details: RPC URLs and
+// Stellar contract (C-address) identifiers embedded in SDK error messages.
+const INTERNAL_DETAIL = /https?:\/\/|C[A-Z2-7]{50,}/;
+
+/**
+ * Extracts a safe, first-line summary from an unknown catch value.
+ * Strips multi-line SDK diagnostics, RPC URLs, and contract addresses.
+ * Returns `fallback` when no clean message can be derived.
+ */
+export function sanitizeTxError(err: unknown, fallback: string): string {
+  if (!(err instanceof Error)) return fallback;
+  const first = err.message.split("\n")[0].trim();
+  if (!first || INTERNAL_DETAIL.test(first)) return fallback;
+  return first;
+}
+
 export function shortenAddress(address: string, chars = 4): string {
   return `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }
