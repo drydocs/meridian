@@ -55,6 +55,13 @@ export async function fetchAllVaults(): Promise<ApiVault[]> {
     });
   }
 
-  vaultCache = { vaults, expiresAt: now + CACHE_TTL_MS };
-  return vaults;
+  if (vaults.length > 0) {
+    vaultCache = { vaults, expiresAt: now + CACHE_TTL_MS };
+    return vaults;
+  }
+
+  // DeFiLlama returned no usable pools — likely a transient blip.
+  // Serve the previous cache if still populated so the dashboard stays live;
+  // otherwise return empty and let callers decide how to handle it.
+  return vaultCache?.vaults ?? [];
 }

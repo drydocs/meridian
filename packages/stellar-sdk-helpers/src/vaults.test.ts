@@ -69,6 +69,23 @@ describe("fetchAllVaults", () => {
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
+  it("serves stale cache instead of empty list when DeFiLlama returns no pools", async () => {
+    // Prime the cache with a valid vault list.
+    stubPools([llamaPool()]);
+    const first = await fetchAllVaults();
+    expect(first).toHaveLength(1);
+
+    // Now simulate a DeFiLlama blip — all pools gone — after TTL expiry.
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(61_000);
+    stubPools([]);
+    const second = await fetchAllVaults();
+
+    // Should return the previous cache, not an empty array.
+    expect(second).toHaveLength(1);
+    expect(second[0].id).toBe("blend-usdc-fixed");
+  });
+
   it("re-fetches from DeFiLlama after the 60 s TTL expires", async () => {
     vi.useFakeTimers();
     const mockFetch = vi.fn(async () =>
