@@ -1,14 +1,10 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { STELLAR_NETWORKS } from "@meridian/shared";
 import { useWalletStore } from "../store/wallet";
 import { signTransaction } from "../lib/wallet";
 import { api } from "../lib/api";
 import { useToastStore } from "../store/toast";
-
-const NETWORK_PASSPHRASE: Record<string, string> = {
-  testnet: "Test SDF Network ; September 2015",
-  mainnet: "Public Global Stellar Network ; September 2015",
-};
 
 function isMissingTrustline(msg: string) {
   return msg.toLowerCase().includes("trustline");
@@ -22,7 +18,7 @@ export function useVaultActions() {
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [needsTrustline, setNeedsTrustline] = useState(false);
 
-  const passphrase = NETWORK_PASSPHRASE[network];
+  const passphrase = STELLAR_NETWORKS[network as keyof typeof STELLAR_NETWORKS]?.passphrase;
 
   async function signAndSubmit(xdr: string) {
     const signedXdr = await signTransaction(xdr, passphrase);
