@@ -1,7 +1,8 @@
-import { buildBlendDepositTx, buildBlendWithdrawTx, blendAssetForVault } from "./blend";
-import { buildDefindexDepositTx, buildDefindexWithdrawTx } from "./defindex";
+import { buildBlendDepositTx, buildBlendWithdrawTx, blendAssetForVault, fetchBlendPositions } from "./blend";
+import { buildDefindexDepositTx, buildDefindexWithdrawTx, fetchDefindexPosition } from "./defindex";
 import { toStroops, resolveProtocol } from "./tx";
 import type { StellarNetwork } from "./types";
+import type { PositionInfo } from "./positions";
 
 export interface ProtocolAddresses {
   blendPool: string;
@@ -33,6 +34,33 @@ export async function buildDepositTx(
     walletAddress,
     toStroops(amount)
   );
+}
+
+/**
+ * Fetches all positions for `publicKey` across Blend reserves and (optionally)
+ * the DeFindex vault. The DeFindex call is isolated — a failure there is logged
+ * and swallowed so the Blend positions are always returned.
+ */
+export async function resolvePositions(
+  publicKey: string,
+  network: StellarNetwork,
+  addresses: ProtocolAddresses,
+): Promise<PositionInfo[]> {
+  const positions = await fetchBlendPositions(network, addresses.blendPool, publicKey, [
+    { assetId: addresses.usdc, vaultId: "blend-usdc-fixed" },
+    { assetId: addresses.eurc, vaultId: "blend-eurc-fixed" },
+  ]);
+
+  if (addresses.defindexVault) {
+    try {
+      const dfx = await fetchDefindexPosition(network, addresses.defindexVault, "defindex-usdc", publicKey);
+      positions.push(...dfx);
+    } catch (err) {
+      console.warn("[positions] defindex read failed:", err);
+    }
+  }
+
+  return positions;
 }
 
 export async function buildWithdrawTx(

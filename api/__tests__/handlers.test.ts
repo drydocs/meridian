@@ -12,10 +12,9 @@ vi.mock("@meridian/stellar-sdk-helpers", () => ({
   fetchAllVaults: vi.fn(async () => [{ id: "blend-usdc-fixed", protocol: "blend" }]),
   selectBestVault: vi.fn(() => ({ id: "blend-usdc-fixed" })),
   isVaultCacheWarm: vi.fn(() => false),
-  fetchBlendPositions: vi.fn(async () => [
+  resolvePositions: vi.fn(async () => [
     { vaultId: "blend-usdc-fixed", shares: 1, deposited: 1, earned: 0, entryTime: 0 },
   ]),
-  fetchDefindexPosition: vi.fn(async () => []),
 }));
 
 import depositHandler from "../v1/tx/deposit";
@@ -24,7 +23,7 @@ import trustlineHandler from "../v1/tx/add-trustline";
 import submitHandler from "../v1/tx/submit";
 import vaultsHandler from "../v1/vaults/index";
 import positionsHandler from "../v1/positions/[publicKey]";
-import { buildDepositTx, fetchBlendPositions } from "@meridian/stellar-sdk-helpers";
+import { buildDepositTx, resolvePositions } from "@meridian/stellar-sdk-helpers";
 
 // A 56-char Stellar public key shape (only the length is validated).
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -164,7 +163,7 @@ describe("GET /api/v1/positions/:publicKey", () => {
     const res = makeRes();
     await positionsHandler(fakeReq({ method: "GET", query: { publicKey: "too-short" } }), res);
     expect(res.statusCode).toBe(400);
-    expect(fetchBlendPositions).not.toHaveBeenCalled();
+    expect(resolvePositions).not.toHaveBeenCalled();
   });
 
   it("returns the resolved positions for a valid key", async () => {
@@ -173,11 +172,11 @@ describe("GET /api/v1/positions/:publicKey", () => {
     expect(res.body).toEqual({
       positions: [{ vaultId: "blend-usdc-fixed", shares: 1, deposited: 1, earned: 0, entryTime: 0 }],
     });
-    expect(fetchBlendPositions).toHaveBeenCalledOnce();
+    expect(resolvePositions).toHaveBeenCalledOnce();
   });
 
   it("returns 503 when the Blend read throws", async () => {
-    vi.mocked(fetchBlendPositions).mockRejectedValueOnce(new Error("rpc down"));
+    vi.mocked(resolvePositions).mockRejectedValueOnce(new Error("rpc down"));
     const res = makeRes();
     await positionsHandler(fakeReq({ method: "GET", query: { publicKey: PUBKEY } }), res);
     expect(res.statusCode).toBe(503);
