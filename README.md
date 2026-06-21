@@ -105,7 +105,7 @@ pnpm install
 
 ```bash
 cp .env.example .env
-# Edit .env: set STELLAR_NETWORK=testnet for local dev
+# Set DEFINDEX_VAULT_ID if you have a DeFindex vault configured; leave empty otherwise
 ```
 
 ### Run locally
@@ -160,15 +160,21 @@ Issues are tagged `good first issue`, `medium`, and `hard`, and carry the `Stell
 
 ## Roadmap
 
-- [ ] Freighter wallet integration (#2)
-- [ ] Live Blend pool APY (#4)
-- [ ] Live DeFindex vault APY (#5)
-- [ ] APY aggregation + best-rate routing API (#6)
-- [ ] Unsigned Soroban deposit/withdraw TX builder (#7)
-- [ ] Yield history chart (#9)
-- [ ] Mobile-first responsive layout (#1)
-- [ ] Soroban router contract for single-tx rebalancing (#8)
-- [ ] Multi-language support: English + French (#10)
+### Q2 2026: Deposit, withdraw and earn (testnet)
+
+Non-custodial USDC deposits into Blend and DeFindex vaults on Stellar testnet. Freighter wallet connects in one click, the best-rate vault is selected automatically, and the signed transaction never leaves the browser. Live APY and TVL across protocols with risk-tier labelling. Withdraw at any time, no lock-up.
+
+### Q3 2026: Yield tracking and position history
+
+Per-position yield tracking with a cost-basis model so users see their actual earnings, not just current balance. A yield history chart broken down by protocol, entry time, and cumulative earned. Position-level analytics that work whether funds are in Blend, DeFindex, or split across both.
+
+### Q4 2026: Atomic rebalancing
+
+A Soroban router contract that rebalances between vaults in one atomic transaction. No manual withdraw-then-deposit cycle: when a better rate appears, funds move in a single ledger close. Auto-rebalancing triggers with user-defined APY thresholds. The groundwork for supporting new protocols without UI changes.
+
+### Q1 2027: Mainnet and scale
+
+Third-party security audit, mainnet deployment, and a production-grade rate-limit and caching layer that handles real user load. French and English localisation to open the product to West African users who are not comfortable in English. Mobile-first UI pass targeting low-end Android devices common in the target market.
 
 ---
 
