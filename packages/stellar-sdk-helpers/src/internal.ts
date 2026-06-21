@@ -6,7 +6,10 @@ export const BASE_FEE = "100";
 export const STROOPS_PER_UNIT = 1e7;
 
 export function toBigInt(value: unknown): bigint {
-  return BigInt((value as bigint | number | null) ?? 0);
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number") return BigInt(Math.trunc(value));
+  if (value === null || value === undefined) return 0n;
+  throw new TypeError(`toBigInt: unexpected type ${typeof value}: ${String(value)}`);
 }
 
 export function passphraseFor(network: StellarNetwork): string {
