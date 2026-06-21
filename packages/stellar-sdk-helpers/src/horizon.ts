@@ -10,10 +10,3 @@ export function buildHorizonServer(config: StellarNetwork): Horizon.Server {
   return new Horizon.Server(urls[config.network]);
 }
 
-export async function getAccountBalances(
-  server: Horizon.Server,
-  publicKey: string
-): Promise<Horizon.HorizonApi.BalanceLine[]> {
-  const account = await server.loadAccount(publicKey);
-  return account.balances;
-}

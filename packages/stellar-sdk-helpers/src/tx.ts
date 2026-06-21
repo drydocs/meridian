@@ -12,6 +12,7 @@ import {
 import type { StellarNetwork } from "./types";
 import { BASE_FEE, passphraseFor } from "./internal";
 import { withRetry } from "@meridian/shared";
+import { buildHorizonServer } from "./horizon";
 
 const USDC_ISSUER: Record<string, string> = {
   testnet: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
@@ -22,11 +23,6 @@ const USDC_ISSUER: Record<string, string> = {
 const MUSDC_ISSUER: Record<string, string> = {
   testnet: "GAZOB5KAE27U7QMGCJLA74TKGECONNND73GL2GIMYBXYNBVG4U5IHBX7",
   mainnet: "",
-};
-
-const HORIZON_URL: Record<string, string> = {
-  testnet: "https://horizon-testnet.stellar.org",
-  mainnet: "https://horizon.stellar.org",
 };
 
 function usdcAsset(network: StellarNetwork): Asset {
@@ -42,7 +38,7 @@ function musdcAsset(network: StellarNetwork): Asset {
 }
 
 function horizonServer(network: StellarNetwork): Horizon.Server {
-  return new Horizon.Server(HORIZON_URL[network.network] ?? HORIZON_URL.testnet);
+  return buildHorizonServer(network);
 }
 
 function hasAssetTrustline(
