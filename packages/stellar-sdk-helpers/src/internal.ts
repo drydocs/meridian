@@ -13,5 +13,9 @@ export function toBigInt(value: unknown): bigint {
 }
 
 export function passphraseFor(network: StellarNetwork): string {
-  return network.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+  switch (network.network) {
+    case "mainnet": return Networks.PUBLIC;
+    case "testnet": return Networks.TESTNET;
+    case "futurenet": return Networks.FUTURENET;
+  }
 }
