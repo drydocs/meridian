@@ -24,6 +24,11 @@ export function clearVaultCache(): void {
   vaultCache = null;
 }
 
+/** Returns true if a valid cached result exists and will be returned by fetchAllVaults. */
+export function isVaultCacheWarm(): boolean {
+  return vaultCache !== null && Date.now() < vaultCache.expiresAt;
+}
+
 // Every vault in the list is backed by live DeFiLlama market data. Protocols
 // without a real on-chain rate feed wired up yet are intentionally omitted
 // rather than shown with placeholder figures.
