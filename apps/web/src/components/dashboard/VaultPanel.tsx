@@ -53,13 +53,13 @@ export function VaultPanel() {
 
   async function handleDeposit() {
     if (!amount || !bestVault) return;
-    const ok = await deposit(amount, bestVault.id);
+    const ok = await deposit(amount, bestVault.id, bestVault.asset);
     if (ok) setAmount("");
   }
 
   async function handleWithdraw() {
     if (!amount || !bestVault) return;
-    const ok = await withdraw(amount, bestVault.id);
+    const ok = await withdraw(amount, bestVault.id, bestVault.asset);
     if (ok) setAmount("");
   }
 

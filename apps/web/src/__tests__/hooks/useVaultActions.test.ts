@@ -39,20 +39,20 @@ describe("useVaultActions — deposit", () => {
     const { result } = renderHook(() => useVaultActions());
 
     let ok: boolean | undefined;
-    await act(async () => { ok = await result.current.deposit("10", "blend-usdc-fixed"); });
+    await act(async () => { ok = await result.current.deposit("10", "blend-usdc-fixed", "USDC"); });
 
     expect(ok).toBe(true);
     expect(api.buildDeposit).toHaveBeenCalledWith({ walletAddress: KEY, vaultId: "blend-usdc-fixed", amount: "10" });
     expect(signTransaction).toHaveBeenCalledWith("DEPOSIT_XDR", expect.stringContaining("Test SDF"));
     expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
-    expect(useToastStore.getState().toasts[0]).toMatchObject({ kind: "success" });
+    expect(useToastStore.getState().toasts[0]).toMatchObject({ kind: "success", message: "Deposited 10 USDC" });
   });
 
   it("sets needsTrustline when the API signals a missing trustline", async () => {
     vi.mocked(api.buildDeposit).mockRejectedValueOnce(new Error("USDC trustline missing"));
     const { result } = renderHook(() => useVaultActions());
 
-    await act(async () => { await result.current.deposit("10", "blend-usdc-fixed"); });
+    await act(async () => { await result.current.deposit("10", "blend-usdc-fixed", "USDC"); });
 
     expect(result.current.needsTrustline).toBe(true);
     expect(useToastStore.getState().toasts[0]).toMatchObject({ kind: "error" });
@@ -63,7 +63,7 @@ describe("useVaultActions — deposit", () => {
     const { result } = renderHook(() => useVaultActions());
 
     let ok: boolean | undefined;
-    await act(async () => { ok = await result.current.deposit("10", "v"); });
+    await act(async () => { ok = await result.current.deposit("10", "v", "USDC"); });
 
     expect(ok).toBe(false);
     expect(api.buildDeposit).not.toHaveBeenCalled();
@@ -75,12 +75,12 @@ describe("useVaultActions — withdraw", () => {
     const { result } = renderHook(() => useVaultActions());
 
     let ok: boolean | undefined;
-    await act(async () => { ok = await result.current.withdraw("5", "blend-usdc-fixed"); });
+    await act(async () => { ok = await result.current.withdraw("5", "blend-usdc-fixed", "USDC"); });
 
     expect(ok).toBe(true);
     expect(api.buildWithdraw).toHaveBeenCalledWith({ walletAddress: KEY, vaultId: "blend-usdc-fixed", shares: "5" });
     expect(signTransaction).toHaveBeenCalled();
-    expect(useToastStore.getState().toasts[0]).toMatchObject({ kind: "success" });
+    expect(useToastStore.getState().toasts[0]).toMatchObject({ kind: "success", message: "Withdrew 5 USDC" });
   });
 
   it("pushes an error toast and returns false when withdraw fails", async () => {
@@ -88,7 +88,7 @@ describe("useVaultActions — withdraw", () => {
     const { result } = renderHook(() => useVaultActions());
 
     let ok: boolean | undefined;
-    await act(async () => { ok = await result.current.withdraw("5", "blend-usdc-fixed"); });
+    await act(async () => { ok = await result.current.withdraw("5", "blend-usdc-fixed", "USDC"); });
 
     expect(ok).toBe(false);
     expect(useToastStore.getState().toasts[0]).toMatchObject({ kind: "error" });

@@ -39,7 +39,7 @@ export function useVaultActions() {
     }
   }
 
-  async function deposit(amount: string, vaultId: string): Promise<boolean> {
+  async function deposit(amount: string, vaultId: string, asset: string): Promise<boolean> {
     if (!publicKey || !passphrase) return false;
     setIsDepositing(true);
     try {
@@ -47,7 +47,7 @@ export function useVaultActions() {
       await signAndSubmit(xdr);
       setNeedsTrustline(false);
       queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
-      push("success", `Deposited ${amount} USDC`);
+      push("success", `Deposited ${amount} ${asset}`);
       return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Deposit failed";
@@ -61,14 +61,14 @@ export function useVaultActions() {
     }
   }
 
-  async function withdraw(shares: string, vaultId: string): Promise<boolean> {
+  async function withdraw(shares: string, vaultId: string, asset: string): Promise<boolean> {
     if (!publicKey || !passphrase) return false;
     setIsWithdrawing(true);
     try {
       const { xdr } = await api.buildWithdraw({ walletAddress: publicKey, vaultId, shares });
       await signAndSubmit(xdr);
       queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
-      push("success", `Withdrew ${shares} USDC`);
+      push("success", `Withdrew ${shares} ${asset}`);
       return true;
     } catch (err) {
       push("error", err instanceof Error ? err.message : "Withdrawal failed");
