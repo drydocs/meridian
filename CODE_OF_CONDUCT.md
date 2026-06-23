@@ -30,7 +30,7 @@ This Code of Conduct applies to all Meridian project spaces including GitHub Iss
 
 ## Enforcement
 
-Instances of unacceptable behaviour may be reported to the project maintainer via [GitHub Discussions](https://github.com/drydocs/meridian/discussions)
+Instances of unacceptable behaviour may be reported via [GitHub Discussions](https://github.com/drydocs/meridian/discussions) (select Q&A and mark private if needed)
 
 All reports will be reviewed promptly and handled with discretion. The maintainer is obligated to keep reporter information confidential.
 
