@@ -106,7 +106,7 @@ export async function prepareSorobanTx(
   op: xdr.Operation
 ): Promise<{ xdr: string; fee: string }> {
   const passphrase = passphraseFor(network);
-  const server = new rpc.Server(network.rpcUrl);
+  const server = new rpc.Server(network.rpcUrl, { timeout: 8_000 });
   const account = await withRetry(() => withSorobanTimeout(() => server.getAccount(caller)));
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: passphrase })
     .addOperation(op)
@@ -192,7 +192,7 @@ export async function waitForTransaction(
   const deadline = now() + timeoutMs;
 
   for (;;) {
-    const res = await server.getTransaction(hash);
+    const res = await withSorobanTimeout(() => server.getTransaction(hash));
     if (res.status === rpc.Api.GetTransactionStatus.SUCCESS) return res;
     if (res.status === rpc.Api.GetTransactionStatus.FAILED) {
       throw new Error(`Transaction ${hash} failed on-chain`);
@@ -234,7 +234,7 @@ export async function submitTx(
   opts: ConfirmOptions = {}
 ): Promise<SubmitResult> {
   const passphrase = passphraseFor(network);
-  const server = new rpc.Server(network.rpcUrl);
+  const server = new rpc.Server(network.rpcUrl, { timeout: 8_000 });
   const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
 
   const sent = await withSorobanTimeout(() => server.sendTransaction(tx));
