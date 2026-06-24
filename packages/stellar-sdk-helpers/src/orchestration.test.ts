@@ -41,6 +41,7 @@ const addresses: ProtocolAddresses = {
   usdc: "CUSDC",
   eurc: "CEURC",
   defindexVault: "CDFX",
+  defindexVaultId: "defindex-usdc",
 };
 
 const WALLET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";

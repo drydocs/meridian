@@ -42,12 +42,13 @@ export const APP_NETWORK = STELLAR_NETWORKS.testnet;
 export const APP_ADDRESSES = CONTRACT_ADDRESSES.testnet;
 
 /** Build the ProtocolAddresses object consumed by stellar-sdk-helpers, allowing
- *  the DeFindex vault id to be overridden at runtime via DEFINDEX_VAULT_ID. */
+ *  the DeFindex vault contract address to be overridden at runtime via DEFINDEX_VAULT_ID. */
 export function buildTxAddresses(defindexOverride?: string) {
   return {
     blendPool: APP_ADDRESSES.blend.pool,
     usdc: APP_ADDRESSES.usdc,
     eurc: APP_ADDRESSES.eurc,
     defindexVault: defindexOverride ?? APP_ADDRESSES.defindex.vault,
+    defindexVaultId: "defindex-usdc",
   };
 }
