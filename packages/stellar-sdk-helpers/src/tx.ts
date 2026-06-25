@@ -11,7 +11,7 @@ import {
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "./types";
 import { BASE_FEE, passphraseFor } from "./internal";
-import { withRetry, withRaceTimeout } from "@meridian/shared";
+import { withRetry } from "@meridian/shared";
 import { buildHorizonServer } from "./horizon";
 
 // The Soroban RPC SDK does not surface an AbortSignal option, so we race each
@@ -20,8 +20,21 @@ import { buildHorizonServer } from "./horizon";
 // the Vercel function-level deadline fires.
 const SOROBAN_RPC_TIMEOUT_MS = 10_000;
 
-const withSorobanTimeout = <T>(fn: () => Promise<T>, ms = SOROBAN_RPC_TIMEOUT_MS) =>
-  withRaceTimeout(fn, ms, "Soroban RPC");
+export class SorobanTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`Soroban RPC timed out after ${ms}ms`);
+    this.name = "SorobanTimeoutError";
+  }
+}
+
+const withSorobanTimeout = <T>(fn: () => Promise<T>, ms = SOROBAN_RPC_TIMEOUT_MS): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const handle = setTimeout(() => reject(new SorobanTimeoutError(ms)), ms);
+    fn().then(
+      (val) => { clearTimeout(handle); resolve(val); },
+      (err) => { clearTimeout(handle); reject(err); }
+    );
+  });
 
 const USDC_ISSUER: Record<string, string> = {
   testnet: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
@@ -101,7 +114,12 @@ export async function prepareSorobanTx(
 ): Promise<{ xdr: string; fee: string }> {
   const passphrase = passphraseFor(network);
   const server = new rpc.Server(network.rpcUrl, { timeout: 8_000 });
-  const account = await withRetry(() => withSorobanTimeout(() => server.getAccount(caller)));
+  const account = await withRetry(
+    () => withSorobanTimeout(() => server.getAccount(caller)),
+    3,
+    200,
+    (err) => !(err instanceof SorobanTimeoutError)
+  );
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: passphrase })
     .addOperation(op)
     .setTimeout(300)

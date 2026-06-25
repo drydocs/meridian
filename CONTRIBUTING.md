@@ -126,10 +126,8 @@ npm install -g pnpm@9
    | --- | --- | --- |
    | `PORT` | API | Port for the Fastify API server. Default `3001`. |
    | `ALLOWED_ORIGIN` | API | CORS allowed origin. Default `http://localhost:3000`. |
-   | `STELLAR_NETWORK` | API | `testnet` or `mainnet`. Default `testnet`. |
-   | `VAULT_CONTRACT_ID` | API | MeridianVault Soroban contract address on the target network. Leave empty if you do not have one. |
+   | `DEFINDEX_VAULT_ID` | API | DeFindex vault contract address (C-address). Leave empty to disable DeFindex; only Blend positions are returned. |
    | `VITE_API_URL` | Web | URL the web app uses to reach the API. Default `http://localhost:3001`. |
-   | `VITE_STELLAR_NETWORK` | Web | `testnet` or `mainnet`, forwarded to the frontend. Default `testnet`. |
 
 6. Start the development servers:
 
