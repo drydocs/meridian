@@ -27,14 +27,14 @@ export class SorobanTimeoutError extends Error {
   }
 }
 
-function withSorobanTimeout<T>(fn: () => Promise<T>, ms = SOROBAN_RPC_TIMEOUT_MS): Promise<T> {
-  return Promise.race([
-    fn(),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new SorobanTimeoutError(ms)), ms)
-    ),
-  ]);
-}
+const withSorobanTimeout = <T>(fn: () => Promise<T>, ms = SOROBAN_RPC_TIMEOUT_MS): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const handle = setTimeout(() => reject(new SorobanTimeoutError(ms)), ms);
+    fn().then(
+      (val) => { clearTimeout(handle); resolve(val); },
+      (err) => { clearTimeout(handle); reject(err); }
+    );
+  });
 
 const USDC_ISSUER: Record<string, string> = {
   testnet: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",

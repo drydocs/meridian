@@ -24,6 +24,20 @@ export function isValidStellarAddress(key: string): boolean {
 }
 
 /**
+ * Races `fn` against a timeout. Clears the timer if `fn` resolves first so no
+ * handle lingers in the event loop after a successful call.
+ */
+export function withRaceTimeout<T>(fn: () => Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const handle = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    fn().then(
+      (val) => { clearTimeout(handle); resolve(val); },
+      (err) => { clearTimeout(handle); reject(err); }
+    );
+  });
+}
+
+/**
  * Retries `fn` up to `maxAttempts` times with exponential backoff starting at
  * `baseDelayMs`. Throws the last error when all attempts are exhausted.
  *

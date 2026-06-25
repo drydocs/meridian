@@ -1,6 +1,6 @@
 import { xdr } from "@stellar/stellar-sdk";
 import { PoolContractV2, PoolV2, RequestType } from "@blend-capital/blend-sdk";
-import { withRetry } from "@meridian/shared";
+import { withRetry, withRaceTimeout } from "@meridian/shared";
 import { prepareSorobanTx } from "./tx";
 import type { StellarNetwork } from "./types";
 import type { PositionInfo } from "./positions";
@@ -11,14 +11,8 @@ const BLEND_RPC_TIMEOUT_MS = 10_000;
 // manual timeout rejection. The underlying fetch will still complete, but the
 // caller gets a fast failure it can retry rather than waiting for Vercel's
 // function-level deadline.
-function withTimeout<T>(fn: () => Promise<T>, ms = BLEND_RPC_TIMEOUT_MS): Promise<T> {
-  return Promise.race([
-    fn(),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`Blend RPC timed out after ${ms}ms`)), ms)
-    ),
-  ]);
-}
+const withBlendTimeout = <T>(fn: () => Promise<T>, ms = BLEND_RPC_TIMEOUT_MS) =>
+  withRaceTimeout(fn, ms, "Blend RPC");
 
 export interface BlendPoolConfig {
   // Blend pool contract (C...) the request is submitted to.
@@ -114,9 +108,9 @@ export async function fetchBlendPositions(
   reserves: BlendReserveRef[]
 ): Promise<PositionInfo[]> {
   const pool = await withRetry(() =>
-    withTimeout(() => PoolV2.load({ rpc: network.rpcUrl, passphrase: network.passphrase }, poolId))
+    withBlendTimeout(() => PoolV2.load({ rpc: network.rpcUrl, passphrase: network.passphrase }, poolId))
   );
-  const user = await withRetry(() => withTimeout(() => pool.loadUser(publicKey)));
+  const user = await withRetry(() => withBlendTimeout(() => pool.loadUser(publicKey)));
 
   const positions: PositionInfo[] = [];
   for (const { assetId, vaultId } of reserves) {
