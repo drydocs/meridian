@@ -1,3 +1,5 @@
+export const DEFAULT_ALLOWED_ORIGIN = "https://usemeridian.vercel.app";
+
 export const SUPPORTED_STABLECOINS = ["USDC", "EURC"] as const;
 export type SupportedStablecoin = (typeof SUPPORTED_STABLECOINS)[number];
 
@@ -40,6 +42,10 @@ export const STELLAR_NETWORKS = {
 // Convenience aliases — both API layers (Vercel + Fastify) target testnet today.
 export const APP_NETWORK = STELLAR_NETWORKS.testnet;
 export const APP_ADDRESSES = CONTRACT_ADDRESSES.testnet;
+
+export function isDefindexConfigured(): boolean {
+  return Boolean(process.env.DEFINDEX_VAULT_ID ?? APP_ADDRESSES.defindex.vault);
+}
 
 /** Build the ProtocolAddresses object consumed by stellar-sdk-helpers, allowing
  *  the DeFindex vault contract address to be overridden at runtime via DEFINDEX_VAULT_ID. */
