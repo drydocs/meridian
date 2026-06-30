@@ -4,14 +4,16 @@ import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
+import { useTranslation } from "react-i18next";
 
 const PROTOCOL_LABEL: Record<string, string> = {
   blend: "Blend Capital",
   defindex: "DeFindex",
 };
 
-function formatUsd(value: number): string {
-  return value.toLocaleString("en-US", {
+
+function formatUsd(value: number, locale: string) {
+  return value.toLocaleString(locale === "fr" ? "fr-FR" : "en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
@@ -30,6 +32,7 @@ type Tab = "deposit" | "withdraw";
 export function VaultPanel() {
   const { data, isLoading: vaultsLoading } = useVaults();
   const vaults = data?.vaults;
+  const { t, i18n } = useTranslation();
   const { connected, publicKey } = useWalletStore();
   const { handleConnect, status: connectStatus } = useWalletConnect();
   const { data: positions = [] } = usePositions(publicKey);
@@ -49,7 +52,7 @@ export function VaultPanel() {
   const bestVault = vaults?.find((v) => v.id === data?.recommendedVaultId);
   // Single-vault architecture: the user holds at most one position. Revisit if multi-vault is added.
   const position = positions[0];
-  const hasPosition = position && position.deposited > 0;
+  const hasPosition = position && Number.isFinite(position.deposited) && position.deposited > 0;
 
   async function handleDeposit() {
     if (!amount || !bestVault) return;
@@ -89,7 +92,7 @@ export function VaultPanel() {
             </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-gray-500 mb-0.5">Network</p>
+            <p className="text-xs text-gray-500 mb-0.5">{t("vaultPanel.network")}</p>
             <p className="text-xs font-semibold text-gray-300">Stellar</p>
           </div>
         </div>
@@ -107,7 +110,7 @@ export function VaultPanel() {
         ) : bestVault ? (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-xs text-gray-500 mb-1.5">APY</p>
+              <p className="text-xs text-gray-500 mb-1.5">{t("vaultPanel.apy")}</p>
               <div className="flex items-baseline gap-0.5">
                 <span className="text-5xl font-black text-emerald-400 tabular-nums tracking-tight">
                   {bestVault.apy.toFixed(2)}
@@ -116,18 +119,18 @@ export function VaultPanel() {
               </div>
             </div>
             <div className="pb-1 sm:text-center">
-              <p className="text-xs text-gray-500 mb-1.5">TVL</p>
+              <p className="text-xs text-gray-500 mb-1.5">{t("vaultPanel.tvl")}</p>
               <p className="text-lg font-bold text-white">{formatTvl(bestVault.tvl)}</p>
             </div>
             <div className="pb-1 sm:text-right">
-              <p className="text-xs text-gray-500 mb-1.5">Route</p>
+              <p className="text-xs text-gray-500 mb-1.5">{t("vaultPanel.route")}</p>
               <p className="text-lg font-bold text-white">
                 {PROTOCOL_LABEL[bestVault.protocol] ?? bestVault.protocol}
               </p>
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">No live rate data.</p>
+          <p className="text-sm text-gray-500">{t("vaultPanel.noLiveRateData")}</p>
         )}
       </div>
 
@@ -135,12 +138,12 @@ export function VaultPanel() {
       {connected && hasPosition && (
         <div className="mx-7 my-5 rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-3.5 flex items-center justify-between">
           <div>
-            <p className="text-xs text-gray-500 mb-1">Your position</p>
-            <p className="text-base font-bold text-white">{formatUsd(position.deposited)}</p>
+            <p className="text-xs text-gray-500 mb-1">{t("vaultPanel.yourPosition")}</p>
+            <p className="text-base font-bold text-white">{formatUsd(position.deposited, i18n.language)}</p>
           </div>
           <div className="text-right">
-            <p className="text-xs text-gray-500 mb-1">Earned</p>
-            <p className="text-base font-bold text-emerald-400">+{formatUsd(position.earned)}</p>
+            <p className="text-xs text-gray-500 mb-1">{t("vaultPanel.earned")}</p>
+            <p className="text-base font-bold text-emerald-400">+{formatUsd(position.earned, i18n.language)}</p>
           </div>
         </div>
       )}
@@ -169,7 +172,7 @@ export function VaultPanel() {
         {!connected ? (
           <div className="space-y-4">
             <p className="text-sm text-gray-400 leading-relaxed">
-              Connect your Freighter wallet to deposit USDC and start earning yield automatically.
+              {t("vaultPanel.connectUSDC")}
             </p>
             {connectStatus === "no-extension" ? (
               <a
@@ -178,7 +181,7 @@ export function VaultPanel() {
                 rel="noopener noreferrer"
                 className="flex items-center justify-center w-full rounded-xl border border-amber-800/70 bg-amber-950/20 hover:border-amber-700 text-amber-400 hover:text-amber-300 text-sm font-medium py-3 transition-colors duration-150"
               >
-                Install Freighter
+                {t("common.installFreighter")}
               </a>
             ) : (
               <button
@@ -186,7 +189,7 @@ export function VaultPanel() {
                 disabled={connectStatus === "connecting"}
                 className="w-full rounded-xl border border-gray-700 bg-gray-900/50 hover:border-gray-500 hover:bg-gray-900 hover:text-white text-gray-300 text-sm font-semibold py-3 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {connectStatus === "connecting" ? "Connecting..." : "Connect Wallet"}
+                {connectStatus === "connecting" ? t("common.connecting") : t("common.connectWallet")}
               </button>
             )}
           </div>
@@ -194,10 +197,10 @@ export function VaultPanel() {
           <div className="space-y-4">
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-gray-500">Amount</span>
+                <span className="text-xs font-medium text-gray-500">{t("vaultPanel.amount")}</span>
                 {hasPosition && (
                   <span className="text-xs text-gray-600">
-                    Balance: {formatUsd(position.deposited)}
+                    {t("vaultPanel.balance")}: {formatUsd(position.deposited, i18n.language)}
                   </span>
                 )}
               </div>
@@ -222,7 +225,7 @@ export function VaultPanel() {
                 onClick={addTrustline}
                 className="w-full rounded-xl border border-amber-800/70 bg-amber-950/20 hover:border-amber-700 text-amber-400 hover:text-amber-300 text-sm font-medium py-3 transition-colors duration-150"
               >
-                Add vault assets to wallet
+                {t("vaultPanel.addAssets")}
               </button>
             )}
             <button
@@ -230,18 +233,18 @@ export function VaultPanel() {
               disabled={!amount || !bestVault || isDepositing}
               className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3.5 transition-all duration-150 disabled:cursor-not-allowed"
             >
-              {isDepositing ? "Waiting for signature…" : "Deposit"}
+              {isDepositing ? t("vaultPanel.waiting") : t("vaultPanel.deposit")}
             </button>
           </div>
         ) : (
           <div className="space-y-4">
             {!hasPosition ? (
-              <p className="text-sm text-gray-500 py-2">You have no active position to withdraw from.</p>
+              <p className="text-sm text-gray-500 py-2">{t("vaultPanel.position")}</p>
             ) : (
               <>
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-gray-500">Amount</span>
+                    <span className="text-xs font-medium text-gray-500">{t("vaultPanel.amount")}</span>
                     <button
                       onClick={() => setAmount(position.shares.toFixed(7))}
                       className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-150"
@@ -270,7 +273,7 @@ export function VaultPanel() {
                   disabled={!amount || !bestVault || isWithdrawing}
                   className="w-full rounded-xl border border-gray-700 bg-gray-900/50 hover:border-gray-500 hover:bg-gray-900 hover:text-white text-gray-300 text-sm font-semibold py-3.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isWithdrawing ? "Waiting for signature…" : "Withdraw"}
+                  {isWithdrawing ? t("vaultPanel.waiting") : t("vaultPanel.withdraw")}
                 </button>
               </>
             )}
