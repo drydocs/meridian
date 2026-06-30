@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { withRetry, withRaceTimeout, sanitizeTxError } from "./utils";
+import { withRetry, withRaceTimeout, sanitizeTxError, fromStroops, formatUsdAmount, parseUsdAmount } from "./utils";
 
 describe("sanitizeTxError", () => {
   it("returns the fallback for non-Error values", () => {
@@ -136,5 +136,58 @@ describe("withRaceTimeout", () => {
     await expect(withRaceTimeout(fn, 1_000, "test")).rejects.toThrow("boom");
     expect(clearSpy).toHaveBeenCalled();
     clearSpy.mockRestore();
+  });
+});
+describe("fromStroops", () => {
+  it("converts exact whole XLM", () => {
+    expect(fromStroops(10_000_000n)).toBe("1");
+  });
+
+  it("converts fractional XLM", () => {
+    expect(fromStroops(15_500_000n)).toBe("1.55");
+  });
+
+  it("handles zero", () => {
+    expect(fromStroops(0n)).toBe("0");
+  });
+
+  it("handles negative non-exact value", () => {
+    expect(fromStroops(-15_500_000n)).toBe("-1.55");
+  });
+
+  it("handles negative exact value", () => {
+    expect(fromStroops(-10_000_000n)).toBe("-1");
+  });
+});
+
+describe("formatUsdAmount", () => {
+  it("formats a number as USD string", () => {
+    expect(formatUsdAmount(1234.5)).toBe("$1,234.50");
+  });
+
+  it("throws for NaN", () => {
+    expect(() => formatUsdAmount(NaN)).toThrow(RangeError);
+  });
+
+  it("throws for Infinity", () => {
+    expect(() => formatUsdAmount(Infinity)).toThrow(RangeError);
+  });
+});
+
+describe("parseUsdAmount", () => {
+  it("parses a USD string back to a number", () => {
+    expect(parseUsdAmount("$1,234.50")).toBe(1234.5);
+  });
+
+  it("returns null for empty string", () => {
+    expect(parseUsdAmount("")).toBeNull();
+  });
+
+  it("returns null for non-numeric string", () => {
+    expect(parseUsdAmount("abc")).toBeNull();
+  });
+
+  it("returns null for malformed multi-dot string", () => {
+    expect(parseUsdAmount("1.2.3")).toBeNull();
   });
 });

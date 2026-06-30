@@ -71,11 +71,14 @@ export async function withRetry<T>(
  * 1 XLM = 10,000,000 stroops.
  */
 export function fromStroops(stroops: bigint): string {
-  const whole = stroops / 10_000_000n;
-  const remainder = stroops % 10_000_000n;
-  if (remainder === 0n) return whole.toString();
+  const negative = stroops < 0n;
+  const abs = negative ? -stroops : stroops;
+  const whole = abs / 10_000_000n;
+  const remainder = abs % 10_000_000n;
+  const sign = negative ? "-" : "";
+  if (remainder === 0n) return `${sign}${whole}`;
   const decimal = remainder.toString().padStart(7, "0").replace(/0+$/, "");
-  return `${whole}.${decimal}`;
+  return `${sign}${whole}.${decimal}`;
 }
 
 /**
@@ -83,6 +86,7 @@ export function fromStroops(stroops: bigint): string {
  * e.g. 1234.5 -> "$1,234.50"
  */
 export function formatUsdAmount(amount: number): string {
+  if (!Number.isFinite(amount)) throw new RangeError(`formatUsdAmount: invalid amount: ${amount}`);
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -96,7 +100,9 @@ export function formatUsdAmount(amount: number): string {
  * Reverse of formatUsdAmount.
  * e.g. "$1,234.50" -> 1234.5
  */
-export function parseUsdAmount(value: string): number {
-  const cleaned = value.replace(/[^0-9.-]/g, "");
-  return parseFloat(cleaned);
+export function parseUsdAmount(value: string): number | null {
+  const stripped = value.replace(/[^0-9.,-]/g, "").replace(/,/g, "");
+  const match = stripped.match(/^-?[0-9]+(?:\.[0-9]+)?$/);
+  if (!match) return null;
+  return parseFloat(match[0]);
 }
