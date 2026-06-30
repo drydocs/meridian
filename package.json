@@ -11,7 +11,7 @@
     "typecheck:api": "tsc --noEmit -p api/tsconfig.json"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^12.0.0"
+    "@stellar/stellar-sdk": "^14.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
