@@ -2,12 +2,9 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2020", "DOM"],
-    "baseUrl": ".",
+    "rootDir": "src",
     "outDir": "dist",
-    "declaration": true,
-    "paths": {
-      "@meridian/shared": ["../shared/src"]
-    }
+    "declaration": true
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"]
