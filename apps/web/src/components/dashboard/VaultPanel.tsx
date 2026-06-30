@@ -4,20 +4,13 @@ import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
+import { formatUsdAmount } from "@meridian/shared";
 
 const PROTOCOL_LABEL: Record<string, string> = {
   blend: "Blend Capital",
   defindex: "DeFindex",
 };
 
-function formatUsd(value: number): string {
-  return value.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 function formatTvl(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -136,11 +129,11 @@ export function VaultPanel() {
         <div className="mx-7 my-5 rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-3.5 flex items-center justify-between">
           <div>
             <p className="text-xs text-gray-500 mb-1">Your position</p>
-            <p className="text-base font-bold text-white">{formatUsd(position.deposited)}</p>
+            <p className="text-base font-bold text-white">{formatUsdAmount(position.deposited)}</p>
           </div>
           <div className="text-right">
             <p className="text-xs text-gray-500 mb-1">Earned</p>
-            <p className="text-base font-bold text-emerald-400">+{formatUsd(position.earned)}</p>
+            <p className="text-base font-bold text-emerald-400">+{formatUsdAmount(position.earned)}</p>
           </div>
         </div>
       )}
@@ -197,7 +190,7 @@ export function VaultPanel() {
                 <span className="text-xs font-medium text-gray-500">Amount</span>
                 {hasPosition && (
                   <span className="text-xs text-gray-600">
-                    Balance: {formatUsd(position.deposited)}
+                    Balance: {formatUsdAmount(position.deposited)}
                   </span>
                 )}
               </div>
