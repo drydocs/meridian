@@ -30,6 +30,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
       );
       reply.send(result);
     } catch (err) {
+      app.log.error({ err }, "[tx/deposit] build failed");
       reply.code(500).send({ error: sanitizeTxError(err, "Failed to build deposit transaction") });
     }
   });
@@ -47,6 +48,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
       );
       reply.send(result);
     } catch (err) {
+      app.log.error({ err }, "[tx/withdraw] build failed");
       reply.code(500).send({ error: sanitizeTxError(err, "Failed to build withdraw transaction") });
     }
   });
@@ -59,6 +61,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
       const result = await buildAddTrustlineTx(parsed.data.walletAddress, APP_NETWORK);
       reply.send(result);
     } catch (err) {
+      app.log.error({ err }, "[tx/add-trustline] build failed");
       reply.code(500).send({ error: sanitizeTxError(err, "Failed to build trustline transaction") });
     }
   });
@@ -71,6 +74,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
       const result = await submitTx(parsed.data.xdr, APP_NETWORK);
       reply.send(result);
     } catch (err) {
+      app.log.error({ err }, "[tx/submit] failed");
       reply.code(500).send({ error: sanitizeTxError(err, "Failed to submit transaction") });
     }
   });

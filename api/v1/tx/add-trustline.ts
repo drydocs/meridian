@@ -15,6 +15,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const result = await buildAddTrustlineTx(parsed.data.walletAddress, APP_NETWORK);
     res.json(result);
   } catch (err) {
+    console.error("[tx/add-trustline] build failed:", err);
     res.status(500).json({ error: sanitizeTxError(err, "Failed to build trustline transaction") });
   }
 }
