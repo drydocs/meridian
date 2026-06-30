@@ -52,17 +52,17 @@ export async function resolvePositions(
   network: StellarNetwork,
   addresses: ProtocolAddresses,
 ): Promise<PositionInfo[]> {
-  const positions = await fetchBlendPositions(network, addresses.blendPool, publicKey, [
-    { assetId: addresses.usdc, vaultId: "blend-usdc-fixed" },
-    { assetId: addresses.eurc, vaultId: "blend-eurc-fixed" },
+  const [blendPositions, dfxPositions] = await Promise.all([
+    fetchBlendPositions(network, addresses.blendPool, publicKey, [
+      { assetId: addresses.usdc, vaultId: "blend-usdc-fixed" },
+      { assetId: addresses.eurc, vaultId: "blend-eurc-fixed" },
+    ]),
+    addresses.defindexVault
+      ? fetchDefindexPosition(network, addresses.defindexVault, addresses.defindexVaultId, publicKey)
+      : Promise.resolve([]),
   ]);
 
-  if (addresses.defindexVault) {
-    const dfx = await fetchDefindexPosition(network, addresses.defindexVault, addresses.defindexVaultId, publicKey);
-    positions.push(...dfx);
-  }
-
-  return positions;
+  return [...blendPositions, ...dfxPositions];
 }
 
 /**
