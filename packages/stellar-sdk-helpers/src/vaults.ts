@@ -32,9 +32,10 @@ export function isVaultCacheWarm(): boolean {
 }
 
 /**
- * Query each pool in KNOWN_POOLS.testnet on-chain and return its TVL. APY is
- * not available on testnet (no yield oracle), so it is reported as 0. Adding a
- * new testnet pool only requires a new entry in KNOWN_POOLS.testnet.
+ * Query each pool in KNOWN_POOLS.testnet on-chain and return its TVL and APY.
+ * Both are derived from the Blend SDK's reserve state loaded via PoolV2.load —
+ * no external oracle needed. Adding a new testnet pool only requires a new
+ * entry in KNOWN_POOLS.testnet.
  */
 async function fetchTestnetVaults(): Promise<ApiVault[]> {
   const blendNetwork = { rpc: APP_NETWORK.rpcUrl, passphrase: APP_NETWORK.passphrase };
@@ -48,7 +49,9 @@ async function fetchTestnetVaults(): Promise<ApiVault[]> {
     const reserve = pool.reserves.get(meta.assetId);
     // totalSupply() is in stroops (7 decimal places).
     const tvl = reserve ? Math.round(Number(reserve.totalSupply()) / 1e7) : 0;
-    vaults.push({ ...meta, apy: 0, tvl, userBalance: 0, riskLevel: "safe" });
+    // estSupplyApy is a decimal (e.g. 0.05 = 5%); convert to percentage points.
+    const apy = reserve ? Number((reserve.estSupplyApy * 100).toFixed(2)) : 0;
+    vaults.push({ ...meta, apy, tvl, userBalance: 0, riskLevel: "safe" });
   }
   return vaults;
 }

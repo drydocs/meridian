@@ -112,32 +112,33 @@ describe("fetchAllVaults (testnet)", () => {
     clearVaultCache();
   });
 
-  it("returns testnet vault with TVL derived from on-chain reserve", async () => {
-    // 1 000 USDC = 10_000_000_000 stroops (7 decimal places).
+  it("returns testnet vault with TVL and APY derived from on-chain reserve", async () => {
+    // 1 000 USDC = 10_000_000_000 stroops (7 decimal places). 5% APY = 0.05.
     vi.spyOn(PoolV2, "load").mockResolvedValue({
-      reserves: new Map([[TESTNET_USDC_SAC, { totalSupply: () => 10_000_000_000n }]]),
+      reserves: new Map([[TESTNET_USDC_SAC, { totalSupply: () => 10_000_000_000n, estSupplyApy: 0.05 }]]),
     } as unknown as Awaited<ReturnType<typeof PoolV2.load>>);
 
     const vaults = await fetchAllVaults("testnet");
     expect(vaults).toHaveLength(1);
     expect(vaults[0].id).toBe("blend-usdc-fixed");
     expect(vaults[0].tvl).toBe(1000);
-    expect(vaults[0].apy).toBe(0);
+    expect(vaults[0].apy).toBe(5);
     expect(vaults[0].riskLevel).toBe("safe");
   });
 
-  it("returns zero TVL when the reserve is absent from the pool", async () => {
+  it("returns zero TVL and zero APY when the reserve is absent from the pool", async () => {
     vi.spyOn(PoolV2, "load").mockResolvedValue({
       reserves: new Map(),
     } as unknown as Awaited<ReturnType<typeof PoolV2.load>>);
 
     const vaults = await fetchAllVaults("testnet");
     expect(vaults[0].tvl).toBe(0);
+    expect(vaults[0].apy).toBe(0);
   });
 
   it("does not cache testnet results between calls", async () => {
     const loadSpy = vi.spyOn(PoolV2, "load").mockResolvedValue({
-      reserves: new Map([[TESTNET_USDC_SAC, { totalSupply: () => 0n }]]),
+      reserves: new Map([[TESTNET_USDC_SAC, { totalSupply: () => 0n, estSupplyApy: 0 }]]),
     } as unknown as Awaited<ReturnType<typeof PoolV2.load>>);
 
     await fetchAllVaults("testnet");
