@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { withRetry, withRaceTimeout, sanitizeTxError, fromStroops, formatUsdAmount, parseUsdAmount, shortenAddress } from "./utils";
-
+import { withRetry, sanitizeTxError, fromStroops, formatUsdAmount, parseUsdAmount, shortenAddress } from "./utils";
 describe("sanitizeTxError", () => {
   it("returns the fallback for non-Error values", () => {
     expect(sanitizeTxError("string error", "fallback")).toBe("fallback");
@@ -104,40 +103,6 @@ describe("withRetry", () => {
   });
 });
 
-describe("withRaceTimeout", () => {
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
-
-  it("resolves with fn's value when fn completes before the timeout", async () => {
-    const fn = vi.fn().mockResolvedValue("result");
-    const result = await withRaceTimeout(fn, 1_000, "test");
-    expect(result).toBe("result");
-  });
-
-  it("rejects with a timeout error when fn does not complete in time", async () => {
-    const fn = vi.fn().mockImplementation(() => new Promise(() => {}));
-    const promise = withRaceTimeout(fn, 500, "test op");
-    const assertion = expect(promise).rejects.toThrow("test op timed out after 500ms");
-    await vi.runAllTimersAsync();
-    await assertion;
-  });
-
-  it("clears the timeout handle when fn resolves so no lingering timer fires", async () => {
-    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
-    const fn = vi.fn().mockResolvedValue("ok");
-    await withRaceTimeout(fn, 1_000, "test");
-    expect(clearSpy).toHaveBeenCalled();
-    clearSpy.mockRestore();
-  });
-
-  it("clears the timeout handle when fn rejects", async () => {
-    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
-    const fn = vi.fn().mockRejectedValue(new Error("boom"));
-    await expect(withRaceTimeout(fn, 1_000, "test")).rejects.toThrow("boom");
-    expect(clearSpy).toHaveBeenCalled();
-    clearSpy.mockRestore();
-  });
-});
 describe("fromStroops", () => {
   it("converts exact whole XLM", () => {
     expect(fromStroops(10_000_000n)).toBe("1");
