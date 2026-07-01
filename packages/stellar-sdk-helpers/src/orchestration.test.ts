@@ -152,8 +152,22 @@ describe("resolvePositions", () => {
     expect(positions).toEqual([BLEND_USDC]);
   });
 
-  it("propagates DeFindex fetch errors to the caller", async () => {
+  it("returns Blend positions when DeFindex fetch fails", async () => {
     vi.mocked(fetchDefindexPosition).mockRejectedValueOnce(new Error("RPC down"));
-    await expect(resolvePositions(WALLET, network, addresses)).rejects.toThrow("RPC down");
+    const positions = await resolvePositions(WALLET, network, addresses);
+    expect(positions).toEqual([BLEND_USDC]);
+  });
+
+  it("returns DeFindex positions when Blend fetch fails", async () => {
+    vi.mocked(fetchBlendPositions).mockRejectedValueOnce(new Error("Blend RPC timeout"));
+    const positions = await resolvePositions(WALLET, network, addresses);
+    expect(positions).toEqual([DFX_USDC]);
+  });
+
+  it("returns empty array when both fetches fail", async () => {
+    vi.mocked(fetchBlendPositions).mockRejectedValueOnce(new Error("Blend down"));
+    vi.mocked(fetchDefindexPosition).mockRejectedValueOnce(new Error("DeFindex down"));
+    const positions = await resolvePositions(WALLET, network, addresses);
+    expect(positions).toEqual([]);
   });
 });
