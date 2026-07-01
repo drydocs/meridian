@@ -25,13 +25,14 @@ export const KNOWN_POOLS: {
     "9a2f1f81-0a6e-441d-8219-c13b3520bd57": { id: "blend-eurc-variable", name: "Blend Capital", protocol: "blend", label: "Variable Pool" },
   },
   testnet: {
-    // Blend TestnetV2: only active lending pool on Stellar testnet. USDC reserve
-    // only; no EURC pool exists on Blend testnet. APY/TVL fetched on-chain.
-    "blend-testnet-usdc": {
-      id: "blend-usdc-fixed",
-      name: "Blend Capital",
-      protocol: "blend",
-      label: "TestnetV2",
+    // Paltalabs USDC vault on DeFindex testnet, backed by Blend TestnetV2.
+    // Deposits mint dfToken shares (mUSDC) to the user's wallet.
+    // APY/TVL are read directly from the underlying Blend pool reserve.
+    "defindex-testnet-usdc": {
+      id: "defindex-usdc",
+      name: "DeFindex",
+      protocol: "defindex",
+      label: "Paltalabs Vault",
       poolId: "CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF",
       assetId: "CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU",
       asset: "USDC",

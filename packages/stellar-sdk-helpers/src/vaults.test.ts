@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { PoolV2 } from "@blend-capital/blend-sdk";
 import { fetchAllVaults, clearVaultCache } from "./vaults";
 
-// Maps to blend-usdc-fixed in known-pools.ts.
+// Mainnet DeFiLlama pool UUID mapping to blend-usdc-fixed in KNOWN_POOLS.mainnet.
 const KNOWN_BLEND = "ecf788e3-d2ef-4fdd-9ece-8a2d96226ddf";
 
 function llamaPool(overrides: Record<string, unknown> = {}) {
@@ -120,7 +120,7 @@ describe("fetchAllVaults (testnet)", () => {
 
     const vaults = await fetchAllVaults("testnet");
     expect(vaults).toHaveLength(1);
-    expect(vaults[0].id).toBe("blend-usdc-fixed");
+    expect(vaults[0].id).toBe("defindex-usdc");
     expect(vaults[0].tvl).toBe(1000);
     expect(vaults[0].apy).toBe(5);
     expect(vaults[0].riskLevel).toBe("safe");
