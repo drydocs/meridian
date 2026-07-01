@@ -21,11 +21,10 @@ export const CONTRACT_ADDRESSES = {
       pool: "CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF",
     },
     defindex: {
-      factory: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK75",
-      // Single-asset (USDC) DeFindex vault. Empty until a real testnet vault is
-      // wired — until then DeFindex routes report "not configured" rather than
-      // pointing at a placeholder. Override at runtime with DEFINDEX_VAULT_ID.
-      vault: "",
+      // DeFindex factory: defindex-io/stellar-contracts public/testnet.contracts.json
+      factory: "CDSCWE4GLNBYYTES2OCYDFQA2LLY4RBIAX6ZI32VSUXD7GO6HRPO4A32",
+      // Paltalabs single-asset USDC vault on DeFindex testnet.
+      vault: "CBMVK2JK6NTOT2O4HNQAIQFJY232BHKGLIMXDVQVHIIZKDACXDFZDWHN",
     },
     // Stellar Asset Contract for Blend's testnet USDC (issuer: GATALTGTWIOT6...).
     // Distinct from Circle's testnet USDC; Blend's TestnetV2 pool was deployed
