@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { withRetry, withRaceTimeout, sanitizeTxError, fromStroops, formatUsdAmount, parseUsdAmount, shortenAddress } from "./utils";
 
+
 describe("sanitizeTxError", () => {
   it("returns the fallback for non-Error values", () => {
     expect(sanitizeTxError("string error", "fallback")).toBe("fallback");
@@ -176,7 +177,6 @@ describe("formatUsdAmount", () => {
   it("formats a large value", () => {
     expect(formatUsdAmount(1_000_000)).toBe("$1,000,000.00");
   });
-
   it("throws for NaN", () => {
     expect(() => formatUsdAmount(NaN)).toThrow(RangeError);
   });

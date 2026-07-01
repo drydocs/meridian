@@ -11,7 +11,7 @@ import {
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "./types";
 import { BASE_FEE, passphraseFor } from "./internal";
-import { withRetry } from "@meridian/shared";
+import { withRetry, withRaceTimeout } from "@meridian/shared";
 import { buildHorizonServer } from "./horizon";
 
 // The Soroban RPC SDK does not surface an AbortSignal option, so we race each
@@ -28,12 +28,9 @@ export class SorobanTimeoutError extends Error {
 }
 
 const withSorobanTimeout = <T>(fn: () => Promise<T>, ms = SOROBAN_RPC_TIMEOUT_MS): Promise<T> =>
-  new Promise<T>((resolve, reject) => {
-    const handle = setTimeout(() => reject(new SorobanTimeoutError(ms)), ms);
-    fn().then(
-      (val) => { clearTimeout(handle); resolve(val); },
-      (err) => { clearTimeout(handle); reject(err); }
-    );
+  withRaceTimeout(fn, ms, "Soroban RPC").catch((err: unknown): never => {
+    if (err instanceof Error && err.message.includes("timed out")) throw new SorobanTimeoutError(ms);
+    throw err;
   });
 
 const USDC_ISSUER: Record<string, string> = {

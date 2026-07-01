@@ -66,16 +66,9 @@ export async function withRetry<T>(
   }
   throw lastErr;
 }
-const USD_FORMATTER = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
 /**
- * Converts a stroops value to a decimal XLM string.
- * 1 XLM = 10,000,000 stroops.
+ * Converts a stroops value to a decimal string.
+ * 1 USDC = 10,000,000 stroops.
  */
 export function fromStroops(stroops: bigint): string {
   const negative = stroops < 0n;
@@ -92,6 +85,13 @@ export function fromStroops(stroops: bigint): string {
  * Formats a number as a USD currency string.
  * e.g. 1234.5 -> "$1,234.50"
  */
+const USD_FORMATTER = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 export function formatUsdAmount(amount: number): string {
   if (!Number.isFinite(amount)) throw new RangeError(`formatUsdAmount: invalid amount: ${amount}`);
   return USD_FORMATTER.format(amount);
