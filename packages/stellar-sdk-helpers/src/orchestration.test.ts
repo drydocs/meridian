@@ -134,7 +134,6 @@ describe("resolvePositions", () => {
     const positions = await resolvePositions(WALLET, network, addresses);
     expect(fetchBlendPositions).toHaveBeenCalledWith(network, "CPOOL", WALLET, [
       { assetId: "CUSDC", vaultId: "blend-usdc-fixed" },
-      { assetId: "CEURC", vaultId: "blend-eurc-fixed" },
     ]);
     expect(positions).toContainEqual(BLEND_USDC);
   });

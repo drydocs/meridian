@@ -10,7 +10,7 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "./types";
-import { BASE_FEE, passphraseFor } from "./internal";
+import { BASE_FEE, passphraseFor, getRpcServer } from "./internal";
 import { withRetry, withRaceTimeout, USDC_ISSUER } from "@meridian/shared";
 import { buildHorizonServer } from "./horizon";
 
@@ -117,7 +117,7 @@ export async function prepareSorobanTx(
   op: xdr.Operation
 ): Promise<{ xdr: string; fee: string }> {
   const passphrase = passphraseFor(network);
-  const server = new rpc.Server(network.rpcUrl, { timeout: 8_000 });
+  const server = getRpcServer(network.rpcUrl, 8_000);
   const account = await withRetry(
     () => withSorobanTimeout(() => server.getAccount(caller)),
     3,
@@ -257,7 +257,7 @@ export async function submitTx(
   opts: ConfirmOptions = {}
 ): Promise<SubmitResult> {
   const passphrase = passphraseFor(network);
-  const server = new rpc.Server(network.rpcUrl, { timeout: 8_000 });
+  const server = getRpcServer(network.rpcUrl, 8_000);
   const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
 
   const sent = await withSorobanTimeout(() => server.sendTransaction(tx));
