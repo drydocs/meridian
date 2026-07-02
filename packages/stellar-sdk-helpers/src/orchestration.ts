@@ -3,6 +3,26 @@ import { buildDefindexDepositTx, buildDefindexWithdrawTx, fetchDefindexPosition 
 import { toStroops, resolveProtocol } from "./tx";
 import type { StellarNetwork } from "./types";
 import type { PositionInfo } from "./positions";
+import { KNOWN_POOLS } from "./known-pools";
+
+function blendPositionEntries(
+  network: StellarNetwork,
+  addresses: ProtocolAddresses,
+): Array<{ assetId: string; vaultId: string }> {
+  const pools = network.network === "testnet"
+    ? Object.values(KNOWN_POOLS.testnet)
+    : Object.values(KNOWN_POOLS.mainnet);
+  const seen = new Set<string>();
+  const entries: Array<{ assetId: string; vaultId: string }> = [];
+  for (const pool of pools) {
+    if (pool.protocol !== "blend") continue;
+    const assetKey = blendAssetForVault(pool.id);
+    if (seen.has(assetKey)) continue;
+    seen.add(assetKey);
+    entries.push({ assetId: addresses[assetKey], vaultId: pool.id });
+  }
+  return entries;
+}
 
 export interface ProtocolAddresses {
   blendPool: string;
@@ -55,10 +75,7 @@ export async function resolvePositions(
   addresses: ProtocolAddresses,
 ): Promise<PositionInfo[]> {
   const [blendResult, dfxResult] = await Promise.allSettled([
-    fetchBlendPositions(network, addresses.blendPool, publicKey, [
-      { assetId: addresses.usdc, vaultId: "blend-usdc-fixed" },
-      { assetId: addresses.eurc, vaultId: "blend-eurc-fixed" },
-    ]),
+    fetchBlendPositions(network, addresses.blendPool, publicKey, blendPositionEntries(network, addresses)),
     addresses.defindexVault
       ? fetchDefindexPosition(network, addresses.defindexVault, addresses.defindexVaultId, publicKey)
       : Promise.resolve([]),
