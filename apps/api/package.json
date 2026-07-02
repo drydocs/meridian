@@ -17,7 +17,7 @@
     "@stellar/stellar-sdk": "^14.0.0",
     "fastify": "^5.8.5",
     "@fastify/cors": "^11.2.0",
-    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/rate-limit": "^11.1.0",
     "zod": "^4.4.3",
     "dotenv": "^17.4.2"
   },
