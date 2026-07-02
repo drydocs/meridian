@@ -15,6 +15,7 @@ export function sanitizeTxError(err: unknown, fallback: string): string {
 }
 
 export function shortenAddress(address: string, chars = 4): string {
+  if (address.length <= chars * 2) return address;
   return `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }
 

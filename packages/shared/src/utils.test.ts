@@ -160,8 +160,8 @@ describe("fromStroops", () => {
     expect(fromStroops(-10_000_000n)).toBe("-1");
   });
 
-  it("handles max BigInt value without throwing", () => {
-    expect(() => fromStroops(9_007_199_254_740_991n)).not.toThrow();
+  it("handles max BigInt value correctly", () => {
+    expect(fromStroops(9_007_199_254_740_991n)).toBe("900719925.4740991");
   });
 });
 
@@ -217,7 +217,7 @@ describe("shortenAddress", () => {
     expect(shortenAddress("GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVWXYZ", 6)).toBe("GABCDE...UVWXYZ");
   });
 
-  it("handles a short input without crashing", () => {
-    expect(shortenAddress("GABC")).toBe("GABC...GABC");
+  it("returns address unchanged when too short to truncate", () => {
+    expect(shortenAddress("GABC")).toBe("GABC");
   });
 });
