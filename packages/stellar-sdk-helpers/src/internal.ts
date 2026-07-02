@@ -9,14 +9,19 @@ export function toBigInt(value: unknown): bigint {
   if (typeof value === "bigint") return value;
   if (typeof value === "number") return BigInt(Math.trunc(value));
   if (value === null || value === undefined) return 0n;
-  throw new TypeError(`toBigInt: unexpected type ${typeof value}: ${String(value)}`);
+  throw new TypeError(
+    `toBigInt: unexpected type ${typeof value}: ${String(value)}`
+  );
 }
 
 export function passphraseFor(network: StellarNetwork): string {
   switch (network.network) {
-    case "mainnet": return Networks.PUBLIC;
-    case "testnet": return Networks.TESTNET;
-    case "futurenet": return Networks.FUTURENET;
+    case "mainnet":
+      return Networks.PUBLIC;
+    case "testnet":
+      return Networks.TESTNET;
+    case "futurenet":
+      return Networks.FUTURENET;
   }
 }
 

@@ -5,7 +5,10 @@ import { APP_NETWORK } from "@meridian/shared";
 
 const CACHE_CONTROL = "public, s-maxage=60, stale-while-revalidate=300";
 const KNOWN_VAULT_IDS = new Set(
-  [...Object.values(KNOWN_POOLS.mainnet), ...Object.values(KNOWN_POOLS.testnet)].map((p) => p.id)
+  [
+    ...Object.values(KNOWN_POOLS.mainnet),
+    ...Object.values(KNOWN_POOLS.testnet),
+  ].map((p) => p.id)
 );
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -13,12 +16,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const raw = req.query["vaultId"];
   const vaultId = typeof raw === "string" ? raw : undefined;
   if (!vaultId) return res.status(400).json({ error: "vaultId is required" });
-  if (!KNOWN_VAULT_IDS.has(vaultId)) return res.status(404).json({ error: "vault not found", vaultId });
+  if (!KNOWN_VAULT_IDS.has(vaultId))
+    return res.status(404).json({ error: "vault not found", vaultId });
 
   try {
     const vaults = await fetchAllVaults(APP_NETWORK.network);
     const vault = vaults.find((v) => v.id === vaultId);
-    if (!vault) return res.status(404).json({ error: "vault not found", vaultId });
+    if (!vault)
+      return res.status(404).json({ error: "vault not found", vaultId });
     res.setHeader("Cache-Control", CACHE_CONTROL);
     res.json(vault);
   } catch (err) {
