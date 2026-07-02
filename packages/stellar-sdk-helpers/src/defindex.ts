@@ -2,13 +2,12 @@ import {
   Address,
   Contract,
   nativeToScVal,
-  rpc,
   xdr,
 } from "@stellar/stellar-sdk";
 import { simulateView, prepareSorobanTx } from "./tx";
 import type { StellarNetwork } from "./types";
 import type { PositionInfo } from "./positions";
-import { toBigInt, STROOPS_PER_UNIT } from "./internal";
+import { toBigInt, STROOPS_PER_UNIT, getRpcServer } from "./internal";
 
 // Converts a stroop-denominated bigint to a floating-point unit value without
 // precision loss: the whole-unit part stays in bigint space until it fits
@@ -96,7 +95,7 @@ export async function fetchDefindexPosition(
   reportVaultId: string,
   publicKey: string
 ): Promise<PositionInfo[]> {
-  const server = new rpc.Server(network.rpcUrl, { timeout: 12_000 });
+  const server = getRpcServer(network.rpcUrl, 12_000);
   const caller = Address.fromString(publicKey).toScVal();
 
   const shares = toBigInt(
