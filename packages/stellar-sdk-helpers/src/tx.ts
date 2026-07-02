@@ -153,7 +153,8 @@ export async function buildAddTrustlineTx(
   if (!hasAssetTrustline(balances, "USDC", USDC_ISSUER[network.network] ?? "")) {
     ops.push(Operation.changeTrust({ asset: usdcAsset(network) }));
   }
-  if (MUSDC_ISSUER[network.network] && !hasAssetTrustline(balances, "MUSDC", MUSDC_ISSUER[network.network])) {
+  const musdcIssuer = MUSDC_ISSUER[network.network];
+  if (musdcIssuer && !hasAssetTrustline(balances, "MUSDC", musdcIssuer)) {
     ops.push(Operation.changeTrust({ asset: musdcAsset(network) }));
   }
 
@@ -232,7 +233,7 @@ export async function waitForTransaction(
  * messages. Returns a generic fallback when the string is empty.
  */
 export function simErrorMessage(raw: string): string {
-  return raw.split("\n")[0].trim() || "Simulation failed (no detail)";
+  return raw.split("\n")[0]?.trim() || "Simulation failed (no detail)";
 }
 
 // Best-effort decode of the result code the RPC returns on a rejected submit
