@@ -120,7 +120,7 @@ describe("fetchAllVaults (testnet)", () => {
 
     const vaults = await fetchAllVaults("testnet");
     expect(vaults).toHaveLength(1);
-    expect(vaults[0].id).toBe("defindex-usdc");
+    expect(vaults[0].id).toBe("blend-usdc-fixed");
     expect(vaults[0].tvl).toBe(1000);
     expect(vaults[0].apy).toBe(5);
     expect(vaults[0].riskLevel).toBe("safe");
