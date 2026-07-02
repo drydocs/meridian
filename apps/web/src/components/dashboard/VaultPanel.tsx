@@ -187,7 +187,7 @@ export function VaultPanel() {
               <button
                 onClick={handleConnect}
                 disabled={connectStatus === "connecting"}
-                className="w-full rounded-xl border border-gray-700 bg-gray-900/50 hover:border-gray-500 hover:bg-gray-900 hover:text-white text-gray-300 text-sm font-semibold py-3 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
               >
                 {connectStatus === "connecting" ? t("common.connecting") : t("common.connectWallet")}
               </button>
