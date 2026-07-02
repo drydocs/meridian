@@ -11,7 +11,7 @@ import {
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "./types";
 import { BASE_FEE, passphraseFor } from "./internal";
-import { withRetry, withRaceTimeout } from "@meridian/shared";
+import { withRetry, withRaceTimeout, USDC_ISSUER } from "@meridian/shared";
 import { buildHorizonServer } from "./horizon";
 
 // The Soroban RPC SDK does not surface an AbortSignal option, so we race each
@@ -32,11 +32,6 @@ const withSorobanTimeout = <T>(fn: () => Promise<T>, ms = SOROBAN_RPC_TIMEOUT_MS
     if (err instanceof Error && err.message.includes("timed out")) throw new SorobanTimeoutError(ms);
     throw err;
   });
-
-const USDC_ISSUER: Record<string, string> = {
-  testnet: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-  mainnet: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-};
 
 // mUSDC is the vault's share token. Issuer = the musdc-issuer key used during deployment.
 const MUSDC_ISSUER: Record<string, string> = {

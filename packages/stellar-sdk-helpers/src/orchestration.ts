@@ -45,14 +45,16 @@ export async function buildDepositTx(
 
 /**
  * Fetches all positions for `publicKey` across Blend reserves and (optionally)
- * the DeFindex vault. Errors from either protocol propagate to the caller.
+ * the DeFindex vault. Each source is fetched independently: a failure in one
+ * (e.g. RPC timeout, user has no Blend entry) does not suppress positions from
+ * the other. Both failures are logged; partial results are returned.
  */
 export async function resolvePositions(
   publicKey: string,
   network: StellarNetwork,
   addresses: ProtocolAddresses,
 ): Promise<PositionInfo[]> {
-  const [blendPositions, dfxPositions] = await Promise.all([
+  const [blendResult, dfxResult] = await Promise.allSettled([
     fetchBlendPositions(network, addresses.blendPool, publicKey, [
       { assetId: addresses.usdc, vaultId: "blend-usdc-fixed" },
       { assetId: addresses.eurc, vaultId: "blend-eurc-fixed" },
@@ -61,6 +63,16 @@ export async function resolvePositions(
       ? fetchDefindexPosition(network, addresses.defindexVault, addresses.defindexVaultId, publicKey)
       : Promise.resolve([]),
   ]);
+
+  if (blendResult.status === "rejected") {
+    console.error("[positions] Blend fetch failed:", blendResult.reason);
+  }
+  if (dfxResult.status === "rejected") {
+    console.error("[positions] DeFindex fetch failed:", dfxResult.reason);
+  }
+
+  const blendPositions = blendResult.status === "fulfilled" ? blendResult.value : [];
+  const dfxPositions = dfxResult.status === "fulfilled" ? dfxResult.value : [];
 
   return [...blendPositions, ...dfxPositions];
 }

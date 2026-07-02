@@ -15,6 +15,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const result = await submitTx(parsed.data.xdr, APP_NETWORK);
     res.json(result);
   } catch (err) {
+    console.error("[tx/submit] failed:", err);
     res.status(500).json({ error: sanitizeTxError(err, "Failed to submit transaction") });
   }
 }

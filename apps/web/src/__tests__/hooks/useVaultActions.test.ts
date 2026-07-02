@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
@@ -43,12 +43,38 @@ import { api } from "../../lib/api";
 import { signTransaction } from "../../lib/wallet";
 
 const KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+// Matches USDC_ISSUER.testnet in @meridian/shared (Blend TestnetV2 issuer).
+const BLEND_TESTNET_USDC_ISSUER = "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56";
 
 beforeEach(() => {
   useWalletStore.setState({ publicKey: KEY, connected: true, network: "testnet" });
   useToastStore.setState({ toasts: [] });
   invalidateQueries.mockClear();
   vi.clearAllMocks();
+  // Stub fetch so hasBlendUsdcBalance returns true (balance > 0), skipping the
+  // testnet faucet path. Tests that need the faucet path override this per-test.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          balances: [
+            {
+              asset_type: "credit_alphanum4",
+              asset_code: "USDC",
+              asset_issuer: BLEND_TESTNET_USDC_ISSUER,
+              balance: "100.0000000",
+            },
+          ],
+        }),
+        { status: 200 }
+      )
+    )
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("useVaultActions — deposit", () => {

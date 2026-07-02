@@ -20,6 +20,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     );
     return res.json(result);
   } catch (err) {
+    console.error("[tx/withdraw] build failed:", err);
     res.status(500).json({ error: sanitizeTxError(err, "Failed to build withdraw transaction") });
   }
 }
