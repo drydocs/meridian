@@ -70,7 +70,7 @@ Before cloning, confirm you have the required tools installed:
 
 | Tool | Required version | Check |
 | --- | --- | --- |
-| Node.js | `>=24` | `node --version` |
+| Node.js | `>=20` | `node --version` |
 | pnpm | `9.x` | `pnpm --version` |
 | Rust toolchain | stable (latest) | `rustc --version` |
 | Soroban CLI | latest | `soroban --version` |
@@ -250,12 +250,12 @@ Branches that do not match this pattern will fail the branch naming ruleset and 
 Meridian uses [Conventional Commits](https://www.conventionalcommits.org/). Every commit must follow this format:
 
 ```text
-<type>(<scope>): <subject>
+<type>[(<scope>)]: <subject>
 ```
 
 **Types:** `feat`, `fix`, `test`, `docs`, `refactor`, `perf`, `chore`, `ci`
 
-**Scopes:** Use the relevant package or app: `api`, `web`, `contracts`, `sdk`, `shared`, `ci`, `docs`
+**Scopes (optional):** Use the relevant package or app: `api`, `web`, `contracts`, `sdk`, `shared`, `ci`, `docs`
 
 **Rules:**
 
@@ -270,7 +270,7 @@ feat(api): add Blend pool APY aggregation endpoint
 fix(sdk): handle Soroban RPC timeout on testnet
 test(api): add edge case coverage for empty pool response
 docs: update CONTRIBUTING with Soroban contract standards
-chore(ci): pin Node.js to v24 in GitHub Actions workflow
+chore: pin Node.js to v20 in GitHub Actions workflow
 ```
 
 > Issue references (`Closes #N`) go in the **PR body**, not in commit messages. Squash merge is enforced -- the PR title becomes the squash commit, so issue refs in individual commits are discarded.
