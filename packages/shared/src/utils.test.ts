@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { withRetry, withRaceTimeout, sanitizeTxError, fromStroops, formatUsdAmount, parseUsdAmount } from "./utils";
+import { withRetry, withRaceTimeout, sanitizeTxError, fromStroops, formatUsdAmount, parseUsdAmount, shortenAddress } from "./utils";
+
 
 describe("sanitizeTxError", () => {
   it("returns the fallback for non-Error values", () => {
@@ -158,13 +159,24 @@ describe("fromStroops", () => {
   it("handles negative exact value", () => {
     expect(fromStroops(-10_000_000n)).toBe("-1");
   });
+
+  it("handles max BigInt value correctly", () => {
+    expect(fromStroops(9_007_199_254_740_991n)).toBe("900719925.4740991");
+  });
 });
 
 describe("formatUsdAmount", () => {
-  it("formats a number as USD string", () => {
+  it("formats zero", () => {
+    expect(formatUsdAmount(0)).toBe("$0.00");
+  });
+
+  it("formats a typical value", () => {
     expect(formatUsdAmount(1234.5)).toBe("$1,234.50");
   });
 
+  it("formats a large value", () => {
+    expect(formatUsdAmount(1_000_000)).toBe("$1,000,000.00");
+  });
   it("throws for NaN", () => {
     expect(() => formatUsdAmount(NaN)).toThrow(RangeError);
   });
@@ -179,6 +191,10 @@ describe("parseUsdAmount", () => {
     expect(parseUsdAmount("$1,234.50")).toBe(1234.5);
   });
 
+  it("round-trips with formatUsdAmount", () => {
+    expect(parseUsdAmount(formatUsdAmount(1234.5))).toBe(1234.5);
+  });
+
   it("returns null for empty string", () => {
     expect(parseUsdAmount("")).toBeNull();
   });
@@ -189,5 +205,19 @@ describe("parseUsdAmount", () => {
 
   it("returns null for malformed multi-dot string", () => {
     expect(parseUsdAmount("1.2.3")).toBeNull();
+  });
+});
+
+describe("shortenAddress", () => {
+  it("shortens a standard G-address to 4+4 chars by default", () => {
+    expect(shortenAddress("GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVWXYZ")).toBe("GABC...WXYZ");
+  });
+
+  it("respects a custom chars argument", () => {
+    expect(shortenAddress("GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVWXYZ", 6)).toBe("GABCDE...UVWXYZ");
+  });
+
+  it("returns address unchanged when too short to truncate", () => {
+    expect(shortenAddress("GABC")).toBe("GABC");
   });
 });

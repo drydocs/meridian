@@ -15,6 +15,7 @@ export function sanitizeTxError(err: unknown, fallback: string): string {
 }
 
 export function shortenAddress(address: string, chars = 4): string {
+  if (address.length <= chars * 2) return address;
   return `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }
 
@@ -99,8 +100,7 @@ export function formatUsdAmount(amount: number): string {
 
 /**
  * Parses a USD-formatted string back to a number.
- * Reverse of formatUsdAmount.
- * e.g. "$1,234.50" -> 1234.5
+ * Returns null for invalid or malformed input.
  */
 export function parseUsdAmount(value: string): number | null {
   const stripped = value.replace(/[^0-9.,-]/g, "").replace(/,/g, "");
