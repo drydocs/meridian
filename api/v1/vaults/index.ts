@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+﻿import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { fetchAllVaults, selectBestVault, isVaultCacheWarm } from "@meridian/stellar-sdk-helpers";
 import { isDefindexConfigured, APP_NETWORK } from "@meridian/shared";
 import { applyCors, checkRateLimit } from "../../_lib/middleware.js";
@@ -11,7 +11,7 @@ const CACHE_CONTROL = "public, s-maxage=60, stale-while-revalidate=300";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
-  if (!checkRateLimit(req, res)) return;
+  if (!await checkRateLimit(req, res)) return;
   try {
     const cached = isVaultCacheWarm();
     const vaults = await fetchAllVaults(APP_NETWORK.network);
