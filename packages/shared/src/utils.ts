@@ -9,7 +9,7 @@ const INTERNAL_DETAIL = /https?:\/\/|C[A-Z2-7]{50,}/;
  */
 export function sanitizeTxError(err: unknown, fallback: string): string {
   if (!(err instanceof Error)) return fallback;
-  const first = err.message.split("\n")[0].trim();
+  const first = err.message.split("\n")[0]?.trim();
   if (!first || INTERNAL_DETAIL.test(first)) return fallback;
   return first;
 }
