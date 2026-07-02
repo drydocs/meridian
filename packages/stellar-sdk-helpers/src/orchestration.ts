@@ -1,5 +1,14 @@
-import { buildBlendDepositTx, buildBlendWithdrawTx, blendAssetForVault, fetchBlendPositions } from "./blend";
-import { buildDefindexDepositTx, buildDefindexWithdrawTx, fetchDefindexPosition } from "./defindex";
+import {
+  buildBlendDepositTx,
+  buildBlendWithdrawTx,
+  blendAssetForVault,
+  fetchBlendPositions,
+} from "./blend";
+import {
+  buildDefindexDepositTx,
+  buildDefindexWithdrawTx,
+  fetchDefindexPosition,
+} from "./defindex";
 import { toStroops, resolveProtocol } from "./tx";
 import type { StellarNetwork } from "./types";
 import type { PositionInfo } from "./positions";
@@ -7,11 +16,12 @@ import { KNOWN_POOLS } from "./known-pools";
 
 function blendPositionEntries(
   network: StellarNetwork,
-  addresses: ProtocolAddresses,
+  addresses: ProtocolAddresses
 ): Array<{ assetId: string; vaultId: string }> {
-  const pools = network.network === "testnet"
-    ? Object.values(KNOWN_POOLS.testnet)
-    : Object.values(KNOWN_POOLS.mainnet);
+  const pools =
+    network.network === "testnet"
+      ? Object.values(KNOWN_POOLS.testnet)
+      : Object.values(KNOWN_POOLS.mainnet);
   const seen = new Set<string>();
   const entries: Array<{ assetId: string; vaultId: string }> = [];
   for (const pool of pools) {
@@ -72,12 +82,22 @@ export async function buildDepositTx(
 export async function resolvePositions(
   publicKey: string,
   network: StellarNetwork,
-  addresses: ProtocolAddresses,
+  addresses: ProtocolAddresses
 ): Promise<PositionInfo[]> {
   const [blendResult, dfxResult] = await Promise.allSettled([
-    fetchBlendPositions(network, addresses.blendPool, publicKey, blendPositionEntries(network, addresses)),
+    fetchBlendPositions(
+      network,
+      addresses.blendPool,
+      publicKey,
+      blendPositionEntries(network, addresses)
+    ),
     addresses.defindexVault
-      ? fetchDefindexPosition(network, addresses.defindexVault, addresses.defindexVaultId, publicKey)
+      ? fetchDefindexPosition(
+          network,
+          addresses.defindexVault,
+          addresses.defindexVaultId,
+          publicKey
+        )
       : Promise.resolve([]),
   ]);
 
@@ -88,7 +108,8 @@ export async function resolvePositions(
     console.error("[positions] DeFindex fetch failed:", dfxResult.reason);
   }
 
-  const blendPositions = blendResult.status === "fulfilled" ? blendResult.value : [];
+  const blendPositions =
+    blendResult.status === "fulfilled" ? blendResult.value : [];
   const dfxPositions = dfxResult.status === "fulfilled" ? dfxResult.value : [];
 
   return [...blendPositions, ...dfxPositions];

@@ -27,12 +27,25 @@ export function isValidStellarAddress(key: string): boolean {
  * Races `fn` against a timeout. Clears the timer if `fn` resolves first so no
  * handle lingers in the event loop after a successful call.
  */
-export function withRaceTimeout<T>(fn: () => Promise<T>, ms: number, label: string): Promise<T> {
+export function withRaceTimeout<T>(
+  fn: () => Promise<T>,
+  ms: number,
+  label: string
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const handle = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    const handle = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms
+    );
     fn().then(
-      (val) => { clearTimeout(handle); resolve(val); },
-      (err) => { clearTimeout(handle); reject(err); }
+      (val) => {
+        clearTimeout(handle);
+        resolve(val);
+      },
+      (err) => {
+        clearTimeout(handle);
+        reject(err);
+      }
     );
   });
 }
@@ -58,7 +71,9 @@ export async function withRetry<T>(
     } catch (err) {
       lastErr = err;
       if (attempt < maxAttempts - 1 && shouldRetry(err)) {
-        await new Promise((resolve) => setTimeout(resolve, baseDelayMs * 2 ** attempt));
+        await new Promise((resolve) =>
+          setTimeout(resolve, baseDelayMs * 2 ** attempt)
+        );
       } else {
         break;
       }
@@ -93,7 +108,8 @@ const USD_FORMATTER = new Intl.NumberFormat("en-US", {
 });
 
 export function formatUsdAmount(amount: number): string {
-  if (!Number.isFinite(amount)) throw new RangeError(`formatUsdAmount: invalid amount: ${amount}`);
+  if (!Number.isFinite(amount))
+    throw new RangeError(`formatUsdAmount: invalid amount: ${amount}`);
   return USD_FORMATTER.format(amount);
 }
 

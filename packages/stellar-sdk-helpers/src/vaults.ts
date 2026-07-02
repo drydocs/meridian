@@ -1,5 +1,9 @@
 import { PoolV2 } from "@blend-capital/blend-sdk";
-import { getStellarStablecoinPools, assessPoolRisk, type RiskLevel } from "./defilamma";
+import {
+  getStellarStablecoinPools,
+  assessPoolRisk,
+  type RiskLevel,
+} from "./defilamma";
 import { KNOWN_POOLS } from "./known-pools";
 import { APP_NETWORK, withRaceTimeout } from "@meridian/shared";
 
@@ -38,7 +42,10 @@ export function isVaultCacheWarm(): boolean {
  * entry in KNOWN_POOLS.testnet.
  */
 async function fetchTestnetVaults(): Promise<ApiVault[]> {
-  const blendNetwork = { rpc: APP_NETWORK.rpcUrl, passphrase: APP_NETWORK.passphrase };
+  const blendNetwork = {
+    rpc: APP_NETWORK.rpcUrl,
+    passphrase: APP_NETWORK.passphrase,
+  };
   const vaults: ApiVault[] = [];
   for (const meta of Object.values(KNOWN_POOLS.testnet)) {
     const pool = await withRaceTimeout(
@@ -62,7 +69,9 @@ async function fetchTestnetVaults(): Promise<ApiVault[]> {
  * Blend TestnetV2 pool on-chain directly (DeFiLlama does not index testnet).
  * Mainnet results are cached for 60 s; testnet results are always fresh.
  */
-export async function fetchAllVaults(network: "mainnet" | "testnet" = APP_NETWORK.network): Promise<ApiVault[]> {
+export async function fetchAllVaults(
+  network: "mainnet" | "testnet" = APP_NETWORK.network
+): Promise<ApiVault[]> {
   if (network === "testnet") return fetchTestnetVaults();
 
   const now = Date.now();
@@ -74,7 +83,12 @@ export async function fetchAllVaults(network: "mainnet" | "testnet" = APP_NETWOR
   for (const pool of pools) {
     const meta = KNOWN_POOLS.mainnet[pool.pool];
     if (!meta) {
-      console.warn("[vaults] unknown DeFiLlama pool, skipping:", pool.pool, pool.project, pool.symbol);
+      console.warn(
+        "[vaults] unknown DeFiLlama pool, skipping:",
+        pool.pool,
+        pool.project,
+        pool.symbol
+      );
       continue;
     }
     vaults.push({

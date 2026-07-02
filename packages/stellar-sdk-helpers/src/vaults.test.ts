@@ -59,8 +59,9 @@ describe("fetchAllVaults", () => {
   });
 
   it("returns cached result and skips DeFiLlama on repeated calls within TTL", async () => {
-    const mockFetch = vi.fn(async () =>
-      new Response(JSON.stringify({ data: [llamaPool()] }), { status: 200 })
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [llamaPool()] }), { status: 200 })
     );
     vi.stubGlobal("fetch", mockFetch);
 
@@ -89,8 +90,9 @@ describe("fetchAllVaults", () => {
 
   it("re-fetches from DeFiLlama after the 60 s TTL expires", async () => {
     vi.useFakeTimers();
-    const mockFetch = vi.fn(async () =>
-      new Response(JSON.stringify({ data: [llamaPool()] }), { status: 200 })
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [llamaPool()] }), { status: 200 })
     );
     vi.stubGlobal("fetch", mockFetch);
 
@@ -104,7 +106,8 @@ describe("fetchAllVaults", () => {
 
 describe("fetchAllVaults (testnet)", () => {
   // USDC SAC for Blend TestnetV2 (from KNOWN_POOLS.testnet["blend-testnet-usdc"].assetId).
-  const TESTNET_USDC_SAC = "CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU";
+  const TESTNET_USDC_SAC =
+    "CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU";
 
   beforeEach(() => clearVaultCache());
   afterEach(() => {
@@ -115,7 +118,12 @@ describe("fetchAllVaults (testnet)", () => {
   it("returns testnet vault with TVL and APY derived from on-chain reserve", async () => {
     // 1 000 USDC = 10_000_000_000 stroops (7 decimal places). 5% APY = 0.05.
     vi.spyOn(PoolV2, "load").mockResolvedValue({
-      reserves: new Map([[TESTNET_USDC_SAC, { totalSupply: () => 10_000_000_000n, estSupplyApy: 0.05 }]]),
+      reserves: new Map([
+        [
+          TESTNET_USDC_SAC,
+          { totalSupply: () => 10_000_000_000n, estSupplyApy: 0.05 },
+        ],
+      ]),
     } as unknown as Awaited<ReturnType<typeof PoolV2.load>>);
 
     const vaults = await fetchAllVaults("testnet");
@@ -138,7 +146,9 @@ describe("fetchAllVaults (testnet)", () => {
 
   it("does not cache testnet results between calls", async () => {
     const loadSpy = vi.spyOn(PoolV2, "load").mockResolvedValue({
-      reserves: new Map([[TESTNET_USDC_SAC, { totalSupply: () => 0n, estSupplyApy: 0 }]]),
+      reserves: new Map([
+        [TESTNET_USDC_SAC, { totalSupply: () => 0n, estSupplyApy: 0 }],
+      ]),
     } as unknown as Awaited<ReturnType<typeof PoolV2.load>>);
 
     await fetchAllVaults("testnet");
