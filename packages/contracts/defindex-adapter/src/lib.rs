@@ -1,7 +1,8 @@
 #![no_std]
 
 use adapter_common::{
-    get_usdc, require_not_initialized, require_vault_auth, store_vault_and_usdc, AdapterError,
+    extend_instance, get_usdc, require_not_initialized, require_vault_auth, store_vault_and_usdc,
+    AdapterError,
 };
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, panic_with_error, symbol_short,
@@ -173,6 +174,7 @@ impl MeridianDefindexAdapter {
     /// any price it happens to offer.
     pub fn deposit(env: Env, amount: i128) -> i128 {
         require_vault_auth(&env);
+        extend_instance(&env);
 
         let dfx: Address = adapter_common::get_or_not_initialized::<_, ContractError>(
             &env,
@@ -220,6 +222,7 @@ impl MeridianDefindexAdapter {
     /// close, precisely when the DeFindex vault is misbehaving.
     pub fn withdraw(env: Env, shares: i128, recipient: Address) -> i128 {
         require_vault_auth(&env);
+        extend_instance(&env);
 
         let dfx: Address = adapter_common::get_or_not_initialized::<_, ContractError>(
             &env,
@@ -250,6 +253,8 @@ impl MeridianDefindexAdapter {
     /// Live USDC value of the adapter's dfToken position, computed by the
     /// DeFindex vault's exchange rate. Updates automatically as yield accrues.
     pub fn total_assets(env: Env) -> i128 {
+        extend_instance(&env);
+
         let dfx: Address = adapter_common::get_or_not_initialized::<_, ContractError>(
             &env,
             env.storage().instance().get(&DFX_VAULT),
@@ -308,7 +313,7 @@ mod tests {
     use super::*;
     use soroban_sdk::{
         contract, contractimpl, symbol_short,
-        testutils::Address as _,
+        testutils::{Address as _, Ledger as _},
         token::{StellarAssetClient, TokenClient},
         Address, Env,
     };
@@ -807,5 +812,35 @@ mod tests {
         let _ = ContractError::AlreadyInitialized;
         let _ = ContractError::Overflow;
         let _ = ContractError::NotInitialized;
+    }
+
+    #[test]
+    fn deposit_extends_instance_ttl() {
+        let (env, vault, usdc_id, adapter, _dfx) = setup();
+        let adapter_id = adapter.address.clone();
+        let amount = 100_0000000_i128;
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter_id, &amount);
+        adapter.deposit(&amount);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += adapter_common::INSTANCE_THRESHOLD - 1);
+        env.as_contract(&adapter_id, || {
+            assert!(env.storage().instance().has(&DFX_VAULT));
+        });
+    }
+
+    #[test]
+    fn withdraw_extends_instance_ttl() {
+        let (env, vault, usdc_id, adapter, _dfx) = setup();
+        let adapter_id = adapter.address.clone();
+        let amount = 100_0000000_i128;
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter_id, &amount);
+        adapter.deposit(&amount);
+        let recipient = Address::generate(&env);
+        adapter.withdraw(&amount, &recipient);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += adapter_common::INSTANCE_THRESHOLD - 1);
+        env.as_contract(&adapter_id, || {
+            assert!(env.storage().instance().has(&DFX_VAULT));
+        });
     }
 }

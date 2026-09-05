@@ -21,6 +21,21 @@ use soroban_sdk::{
 const ADMIN_EVT: Symbol = symbol_short!("admin");
 
 // ---------------------------------------------------------------------------
+// TTL constants
+// ---------------------------------------------------------------------------
+
+// One ledger closes in roughly five seconds, so ~17,280 ledgers per day.
+const DAY_IN_LEDGERS: u32 = 17_280;
+
+const INSTANCE_BUMP: u32 = 30 * DAY_IN_LEDGERS;
+const INSTANCE_THRESHOLD: u32 = INSTANCE_BUMP - DAY_IN_LEDGERS;
+
+// Positions are bumped far harder than config: a saver who does nothing for
+// a quarter is the target user, not an edge case.
+const POSITION_BUMP: u32 = 120 * DAY_IN_LEDGERS;
+const POSITION_THRESHOLD: u32 = POSITION_BUMP - 7 * DAY_IN_LEDGERS;
+
+// ---------------------------------------------------------------------------
 // Adapter interface
 // ---------------------------------------------------------------------------
 
@@ -163,6 +178,7 @@ impl MeridianVault {
         min_shares_out: i128,
     ) -> Result<i128, ContractError> {
         caller.require_auth();
+        Self::extend_instance(&env);
         if Self::is_paused(env.clone()) {
             return Err(ContractError::DepositsPaused);
         }
@@ -271,6 +287,8 @@ impl MeridianVault {
             .persistent()
             .set(&principal_key, &(prev_principal + amount));
 
+        Self::extend_position(&env, &caller);
+
         Ok(shares_to_mint)
     }
 
@@ -294,6 +312,7 @@ impl MeridianVault {
         min_usdc_out: i128,
     ) -> Result<i128, ContractError> {
         caller.require_auth();
+        Self::extend_instance(&env);
         if shares <= 0 {
             return Err(ContractError::ZeroAmount);
         }
@@ -608,6 +627,15 @@ impl MeridianVault {
         env.storage().persistent().get(&key).unwrap_or(0)
     }
 
+    /// Permissionless entry point that extends the TTL of instance storage
+    /// and the position records for `address`. Anyone can call it, so
+    /// off-chain keepers or the user themselves can keep a position alive
+    /// without needing a signature on the vault.
+    pub fn extend_position_ttl(env: Env, address: Address) {
+        Self::extend_instance(&env);
+        Self::extend_position(&env, &address);
+    }
+
     /// Total USDC value managed by the vault as reported by the adapter.
     /// Includes yield accrued by the underlying protocol.
     pub fn get_total_assets(env: Env) -> Result<i128, ContractError> {
@@ -632,6 +660,7 @@ impl MeridianVault {
     /// Withdrawals are deliberately left open so a pause can never trap funds.
     pub fn set_paused(env: Env, paused: bool) -> Result<(), ContractError> {
         Self::require_admin(&env)?;
+        Self::extend_instance(&env);
         env.storage().instance().set(&PAUSED, &paused);
         env.events()
             .publish((ADMIN_EVT, symbol_short!("paused")), paused);
@@ -652,6 +681,7 @@ impl MeridianVault {
     /// not-yet-accepted nomination.
     pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
         Self::require_admin(&env)?;
+        Self::extend_instance(&env);
         env.storage().instance().set(&PEND_ADM, &new_admin);
         env.events()
             .publish((ADMIN_EVT, symbol_short!("transfer")), new_admin.clone());
@@ -670,6 +700,7 @@ impl MeridianVault {
             .get(&PEND_ADM)
             .ok_or(ContractError::NoPendingAdmin)?;
         pending.require_auth();
+        Self::extend_instance(&env);
         env.storage().instance().set(&ADMIN, &pending);
         env.storage().instance().remove(&PEND_ADM);
         env.events()
@@ -706,6 +737,7 @@ impl MeridianVault {
     /// already zero) leaving `ADPT_SH` alone is a no-op.
     pub fn set_adapter(env: Env, new_adapter: Address) -> Result<(), ContractError> {
         Self::require_admin(&env)?;
+        Self::extend_instance(&env);
         let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
         if Self::get_total_shares(env.clone()) > 0 || total_adapter_shares > 0 {
             return Err(ContractError::AdapterSwapUnsafe);
@@ -736,6 +768,7 @@ impl MeridianVault {
     /// the ledger gap to elapse before calling `migrate_adapter`.
     pub fn begin_migration(env: Env, new_adapter: Address) -> Result<(), ContractError> {
         Self::require_admin(&env)?;
+        Self::extend_instance(&env);
 
         let old_adapter_addr = Self::get_adapter(env.clone())?;
         if new_adapter == old_adapter_addr {
@@ -822,6 +855,7 @@ impl MeridianVault {
         max_slippage_bps: u32,
     ) -> Result<(), ContractError> {
         Self::require_admin(&env)?;
+        Self::extend_instance(&env);
 
         if max_slippage_bps > 10_000 {
             return Err(ContractError::InvalidSlippageBps);
@@ -978,6 +1012,30 @@ impl MeridianVault {
             .instance()
             .get(&MUSDC)
             .ok_or(ContractError::NotInitialized)
+    }
+
+    /// Extends the TTL of the contract instance. Called at the start of
+    /// every state-changing entry point so the vault's configuration never
+    /// expires while it is actively used.
+    fn extend_instance(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+    }
+
+    /// Extends the TTL of an address's position records (entry time and
+    /// principal) whenever the position is read or written. Permissionless
+    /// `extend_position_ttl` calls this for keepers.
+    fn extend_position(env: &Env, address: &Address) {
+        let storage = env.storage().persistent();
+        for key in [
+            DataKey::Entry(address.clone()),
+            DataKey::Principal(address.clone()),
+        ] {
+            if storage.has(&key) {
+                storage.extend_ttl(&key, POSITION_THRESHOLD, POSITION_BUMP);
+            }
+        }
     }
 }
 
@@ -3193,5 +3251,41 @@ mod tests {
         let exact_floor = amount;
         let usdc_out = vault.withdraw(&user, &shares, &exact_floor);
         assert_eq!(usdc_out, amount);
+    }
+
+    #[test]
+    fn extend_position_ttl_is_permissionless() {
+        let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+        vault.extend_position_ttl(&user);
+    }
+
+    #[test]
+    fn position_records_survive_ttl_advance() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+        vault.extend_position_ttl(&user);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += INSTANCE_THRESHOLD - 1);
+        env.as_contract(&vault.address, || {
+            assert!(env
+                .storage()
+                .persistent()
+                .has(&DataKey::Entry(user.clone())));
+            assert!(env
+                .storage()
+                .persistent()
+                .has(&DataKey::Principal(user.clone())));
+        });
+    }
+
+    #[test]
+    fn admin_state_calls_extend_instance_ttl() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.set_paused(&true);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += INSTANCE_THRESHOLD - 1);
+        vault.set_paused(&false);
+        assert!(!vault.is_paused());
     }
 }
