@@ -34,6 +34,13 @@
 #                          address instead of stranding its already-deployed
 #                          blend-adapter/mUSDC. Leave unset for a fresh
 #                          deploy: a random salt is generated and printed.
+#   SKIP_BUILD             Optional. Set (to any value) to skip `stellar
+#                          contract build` and use the WASM already present
+#                          in packages/contracts/target/wasm32v1-none/release
+#                          as-is. For deploying a build already verified
+#                          elsewhere (e.g. downloaded from a genuine Linux CI
+#                          build) without this script's own build silently
+#                          overwriting it with a locally-built one first.
 #
 # After sourcing, call deploy_vault_stack. It sets VAULT_ID, BLEND_ADAPTER_ID,
 # MUSDC_ID, and VAULT_INITIALIZED (1 if the vault itself was deployed this
@@ -62,9 +69,17 @@ deploy() {
 }
 
 deploy_vault_stack() {
-  echo "Building contracts..."
   cd "$(dirname "${BASH_SOURCE[0]}")/../../packages/contracts"
-  stellar contract build
+  # SKIP_BUILD lets a caller drop in WASM already verified elsewhere (e.g. a
+  # genuine Linux CI build, downloaded to sidestep `stellar contract build`'s
+  # non-reproducibility across platforms) without this rebuilding over it
+  # locally. Unset by default: a normal run always builds from source here.
+  if [ -z "${SKIP_BUILD:-}" ]; then
+    echo "Building contracts..."
+    stellar contract build
+  else
+    echo "Skipping build (SKIP_BUILD set); using WASM already in target/wasm32v1-none/release."
+  fi
 
   # `stellar contract build` targets wasm32v1-none, not wasm32-unknown-unknown.
   local wasm_dir="target/wasm32v1-none/release"
