@@ -123,7 +123,16 @@ vi.mock("@meridian/stellar-sdk-helpers", () => ({
         asset: "USDC",
       },
     },
-    mainnet: {},
+    mainnet: {
+      "meridian-usdc": {
+        id: "meridian-usdc",
+        name: "Meridian",
+        protocol: "meridian",
+        label: "USDC Vault",
+        contractId: "CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ",
+        assetId: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+      },
+    },
   },
   fetchCoordinatorState: vi.fn(async () => ({
     protocol: "blend",
@@ -477,11 +486,13 @@ describe("POST /api/v1/tx/submit", () => {
 });
 
 describe("GET /api/v1/vaults", () => {
-  it("returns the vault list with no-store on testnet (APP_NETWORK default in tests)", async () => {
+  it("returns the vault list with the mainnet cache header (APP_NETWORK default in tests)", async () => {
     const res = makeRes();
     await vaultsHandler(fakeReq({ method: "GET" }), res);
     expect(res.statusCode).toBe(200);
-    expect(res.headers["Cache-Control"]).toBe("no-store");
+    expect(res.headers["Cache-Control"]).toBe(
+      "public, s-maxage=60, stale-while-revalidate=300"
+    );
     expect(res.body).toMatchObject({
       vaults: [{ id: "blend-usdc-fixed" }],
       recommendedVaultId: "blend-usdc-fixed",

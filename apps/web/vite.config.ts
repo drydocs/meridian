@@ -17,18 +17,25 @@ const serveLanding = {
   },
 };
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react(), serveLanding],
   base: "/app/",
   // packages/shared's dist/constants.ts reads process.env.STELLAR_NETWORK for
-  // its Node-side (API) consumers. Vite's dev server serves that pre-built
-  // file to the browser as-is (via @fs/) rather than replacing process.env
-  // references the way a production `vite build` does, so `process` is
-  // genuinely undefined at runtime and the app fails to boot. Defining it as
-  // an empty object matches Node's own `undefined` lookup behavior for unset
-  // vars (constants.ts already falls back to "testnet" in that case).
+  // its Node-side (API) consumers. In dev, Vite serves that pre-built file to
+  // the browser as-is (via @fs/) rather than replacing process.env
+  // references, so `process` is genuinely undefined at runtime and the app
+  // fails to boot; defining it as an empty object there matches Node's own
+  // `undefined` lookup behavior for unset vars (constants.ts already falls
+  // back to "testnet" in that case). A production build needs the real
+  // value inlined instead: replacing it with an empty object here too meant
+  // the shipped frontend bundle always resolved to testnet regardless of
+  // what STELLAR_NETWORK was actually set to at build time, independent of
+  // any Vercel project setting.
   define: {
-    "process.env": "{}",
+    "process.env":
+      command === "serve"
+        ? "{}"
+        : JSON.stringify({ STELLAR_NETWORK: process.env.STELLAR_NETWORK }),
   },
   server: {
     port: 3000,
@@ -47,4 +54,4 @@ export default defineConfig({
   preview: {
     port: 3000,
   },
-});
+}));

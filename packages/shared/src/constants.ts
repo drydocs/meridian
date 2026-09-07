@@ -112,8 +112,15 @@ export const STELLAR_NETWORKS = {
   },
 };
 
+// Mainnet is the default: the product is live there, and a missing or
+// misconfigured STELLAR_NETWORK should fail toward the real deployment, not
+// silently toward testnet. This is also why the frontend's testnet-default
+// bug (an unrelated build-config issue, see apps/web/vite.config.ts) went
+// unnoticed for as long as it did, a wrong default made a broken value look
+// like a plausible one instead of an obviously wrong one. Testnet requires
+// explicitly setting STELLAR_NETWORK=testnet.
 const _networkKey = (
-  process.env.STELLAR_NETWORK === "mainnet" ? "mainnet" : "testnet"
+  process.env.STELLAR_NETWORK === "testnet" ? "testnet" : "mainnet"
 ) satisfies keyof typeof STELLAR_NETWORKS;
 
 export const APP_NETWORK = STELLAR_NETWORKS[_networkKey];

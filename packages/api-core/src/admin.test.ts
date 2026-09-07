@@ -98,13 +98,14 @@ describe("handleGetVaultState", () => {
     // directly: temporarily strip the one field handleGetVaultState's find()
     // requires (a "meridian" protocol entry with a contractId) and restore
     // it after, so this test doesn't leak state into any other test.
-    const entry = Object.values(KNOWN_POOLS.testnet).find(
+    // Targets mainnet, not testnet: APP_NETWORK defaults to mainnet (the
+    // live deployment) unless STELLAR_NETWORK=testnet is set at import
+    // time, which it isn't in this test run.
+    const entry = Object.values(KNOWN_POOLS.mainnet).find(
       (p) => p.protocol === "meridian"
     );
-    if (!entry) throw new Error("expected a testnet meridian pool to exist");
+    if (!entry) throw new Error("expected a mainnet meridian pool to exist");
     const originalContractId = entry.contractId;
-    // @ts-expect-error -- deliberately violating TestnetPoolMeta's required
-    // contractId to simulate the not-yet-deployed case handleGetVaultState guards against.
     delete entry.contractId;
 
     try {
