@@ -457,6 +457,21 @@ export function setSelectedWalletId(id: WalletId): void {
   window.localStorage.setItem(SELECTED_WALLET_STORAGE_KEY, id);
 }
 
+// A general usage acknowledgement (#720), shown before any wallet is
+// chosen, so there is no wallet identity yet to key it to. One flag per
+// browser rather than per wallet.
+const RISK_DISCLOSURE_STORAGE_KEY = "meridian-risk-disclosure-accepted";
+
+export function hasAcceptedRiskDisclosure(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(RISK_DISCLOSURE_STORAGE_KEY) === "true";
+}
+
+export function setRiskDisclosureAccepted(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(RISK_DISCLOSURE_STORAGE_KEY, "true");
+}
+
 export function getWalletMeta(id: WalletId): WalletMeta {
   return WALLETS.find((w) => w.id === id) ?? WALLETS[0]!;
 }

@@ -8,6 +8,7 @@ const freighterAdapter = { isInstalled: vi.fn(), connect: vi.fn() };
 const lobstrAdapter = { isInstalled: vi.fn(), connect: vi.fn() };
 
 let selectedWalletId = "freighter";
+let riskDisclosureAccepted = true;
 
 vi.mock("../../lib/wallet", () => ({
   getSelectedWalletId: () => selectedWalletId,
@@ -16,6 +17,10 @@ vi.mock("../../lib/wallet", () => ({
   }),
   getWalletAdapter: (id: string) =>
     id === "lobstr" ? lobstrAdapter : freighterAdapter,
+  hasAcceptedRiskDisclosure: () => riskDisclosureAccepted,
+  setRiskDisclosureAccepted: vi.fn(() => {
+    riskDisclosureAccepted = true;
+  }),
 }));
 
 vi.mock("react-i18next", () => {
@@ -41,6 +46,7 @@ const KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
 beforeEach(() => {
   selectedWalletId = "freighter";
+  riskDisclosureAccepted = true;
   useWalletStore.setState({
     publicKey: null,
     connected: false,
@@ -140,5 +146,60 @@ describe("useWalletConnect", () => {
       kind: "error",
       message: "Network error",
     });
+  });
+});
+
+describe("useWalletConnect — risk disclosure gate (#720)", () => {
+  it("shows the risk disclosure instead of connecting when not yet accepted", async () => {
+    riskDisclosureAccepted = false;
+    vi.mocked(freighterAdapter.isInstalled).mockResolvedValue(true);
+    vi.mocked(freighterAdapter.connect).mockResolvedValue(KEY);
+    const { result } = renderHook(() => useWalletConnect());
+
+    await act(() => result.current.handleConnect());
+
+    expect(result.current.showRiskDisclosure).toBe(true);
+    expect(freighterAdapter.connect).not.toHaveBeenCalled();
+    expect(useWalletStore.getState().connected).toBe(false);
+  });
+
+  it("only connects once accepted, through the wallet that was originally requested", async () => {
+    riskDisclosureAccepted = false;
+    vi.mocked(lobstrAdapter.isInstalled).mockResolvedValue(true);
+    vi.mocked(lobstrAdapter.connect).mockResolvedValue(KEY);
+    const { result } = renderHook(() => useWalletConnect());
+
+    await act(() => result.current.handleConnect("lobstr"));
+    expect(lobstrAdapter.connect).not.toHaveBeenCalled();
+
+    await act(() => result.current.acceptRiskDisclosure());
+
+    expect(lobstrAdapter.connect).toHaveBeenCalledOnce();
+    expect(result.current.showRiskDisclosure).toBe(false);
+  });
+
+  it("never connects when the disclosure is cancelled", async () => {
+    riskDisclosureAccepted = false;
+    vi.mocked(freighterAdapter.isInstalled).mockResolvedValue(true);
+    const { result } = renderHook(() => useWalletConnect());
+
+    await act(() => result.current.handleConnect());
+    act(() => result.current.cancelRiskDisclosure());
+
+    expect(result.current.showRiskDisclosure).toBe(false);
+    expect(freighterAdapter.connect).not.toHaveBeenCalled();
+    expect(useWalletStore.getState().connected).toBe(false);
+  });
+
+  it("connects immediately, with no gate, once already accepted", async () => {
+    riskDisclosureAccepted = true;
+    vi.mocked(freighterAdapter.isInstalled).mockResolvedValue(true);
+    vi.mocked(freighterAdapter.connect).mockResolvedValue(KEY);
+    const { result } = renderHook(() => useWalletConnect());
+
+    await act(() => result.current.handleConnect());
+
+    expect(result.current.showRiskDisclosure).toBe(false);
+    expect(freighterAdapter.connect).toHaveBeenCalledOnce();
   });
 });

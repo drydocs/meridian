@@ -6,6 +6,8 @@ import { useToastStore } from "../../store/toast";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
 
 const handleConnect = vi.fn();
+const acceptRiskDisclosure = vi.fn();
+const cancelRiskDisclosure = vi.fn();
 const { freighterInstalled, lobstrInstalled } = vi.hoisted(() => ({
   freighterInstalled: vi.fn(async () => true),
   lobstrInstalled: vi.fn(async () => false),
@@ -48,6 +50,9 @@ function mockConnect(overrides: Partial<ReturnType<typeof useWalletConnect>>) {
     handleConnect,
     status: "idle",
     attemptedWalletId: "freighter",
+    showRiskDisclosure: false,
+    acceptRiskDisclosure,
+    cancelRiskDisclosure,
     ...overrides,
   } as ReturnType<typeof useWalletConnect>);
 }
@@ -147,6 +152,27 @@ describe("WalletConnect — picker", () => {
     rerender(<WalletConnect />);
 
     expect(screen.queryByTestId("wallet-picker-menu")).toBeNull();
+  });
+});
+
+describe("WalletConnect — risk disclosure gate (#720)", () => {
+  it("renders the modal and wires it to the hook's accept/cancel when the hook says to show it", () => {
+    mockConnect({ showRiskDisclosure: true });
+    render(<WalletConnect />);
+
+    fireEvent.click(screen.getByTestId("risk-disclosure-acknowledgement"));
+    fireEvent.click(screen.getByTestId("risk-disclosure-accept"));
+    expect(acceptRiskDisclosure).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId("risk-disclosure-cancel"));
+    expect(cancelRiskDisclosure).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render the modal when the hook says not to", () => {
+    mockConnect({ showRiskDisclosure: false });
+    render(<WalletConnect />);
+
+    expect(screen.queryByTestId("risk-disclosure")).toBeNull();
   });
 });
 

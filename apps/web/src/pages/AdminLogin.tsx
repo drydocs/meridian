@@ -3,6 +3,7 @@ import { fetchVaultAdmin } from "@meridian/stellar-sdk-helpers";
 import { APP_ADDRESSES, APP_NETWORK } from "@meridian/shared";
 import { useWalletStore } from "../store/wallet";
 import { useWalletConnect } from "../hooks/useWalletConnect";
+import { RiskDisclosureModal } from "../components/onboarding/RiskDisclosureModal";
 import { AdminDashboard } from "./AdminDashboard";
 
 // Keyed by the public key it was resolved for, so a wallet switch is
@@ -15,7 +16,13 @@ interface GateResult {
 
 export function AdminLogin() {
   const { publicKey, connected } = useWalletStore();
-  const { handleConnect, status: connectStatus } = useWalletConnect();
+  const {
+    handleConnect,
+    status: connectStatus,
+    showRiskDisclosure,
+    acceptRiskDisclosure,
+    cancelRiskDisclosure,
+  } = useWalletConnect();
   const [result, setResult] = useState<GateResult | null>(null);
 
   useEffect(() => {
@@ -45,6 +52,12 @@ export function AdminLogin() {
   if (!connected) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
+        {showRiskDisclosure && (
+          <RiskDisclosureModal
+            onAccept={acceptRiskDisclosure}
+            onCancel={cancelRiskDisclosure}
+          />
+        )}
         <button
           onClick={() => void handleConnect()}
           disabled={connectStatus === "connecting"}

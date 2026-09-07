@@ -3,6 +3,7 @@ import { useToastStore } from "../../store/toast";
 import { shortenAddress } from "@meridian/shared";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
 import { WALLETS, getWalletMeta, type WalletId } from "../../lib/wallet";
+import { RiskDisclosureModal } from "./RiskDisclosureModal";
 import { Copy, Check, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +12,14 @@ export function WalletConnect() {
   const { t } = useTranslation();
   const { connected, publicKey, disconnect } = useWalletStore();
   const { push } = useToastStore();
-  const { handleConnect, status, attemptedWalletId } = useWalletConnect();
+  const {
+    handleConnect,
+    status,
+    attemptedWalletId,
+    showRiskDisclosure,
+    acceptRiskDisclosure,
+    cancelRiskDisclosure,
+  } = useWalletConnect();
   const [copied, setCopied] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [installedById, setInstalledById] = useState<
@@ -63,9 +71,9 @@ export function WalletConnect() {
     push("info", t("walletConnect.walletDisconnected"));
   }
 
-  async function handlePick(walletId: WalletId) {
+  function handlePick(walletId: WalletId) {
     setPickerOpen(false);
-    await handleConnect(walletId);
+    void handleConnect(walletId);
   }
 
   if (connected && publicKey) {
@@ -113,6 +121,12 @@ export function WalletConnect() {
 
   return (
     <div className="relative flex" ref={pickerRef}>
+      {showRiskDisclosure && (
+        <RiskDisclosureModal
+          onAccept={acceptRiskDisclosure}
+          onCancel={cancelRiskDisclosure}
+        />
+      )}
       {/* Plain click connects through whichever wallet is already selected
           (Freighter by default), unchanged from before the picker existed —
           the picker itself is the separate caret beside it. */}
@@ -145,7 +159,7 @@ export function WalletConnect() {
             <button
               key={w.id}
               data-testid={`wallet-picker-option-${w.id}`}
-              onClick={() => void handlePick(w.id)}
+              onClick={() => handlePick(w.id)}
               className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-gray-300 hover:bg-gray-800/60 hover:text-white transition-colors duration-150"
             >
               <span>{w.name}</span>

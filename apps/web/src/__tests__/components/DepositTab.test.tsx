@@ -32,7 +32,6 @@ const POSITION = {
 const onAmountChange = vi.fn();
 const onAmountKeyDown = vi.fn();
 const onSubmit = vi.fn();
-const onAcknowledgeRisk = vi.fn();
 
 function renderDepositTab(
   overrides: Partial<Parameters<typeof DepositTab>[0]> = {}
@@ -45,8 +44,6 @@ function renderDepositTab(
       bestVault={VAULT}
       position={undefined}
       hasPosition={false}
-      showRiskDisclosure={false}
-      onAcknowledgeRisk={onAcknowledgeRisk}
       isDepositing={false}
       onSubmit={onSubmit}
       {...overrides}
@@ -118,60 +115,5 @@ describe("DepositTab", () => {
     });
 
     expect(onAmountChange).toHaveBeenCalledWith("42");
-  });
-
-  it("shows the risk disclosure and disables submit when showRiskDisclosure is true", () => {
-    renderDepositTab({ amount: "25", showRiskDisclosure: true });
-
-    expect(screen.getByTestId("deposit-risk-disclosure")).toBeDefined();
-    expect(
-      screen.getByText("vaultPanel.riskDisclosure.smartContractRisk")
-    ).toBeDefined();
-    expect(
-      screen.getByText("vaultPanel.riskDisclosure.adapterRisk")
-    ).toBeDefined();
-    expect(screen.getByTestId("vault-deposit-submit")).toHaveProperty(
-      "disabled",
-      true
-    );
-  });
-
-  it("does not render the risk disclosure when showRiskDisclosure is false", () => {
-    renderDepositTab({ amount: "25", showRiskDisclosure: false });
-
-    expect(screen.queryByTestId("deposit-risk-disclosure")).toBeNull();
-  });
-
-  it("keeps the risk submit button disabled until the checkbox is checked", () => {
-    renderDepositTab({ amount: "25", showRiskDisclosure: true });
-
-    expect(screen.getByTestId("deposit-risk-submit")).toHaveProperty(
-      "disabled",
-      true
-    );
-
-    fireEvent.click(screen.getByTestId("deposit-risk-acknowledgement"));
-
-    expect(screen.getByTestId("deposit-risk-submit")).toHaveProperty(
-      "disabled",
-      false
-    );
-  });
-
-  it("does not call onAcknowledgeRisk from checking the box alone", () => {
-    renderDepositTab({ amount: "25", showRiskDisclosure: true });
-
-    fireEvent.click(screen.getByTestId("deposit-risk-acknowledgement"));
-
-    expect(onAcknowledgeRisk).not.toHaveBeenCalled();
-  });
-
-  it("calls onAcknowledgeRisk when the submit button is clicked after checking", () => {
-    renderDepositTab({ amount: "25", showRiskDisclosure: true });
-
-    fireEvent.click(screen.getByTestId("deposit-risk-acknowledgement"));
-    fireEvent.click(screen.getByTestId("deposit-risk-submit"));
-
-    expect(onAcknowledgeRisk).toHaveBeenCalledTimes(1);
   });
 });
