@@ -1,4 +1,9 @@
-import { test, expect, TEST_ADDRESS } from "./fixtures";
+import {
+  test,
+  expect,
+  TEST_ADDRESS,
+  acknowledgeRiskDisclosure,
+} from "./fixtures";
 
 test.describe("position load error", () => {
   test("shows a retry banner and recovers once the API succeeds", async ({
@@ -26,6 +31,7 @@ test.describe("position load error", () => {
       .locator("main")
       .getByRole("button", { name: "Connect Wallet" })
       .click();
+    await acknowledgeRiskDisclosure(page);
 
     await expect(
       page.getByText(

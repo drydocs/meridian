@@ -1,4 +1,10 @@
-import { test, expect, getSignedXdrs, TEST_ADDRESS } from "./fixtures";
+import {
+  test,
+  expect,
+  getSignedXdrs,
+  TEST_ADDRESS,
+  acknowledgeRiskDisclosure,
+} from "./fixtures";
 
 // meridian-usdc is the real testnet-deployed coordinator vault (see
 // packages/stellar-sdk-helpers/src/known-pools.ts). blend-usdc-fixed and
@@ -42,6 +48,7 @@ test.describe("withdraw", () => {
       .getByRole("button", { name: "Connect Wallet" })
       .click();
     await expect(page.getByTestId("vault-tab-deposit")).toBeVisible();
+    await acknowledgeRiskDisclosure(page);
 
     await page.getByTestId("vault-tab-withdraw").click();
     await expect(page.getByTestId("vault-withdraw-submit")).toBeVisible();
@@ -77,6 +84,7 @@ test.describe("withdraw", () => {
       .locator("main")
       .getByRole("button", { name: "Connect Wallet" })
       .click();
+    await acknowledgeRiskDisclosure(page);
     await page.getByTestId("vault-tab-withdraw").click();
 
     await expect(
@@ -98,6 +106,7 @@ test.describe("withdraw", () => {
       .locator("main")
       .getByRole("button", { name: "Connect Wallet" })
       .click();
+    await acknowledgeRiskDisclosure(page);
     await page.getByTestId("vault-tab-withdraw").click();
 
     await page.getByTestId("vault-withdraw-max").click();
