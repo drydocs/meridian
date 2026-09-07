@@ -113,6 +113,14 @@ jobs:
     # the real API and Soroban simulation paths end to end. Tests use page.route()
     # to stub live-network-dependent data where it would otherwise be flaky on
     # testnet RPC hiccups (see #535). Blocking.
+    #
+    # STELLAR_NETWORK must be set explicitly: mainnet is now the default
+    # (packages/shared/src/constants.ts, #738) since the product is live
+    # there, and this suite's testnet assumptions (testnet contract
+    # addresses, mocked-wallet fixtures funded on testnet) would otherwise
+    # silently target mainnet instead.
+    env:
+      STELLAR_NETWORK: testnet
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6.0.10
