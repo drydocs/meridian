@@ -63,7 +63,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Cache Stellar CLI binary
         id: cache-stellar-cli
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/stellar
           key: stellar-cli-${{ runner.os }}-${{ steps.stellar-cli-version.outputs.version }}
