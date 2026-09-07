@@ -69,9 +69,9 @@ This means early depositors automatically benefit from yield without any claim o
 Deposit and withdraw are the only actions a user ever takes. Two scheduled keeper jobs (GitHub Actions cron, hitting dedicated API routes) handle everything else:
 
 - **Accrual keeper** (every 15 minutes): refreshes the active adapter's cached yield figure, so `total_assets()` reflects interest actually earned rather than going stale between user interactions. Permissionless by design, a duplicate run is harmless.
-- **Migration keeper** (hourly): when a different supported protocol is offering meaningfully better yield, moves the vault's entire position to it via `migrate_adapter`, in one atomic, slippage-bounded transaction. Admin-gated, and cross-invocation deduplicated (via a shared claim/lease record) so a slow or retried run can't submit the same migration twice.
+- **Migration keeper** (hourly): when a different supported protocol is offering meaningfully better yield, moves the vault's entire position to it via `migrate_adapter`, in one atomic, slippage-bounded transaction. Admin-gated, and cross-invocation deduplicated (via a shared claim/lease record) so a slow or retried run can't submit the same migration twice. Fully built and tested, but `migrate_adapter` only accepts a call from whatever address the vault's `ADMIN` currently is, so the keeper's key can't act until it's actually granted that authority. On mainnet that's deliberately blocked on deciding `ADMIN`'s custody model first (see [`operations/mainnet-deployment.md`](../operations/mainnet-deployment.md)'s go-live checklist).
 
-Neither keeper changes what a user sees or does; they exist so a deposit made once keeps earning the best available rate without the user ever having to come back and move funds manually.
+The accrual keeper runs in production today. The migration keeper doesn't act on mainnet yet: it's fully implemented, not gated on unfinished code, just not yet handed the authority to move funds there. See [`operations/migration-keeper.md`](../operations/migration-keeper.md) for its current status on testnet. Neither keeper changes what a user sees or does; once wired up, they exist so a deposit made once keeps earning the best available rate without the user ever having to come back and move funds manually.
 
 ## Security properties
 

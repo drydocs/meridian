@@ -133,11 +133,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  // The migration keeper is deliberately not fully wired up yet (#511,
-  // #514): ops may reasonably leave this unset until both land. Without
-  // this check, every hourly cron tick would throw inside
-  // loadMigrationKeeperConfig and report a 500, a permanent, noisy false
-  // alarm for an intentionally disabled feature, not an actual failure.
+  // The keeper itself is fully implemented (#511/#514 both resolved); what's
+  // actually missing is the secret key. On mainnet that's deliberately
+  // deferred: migrate_adapter checks require_auth() against whatever ADMIN
+  // currently is, so this key can't act until it's granted that authority,
+  // which is blocked on deciding ADMIN's custody model first (see
+  // apps/docs/operations/mainnet-deployment.md). Without this check, every
+  // hourly cron tick would throw inside loadMigrationKeeperConfig and report
+  // a 500, a permanent, noisy false alarm for a deliberately-unset key, not
+  // an actual failure.
   if (!isMigrationKeeperConfigured(process.env)) {
     return res.status(200).json({
       status: "disabled",

@@ -32,10 +32,10 @@ meridian/
 │   │       │   └── useWalletConnect.ts
 │   │       ├── lib/
 │   │       │   ├── api.ts        # Typed API client
-│   │       │   └── wallet.ts     # Freighter adapter
+│   │       │   └── wallet.ts     # Wallet adapters (Freighter, LOBSTR, xBull) + picker
 │   │       └── store/wallet.ts   # Zustand wallet state
 │   │
-│   └── api/                      # Fastify server (local development only)
+│   └── api-local/                # Fastify server (local development only)
 │       └── src/
 │           ├── index.ts
 │           ├── routes/

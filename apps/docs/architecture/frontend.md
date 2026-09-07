@@ -2,14 +2,14 @@
 
 ## Stack
 
-| Concern      | Library                                                    |
-| ------------ | ---------------------------------------------------------- |
-| Bundler      | Vite 8                                                     |
-| UI           | React 19                                                   |
-| Styling      | Tailwind CSS                                               |
-| Server state | TanStack Query v5                                          |
-| Client state | Zustand                                                    |
-| Wallet       | `@stellar/freighter-api`, `@lobstrco/signer-extension-api` |
+| Concern      | Library                                                                                                                                                                                            |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bundler      | Vite 8                                                                                                                                                                                             |
+| UI           | React 19                                                                                                                                                                                           |
+| Styling      | Tailwind CSS                                                                                                                                                                                       |
+| Server state | TanStack Query v5                                                                                                                                                                                  |
+| Client state | Zustand                                                                                                                                                                                            |
+| Wallet       | `@stellar/freighter-api`, `@lobstrco/signer-extension-api`, `@creit.tech/xbull-wallet-connect` (`@albedo-link/intent` also present, for the implemented-but-not-yet-picker-exposed Albedo adapter) |
 
 ## Component structure
 
@@ -83,7 +83,7 @@ interface WalletAdapter {
 
 ### Wallet registry and picker (#611)
 
-`wallet.ts` exports `WALLETS: WalletMeta[]`, one entry per implemented adapter (`FreighterWallet`, `LobstrWallet`; `XBullWallet` joins once #598 merges — nothing else here needs to change for that). Each entry carries an `id`, a display `name`, an `installUrl` for the no-extension fallback, and the adapter instance itself.
+`wallet.ts` exports `WALLETS: WalletMeta[]`, one entry per adapter actually exposed in the picker: `FreighterWallet`, `LobstrWallet`, `XBullWallet`. An `AlbedoWallet` adapter is also implemented and tested (#674) but deliberately not added to `WALLETS` yet, since wallet-picker exposure was out of scope for the PR that added it. Adding it later means one more entry in `WALLETS`; nothing else here needs to change for that. Each entry carries an `id`, a display `name`, an `installUrl` for the no-extension fallback, and the adapter instance itself.
 
 Which wallet is "selected" is tracked independently of `useWalletStore`, in `wallet.ts` itself (`getSelectedWalletId()`/`setSelectedWalletId()`, backed by a plain `localStorage` key) — not in the Zustand store, to avoid a circular import (`store/wallet.ts` already imports from `lib/wallet.ts`). It defaults to Freighter and only changes on a _successful_ connect, so a failed or cancelled attempt never silently switches which wallet later sign/reconnect calls go through.
 

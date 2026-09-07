@@ -167,9 +167,11 @@ export async function prepareSorobanTx(
 }
 
 /**
- * Build an unsigned Stellar transaction that adds USDC and mUSDC trustlines
- * for `walletAddress`. Skips any trustline that already exists. Throws if all
- * required trustlines are already present.
+ * Build an unsigned Stellar transaction that adds a USDC trustline (and, on a
+ * network where mUSDC still predates the #578 SEP-41 cutover, an mUSDC one
+ * too; mUSDC never needs a trustline post-cutover, see `MUSDC_ISSUER` in
+ * constants.ts) for `walletAddress`. Skips any trustline that already
+ * exists. Throws if all required trustlines are already present.
  */
 export async function buildAddTrustlineTx(
   walletAddress: string,

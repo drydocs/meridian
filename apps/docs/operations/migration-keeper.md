@@ -18,22 +18,26 @@ against total vault value, never on any individual depositor's mUSDC. One
 admin/keeper-signed call benefits every depositor simultaneously, no per-user
 consent, delegation, or signature is needed.
 
-## Current status: not yet functional against the live testnet vault
+## Current status: fully built, not yet authorized to act on either network
 
-One remaining gap blocks this keeper from actually migrating anything in
-practice:
+Rate comparison (below) is implemented (#511), and the live testnet vault was
+redeployed on 2026-09-06 with `migrate_adapter` present and confirmed callable
+(#514, closed). Every code and contract prerequisite this document describes
+is done. What's left on both networks is operational, not code:
 
-- The live testnet vault (`CONTRACT_ADDRESSES.testnet.vault`) predates
-  `migrate_adapter` being added to `vault/src/lib.rs` and was never
-  redeployed since; it doesn't have the function at all. Confirmed directly
-  via `stellar contract invoke -- --help` against the live contract. See
-  #514.
-
-Rate comparison (below) is now implemented (#511). Everything else described
-in this document — the discovery, retry, deadline budget, and
-structured-failure-reporting mechanism — is built and tested. Once #514
-closes, this keeper is functionally complete end to end; #514 is the only
-remaining blocker to a real testnet migration.
+- **Testnet**: nothing has actually exercised a real end-to-end migration
+  against the redeployed vault yet.
+- **Mainnet**: `mainnet-migration-keeper`'s secret key is generated but was
+  never granted `ADMIN` authority over the mainnet vault. `migrate_adapter`
+  checks `require_auth()` against whatever address `ADMIN` currently is, and
+  there's no separate operator role, so this key can only act once `ADMIN`
+  either transfers to it directly (rejected as a plan: it would hand full
+  vault control, not just migration authority, to an automated key sitting in
+  a Vercel env var) or `ADMIN` becomes a multisig with this key meeting only
+  the "medium" threshold. See
+  [`operations/mainnet-deployment.md`](./mainnet-deployment.md)'s go-live
+  checklist; this is deliberately deferred pending that decision, not an
+  oversight.
 
 ## Rate comparison
 

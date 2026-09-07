@@ -20,4 +20,4 @@ Which protocol a vault routes to can change after a deposit, without any action 
 
 ## Status
 
-Meridian is a testnet technical preview. The coordinator vault, `BlendAdapter`, XDR builder, and frontend are all deployed and live on Stellar testnet, with a working end-to-end deposit/withdraw signing flow. A `DefindexAdapter` contract exists but has no live testnet DeFindex vault wired up yet. Mainnet deployment and a security audit are still ahead — see the root [README](https://github.com/drydocs/meridian#project-status) for the current, detailed status.
+Meridian is live on Stellar mainnet. The coordinator vault, `BlendAdapter`, XDR builder, and frontend are all deployed on both testnet and mainnet, with a working end-to-end deposit/withdraw signing flow. A `DefindexAdapter` contract exists but has no live vault wired up yet on either network. No independent security audit has been completed, and the mainnet `ADMIN` key is not yet hardware-backed or multisig. See the root [README](https://github.com/drydocs/meridian#project-status) for the current, detailed status.

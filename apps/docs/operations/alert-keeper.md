@@ -26,6 +26,12 @@ Every alert POSTs a JSON body containing both `text` (Slack's field) and
 service without picking a payload shape up front; whichever field a service
 doesn't recognise is ignored.
 
+`MERIDIAN_ALERT_WEBHOOK_URL` is unset in production as of the mainnet launch
+(2026-09-07): the keeper's cron runs on schedule, but `isAlertKeeperConfigured`
+makes it a clean no-op (`{status: "disabled"}`, not an error) until this is
+set. Discord is the intended destination, not yet wired up. Nothing is
+currently watching the live mainnet vault for the admin actions below.
+
 ## Which Events Alert
 
 Only `paused`, `transfer`, `adapter`, and `migrate` trigger an alert.

@@ -19,7 +19,7 @@ Stellar is the right infrastructure layer for this use case:
 
 Yield rates on DeFi protocols are not static. A protocol offering 8% today may offer 5% next week as utilization changes. Without active monitoring, a depositor's funds sit in a suboptimal position indefinitely.
 
-Meridian solves this by separating the routing decision (off-chain, by the API reading live rates) from the custody decision (on-chain, by the vault contract). Every deposit records which protocol was chosen, and the user signs off on that choice before any funds move. The choice doesn't have to be made again: a scheduled keeper re-checks rates on an ongoing basis and moves the vault's position to a better-yielding protocol automatically, so a deposit made once keeps chasing the best available rate without the user coming back to do it manually.
+Meridian solves this by separating the routing decision (off-chain, by the API reading live rates) from the custody decision (on-chain, by the vault contract). Every deposit records which protocol was chosen, and the user signs off on that choice before any funds move. The choice is designed not to have to be made again: a scheduled migration keeper, built and tested, re-checks rates on an ongoing basis and can move the vault's position to a better-yielding protocol automatically via `migrate_adapter`. On mainnet it isn't authorized to act yet (see [`operations/mainnet-deployment.md`](../operations/mainnet-deployment.md)), so today a deposit's protocol choice is static until that lands, not yet self-rebalancing.
 
 ## The target user
 

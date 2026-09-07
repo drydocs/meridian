@@ -183,7 +183,7 @@ Read-only coordinator vault state for the admin dashboard's Vault State card (#6
 }
 ```
 
-Returns 404 if no Meridian coordinator vault is configured for the current network (e.g. mainnet, before one is deployed there), or 503 if the on-chain read fails.
+Returns 404 if no Meridian coordinator vault is configured for the current network, or 503 if the on-chain read fails.
 
 ## Serverless vs Fastify
 

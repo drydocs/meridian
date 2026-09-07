@@ -84,8 +84,6 @@ interface WalletAdapter {
 
 The connect flow calls `isInstalled()` to detect the wallet and `connect()` to request access; a persisted session is re-validated via `isAuthorized()` on load. Signing (this doc's flow) goes through `sign()`.
 
-Two adapters exist in code today, `FreighterWallet` and `LobstrWallet`, but only Freighter is currently wired up as the active `wallet` export — there is no wallet-selection UI yet, so LOBSTR's adapter isn't reachable from the app.
+A wallet picker (#611) is live in the header, letting a user choose between three wired-up adapters (`FreighterWallet`, `LobstrWallet`, `XBullWallet`) rather than a single hardcoded wallet. An `AlbedoWallet` adapter also exists and is tested but isn't exposed in the picker yet (#674). See [`architecture/frontend.md`](./frontend.md#wallet-registry-and-picker-611) for the registry/selection mechanics.
 
-<!-- TODO(#613): describe picker UI once #476/#488/#490 land -->
-
-Freighter is used as the concrete example above because it's the wallet actually in use today; the flow itself is defined against the interface, not against any single wallet.
+Freighter is used as the concrete example above only because it reads cleanest for a single sequence diagram; the flow itself is defined against the `WalletAdapter` interface, identical for whichever wallet the user actually picks.
