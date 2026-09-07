@@ -1,4 +1,9 @@
-import { test, expect, getSignedXdrs, acknowledgeRiskDisclosure } from "./fixtures";
+import {
+  test,
+  expect,
+  getSignedXdrs,
+  acknowledgeRiskDisclosure,
+} from "./fixtures";
 
 test.describe("deposit", () => {
   test("builds a real deposit transaction against the real API", async ({
