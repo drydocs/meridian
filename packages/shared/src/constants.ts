@@ -83,11 +83,15 @@ export const CONTRACT_ADDRESSES = {
     usdc: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
     // Stellar Asset Contract for Circle's mainnet EURC (issuer: GDHU6WRG4IEQ...).
     eurc: "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
-    musdc: "CDNQXOWKOCWB4YVK33HACZ2O2OL7C7ZZ37AJRWZDZQ2QK52NYW7ATDFS",
+    musdc: "CAEJJPN73VOEWUVCXCXMIXOHMFLUXAYVFMCTCJHQFI5R2NIB2S5YTOFL",
     // The blend-adapter wired to this vault is
-    // CADWOVTT5KUFFSTIQ3T5XPAQISEDQYPMSJ4CEU2CRGOBKA5QP4BRROBJ, discoverable
+    // CBNKERYAG7VZNBH2V3TF5JBXLD3MXLVQW5GG4AO445EUDCPKP4D2DDP2, discoverable
     // at runtime via vault.get_adapter() rather than tracked separately here.
-    vault: "CCJZCEF47TMOA6ECPQD5LZZ2H75YX53FUEZJQZSJLGK4TWGXQZG2KODU",
+    // Redeployed from the original CCJZCEF...-address deploy: that one was
+    // built locally on Windows and did not reproduce on a genuine Linux
+    // rebuild, so it could never be verified against source (see the
+    // "Mainnet deployment record" in apps/docs/operations/mainnet-deployment.md).
+    vault: "CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ",
   },
 } as const;
 
