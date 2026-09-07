@@ -46,7 +46,9 @@ vi.mock("react-i18next", () => ({
 
 function acknowledgeRiskDisclosureIfPresent() {
   const acknowledgement = screen.queryByTestId("deposit-risk-acknowledgement");
-  if (acknowledgement) fireEvent.click(acknowledgement);
+  if (!acknowledgement) return;
+  fireEvent.click(acknowledgement);
+  fireEvent.click(screen.getByTestId("deposit-risk-submit"));
 }
 
 function mockVaultsLoaded() {
@@ -246,6 +248,7 @@ describe("VaultPanel — risk disclosure", () => {
   it("hides the disclosure and unblocks submission once acknowledged, persisting across remounts for the same wallet", () => {
     const { unmount } = render(<VaultPanel />);
     fireEvent.click(screen.getByTestId("deposit-risk-acknowledgement"));
+    fireEvent.click(screen.getByTestId("deposit-risk-submit"));
 
     expect(
       window.localStorage.getItem(
@@ -262,6 +265,7 @@ describe("VaultPanel — risk disclosure", () => {
   it("does not carry one wallet's acknowledgement over to a different wallet", () => {
     const { unmount } = render(<VaultPanel />);
     fireEvent.click(screen.getByTestId("deposit-risk-acknowledgement"));
+    fireEvent.click(screen.getByTestId("deposit-risk-submit"));
     unmount();
 
     useWalletStore.setState({

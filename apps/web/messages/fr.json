@@ -36,7 +36,8 @@
       "description": "Meridian est un produit basé sur des contrats intelligents. Veuillez lire ces risques avant de continuer.",
       "smartContractRisk": "Risque lié aux contrats intelligents : des bugs ou des attaques dans les contrats Meridian peuvent affecter les fonds déposés.",
       "adapterRisk": "Risque lié aux adapteurs et protocoles : les dépôts passent par des adapteurs et protocoles externes, dont la performance ou les défaillances peuvent affecter votre solde et vos rendements.",
-      "acknowledgement": "Je comprends qu'il s'agit d'un produit exposé à des risques de contrats intelligents et j'accepte les risques du dépôt."
+      "acknowledgement": "Je comprends qu'il s'agit d'un produit exposé à des risques de contrats intelligents et j'accepte les risques du dépôt.",
+      "continue": "Continuer"
     }
   },
 

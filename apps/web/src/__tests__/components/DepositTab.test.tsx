@@ -142,10 +142,35 @@ describe("DepositTab", () => {
     expect(screen.queryByTestId("deposit-risk-disclosure")).toBeNull();
   });
 
-  it("calls onAcknowledgeRisk when the checkbox is checked", () => {
+  it("keeps the risk submit button disabled until the checkbox is checked", () => {
+    renderDepositTab({ amount: "25", showRiskDisclosure: true });
+
+    expect(screen.getByTestId("deposit-risk-submit")).toHaveProperty(
+      "disabled",
+      true
+    );
+
+    fireEvent.click(screen.getByTestId("deposit-risk-acknowledgement"));
+
+    expect(screen.getByTestId("deposit-risk-submit")).toHaveProperty(
+      "disabled",
+      false
+    );
+  });
+
+  it("does not call onAcknowledgeRisk from checking the box alone", () => {
     renderDepositTab({ amount: "25", showRiskDisclosure: true });
 
     fireEvent.click(screen.getByTestId("deposit-risk-acknowledgement"));
+
+    expect(onAcknowledgeRisk).not.toHaveBeenCalled();
+  });
+
+  it("calls onAcknowledgeRisk when the submit button is clicked after checking", () => {
+    renderDepositTab({ amount: "25", showRiskDisclosure: true });
+
+    fireEvent.click(screen.getByTestId("deposit-risk-acknowledgement"));
+    fireEvent.click(screen.getByTestId("deposit-risk-submit"));
 
     expect(onAcknowledgeRisk).toHaveBeenCalledTimes(1);
   });
