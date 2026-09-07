@@ -22,7 +22,10 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONTRACT_ADDRESSES } from "../packages/shared/src/constants";
+import {
+  CONTRACT_ADDRESSES,
+  STELLAR_NETWORKS,
+} from "../packages/shared/src/constants";
 import { KNOWN_POOLS } from "../packages/stellar-sdk-helpers/src/known-pools";
 
 const CONTRACTS_DIR = join(__dirname, "..", "packages", "contracts");
@@ -71,10 +74,18 @@ async function retry<T>(
 
 async function fetchOnChainHash(
   address: string,
-  network: string
+  network: "testnet" | "mainnet"
 ): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), "meridian-verify-"));
   const outFile = join(dir, `${address}.wasm`);
+  // stellar-cli's built-in "mainnet" network preset has no default RPC
+  // endpoint (there is no SDF-run public mainnet RPC the way there is for
+  // testnet): `--network mainnet` alone resolves to a placeholder
+  // "bring your own" URL and fails outright, not just less reliably. Passing
+  // the same rpcUrl/passphrase this repo's own deploy tooling uses avoids
+  // that entirely, for both networks, rather than relying on the CLI's
+  // built-in presets for one and not the other.
+  const { rpcUrl, passphrase } = STELLAR_NETWORKS[network];
   await retry(() => {
     execFileSync(
       "stellar",
@@ -83,8 +94,10 @@ async function fetchOnChainHash(
         "fetch",
         "--id",
         address,
-        "--network",
-        network,
+        "--rpc-url",
+        rpcUrl,
+        "--network-passphrase",
+        passphrase,
         "-o",
         outFile,
       ],
