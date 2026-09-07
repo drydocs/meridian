@@ -68,16 +68,15 @@ export const test = base.extend<Fixtures>({
 export { expect };
 
 /**
- * The first-deposit risk disclosure is a full-screen overlay that blocks
- * every other interaction on the page (deposit, withdraw, tab switching)
- * until it's dismissed, so any spec that connects a wallet not already
- * covered by a page.route stub for its acknowledgement state needs to clear
- * it before doing anything else. Checking the box alone no longer dismisses
- * it: a separate submit click is required.
+ * The risk disclosure now gates the wallet connection itself (#720): clicking
+ * Connect Wallet shows it first, and accepting is what triggers the actual
+ * connect, so this must be called right after clicking Connect Wallet and
+ * before asserting any connected state. Checking the box alone doesn't
+ * accept it: a separate accept click is required.
  */
 export async function acknowledgeRiskDisclosure(page: Page): Promise<void> {
-  await page.getByTestId("deposit-risk-acknowledgement").click();
-  await page.getByTestId("deposit-risk-submit").click();
+  await page.getByTestId("risk-disclosure-acknowledgement").click();
+  await page.getByTestId("risk-disclosure-accept").click();
 }
 
 /** Reads the XDRs the mock wallet was asked to sign, in call order. */

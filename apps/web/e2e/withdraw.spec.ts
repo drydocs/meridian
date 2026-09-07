@@ -47,8 +47,8 @@ test.describe("withdraw", () => {
       .locator("main")
       .getByRole("button", { name: "Connect Wallet" })
       .click();
-    await expect(page.getByTestId("vault-tab-deposit")).toBeVisible();
     await acknowledgeRiskDisclosure(page);
+    await expect(page.getByTestId("vault-tab-deposit")).toBeVisible();
 
     await page.getByTestId("vault-tab-withdraw").click();
     await expect(page.getByTestId("vault-withdraw-submit")).toBeVisible();

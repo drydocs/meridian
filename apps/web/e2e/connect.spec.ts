@@ -1,11 +1,14 @@
-import { test, expect, TEST_ADDRESS } from "./fixtures";
+import {
+  test,
+  expect,
+  TEST_ADDRESS,
+  acknowledgeRiskDisclosure,
+} from "./fixtures";
 
 test.describe("wallet connect", () => {
   test("prompts to connect when no wallet is linked", async ({ page }) => {
     await page.goto("./");
-    await expect(
-      page.getByText(/Connect your Freighter wallet/i)
-    ).toBeVisible();
+    await expect(page.getByText(/Connect your wallet/i)).toBeVisible();
     await expect(page.getByTestId("vault-tab-deposit")).toHaveCount(0);
   });
 
@@ -20,6 +23,7 @@ test.describe("wallet connect", () => {
       .locator("main")
       .getByRole("button", { name: "Connect Wallet" })
       .click();
+    await acknowledgeRiskDisclosure(page);
 
     // Header switches to the connected pill showing the shortened address.
     await expect(page.getByText("GBBD...FLA5")).toBeVisible();
@@ -38,6 +42,9 @@ test.describe("wallet connect", () => {
       .locator("main")
       .getByRole("button", { name: "Connect Wallet" })
       .click();
+    // The gate runs before the real connect attempt, so it comes first even
+    // though the wallet isn't installed.
+    await acknowledgeRiskDisclosure(page);
 
     await expect(
       page.getByRole("link", { name: "Install Freighter" })
@@ -54,6 +61,7 @@ test.describe("wallet connect", () => {
       .locator("main")
       .getByRole("button", { name: "Connect Wallet" })
       .click();
+    await acknowledgeRiskDisclosure(page);
     await expect(page.getByText("GBBD...FLA5")).toBeVisible();
 
     await page.reload();

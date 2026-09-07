@@ -24,11 +24,8 @@ test.describe("deposit", () => {
       .locator("main")
       .getByRole("button", { name: "Connect Wallet" })
       .click();
-    await expect(page.getByTestId("vault-tab-deposit")).toBeVisible();
-
-    await expect(page.getByTestId("deposit-risk-disclosure")).toBeVisible();
     await acknowledgeRiskDisclosure(page);
-    await expect(page.getByTestId("deposit-risk-disclosure")).toBeHidden();
+    await expect(page.getByTestId("vault-tab-deposit")).toBeVisible();
 
     await page.getByPlaceholder("0.00").fill("10");
     await page.getByTestId("vault-deposit-submit").click();
@@ -60,6 +57,7 @@ test.describe("deposit", () => {
       .locator("main")
       .getByRole("button", { name: "Connect Wallet" })
       .click();
+    await acknowledgeRiskDisclosure(page);
 
     await expect(page.getByTestId("vault-deposit-submit")).toBeDisabled();
   });
