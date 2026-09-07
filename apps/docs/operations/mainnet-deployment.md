@@ -95,7 +95,7 @@ None of these block a mainnet deploy today. What remains before going live:
 - [ ] #721 (incident-response runbook) landed and its holder(s) briefed, so a live incident has a documented playbook to follow rather than being improvised
 - [ ] `MERIDIAN_KEEPER_SECRET_KEY` / `MERIDIAN_MIGRATION_KEEPER_SECRET_KEY` funded and their custody model decided (folded into `ADMIN`'s multisig, or a separate operational key)
 - [ ] `UPSTASH_REDIS_REST_URL`/`_TOKEN`, `CRON_SECRET`, and `MERIDIAN_ALERT_WEBHOOK_URL` configured on the production deployment before the first scheduled keeper run, not after
-- [ ] `.github/workflows/keepers.yml`'s cron schedule enabled against the production `API_BASE_URL`
+- [x] `.github/workflows/keepers.yml`'s cron schedule enabled against the production `API_BASE_URL` (`https://usemeridian.vercel.app`, confirmed reachable; workflow re-enabled 2026-09-07 after being manually disabled)
 - [x] `CONTRACT_ADDRESSES.mainnet` / `KNOWN_POOLS.mainnet` populated with the real deployed addresses per "Updating the app to use the new deployment"
 - [x] Post-deploy verification chain (step 5 of "Deployment sequence") run and its output recorded, see "Mainnet deployment record" below
 

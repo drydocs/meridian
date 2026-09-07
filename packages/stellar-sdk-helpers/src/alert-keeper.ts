@@ -64,6 +64,15 @@ export interface AlertKeeperConfig {
   rpcTimeoutMs: number;
 }
 
+/** Mirrors isMigrationKeeperConfigured: lets ops leave the alert webhook
+ *  unset early on without every cron tick throwing and reporting a 500 for
+ *  an intentionally-not-yet-configured feature. */
+export function isAlertKeeperConfigured(
+  env: Record<string, string | undefined>
+): boolean {
+  return Boolean(env.MERIDIAN_ALERT_WEBHOOK_URL?.trim());
+}
+
 export function loadAlertKeeperConfig(
   env: Record<string, string | undefined>
 ): AlertKeeperConfig {

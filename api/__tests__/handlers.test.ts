@@ -62,6 +62,9 @@ vi.mock("@meridian/stellar-sdk-helpers", () => ({
     (env: Record<string, string | undefined>) =>
       Boolean(env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY?.trim())
   ),
+  isAlertKeeperConfigured: vi.fn((env: Record<string, string | undefined>) =>
+    Boolean(env.MERIDIAN_ALERT_WEBHOOK_URL?.trim())
+  ),
   loadMigrationKeeperConfig: vi.fn(() => ({
     network: {
       network: "testnet",
@@ -211,6 +214,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.CRON_SECRET = "cron-secret";
   process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY = "S".repeat(56);
+  process.env.MERIDIAN_ALERT_WEBHOOK_URL = "https://hooks.example.com/webhook";
 });
 
 describe("POST /api/v1/tx/deposit", () => {
@@ -737,6 +741,23 @@ describe("GET /api/v1/keepers/alert", () => {
     );
 
     expect(res.statusCode).toBe(401);
+    expect(runAlertKeeper).not.toHaveBeenCalled();
+  });
+
+  it("reports disabled instead of a noisy 500 when the alert webhook isn't configured", async () => {
+    delete process.env.MERIDIAN_ALERT_WEBHOOK_URL;
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "alert" },
+        method: "GET",
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+      res
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ status: "disabled" });
     expect(runAlertKeeper).not.toHaveBeenCalled();
   });
 

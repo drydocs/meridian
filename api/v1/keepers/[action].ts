@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   consoleLogger,
+  isAlertKeeperConfigured,
   isMigrationKeeperConfigured,
   loadAlertKeeperConfig,
   loadBlendAccrualKeeperConfig,
@@ -103,6 +104,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (action === "alert") {
+    // Same reasoning as the migration keeper's isMigrationKeeperConfigured
+    // guard below: ops may reasonably leave the alert webhook unset early
+    // on, and every 5-minute cron tick throwing/500ing for an
+    // intentionally-not-yet-configured feature is noise, not a signal.
+    if (!isAlertKeeperConfigured(process.env)) {
+      return res.status(200).json({
+        status: "disabled",
+        message: "MERIDIAN_ALERT_WEBHOOK_URL is not configured",
+      });
+    }
     try {
       const config = loadAlertKeeperConfig(process.env);
       // Without a shared cursor store, a restart or a second concurrent
