@@ -6,7 +6,7 @@
     <title>Meridian — Stablecoin Yield on Stellar</title>
     <meta
       name="description"
-      content="Earn the best USDC yields on Stellar. No bank account. No gas fees. Built for West Africa. Powered by Blend Capital and DeFindex."
+      content="Meridian is live on Stellar mainnet. Earn the best USDC yields with no bank account and no gas fees. Built for West Africa. Powered by Blend Capital and DeFindex."
     />
     <meta
       property="og:title"
@@ -14,7 +14,7 @@
     />
     <meta
       property="og:description"
-      content="Earn the best USDC yields on Stellar. Built for West Africa."
+      content="Live on Stellar mainnet. Earn the best USDC yields. Built for West Africa."
     />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="./og_image.png" />
@@ -26,12 +26,12 @@
     />
     <meta
       name="twitter:description"
-      content="Earn the best USDC yields on Stellar. Built for West Africa."
+      content="Live on Stellar mainnet. Earn the best USDC yields. Built for West Africa."
     />
     <meta name="twitter:image" content="./og_image.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap"
       rel="stylesheet"
     />
     <link
@@ -51,18 +51,19 @@
       }
 
       :root {
-        --bg: #070d19;
-        --bg-2: #0d1e35;
-        --surface: rgba(255, 255, 255, 0.03);
+        --bg: #0b0f17;
+        --bg-2: #10151f;
+        --surface: rgba(255, 255, 255, 0.035);
         --surface-2: rgba(255, 255, 255, 0.06);
         --border: rgba(255, 255, 255, 0.08);
         --border-strong: rgba(255, 255, 255, 0.16);
-        --text: #f0f4ff;
-        --muted: rgba(240, 244, 255, 0.52);
-        --dim: rgba(240, 244, 255, 0.26);
-        --blue: #3b82f6;
+        --text: #eef1f6;
+        --muted: rgba(238, 241, 246, 0.55);
+        --dim: rgba(238, 241, 246, 0.28);
+        --blue: #5b8cff;
         --green: #10b981;
-        --green-glow: rgba(16, 185, 129, 0.12);
+        --green-bright: #34d399;
+        --green-glow: rgba(16, 185, 129, 0.14);
       }
 
       html {
@@ -81,6 +82,11 @@
         -webkit-font-smoothing: antialiased;
         overflow-x: hidden;
         line-height: 1.6;
+      }
+
+      .display {
+        font-family: "Fraunces", Georgia, serif;
+        font-optical-sizing: auto;
       }
 
       /* ── Background ── */
@@ -130,7 +136,7 @@
       }
 
       nav.stuck {
-        background: rgba(7, 13, 25, 0.82);
+        background: rgba(11, 15, 23, 0.82);
         backdrop-filter: blur(18px);
         -webkit-backdrop-filter: blur(18px);
       }
@@ -199,7 +205,7 @@
 
       /* ── Hero ── */
       .hero {
-        padding: 120px 0 120px;
+        padding: 148px 0 120px;
         overflow: hidden;
       }
 
@@ -214,66 +220,91 @@
         z-index: 2;
       }
 
+      .live-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 14px 7px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(16, 185, 129, 0.35);
+        background: var(--green-glow);
+        font-size: 12.5px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: var(--green-bright);
+        margin-bottom: 22px;
+      }
+
+      .live-badge .ping {
+        position: relative;
+        width: 7px;
+        height: 7px;
+      }
+      .live-badge .ping::before,
+      .live-badge .ping::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: var(--green-bright);
+      }
+      .live-badge .ping::before {
+        animation: pingOut 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+      }
+      @keyframes pingOut {
+        0% {
+          transform: scale(1);
+          opacity: 0.6;
+        }
+        100% {
+          transform: scale(3.2);
+          opacity: 0;
+        }
+      }
+
       h1 {
-        font-size: clamp(52px, 6.5vw, 84px);
-        font-weight: 900;
-        line-height: 1.03;
-        letter-spacing: -0.035em;
+        font-size: clamp(48px, 6vw, 76px);
+        font-weight: 600;
+        line-height: 1.05;
+        letter-spacing: -0.02em;
         margin-bottom: 24px;
+        text-wrap: balance;
       }
 
       .grad {
         color: var(--green);
+        font-style: italic;
       }
 
       .hero-sub {
         font-size: 17px;
         color: var(--muted);
         max-width: 420px;
-        margin-bottom: 40px;
+        margin-bottom: 36px;
         line-height: 1.65;
       }
 
-      .waitlist-row {
+      .hero-actions {
         display: flex;
-        gap: 10px;
-        max-width: 420px;
-        margin-bottom: 24px;
-      }
-
-      .waitlist-input {
-        flex: 1;
-        min-width: 0;
-        padding: 13px 16px;
-        border-radius: 10px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.04);
-        color: var(--text);
-        font-size: 14.5px;
-        font-family: inherit;
-        outline: none;
-        transition:
-          border-color 0.2s,
-          background 0.2s;
-      }
-
-      .waitlist-input::placeholder {
-        color: var(--dim);
-      }
-      .waitlist-input:focus {
-        border-color: var(--blue);
-        background: rgba(255, 255, 255, 0.06);
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 28px;
+        flex-wrap: wrap;
       }
 
       .btn {
-        padding: 13px 20px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 22px;
         border-radius: 10px;
         border: none;
         background: var(--green);
-        color: #fff;
+        color: #06150f;
         font-size: 14.5px;
-        font-weight: 600;
+        font-weight: 700;
         font-family: inherit;
+        text-decoration: none;
         cursor: pointer;
         white-space: nowrap;
         transition:
@@ -283,24 +314,33 @@
       }
 
       .btn:hover {
-        background: #059669;
+        background: var(--green-bright);
         box-shadow: 0 0 28px rgba(16, 185, 129, 0.35);
       }
       .btn:active {
         transform: scale(0.97);
       }
 
-      .waitlist-success {
-        display: none;
-        max-width: 420px;
-        margin-bottom: 24px;
+      .btn-ghost {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
         padding: 14px 20px;
-        border-radius: 12px;
-        border: 1px solid rgba(16, 185, 129, 0.28);
-        background: var(--green-glow);
-        color: var(--green);
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text);
         font-size: 14.5px;
-        font-weight: 500;
+        font-weight: 600;
+        font-family: inherit;
+        text-decoration: none;
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+      }
+      .btn-ghost:hover {
+        border-color: var(--border-strong);
+        background: var(--surface);
       }
 
       .stellar-mark {
@@ -311,13 +351,13 @@
         color: var(--dim);
       }
 
-      /* ── Product Mockup ── */
+      /* ── Hero visual: network pulse ── */
       .mock-wrap {
         position: absolute;
         right: 0;
         top: 50%;
         transform: translateY(-50%);
-        width: 52%;
+        width: 50%;
         z-index: 1;
       }
 
@@ -330,7 +370,7 @@
           linear-gradient(
             to right,
             var(--bg) 0%,
-            rgba(7, 13, 25, 0.5) 30%,
+            rgba(11, 15, 23, 0.5) 30%,
             transparent 60%
           );
         pointer-events: none;
@@ -343,7 +383,7 @@
         z-index: 1;
         border-radius: 14px;
         border: 1px solid var(--border-strong);
-        background: rgba(9, 16, 30, 0.95);
+        background: rgba(9, 13, 21, 0.95);
         overflow: hidden;
         box-shadow:
           0 40px 100px rgba(0, 0, 0, 0.6),
@@ -392,77 +432,64 @@
         font-family: "SF Mono", "Fira Code", monospace;
       }
 
-      .mock-body {
-        padding: 18px;
-      }
-
-      .mock-section-label {
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.09em;
-        color: var(--dim);
-        margin-bottom: 10px;
-      }
-
-      .mock-portfolio {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: 8px;
-        margin-bottom: 18px;
-      }
-
-      .mock-stat {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 9px;
-        padding: 10px 12px;
-      }
-
-      .mock-stat-label {
-        font-size: 9px;
-        color: var(--dim);
-        margin-bottom: 4px;
-      }
-      .mock-stat-val {
-        font-size: 14px;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-      }
-      .mock-stat-val.pos {
-        color: var(--green);
-      }
-
-      .mock-vaults {
+      .net-scene {
+        padding: 36px 18px 30px;
         display: flex;
         flex-direction: column;
-        gap: 7px;
-      }
-
-      .mock-vault {
-        display: flex;
         align-items: center;
-        justify-content: space-between;
-        padding: 11px 14px;
-        border-radius: 10px;
-        border: 1px solid var(--border);
-        background: var(--surface);
       }
 
-      .mock-vault-name {
-        font-size: 12px;
-        font-weight: 600;
+      .net-svg {
+        width: 100%;
+        max-width: 320px;
+        height: 200px;
       }
-      .mock-vault-proto {
-        font-size: 10px;
+      .net-svg circle.node {
+        fill: rgba(255, 255, 255, 0.03);
+        stroke: var(--border-strong);
+        stroke-width: 1.5;
+      }
+      .net-svg circle.core {
+        fill: var(--green);
+        animation: coreGlow 2.6s ease-in-out infinite;
+      }
+      @keyframes coreGlow {
+        0%,
+        100% {
+          filter: drop-shadow(0 0 0 rgba(16, 185, 129, 0));
+        }
+        50% {
+          filter: drop-shadow(0 0 8px var(--green-bright));
+        }
+      }
+      .net-svg line {
+        stroke: var(--border);
+        stroke-width: 1;
+      }
+      .net-svg .beam {
+        stroke: var(--green);
+        stroke-width: 1.6;
+        stroke-dasharray: 6 130;
+        animation: travel 2.8s linear infinite;
+      }
+      @keyframes travel {
+        from {
+          stroke-dashoffset: 136;
+        }
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+
+      .net-caption {
+        font-size: 12.5px;
         color: var(--dim);
-        margin-top: 2px;
+        letter-spacing: 0.03em;
+        margin-top: 4px;
       }
-      .mock-vault-apy {
-        font-size: 16px;
-        font-weight: 900;
-        color: var(--green);
-        letter-spacing: -0.02em;
+      .net-caption b {
+        color: var(--muted);
+        font-weight: 600;
       }
 
       /* ── Section labels ── */
@@ -476,11 +503,13 @@
       }
 
       .section-title {
-        font-size: clamp(30px, 4vw, 46px);
-        font-weight: 800;
-        letter-spacing: -0.027em;
-        line-height: 1.08;
+        font-family: "Fraunces", Georgia, serif;
+        font-weight: 600;
+        font-size: clamp(30px, 4vw, 44px);
+        letter-spacing: -0.01em;
+        line-height: 1.12;
         margin-bottom: 18px;
+        text-wrap: balance;
       }
 
       .section-sub {
@@ -495,10 +524,6 @@
         background: var(--bg-2);
         border-top: 1px solid var(--border);
         border-bottom: 1px solid var(--border);
-        --text: #ddeeff;
-        --muted: rgba(200, 225, 255, 0.56);
-        --dim: rgba(200, 225, 255, 0.28);
-        color: var(--text);
       }
 
       .light-section {
@@ -648,19 +673,6 @@
         z-index: 1;
       }
 
-      .step-icon {
-        width: 44px;
-        height: 44px;
-        border-radius: 12px;
-        background: rgba(59, 130, 246, 0.08);
-        border: 1px solid rgba(59, 130, 246, 0.18);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--blue);
-        margin-bottom: 20px;
-      }
-
       .step h3 {
         font-size: 17px;
         font-weight: 700;
@@ -672,11 +684,160 @@
         font-size: 14.5px;
         color: var(--muted);
         line-height: 1.65;
+        margin-bottom: 18px;
+      }
+
+      /* Step 2: live yield sparkline */
+      .step-yield {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+        padding: 14px 16px 10px;
+      }
+      .step-yield svg {
+        width: 100%;
+        height: 56px;
+        display: block;
+      }
+      .step-yield-line {
+        fill: none;
+        stroke: var(--green);
+        stroke-width: 2.25;
+        stroke-linecap: round;
+        stroke-dasharray: 180;
+        stroke-dashoffset: 180;
+        animation: drawYield 2.2s ease-out 0.2s forwards;
+      }
+      @keyframes drawYield {
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+      .step-yield-fill {
+        fill: url(#stepYieldFill);
+        opacity: 0;
+        animation: fillYield 2.2s ease-out 0.2s forwards;
+      }
+      @keyframes fillYield {
+        0%,
+        45% {
+          opacity: 0;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+      .step-yield-foot {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-top: 6px;
+      }
+      .step-yield-apy {
+        font-family: "Fraunces", Georgia, serif;
+        font-weight: 600;
+        font-size: 19px;
+        color: var(--green-bright);
+      }
+      .step-yield-tag {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--dim);
+      }
+
+      /* Step 3: vault lock */
+      .step-vault {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+        padding: 16px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .step-vault-visual {
+        position: relative;
+        width: 56px;
+        height: 56px;
+        flex-shrink: 0;
+      }
+      .step-vault-visual svg {
+        width: 100%;
+        height: 100%;
+      }
+      .step-vault-ring {
+        fill: none;
+        stroke: var(--border-strong);
+        stroke-width: 2;
+      }
+      .step-vault-ring.lit {
+        stroke: var(--green);
+        animation: vaultRing 3s ease-in-out infinite;
+      }
+      @keyframes vaultRing {
+        0%,
+        45% {
+          stroke: var(--border-strong);
+        }
+        55%,
+        100% {
+          stroke: var(--green);
+        }
+      }
+      .step-vault-jaw {
+        fill: none;
+        stroke: var(--border-strong);
+        stroke-width: 2.5;
+      }
+      .jaw-l {
+        transform-origin: 28px 28px;
+        animation: closeL 3s ease-in-out infinite;
+      }
+      .jaw-r {
+        transform-origin: 28px 28px;
+        animation: closeR 3s ease-in-out infinite;
+      }
+      @keyframes closeL {
+        0%,
+        35% {
+          transform: rotate(-16deg);
+        }
+        50%,
+        100% {
+          transform: rotate(0deg);
+        }
+      }
+      @keyframes closeR {
+        0%,
+        35% {
+          transform: rotate(16deg);
+        }
+        50%,
+        100% {
+          transform: rotate(0deg);
+        }
+      }
+      .step-vault-text {
+        flex: 1;
+      }
+      .step-vault-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--dim);
+        margin-bottom: 4px;
+      }
+      .step-vault-value {
+        font-family: "Fraunces", Georgia, serif;
+        font-weight: 600;
+        font-size: 16px;
+      }
+      .step-vault-value b {
+        color: var(--green-bright);
       }
 
       /* ── Protocols ── */
-      /* .protocols shares .alt-section */
-
       .proto-head {
         margin-bottom: 52px;
       }
@@ -773,8 +934,8 @@
       }
 
       .tag-blue {
-        background: rgba(59, 130, 246, 0.14);
-        color: #93c5fd;
+        background: rgba(91, 140, 255, 0.14);
+        color: #a9c2ff;
       }
       .tag-violet {
         background: rgba(139, 92, 246, 0.14);
@@ -782,9 +943,10 @@
       }
 
       .proto-name {
+        font-family: "Fraunces", Georgia, serif;
+        font-weight: 600;
         font-size: 22px;
-        font-weight: 800;
-        letter-spacing: -0.022em;
+        letter-spacing: -0.01em;
         margin-bottom: 10px;
       }
       .proto-desc {
@@ -861,10 +1023,27 @@
         font-size: 16px;
       }
 
+      /* ── Trust note ── */
+      .trust-note {
+        margin-top: 28px;
+        padding: 16px 18px;
+        border-radius: 12px;
+        border: 1px solid rgba(251, 191, 36, 0.22);
+        background: rgba(251, 191, 36, 0.05);
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+      .trust-note a {
+        color: #fbbf24;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
       /* ── Footer ── */
       footer {
         padding: 36px 0;
-        background: rgba(7, 13, 25, 0.82);
+        background: rgba(11, 15, 23, 0.82);
         backdrop-filter: blur(18px);
         -webkit-backdrop-filter: blur(18px);
       }
@@ -907,6 +1086,13 @@
         color: var(--muted);
       }
 
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+
       /* ── Responsive ── */
       @media (max-width: 900px) {
         .hero-copy {
@@ -919,16 +1105,13 @@
           margin-left: auto;
           margin-right: auto;
         }
-        .waitlist-row {
-          margin-left: auto;
-          margin-right: auto;
-        }
-        .waitlist-success {
-          margin-left: auto;
-          margin-right: auto;
-        }
+        .hero-actions,
         .stellar-mark {
           justify-content: center;
+        }
+        .live-badge {
+          margin-left: auto;
+          margin-right: auto;
         }
         .mock-wrap {
           width: 100%;
@@ -936,10 +1119,10 @@
           top: 50%;
           transform: translateX(-50%) translateY(-50%);
           left: 50%;
-          opacity: 0.28;
+          opacity: 0.35;
           display: flex;
           justify-content: center;
-          filter: blur(3px);
+          filter: blur(2px);
         }
         .mock-wrap::after {
           background:
@@ -966,10 +1149,11 @@
           padding: 128px 0 80px;
         }
         h1 {
-          font-size: clamp(44px, 13vw, 68px);
+          font-size: clamp(40px, 12vw, 60px);
         }
-        .waitlist-row {
+        .hero-actions {
           flex-direction: column;
+          align-items: stretch;
         }
         .stats {
           grid-template-columns: 1fr;
@@ -1038,7 +1222,11 @@
         <div class="hero-content">
           <!-- Copy -->
           <div class="hero-copy">
-            <h1>
+            <span class="live-badge">
+              <span class="ping"></span>
+              Live on Stellar mainnet
+            </span>
+            <h1 class="display">
               Earn dollar yields<br />
               <span class="grad">from anywhere.</span>
             </h1>
@@ -1047,19 +1235,15 @@
               Stellar. No bank account. No gas fees. Built for West Africa.
             </p>
 
-            <div class="waitlist-row" id="waitlist-form">
-              <input
-                class="waitlist-input"
-                id="email"
-                type="email"
-                placeholder="your@email.com"
-                autocomplete="email"
-                aria-label="Email address"
-              />
-              <button class="btn" id="cta-btn">Get early access</button>
-            </div>
-            <div class="waitlist-success" id="waitlist-success">
-              You're on the list — we'll reach out when early access opens.
+            <div class="hero-actions">
+              <a class="btn" href="/app/">Start earning →</a>
+              <a
+                class="btn-ghost"
+                href="https://github.com/drydocs/meridian"
+                target="_blank"
+                rel="noopener"
+                >View source</a
+              >
             </div>
 
             <div class="stellar-mark">
@@ -1079,7 +1263,7 @@
             </div>
           </div>
 
-          <!-- Product mockup -->
+          <!-- Network pulse -->
           <div class="mock-wrap" aria-hidden="true">
             <div class="mock-window">
               <div class="mock-chrome">
@@ -1088,49 +1272,50 @@
                   <span class="mock-dot mock-dot-y"></span>
                   <span class="mock-dot mock-dot-g"></span>
                 </div>
-                <div class="mock-url">meridian.app</div>
+                <div class="mock-url">stellar · public network</div>
               </div>
-              <div class="mock-body">
-                <div class="mock-section-label">Your Portfolio</div>
-                <div class="mock-portfolio">
-                  <div class="mock-stat">
-                    <div class="mock-stat-label">Deposited</div>
-                    <div class="mock-stat-val">$2,400</div>
-                  </div>
-                  <div class="mock-stat">
-                    <div class="mock-stat-label">Earned</div>
-                    <div class="mock-stat-val pos">+$312.50</div>
-                  </div>
-                  <div class="mock-stat">
-                    <div class="mock-stat-label">Positions</div>
-                    <div class="mock-stat-val">3</div>
-                  </div>
-                </div>
-
-                <div class="mock-section-label">Available Vaults</div>
-                <div class="mock-vaults">
-                  <div class="mock-vault">
-                    <div>
-                      <div class="mock-vault-name">Blend · USDC</div>
-                      <div class="mock-vault-proto">Lending Protocol</div>
-                    </div>
-                    <div class="mock-vault-apy">15.8%</div>
-                  </div>
-                  <div class="mock-vault">
-                    <div>
-                      <div class="mock-vault-name">DeFindex · USDC</div>
-                      <div class="mock-vault-proto">Yield Strategy</div>
-                    </div>
-                    <div class="mock-vault-apy">13.2%</div>
-                  </div>
-                  <div class="mock-vault">
-                    <div>
-                      <div class="mock-vault-name">Blend · EURC</div>
-                      <div class="mock-vault-proto">Lending Protocol</div>
-                    </div>
-                    <div class="mock-vault-apy">8.9%</div>
-                  </div>
-                </div>
+              <div class="net-scene">
+                <svg class="net-svg" viewBox="0 0 220 160">
+                  <line x1="110" y1="80" x2="30" y2="30"></line>
+                  <line x1="110" y1="80" x2="190" y2="30"></line>
+                  <line x1="110" y1="80" x2="30" y2="130"></line>
+                  <line x1="110" y1="80" x2="190" y2="130"></line>
+                  <line x1="110" y1="80" x2="110" y2="14"></line>
+                  <line class="beam" x1="110" y1="80" x2="30" y2="30"></line>
+                  <line
+                    class="beam"
+                    x1="110"
+                    y1="80"
+                    x2="190"
+                    y2="130"
+                    style="animation-delay: 0.7s"
+                  ></line>
+                  <line
+                    class="beam"
+                    x1="110"
+                    y1="80"
+                    x2="190"
+                    y2="30"
+                    style="animation-delay: 1.4s"
+                  ></line>
+                  <line
+                    class="beam"
+                    x1="110"
+                    y1="80"
+                    x2="30"
+                    y2="130"
+                    style="animation-delay: 2.1s"
+                  ></line>
+                  <circle class="node" cx="30" cy="30" r="7"></circle>
+                  <circle class="node" cx="190" cy="30" r="7"></circle>
+                  <circle class="node" cx="30" cy="130" r="7"></circle>
+                  <circle class="node" cx="190" cy="130" r="7"></circle>
+                  <circle class="node" cx="110" cy="14" r="7"></circle>
+                  <circle class="core" cx="110" cy="80" r="10"></circle>
+                </svg>
+                <p class="net-caption">
+                  Vault verified <b>on-chain</b> · settles in ~5s
+                </p>
               </div>
             </div>
           </div>
@@ -1256,6 +1441,42 @@
               Meridian pulls real-time rates from Blend Capital and DeFindex.
               Every vault ranked by yield. No spreadsheets, no guesswork.
             </p>
+            <div class="step-yield" aria-hidden="true">
+              <svg viewBox="0 0 220 60">
+                <defs>
+                  <linearGradient
+                    id="stepYieldFill"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="0%"
+                      stop-color="#10b981"
+                      stop-opacity="0.32"
+                    ></stop>
+                    <stop
+                      offset="100%"
+                      stop-color="#10b981"
+                      stop-opacity="0"
+                    ></stop>
+                  </linearGradient>
+                </defs>
+                <path
+                  class="step-yield-fill"
+                  d="M4 48 C 40 46, 70 34, 100 28 C 140 20, 170 12, 216 6 L216 56 L4 56 Z"
+                ></path>
+                <path
+                  class="step-yield-line"
+                  d="M4 48 C 40 46, 70 34, 100 28 C 140 20, 170 12, 216 6"
+                ></path>
+              </svg>
+              <div class="step-yield-foot">
+                <span class="step-yield-apy">15.8% APY</span>
+                <span class="step-yield-tag">Blend · USDC</span>
+              </div>
+            </div>
           </div>
           <div class="step">
             <div class="step-num">03</div>
@@ -1264,6 +1485,40 @@
               Approve a single transaction in Freighter. Meridian builds the
               unsigned XDR — your private key never leaves your device.
             </p>
+            <div class="step-vault" aria-hidden="true">
+              <div class="step-vault-visual">
+                <svg viewBox="0 0 56 56">
+                  <circle
+                    class="step-vault-ring"
+                    cx="28"
+                    cy="28"
+                    r="20"
+                  ></circle>
+                  <circle
+                    class="step-vault-ring lit"
+                    cx="28"
+                    cy="28"
+                    r="14"
+                  ></circle>
+                  <g class="jaw-l">
+                    <path
+                      class="step-vault-jaw"
+                      d="M28 13 A15 15 0 0 0 13 28"
+                    ></path>
+                  </g>
+                  <g class="jaw-r">
+                    <path
+                      class="step-vault-jaw"
+                      d="M28 13 A15 15 0 0 1 43 28"
+                    ></path>
+                  </g>
+                </svg>
+              </div>
+              <div class="step-vault-text">
+                <div class="step-vault-label">Deposit secured</div>
+                <div class="step-vault-value">+<b>1.00 mUSDC</b></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1368,6 +1623,12 @@
               care about financial access in emerging markets, there is a place
               for you here.
             </p>
+            <div class="trust-note">
+              No independent security audit has been completed yet, and this is
+              early: read the risk disclosure shown before your first deposit in
+              the app, and only deposit what you're comfortable having exposed
+              to smart-contract risk while that's true.
+            </div>
           </div>
           <div class="public-links">
             <a
@@ -1497,30 +1758,6 @@
         },
         { passive: true }
       );
-
-      /* Waitlist form */
-      const form = document.getElementById("waitlist-form");
-      const success = document.getElementById("waitlist-success");
-      const emailEl = document.getElementById("email");
-
-      function submit() {
-        const val = emailEl.value.trim();
-        if (!val || !val.includes("@") || !val.includes(".")) {
-          emailEl.focus();
-          emailEl.style.borderColor = "#f87171";
-          setTimeout(() => {
-            emailEl.style.borderColor = "";
-          }, 1800);
-          return;
-        }
-        form.style.display = "none";
-        success.style.display = "block";
-      }
-
-      document.getElementById("cta-btn").addEventListener("click", submit);
-      emailEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") submit();
-      });
 
       /* Scroll-triggered number counters (33.7% and 6.2% only) */
       function animateCounter(el) {
