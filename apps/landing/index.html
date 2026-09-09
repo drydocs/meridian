@@ -176,8 +176,14 @@
       /* ── Hero ── */
       .hero {
         min-height: 100vh;
-        padding: 220px 0 120px;
+        display: flex;
+        align-items: center;
+        padding: 160px 0;
         overflow: hidden;
+      }
+
+      .hero > .wrap {
+        width: 100%;
       }
 
       .hero-content {
@@ -397,10 +403,11 @@
       }
 
       .light-section {
-        background-color: #9fb3cc;
+        --section-bg: #e9edf3;
+        background-color: var(--section-bg);
         background-image: radial-gradient(
           circle,
-          rgba(59, 130, 246, 0.5) 1px,
+          rgba(59, 130, 246, 0.3) 1px,
           transparent 1px
         );
         background-size: 28px 28px;
@@ -431,6 +438,18 @@
         background: var(--surface);
         position: relative;
         overflow: hidden;
+        transform: scale(1);
+        transition:
+          transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+          background-color 0.4s ease,
+          border-color 0.4s ease,
+          box-shadow 0.4s ease;
+      }
+
+      .stat:hover {
+        transform: scale(1.045);
+        z-index: 2;
+        box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
       }
 
       .stat::before {
@@ -453,6 +472,9 @@
         align-items: center;
         justify-content: center;
         margin-bottom: 20px;
+        transition:
+          background-color 0.4s ease,
+          color 0.4s ease;
       }
 
       .stat-icon-red {
@@ -474,6 +496,7 @@
         letter-spacing: -0.04em;
         line-height: 1;
         margin-bottom: 10px;
+        transition: color 0.4s ease;
       }
 
       .num-red {
@@ -484,6 +507,74 @@
       }
       .num-blue {
         color: var(--blue);
+      }
+
+      .stat-name,
+      .stat-body {
+        transition: color 0.4s ease;
+      }
+
+      /* ── Problem card hover: zoom + flip to a solid color ── */
+      .stat-red:hover {
+        background: #d6544f;
+        border-color: #d6544f;
+      }
+      .stat-red:hover .stat-icon {
+        background: rgba(255, 255, 255, 0.2);
+        color: #fff;
+      }
+      .stat-red:hover .stat-num,
+      .stat-red:hover .stat-name,
+      .stat-red:hover .stat-body {
+        color: #fff;
+      }
+      .stat-red:hover .stat-body {
+        color: rgba(255, 255, 255, 0.82);
+      }
+
+      .stat-amber:hover {
+        background: #c98a2c;
+        border-color: #c98a2c;
+      }
+      .stat-amber:hover .stat-icon {
+        background: rgba(255, 255, 255, 0.2);
+        color: #fff;
+      }
+      .stat-amber:hover .stat-num,
+      .stat-amber:hover .stat-name,
+      .stat-amber:hover .stat-body {
+        color: #fff;
+      }
+      .stat-amber:hover .stat-body {
+        color: rgba(255, 255, 255, 0.82);
+      }
+
+      .stat-blue:hover {
+        background: #4879d9;
+        border-color: #4879d9;
+      }
+      .stat-blue:hover .stat-icon {
+        background: rgba(255, 255, 255, 0.2);
+        color: #fff;
+      }
+      .stat-blue:hover .stat-num,
+      .stat-blue:hover .stat-name,
+      .stat-blue:hover .stat-body {
+        color: #fff;
+      }
+      .stat-blue:hover .stat-body {
+        color: rgba(255, 255, 255, 0.82);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .stat {
+          transition:
+            background-color 0.4s ease,
+            border-color 0.4s ease;
+        }
+        .stat:hover {
+          transform: none;
+        }
       }
 
       .flip-num {
@@ -574,7 +665,7 @@
         height: 46px;
         border-radius: 12px;
         border: 1px solid var(--border);
-        background: #99acc4;
+        background: var(--section-bg);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -894,7 +985,7 @@
           padding: 88px 0;
         }
         .hero {
-          padding: 128px 0 80px;
+          padding: 110px 0;
         }
         h1 {
           font-size: clamp(44px, 13vw, 68px);
@@ -1056,7 +1147,7 @@
           </p>
         </div>
         <div class="stats">
-          <div class="stat">
+          <div class="stat stat-red">
             <div class="stat-icon stat-icon-red">
               <svg
                 width="20"
@@ -1087,7 +1178,7 @@
               purchasing power every year.
             </p>
           </div>
-          <div class="stat">
+          <div class="stat stat-amber">
             <div class="stat-icon stat-icon-amber">
               <svg
                 width="20"
@@ -1118,7 +1209,7 @@
               about $4.6 billion is deployed in yield-bearing form.
             </p>
           </div>
-          <div class="stat">
+          <div class="stat stat-blue">
             <div class="stat-icon stat-icon-blue">
               <svg
                 width="20"
