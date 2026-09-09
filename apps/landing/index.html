@@ -28,7 +28,7 @@
     <meta name="twitter:image" content="./og_image.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Fraunces:ital,wght@1,500;1,600&display=swap"
       rel="stylesheet"
     />
     <link
@@ -49,7 +49,7 @@
 
       :root {
         --bg: #070d19;
-        --bg-2: #0d1e35;
+        --bg-2: #10151f;
         --surface: rgba(255, 255, 255, 0.03);
         --surface-2: rgba(255, 255, 255, 0.06);
         --border: rgba(255, 255, 255, 0.08);
@@ -106,9 +106,9 @@
 
       /* ── Layout ── */
       .wrap {
-        max-width: 1120px;
+        max-width: 1320px;
         margin: 0 auto;
-        padding: 0 28px;
+        padding: 0 30px;
         position: relative;
         z-index: 2;
       }
@@ -117,41 +117,15 @@
         padding: 128px 0;
       }
 
-      /* ── Nav ── */
-      nav {
-        position: fixed;
-        inset: 0 0 auto;
-        z-index: 100;
-        padding: 20px 0;
-        transition: background 0.3s;
-      }
-
-      nav.stuck {
-        background: rgba(7, 13, 25, 0.82);
-        backdrop-filter: blur(18px);
-        -webkit-backdrop-filter: blur(18px);
-      }
-
-      .nav-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-      }
-
-      .wordmark {
-        font-size: 17px;
-        font-weight: 800;
-        letter-spacing: -0.03em;
-        color: var(--text);
-      }
-
       .nav-gh {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 7px;
-        padding: 9px 16px;
+        flex: 1;
+        padding: 15px 28px;
         border-radius: 9px;
-        border: 1px solid var(--border);
+        border: 1px solid rgba(16, 185, 129, 0.45);
         font-size: 13.5px;
         font-weight: 500;
         color: var(--muted);
@@ -163,40 +137,46 @@
 
       .nav-gh:hover {
         color: var(--text);
-        border-color: var(--border-strong);
+        border-color: var(--green);
       }
 
       .nav-actions {
         display: flex;
         align-items: center;
         gap: 10px;
+        width: 85%;
       }
 
       .nav-launch {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 5px;
-        padding: 8px 16px;
+        flex: 1;
+        padding: 14px 28px;
         border-radius: 8px;
-        border: 1px solid rgba(16, 185, 129, 0.45);
-        background: transparent;
+        border: 1px solid #059669;
+        background: #059669;
         font-size: 13px;
         font-weight: 600;
-        color: var(--green);
+        color: #fff;
         text-decoration: none;
         transition:
+          background 0.2s,
           border-color 0.2s,
-          background 0.2s;
+          box-shadow 0.2s;
       }
 
       .nav-launch:hover {
-        border-color: var(--green);
-        background: rgba(16, 185, 129, 0.06);
+        background: #047857;
+        border-color: #047857;
+        box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
       }
 
       /* ── Hero ── */
       .hero {
-        padding: 120px 0 120px;
+        min-height: 100vh;
+        padding: 220px 0 120px;
         overflow: hidden;
       }
 
@@ -206,106 +186,33 @@
       }
 
       .hero-copy {
-        max-width: 600px;
+        max-width: 640px;
         position: relative;
         z-index: 2;
       }
 
       h1 {
-        font-size: clamp(52px, 6.5vw, 84px);
+        font-size: clamp(56px, 6.9vw, 90px);
         font-weight: 900;
         line-height: 1.03;
         letter-spacing: -0.035em;
+        margin-top: -20px;
         margin-bottom: 24px;
       }
 
       .grad {
         color: var(--green);
+        font-family: "Fraunces", serif;
+        font-style: italic;
       }
 
       .hero-sub {
-        font-size: 17px;
+        font-size: 18px;
         color: var(--muted);
-        max-width: 420px;
+        max-width: 500px;
         margin-bottom: 40px;
-        line-height: 1.65;
-      }
-
-      .waitlist-row {
-        display: flex;
-        gap: 10px;
-        max-width: 420px;
-        margin-bottom: 24px;
-      }
-
-      .waitlist-input {
-        flex: 1;
-        min-width: 0;
-        padding: 13px 16px;
-        border-radius: 10px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.04);
-        color: var(--text);
-        font-size: 14.5px;
-        font-family: inherit;
-        outline: none;
-        transition:
-          border-color 0.2s,
-          background 0.2s;
-      }
-
-      .waitlist-input::placeholder {
-        color: var(--dim);
-      }
-      .waitlist-input:focus {
-        border-color: var(--blue);
-        background: rgba(255, 255, 255, 0.06);
-      }
-
-      .btn {
-        padding: 13px 20px;
-        border-radius: 10px;
-        border: none;
-        background: var(--green);
-        color: #fff;
-        font-size: 14.5px;
-        font-weight: 600;
-        font-family: inherit;
-        cursor: pointer;
-        white-space: nowrap;
-        transition:
-          background 0.2s,
-          transform 0.1s,
-          box-shadow 0.2s;
-      }
-
-      .btn:hover {
-        background: #059669;
-        box-shadow: 0 0 28px rgba(16, 185, 129, 0.35);
-      }
-      .btn:active {
-        transform: scale(0.97);
-      }
-
-      .waitlist-success {
-        display: none;
-        max-width: 420px;
-        margin-bottom: 24px;
-        padding: 14px 20px;
-        border-radius: 12px;
-        border: 1px solid rgba(16, 185, 129, 0.28);
-        background: var(--green-glow);
-        color: var(--green);
-        font-size: 14.5px;
-        font-weight: 500;
-      }
-
-      .stellar-mark {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 13px;
-        color: var(--dim);
+        line-height: 1.7;
+        text-wrap: pretty;
       }
 
       /* ── Product Mockup ── */
@@ -314,7 +221,7 @@
         right: 0;
         top: 50%;
         transform: translateY(-50%);
-        width: 52%;
+        width: 56%;
         z-index: 1;
       }
 
@@ -351,7 +258,7 @@
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 11px 16px;
+        padding: 14px 18px;
         border-bottom: 1px solid var(--border);
         background: rgba(255, 255, 255, 0.02);
       }
@@ -390,7 +297,7 @@
       }
 
       .mock-body {
-        padding: 18px;
+        padding: 24px;
       }
 
       .mock-section-label {
@@ -399,21 +306,21 @@
         text-transform: uppercase;
         letter-spacing: 0.09em;
         color: var(--dim);
-        margin-bottom: 10px;
+        margin-bottom: 13px;
       }
 
       .mock-portfolio {
         display: grid;
         grid-template-columns: 1fr 1fr 1fr;
-        gap: 8px;
-        margin-bottom: 18px;
+        gap: 10px;
+        margin-bottom: 24px;
       }
 
       .mock-stat {
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: 9px;
-        padding: 10px 12px;
+        padding: 13px 15px;
       }
 
       .mock-stat-label {
@@ -433,14 +340,14 @@
       .mock-vaults {
         display: flex;
         flex-direction: column;
-        gap: 7px;
+        gap: 9px;
       }
 
       .mock-vault {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 11px 14px;
+        padding: 14px 16px;
         border-radius: 10px;
         border: 1px solid var(--border);
         background: var(--surface);
@@ -463,17 +370,8 @@
       }
 
       /* ── Section labels ── */
-      .label {
-        font-size: 11.5px;
-        font-weight: 700;
-        letter-spacing: 0.13em;
-        text-transform: uppercase;
-        color: var(--blue);
-        margin-bottom: 14px;
-      }
-
       .section-title {
-        font-size: clamp(30px, 4vw, 46px);
+        font-size: clamp(37px, 4.8vw, 56px);
         font-weight: 800;
         letter-spacing: -0.027em;
         line-height: 1.08;
@@ -481,7 +379,7 @@
       }
 
       .section-sub {
-        font-size: 16.5px;
+        font-size: 18px;
         color: var(--muted);
         line-height: 1.65;
         max-width: 460px;
@@ -499,10 +397,10 @@
       }
 
       .light-section {
-        background-color: #dce6f7;
+        background-color: #9fb3cc;
         background-image: radial-gradient(
           circle,
-          rgba(59, 130, 246, 0.39) 1px,
+          rgba(59, 130, 246, 0.5) 1px,
           transparent 1px
         );
         background-size: 28px 28px;
@@ -565,9 +463,9 @@
         background: rgba(251, 191, 36, 0.12);
         color: #fbbf24;
       }
-      .stat-icon-green {
-        background: rgba(16, 185, 129, 0.12);
-        color: var(--green);
+      .stat-icon-blue {
+        background: rgba(59, 130, 246, 0.12);
+        color: var(--blue);
       }
 
       .stat-num {
@@ -584,8 +482,39 @@
       .num-amber {
         color: #fbbf24;
       }
-      .num-green {
-        color: var(--green);
+      .num-blue {
+        color: var(--blue);
+      }
+
+      .flip-num {
+        display: inline-block;
+        perspective: 300px;
+      }
+
+      .flip-num.flipping {
+        animation: flipSwipe 0.65s cubic-bezier(0.45, 0, 0.2, 1);
+        transform-style: preserve-3d;
+      }
+
+      @keyframes flipSwipe {
+        0% {
+          transform: rotateX(0deg);
+        }
+        45% {
+          transform: rotateX(-90deg);
+        }
+        55% {
+          transform: rotateX(-90deg);
+        }
+        100% {
+          transform: rotateX(0deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .flip-num.flipping {
+          animation: none;
+        }
       }
 
       .stat-name {
@@ -610,22 +539,34 @@
         gap: 48px;
         margin-top: 72px;
         position: relative;
+        z-index: 0;
       }
 
-      .steps::before {
-        content: "";
+      .step {
+        position: relative;
+      }
+
+      .step-line {
         position: absolute;
         top: 23px;
-        left: calc(16.67% + 10px);
-        right: calc(16.67% + 10px);
+        left: 46px;
+        right: -48px;
         height: 1px;
-        background: linear-gradient(
-          90deg,
-          transparent 0%,
-          var(--border) 20%,
-          var(--border) 80%,
-          transparent 100%
-        );
+        background: var(--border);
+      }
+
+      .flow-marker {
+        position: absolute;
+        top: 21px;
+        left: 0;
+        width: 24px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--green);
+        box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+        opacity: 0;
+        pointer-events: none;
+        z-index: -1;
       }
 
       .step-num {
@@ -633,29 +574,16 @@
         height: 46px;
         border-radius: 12px;
         border: 1px solid var(--border);
-        background: var(--surface);
+        background: #99acc4;
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 14px;
         font-weight: 700;
-        color: var(--blue);
+        color: var(--green);
         margin-bottom: 24px;
         position: relative;
         z-index: 1;
-      }
-
-      .step-icon {
-        width: 44px;
-        height: 44px;
-        border-radius: 12px;
-        background: rgba(59, 130, 246, 0.08);
-        border: 1px solid rgba(59, 130, 246, 0.18);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--blue);
-        margin-bottom: 20px;
       }
 
       .step h3 {
@@ -759,25 +687,6 @@
         z-index: 2;
       }
 
-      .proto-tag {
-        display: inline-block;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 10.5px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-
-      .tag-blue {
-        background: rgba(59, 130, 246, 0.14);
-        color: #93c5fd;
-      }
-      .tag-violet {
-        background: rgba(139, 92, 246, 0.14);
-        color: #c4b5fd;
-      }
-
       .proto-name {
         font-size: 22px;
         font-weight: 800;
@@ -791,79 +700,36 @@
         margin-bottom: 28px;
       }
 
-      /* ── Built in public ── */
-      .public-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 96px;
-        align-items: center;
-      }
-
-      .public-copy .section-sub {
-        margin-bottom: 0;
-      }
-
-      .public-links {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-
-      .pub-link {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        padding: 18px 22px;
-        border-radius: 14px;
-        border: 1px solid var(--border);
-        background: var(--surface);
-        text-decoration: none;
-        color: inherit;
-        transition:
-          border-color 0.2s,
-          background 0.2s;
-      }
-
-      .pub-link:hover {
-        border-color: var(--border-strong);
-        background: var(--surface-2);
-      }
-
-      .pub-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        background: var(--surface-2);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        color: var(--muted);
-      }
-
-      .pub-text {
-        flex: 1;
-      }
-      .pub-title {
-        font-size: 14.5px;
-        font-weight: 600;
-        margin-bottom: 2px;
-      }
-      .pub-sub {
-        font-size: 12.5px;
-        color: var(--dim);
-      }
-      .pub-chevron {
-        color: var(--dim);
-        font-size: 16px;
-      }
-
-      /* ── Footer ── */
+      /* ── Built in public / Footer ── */
       footer {
-        padding: 36px 0;
-        background: rgba(7, 13, 25, 0.82);
-        backdrop-filter: blur(18px);
-        -webkit-backdrop-filter: blur(18px);
+        display: block;
+        padding: 72px 0 0;
+      }
+
+      footer > .wrap:last-child {
+        margin-top: 56px;
+        padding-bottom: 36px;
+      }
+
+      .pub-title {
+        font-size: 17.5px;
+      }
+
+      .pub-sub {
+        font-size: 14.5px;
+      }
+
+      .pub-chevron {
+        font-size: 19px;
+      }
+
+      .foot-left,
+      .foot-right a {
+        font-size: 15.5px;
+      }
+
+      .foot-wordmark {
+        font-size: 16.5px;
       }
 
       .foot-row {
@@ -914,6 +780,74 @@
         color: var(--muted);
       }
 
+      .public-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 96px;
+        align-items: center;
+      }
+
+      .public-copy .section-sub {
+        margin-bottom: 0;
+      }
+
+      .public-links {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        margin-top: 30px;
+        padding-left: 64px;
+      }
+
+      .pub-link {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 18px 22px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        text-decoration: none;
+        color: inherit;
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+      }
+
+      .pub-link:hover {
+        border-color: var(--border-strong);
+        background: var(--surface-2);
+      }
+
+      .pub-icon {
+        width: 46px;
+        height: 46px;
+        border-radius: 11px;
+        background: var(--surface-2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        color: var(--muted);
+      }
+
+      .pub-text {
+        flex: 1;
+      }
+      .pub-title {
+        font-size: 14.5px;
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+      .pub-sub {
+        font-size: 12.5px;
+        color: var(--dim);
+      }
+      .pub-chevron {
+        color: var(--dim);
+        font-size: 16px;
+      }
+
       /* ── Responsive ── */
       @media (max-width: 900px) {
         .hero-copy {
@@ -926,17 +860,7 @@
           margin-left: auto;
           margin-right: auto;
         }
-        .waitlist-row {
-          margin-left: auto;
-          margin-right: auto;
-        }
-        .waitlist-success {
-          margin-left: auto;
-          margin-right: auto;
-        }
-        .stellar-mark {
-          justify-content: center;
-        }
+
         .mock-wrap {
           width: 100%;
           right: 0;
@@ -975,8 +899,13 @@
         h1 {
           font-size: clamp(44px, 13vw, 68px);
         }
-        .waitlist-row {
+        .nav-actions {
           flex-direction: column;
+          width: 100%;
+        }
+        .nav-gh,
+        .nav-launch {
+          width: 100%;
         }
         .stats {
           grid-template-columns: 1fr;
@@ -985,7 +914,8 @@
           grid-template-columns: 1fr;
           gap: 36px;
         }
-        .steps::before {
+        .step-line,
+        .flow-marker {
           display: none;
         }
 
@@ -995,6 +925,9 @@
         .public-grid {
           grid-template-columns: 1fr;
           gap: 52px;
+        }
+        .public-links {
+          padding-left: 0;
         }
         .foot-row {
           flex-direction: column;
@@ -1006,39 +939,6 @@
   <body>
     <div class="bg-canvas" aria-hidden="true"></div>
 
-    <!-- ── Nav ── -->
-    <nav id="nav">
-      <div class="wrap">
-        <div class="nav-row">
-          <span class="wordmark">Meridian</span>
-          <div class="nav-actions">
-            <a
-              class="nav-gh"
-              href="https://github.com/drydocs/meridian"
-              target="_blank"
-              rel="noopener"
-            >
-              <svg
-                width="15"
-                height="15"
-                fill="currentColor"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
-                <path
-                  fill-rule="evenodd"
-                  d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
-                  clip-rule="evenodd"
-                />
-              </svg>
-              GitHub
-            </a>
-            <a class="nav-launch" href="/app/">Launch App ↗</a>
-          </div>
-        </div>
-      </div>
-    </nav>
-
     <!-- ── Hero ── -->
     <section class="hero">
       <div class="wrap">
@@ -1046,43 +946,39 @@
           <!-- Copy -->
           <div class="hero-copy">
             <h1>
-              Earn dollar yields<br />
-              <span class="grad">from anywhere.</span>
+              Earn the best<br />
+              dollar yields<br />
+              <span class="grad">on Stellar</span>
             </h1>
             <p class="hero-sub">
-              Meridian routes your USDC into the highest-yielding vaults on
-              Stellar, without a bank account or gas fees.
+              Meridian scans every vault on Stellar and routes your USDC to
+              whichever pays the most, so it's never sitting idle while a better
+              rate is available elsewhere.
             </p>
 
-            <div class="waitlist-row" id="waitlist-form">
-              <input
-                class="waitlist-input"
-                id="email"
-                type="email"
-                placeholder="your@email.com"
-                autocomplete="email"
-                aria-label="Email address"
-              />
-              <button class="btn" id="cta-btn">Get early access</button>
-            </div>
-            <div class="waitlist-success" id="waitlist-success">
-              You're on the list. We'll reach out when early access opens.
-            </div>
-
-            <div class="stellar-mark">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
+            <div class="nav-actions">
+              <a class="nav-launch" href="/app/">Start Earning</a>
+              <a
+                class="nav-gh"
+                href="https://github.com/drydocs/meridian"
+                target="_blank"
+                rel="noopener"
               >
-                <path
-                  d="M12.003 1.716c-1.37 0-2.7.27-3.948.78A10.18 10.18 0 0 0 2.66 7.901a10.136 10.136 0 0 0-.797 3.954c0 .258.01.516.027.775a1.942 1.942 0 0 1-1.055 1.88L0 14.934v1.902l2.463-1.26.072-.032v.005l.77-.39.758-.385.066-.039 14.807-7.56 1.666-.847 3.392-1.732V2.694L17.792 5.86 3.744 13.025l-.104.055-.017-.115a8.286 8.286 0 0 1-.071-1.105c0-2.255.88-4.377 2.474-5.977a8.462 8.462 0 0 1 2.71-1.82 8.513 8.513 0 0 1 3.2-.654h.067a8.41 8.41 0 0 1 4.09 1.055l1.628-.83.126-.066a10.11 10.11 0 0 0-5.845-1.853zM24 7.143 5.047 16.808l-1.666.847L0 19.382v1.902l3.282-1.671 2.91-1.485 14.058-7.153.105-.055.016.115c.05.369.072.743.072 1.11 0 2.255-.88 4.383-2.475 5.978a8.461 8.461 0 0 1-2.71 1.82 8.305 8.305 0 0 1-3.2.654h-.06c-1.441 0-2.86-.369-4.102-1.061l-.066.033-1.683.857c.594.418 1.232.776 1.903 1.062a10.11 10.11 0 0 0 3.947.797 10.09 10.09 0 0 0 7.17-2.975 10.136 10.136 0 0 0 2.969-7.18c0-.259-.005-.523-.027-.781a1.942 1.942 0 0 1 1.055-1.88L24 9.044z"
-                  opacity="0.6"
-                />
-              </svg>
-              Built on Stellar
+                <svg
+                  width="15"
+                  height="15"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+                GitHub
+              </a>
             </div>
           </div>
 
@@ -1150,11 +1046,13 @@
       <div class="wrap">
         <div class="problem-header">
           <h2 class="section-title">
-            Inflation is winning.<br />Your savings are losing.
+            Your dollars are doing<br />
+            <span class="grad">absolutely nothing</span>
           </h2>
           <p class="section-sub">
-            Across emerging markets, inflation stays in double digits while
-            savings accounts pay a fraction of that. Most DeFi makes it worse.
+            Inflation erodes the cash you hold, and most stablecoins earn
+            nothing at all. Chasing the best USDC yield yourself would mean
+            watching the market like a full-time job.
           </p>
         </div>
         <div class="stats">
@@ -1171,7 +1069,7 @@
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
-                  d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941"
+                  d="M6 6l12 12m0 0V9m0 9h-9"
                 />
               </svg>
             </div>
@@ -1185,10 +1083,8 @@
             </div>
             <div class="stat-name">Emerging-market inflation</div>
             <p class="stat-body">
-              Average annual inflation across emerging and developing economies
-              as of December 2025, per the IMF World Economic Outlook. It stays
-              in double digits across large parts of Sub-Saharan Africa, the
-              Middle East, and Latin America.
+              Money left outside a yield-bearing account loses this much
+              purchasing power every year.
             </p>
           </div>
           <div class="stat">
@@ -1204,22 +1100,26 @@
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
-                  d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z"
+                  d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
                 />
               </svg>
             </div>
-            <div class="stat-num num-amber" data-counter="6.4" data-suffix="%">
-              6.4%
+            <div
+              class="stat-num num-amber"
+              data-counter="98.5"
+              data-decimals="1"
+              data-suffix="%"
+            >
+              98.5%
             </div>
-            <div class="stat-name">Cost to send $200</div>
+            <div class="stat-name">Stablecoins earning 0% yield</div>
             <p class="stat-body">
-              The global average fee to send a $200 remittance as of Q3 2025,
-              more than double the United Nations' 3% target, per the World
-              Bank's Remittance Prices Worldwide report.
+              Of the more than $300 billion in stablecoins in circulation, only
+              about $4.6 billion is deployed in yield-bearing form.
             </p>
           </div>
           <div class="stat">
-            <div class="stat-icon stat-icon-green">
+            <div class="stat-icon stat-icon-blue">
               <svg
                 width="20"
                 height="20"
@@ -1231,16 +1131,24 @@
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
-                  d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"
+                  d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
                 />
               </svg>
             </div>
-            <div class="stat-num num-green">&lt;$0.001</div>
-            <div class="stat-name">Stellar transaction fee</div>
+            <div
+              class="stat-num num-blue"
+              data-fade-from="4.5"
+              data-fade-to="2"
+              data-suffix="%"
+            >
+              <span class="fade-prefix">4.5%</span>
+              <span class="fade-arrow">&rarr;</span>
+              <span class="flip-num">2%</span>
+            </div>
+            <div class="stat-name">is how fast a "good" rate can fade</div>
             <p class="stat-body">
-              The cost to move any amount of USDC on Stellar, settling in 5
-              seconds. Not $50 in Ethereum gas, just a fraction of a cent,
-              designed for real people.
+              Anyone not tracking rates in real time has no way to know their
+              vault has gone cold, or where the better rate moved to.
             </p>
           </div>
         </div>
@@ -1250,31 +1158,35 @@
     <!-- ── How it works ── -->
     <section class="light-section">
       <div class="wrap">
-        <p class="label">How it works</p>
-        <h2 class="section-title">Three clicks to earning yield.</h2>
+        <h2 class="section-title">
+          Fight <span class="grad">"yieldflation"</span> in three steps
+        </h2>
         <div class="steps">
+          <div class="flow-marker" id="flow-marker"></div>
           <div class="step">
             <div class="step-num">01</div>
+            <div class="step-line"></div>
             <h3>Connect your wallet</h3>
             <p>
-              Connect any supported Stellar wallet in one click, with no seed
-              phrase sharing and no custodial risk. You hold your keys, always.
+              Connect any supported Stellar wallet in one click, so Meridian can
+              show what your USDC could be earning.
             </p>
           </div>
           <div class="step">
             <div class="step-num">02</div>
-            <h3>See live APY across all vaults</h3>
+            <div class="step-line"></div>
+            <h3>Deposit and confirm</h3>
             <p>
-              Meridian pulls real-time rates from Blend Capital and DeFindex,
-              with every vault ranked by yield.
+              Approve a single transaction in your wallet to transfer your USDC
+              into the vault.
             </p>
           </div>
           <div class="step">
             <div class="step-num">03</div>
-            <h3>Deposit in one click</h3>
+            <h3>Go to bed</h3>
             <p>
-              Approve a single transaction in your wallet. Meridian builds the
-              unsigned XDR, so your private key never leaves your device.
+              Meridian takes care of the rest, automatically moving your USDC to
+              wherever earns the most.
             </p>
           </div>
         </div>
@@ -1285,11 +1197,13 @@
     <section class="protocols alt-section">
       <div class="wrap">
         <div class="proto-head">
-          <h2 class="section-title">Battle-tested protocols.</h2>
+          <h2 class="section-title">
+            <span class="grad">Battle-tested</span> protocols
+          </h2>
           <p class="section-sub">
             Meridian doesn't reinvent the wheel. It aggregates the best yield
-            from two of the most credible protocols already running in
-            production on Stellar.
+            from the most credible protocols on Stellar, routing your deposit to
+            whichever one is paying the most right now.
           </p>
         </div>
         <div class="proto-grid">
@@ -1365,20 +1279,18 @@
       </div>
     </section>
 
-    <!-- ── Built in public ── -->
-    <section>
+    <!-- ── Built in public / Footer ── -->
+    <footer>
       <div class="wrap">
         <div class="public-grid">
           <div class="public-copy">
-            <p class="label">Open source</p>
             <h2 class="section-title">
-              Built in public,<br />for the community.
+              Built in public,<br />for
+              <span class="grad">the community</span>
             </h2>
             <p class="section-sub">
-              Meridian is fully open-source. Every commit, every design
-              decision, and every issue is public. If you build on Stellar or
-              care about financial access in emerging markets, there is a place
-              for you here.
+              Meridian is fully open-source. Read the source, open an issue (or
+              PR), and join the discussion.
             </p>
           </div>
           <div class="public-links">
@@ -1390,8 +1302,8 @@
             >
               <div class="pub-icon">
                 <svg
-                  width="18"
-                  height="18"
+                  width="21"
+                  height="21"
                   fill="currentColor"
                   viewBox="0 0 24 24"
                   aria-hidden="true"
@@ -1417,8 +1329,8 @@
             >
               <div class="pub-icon">
                 <svg
-                  width="18"
-                  height="18"
+                  width="21"
+                  height="21"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -1443,8 +1355,8 @@
             >
               <div class="pub-icon">
                 <svg
-                  width="18"
-                  height="18"
+                  width="21"
+                  height="21"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -1466,10 +1378,6 @@
           </div>
         </div>
       </div>
-    </section>
-
-    <!-- ── Footer ── -->
-    <footer>
       <div class="wrap">
         <div class="foot-row">
           <div class="foot-left">
@@ -1505,41 +1413,7 @@
     </footer>
 
     <script>
-      /* Nav blur on scroll */
-      const nav = document.getElementById("nav");
-      window.addEventListener(
-        "scroll",
-        () => {
-          nav.classList.toggle("stuck", window.scrollY > 24);
-        },
-        { passive: true }
-      );
-
-      /* Waitlist form */
-      const form = document.getElementById("waitlist-form");
-      const success = document.getElementById("waitlist-success");
-      const emailEl = document.getElementById("email");
-
-      function submit() {
-        const val = emailEl.value.trim();
-        if (!val || !val.includes("@") || !val.includes(".")) {
-          emailEl.focus();
-          emailEl.style.borderColor = "#f87171";
-          setTimeout(() => {
-            emailEl.style.borderColor = "";
-          }, 1800);
-          return;
-        }
-        form.style.display = "none";
-        success.style.display = "block";
-      }
-
-      document.getElementById("cta-btn").addEventListener("click", submit);
-      emailEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") submit();
-      });
-
-      /* Scroll-triggered number counters (33.7% and 6.2% only) */
+      /* Scroll-triggered number counters (inflation and remittance-fee stats only) */
       function animateCounter(el) {
         const target = parseFloat(el.dataset.counter);
         const suffix = el.dataset.suffix || "";
@@ -1563,7 +1437,73 @@
         requestAnimationFrame(tick);
       }
 
+      function animateFade(el) {
+        const from = parseFloat(el.dataset.fadeFrom);
+        const to = Math.round(parseFloat(el.dataset.fadeTo));
+        const suffix = el.dataset.suffix || "";
+        const fromDecimals = from % 1 !== 0 ? 1 : 0;
+        const prefixEl = el.querySelector(".fade-prefix");
+        const arrowEl = el.querySelector(".fade-arrow");
+        const flipEl = el.querySelector(".flip-num");
+        const riseDuration = 1100;
+        const pauseDuration = 500;
+        const stepDuration = 850;
+        const flipDuration = 650;
+        const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+
+        arrowEl.style.opacity = "0";
+        flipEl.style.opacity = "0";
+
+        const riseStart = performance.now();
+        function rise(now) {
+          const progress = Math.min((now - riseStart) / riseDuration, 1);
+          const value = from * easeOut(progress);
+          prefixEl.textContent =
+            (progress < 1 ? value.toFixed(1) : from.toFixed(fromDecimals)) +
+            suffix;
+          if (progress < 1) {
+            requestAnimationFrame(rise);
+          } else {
+            arrowEl.style.transition = "opacity 0.3s";
+            arrowEl.style.opacity = "1";
+            setTimeout(stepDown, pauseDuration);
+          }
+        }
+
+        function flipTo(text) {
+          flipEl.classList.remove("flipping");
+          void flipEl.offsetWidth;
+          flipEl.classList.add("flipping");
+          flipEl.style.opacity = "1";
+          setTimeout(() => {
+            flipEl.textContent = text;
+          }, flipDuration / 2);
+        }
+
+        function stepDown() {
+          let current = Math.floor(from);
+          flipEl.textContent = current + suffix;
+          flipEl.style.transition = "opacity 0.3s";
+          flipEl.style.opacity = "1";
+
+          function next() {
+            if (current > to) {
+              current -= 1;
+              setTimeout(() => {
+                flipTo(current + suffix);
+                next();
+              }, stepDuration);
+            }
+          }
+
+          next();
+        }
+
+        requestAnimationFrame(rise);
+      }
+
       const counters = document.querySelectorAll("[data-counter]");
+      const fades = document.querySelectorAll("[data-fade-from]");
       const seen = new Set();
 
       const observer = new IntersectionObserver(
@@ -1571,7 +1511,11 @@
           entries.forEach((entry) => {
             if (entry.isIntersecting && !seen.has(entry.target)) {
               seen.add(entry.target);
-              animateCounter(entry.target);
+              if (entry.target.dataset.fadeFrom !== undefined) {
+                animateFade(entry.target);
+              } else {
+                animateCounter(entry.target);
+              }
             }
           });
         },
@@ -1579,6 +1523,97 @@
       );
 
       counters.forEach((el) => observer.observe(el));
+      fades.forEach((el) => observer.observe(el));
+
+      /* Single marker travelling continuously from step 1 to the last
+         step. It passes visually behind any circle in between (z-index),
+         and near the final circle it keeps advancing slightly while
+         shrinking away, like it's being pulled through a door. */
+      function initStepFlow() {
+        const stepsEl = document.querySelector(".steps");
+        const marker = document.getElementById("flow-marker");
+        if (!stepsEl || !marker) return;
+
+        const circles = Array.from(stepsEl.querySelectorAll(".step-num"));
+        if (circles.length < 2) return;
+
+        const reduceMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)"
+        ).matches;
+        if (reduceMotion) return;
+
+        const markerWidth = 24;
+        const doorDepth = 38;
+
+        let pathStart = 0;
+        let pathEnd = 0;
+        function measure() {
+          const base = stepsEl.getBoundingClientRect();
+          const first = circles[0].getBoundingClientRect();
+          const last = circles[circles.length - 1].getBoundingClientRect();
+          pathStart = first.right - base.left;
+          pathEnd = last.left - base.left;
+        }
+        measure();
+        window.addEventListener("resize", measure, { passive: true });
+
+        const growMs = 220;
+        const travelMs = 2600;
+        const enterMs = 550;
+        const restMs = 500;
+        const easeInOut = (t) =>
+          t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        const easeIn = (t) => t * t * t;
+
+        function setState(left, width, opacity) {
+          marker.style.left = left + "px";
+          marker.style.width = width + "px";
+          marker.style.opacity = opacity;
+        }
+
+        function tween(duration, onFrame) {
+          return new Promise((resolve) => {
+            const start = performance.now();
+            function tick(now) {
+              const progress = Math.min((now - start) / duration, 1);
+              onFrame(progress);
+              if (progress < 1) requestAnimationFrame(tick);
+              else resolve();
+            }
+            requestAnimationFrame(tick);
+          });
+        }
+
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+        async function loop() {
+          while (true) {
+            setState(pathStart, markerWidth, 0);
+
+            await tween(growMs, (p) => {
+              setState(pathStart, markerWidth, p);
+            });
+
+            await tween(travelMs, (p) => {
+              const x = pathStart + (pathEnd - pathStart) * easeInOut(p);
+              setState(x, markerWidth, 1);
+            });
+
+            await tween(enterMs, (p) => {
+              const eased = easeIn(p);
+              const x = pathEnd + doorDepth * eased;
+              const width = markerWidth * (1 - eased);
+              setState(x, width, 1 - eased);
+            });
+
+            await wait(restMs);
+          }
+        }
+
+        loop();
+      }
+
+      initStepFlow();
     </script>
   </body>
 </html>
