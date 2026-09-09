@@ -4,6 +4,7 @@ import { AdminLogin } from "../../pages/AdminLogin";
 import { useWalletStore } from "../../store/wallet";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
 import { fetchVaultAdmin } from "@meridian/stellar-sdk-helpers";
+import { shortenAddress } from "@meridian/shared";
 
 const handleConnect = vi.fn();
 const acceptRiskDisclosure = vi.fn();
@@ -67,14 +68,20 @@ describe("AdminLogin", () => {
 
   it("shows the blocked screen with only the connected address for a non-admin wallet", async () => {
     vi.mocked(fetchVaultAdmin).mockResolvedValue(ADMIN);
-    useWalletStore.setState({ publicKey: OTHER, connected: true });
+    const disconnect = vi.fn();
+    useWalletStore.setState({ publicKey: OTHER, connected: true, disconnect });
 
     render(<AdminLogin />);
 
     await waitFor(() => {
-      expect(screen.getByText(`Not authorized: ${OTHER}`)).toBeDefined();
+      expect(screen.getByText("Not authorized")).toBeDefined();
     });
-    expect(screen.queryByText(ADMIN)).toBeNull();
+    expect(screen.getByText(shortenAddress(OTHER))).toBeDefined();
+    expect(screen.queryByText(OTHER)).toBeNull();
+    expect(screen.queryByText(ADMIN, { exact: false })).toBeNull();
+
+    fireEvent.click(screen.getByText("Switch Wallet"));
+    expect(disconnect).toHaveBeenCalledTimes(1);
   });
 
   it("shows the dashboard shell when the connected wallet matches get_admin", async () => {
@@ -95,7 +102,7 @@ describe("AdminLogin", () => {
     render(<AdminLogin />);
 
     await waitFor(() => {
-      expect(screen.getByText(`Not authorized: ${OTHER}`)).toBeDefined();
+      expect(screen.getByText("Not authorized")).toBeDefined();
     });
   });
 });
