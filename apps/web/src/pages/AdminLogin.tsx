@@ -4,7 +4,6 @@ import { fetchVaultAdmin } from "@meridian/stellar-sdk-helpers";
 import { APP_ADDRESSES, APP_NETWORK, shortenAddress } from "@meridian/shared";
 import { useWalletStore } from "../store/wallet";
 import { useWalletConnect } from "../hooks/useWalletConnect";
-import { RiskDisclosureModal } from "../components/onboarding/RiskDisclosureModal";
 import { AdminDashboard } from "./AdminDashboard";
 
 // Keyed by the public key it was resolved for, so a wallet switch is
@@ -17,13 +16,9 @@ interface GateResult {
 
 export function AdminLogin() {
   const { publicKey, connected, disconnect } = useWalletStore();
-  const {
-    handleConnect,
-    status: connectStatus,
-    showRiskDisclosure,
-    acceptRiskDisclosure,
-    cancelRiskDisclosure,
-  } = useWalletConnect();
+  const { handleConnect, status: connectStatus } = useWalletConnect({
+    skipRiskDisclosure: true, // this isn't a deposit
+  });
   const [result, setResult] = useState<GateResult | null>(null);
 
   useEffect(() => {
@@ -53,12 +48,6 @@ export function AdminLogin() {
   if (!connected) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
-        {showRiskDisclosure && (
-          <RiskDisclosureModal
-            onAccept={acceptRiskDisclosure}
-            onCancel={cancelRiskDisclosure}
-          />
-        )}
         <div className="w-full max-w-md rounded-xl border border-gray-800 bg-[#161b22] p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-gray-800">
             <LockOpen className="h-5 w-5 text-gray-400" />
@@ -83,7 +72,7 @@ export function AdminLogin() {
   if (status === "blocked") {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
-        <div className="w-full max-w-md rounded-xl border border-red-900/50 bg-[#161b22] p-8 text-center">
+        <div className="w-full max-w-md rounded-xl border border-gray-800 bg-[#161b22] p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-red-500/10">
             <Lock className="h-5 w-5 text-red-400" />
           </div>

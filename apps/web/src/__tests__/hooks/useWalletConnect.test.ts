@@ -202,4 +202,18 @@ describe("useWalletConnect — risk disclosure gate (#720)", () => {
     expect(result.current.showRiskDisclosure).toBe(false);
     expect(freighterAdapter.connect).toHaveBeenCalledOnce();
   });
+
+  it("skips the gate entirely for a call site that opts out, even when not yet accepted", async () => {
+    riskDisclosureAccepted = false;
+    vi.mocked(freighterAdapter.isInstalled).mockResolvedValue(true);
+    vi.mocked(freighterAdapter.connect).mockResolvedValue(KEY);
+    const { result } = renderHook(() =>
+      useWalletConnect({ skipRiskDisclosure: true })
+    );
+
+    await act(() => result.current.handleConnect());
+
+    expect(result.current.showRiskDisclosure).toBe(false);
+    expect(freighterAdapter.connect).toHaveBeenCalledOnce();
+  });
 });

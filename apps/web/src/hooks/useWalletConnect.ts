@@ -13,7 +13,13 @@ import { useTranslation } from "react-i18next";
 
 export type ConnectStatus = "idle" | "connecting" | "no-extension";
 
-export function useWalletConnect() {
+interface UseWalletConnectOptions {
+  // For call sites where connecting isn't a deposit action, e.g. AdminLogin.
+  skipRiskDisclosure?: boolean;
+}
+
+export function useWalletConnect(options: UseWalletConnectOptions = {}) {
+  const { skipRiskDisclosure = false } = options;
   const { t } = useTranslation();
   const { connect } = useWalletStore();
   const { push } = useToastStore();
@@ -75,7 +81,7 @@ export function useWalletConnect() {
   // before this gate existed: it resolves once connectNow finishes, or
   // immediately if only the risk prompt was shown.
   async function handleConnect(walletId: WalletId = getSelectedWalletId()) {
-    if (hasAcceptedRiskDisclosure()) {
+    if (skipRiskDisclosure || hasAcceptedRiskDisclosure()) {
       await connectNow(walletId);
       return;
     }
