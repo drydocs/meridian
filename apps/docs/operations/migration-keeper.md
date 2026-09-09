@@ -50,28 +50,28 @@ protocol from what's actually available on-chain:
   reimplementing Blend's three-slope interest rate curve off-chain from the
   pool's raw reserve fields, `createBlendRateSource` loads the pool with
   `@blend-capital/blend-sdk` (already a dependency, used elsewhere in this
-  package for position reads) and reads the reserve's own `estSupplyApy` —
+  package for position reads) and reads the reserve's own `estSupplyApy`,
   the same weekly-compounded rate estimate Blend's own indexer and UI
   compute, via `Reserve.setRates()`. This avoids a second, hand-rolled copy
   of that formula that could silently drift from Blend's actual deployed
   behavior. The reserve it prices is the vault's own asset, threaded through
   each `RateQuery` from the vault's `KNOWN_POOLS` entry (`assetId`, see
   `known-pools.ts`), falling back to the network's USDC address for a vault
-  without one — so a EURC pool prices its EURC reserve, not the USDC one
+  without one, so a EURC pool prices its EURC reserve, not the USDC one
   (#539).
 - **DeFindex**: `DefindexAdapter` exposes `get_asset_amounts_per_shares()`, a
-  live share-price snapshot with no rate on its own — a rate needs a second
-  sample separated in time. `createDefindexRateSource` takes a fresh
+  live share-price snapshot with no rate of its own. Deriving a rate needs a
+  second sample separated in time. `createDefindexRateSource` takes a fresh
   snapshot on every call and persists it via a pluggable `RateSnapshotStore`,
   keyed by the DeFindex vault's own contract address. The first time a given
   vault is evaluated (or any time its snapshot has expired) this correctly
-  returns null — "rate unknown" — not a fabricated rate; a comparable
+  returns null, meaning "rate unknown" rather than a fabricated rate; a comparable
   annualized rate is only returned once two snapshots exist at least 10
   minutes apart. In production, `createDefaultRateSource` backs this store
   with Upstash Redis over its plain HTTP REST API, reusing the same
   `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` credentials
-  `api/_lib/middleware.ts` already requires for its rate limiter — one
-  Upstash instance backs both, no new infrastructure to provision. Without
+  `api/_lib/middleware.ts` already requires for its rate limiter. One
+  Upstash instance backs both, so no new infrastructure needs provisioning. Without
   those set, it falls back to an in-memory store that does **not** survive
   across separate serverless invocations (each Vercel Cron tick is a fresh
   process), which in practice means DeFindex never accumulates a comparable
@@ -220,7 +220,7 @@ chosen candidate:
    `adapter` doesn't match the candidate, this run's target has no live
    cooldown in progress.
 2. In that case, submit `begin_migration(candidate)` instead of
-   `migrate_adapter`, and stop for this vault — the result records this as
+   `migrate_adapter`, and stop for this vault. The result records this as
    `skipped`, not `failed`. The submission lease taken for this run is
    released immediately (`releaseIfUnsent`) rather than held for the
    `submissionTtlMs` window, so it doesn't block a subsequent run from

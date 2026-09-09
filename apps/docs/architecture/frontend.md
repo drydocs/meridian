@@ -13,7 +13,7 @@
 
 ## Component structure
 
-The public UI is intentionally minimal: one page, one panel. A second, admin-only page (`/app/admin`) was added for #615; there is no router — `App.tsx` picks between the two by checking `window.location.pathname` directly, since a full router is a heavier change than a single static path split needs (see its comment).
+The public UI is intentionally minimal: one page, one panel. A second, admin-only page (`/app/admin`) was added for #615, but there is no router. `App.tsx` picks between the two by checking `window.location.pathname` directly, since a full router is a heavier change than a single static path split needs (see its comment).
 
 ```
 App
@@ -26,7 +26,7 @@ App
     └── Action area          # Amount input + submit button
 
 AdminDashboard (/app/admin)
-├── useIsAdminWallet          # Placeholder client-side gate — see its comment; #614 replaces this
+├── useIsAdminWallet          # Placeholder client-side gate (see its comment); #614 replaces this
 ├── KeeperHealthPanel         # Accrual/migration keeper status, last run, overdue-by
 └── VaultStatePanel           # Active adapter, total shares/assets, Active/Paused badge
 ```
@@ -37,7 +37,7 @@ AdminDashboard (/app/admin)
 - `usePositions(publicKey)`: fetches `GET /api/v1/positions/:key`, enabled only when connected.
 - `useVaultActions()`: orchestrates the build → sign → submit cycle.
 
-`KeeperHealthPanel` and `VaultStatePanel` pull from `useKeeperHealth()` (`GET /api/v1/keepers/health`) and `useVaultState()` (`GET /api/v1/admin/vault-state`) respectively — both public, read-only, 30s stale time.
+`KeeperHealthPanel` and `VaultStatePanel` pull from `useKeeperHealth()` (`GET /api/v1/keepers/health`) and `useVaultState()` (`GET /api/v1/admin/vault-state`) respectively. Both are public, read-only endpoints with a 30s stale time.
 
 ## Data flow
 
@@ -85,11 +85,11 @@ interface WalletAdapter {
 
 `wallet.ts` exports `WALLETS: WalletMeta[]`, one entry per adapter actually exposed in the picker: `FreighterWallet`, `LobstrWallet`, `XBullWallet`. An `AlbedoWallet` adapter is also implemented and tested (#674) but deliberately not added to `WALLETS` yet, since wallet-picker exposure was out of scope for the PR that added it. Adding it later means one more entry in `WALLETS`; nothing else here needs to change for that. Each entry carries an `id`, a display `name`, an `installUrl` for the no-extension fallback, and the adapter instance itself.
 
-Which wallet is "selected" is tracked independently of `useWalletStore`, in `wallet.ts` itself (`getSelectedWalletId()`/`setSelectedWalletId()`, backed by a plain `localStorage` key) — not in the Zustand store, to avoid a circular import (`store/wallet.ts` already imports from `lib/wallet.ts`). It defaults to Freighter and only changes on a _successful_ connect, so a failed or cancelled attempt never silently switches which wallet later sign/reconnect calls go through.
+Which wallet is "selected" is tracked independently of `useWalletStore`. It lives in `wallet.ts` itself (`getSelectedWalletId()`/`setSelectedWalletId()`, backed by a plain `localStorage` key) rather than in the Zustand store, to avoid a circular import (`store/wallet.ts` already imports from `lib/wallet.ts`). It defaults to Freighter and only changes on a _successful_ connect, so a failed or cancelled attempt never silently switches which wallet later sign/reconnect calls go through.
 
-`useWalletConnect().handleConnect(walletId?)` connects through a specific wallet — passed explicitly by the picker UI in `WalletConnect.tsx`, or defaulted to the persisted selection when omitted (the plain "Connect Wallet" button's click handler, unchanged from before the picker existed). `attemptedWalletId` (also returned by the hook) tracks whichever wallet the most recent attempt was for, so the `status === "no-extension"` fallback can link to that wallet's own `installUrl` and name instead of a hardcoded Freighter link.
+`useWalletConnect().handleConnect(walletId?)` connects through a specific wallet, which is passed explicitly by the picker UI in `WalletConnect.tsx`, or defaulted to the persisted selection when omitted (the plain "Connect Wallet" button's click handler, unchanged from before the picker existed). `attemptedWalletId` (also returned by the hook) tracks whichever wallet the most recent attempt was for, so the `status === "no-extension"` fallback can link to that wallet's own `installUrl` and name instead of a hardcoded Freighter link.
 
-The exported `wallet: WalletAdapter` singleton still exists for callers that only care about "whichever wallet the user is connected through" — `useSignAndSubmit`'s `sign()` call and the store's `revalidate()`'s `isAuthorized()` check — and now dispatches to `getWalletAdapter(getSelectedWalletId())` on every call rather than being pinned to Freighter. Adding a new wallet still means adding a `WalletAdapter` implementation and one entry in `WALLETS`; no caller of the singleton or of `useWalletConnect` needs to change.
+The exported `wallet: WalletAdapter` singleton still exists for callers that only care about "whichever wallet the user is connected through" (`useSignAndSubmit`'s `sign()` call, and the store's `revalidate()`'s `isAuthorized()` check). It now dispatches to `getWalletAdapter(getSelectedWalletId())` on every call rather than being pinned to Freighter. Adding a new wallet still means adding a `WalletAdapter` implementation and one entry in `WALLETS`; no caller of the singleton or of `useWalletConnect` needs to change.
 
 ## API client
 

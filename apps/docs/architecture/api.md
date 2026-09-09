@@ -107,7 +107,7 @@ Builds an unsigned Soroban withdraw transaction.
 
 ### `POST /api/v1/tx/add-trustline`
 
-Builds an unsigned transaction that adds a trustline for each classic Stellar asset the caller doesn't already hold — USDC always, and mUSDC too on any network where `MUSDC_ISSUER` is still set (only true before a #578 cutover: mUSDC is now a custom SEP-41 token, not a classic asset, so it needs no trustline on a network deployed against the new contract). Must be submitted before a first deposit, on whichever assets it covers. Throws if every required trustline already exists.
+Builds an unsigned transaction that adds a trustline for each classic Stellar asset the caller doesn't already hold: USDC always, and mUSDC too on any network where `MUSDC_ISSUER` is still set (only true before a #578 cutover; mUSDC is now a custom SEP-41 token, not a classic asset, so it needs no trustline on a network deployed against the new contract). Must be submitted before a first deposit, on whichever assets it covers. Throws if every required trustline already exists.
 
 **Request**
 
@@ -141,7 +141,7 @@ A `PENDING` or `DUPLICATE` status from the Stellar RPC is treated as success and
 
 ### `GET /api/v1/keepers/health`
 
-Read-only status of both scheduled keepers, for the admin dashboard's Keeper Health card (#615). Public, same as `/api/v1/vaults` — it reports on runs already recorded elsewhere, never triggers one, and holds no signing authority.
+Read-only status of both scheduled keepers, for the admin dashboard's Keeper Health card (#615). It is public, the same as `/api/v1/vaults`, and it reports on runs already recorded elsewhere, never triggers one, and holds no signing authority.
 
 **Response**
 
@@ -165,11 +165,11 @@ Read-only status of both scheduled keepers, for the admin dashboard's Keeper Hea
 }
 ```
 
-`lastSuccessMs` is `null` until that keeper's endpoint (`/api/v1/keepers/accrue` or `/rebalance`) has completed a run with zero failures at least once — see `keeper-heartbeat.ts`. `healthy` is `false` whenever `lastSuccessMs` is `null` or more than 2x the keeper's own schedule interval old, matching `.github/workflows/keepers.yml`'s cron cadence.
+`lastSuccessMs` is `null` until that keeper's endpoint (`/api/v1/keepers/accrue` or `/rebalance`) has completed a run with zero failures at least once. See `keeper-heartbeat.ts` for the definition. `healthy` is `false` whenever `lastSuccessMs` is `null` or more than 2x the keeper's own schedule interval old, matching `.github/workflows/keepers.yml`'s cron cadence.
 
 ### `GET /api/v1/admin/vault-state`
 
-Read-only coordinator vault state for the admin dashboard's Vault State card (#615): active adapter/protocol, total shares, total assets, and the pause flag. Public, same reasoning as `/api/v1/keepers/health` — it's the same on-chain data `/api/v1/vaults` already surfaces, just reshaped for the admin view.
+Read-only coordinator vault state for the admin dashboard's Vault State card (#615): active adapter/protocol, total shares, total assets, and the pause flag. It is public, for the same reason as `/api/v1/keepers/health`, and it exposes the same on-chain data `/api/v1/vaults` already surfaces, just reshaped for the admin view.
 
 **Response**
 
@@ -195,7 +195,7 @@ The Fastify server (`apps/api-local/`) runs the same packages directly via `tsx`
 
 ## Vault ID to contract address mapping
 
-The vault contract's `deposit`/`withdraw` take no protocol-selection parameter — which protocol a deposit reaches is fixed by whichever adapter the target vault instance has set, not by anything passed in the call. Building a deposit transaction therefore resolves `vaultId` directly to the specific deployed vault contract address to call, via the mapping in `packages/stellar-sdk-helpers/src/known-pools.ts`:
+The vault contract's `deposit`/`withdraw` take no protocol-selection parameter. Which protocol a deposit reaches is fixed by whichever adapter the target vault instance has set, not by anything passed in the call. Building a deposit transaction therefore resolves `vaultId` directly to the specific deployed vault contract address to call, via the mapping in `packages/stellar-sdk-helpers/src/known-pools.ts`:
 
 | Vault ID prefix | Resolves to                                                |
 | --------------- | ---------------------------------------------------------- |

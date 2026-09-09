@@ -106,7 +106,7 @@ cargo test
 cargo test --manifest-path blend-adapter/Cargo.toml
 ```
 
-`stellar contract build` targets `wasm32v1-none`, not `wasm32-unknown-unknown` — install it with `rustup target add wasm32v1-none` if you haven't already.
+`stellar contract build` targets `wasm32v1-none`, not `wasm32-unknown-unknown`. Install the correct target with `rustup target add wasm32v1-none` if you haven't already.
 
 See [Testnet Deployment](./testnet-deployment.md) for deploying the contracts to testnet, and [Vault Contract](../architecture/vault-contract.md) for how the vault and adapters fit together.
 

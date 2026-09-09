@@ -31,7 +31,7 @@ underlying protocol (Blend or DeFindex), and mints mUSDC shares to
 the user's wallet (reverting if shares minted < min_shares_out)
 ```
 
-`vault.deposit(caller, amount, min_shares_out)` has no protocol-selection parameter. Which protocol the deposit actually reaches is entirely determined by whichever adapter contract the vault currently has set — see [Vault Contract](../architecture/vault-contract.md#adapter-contracts).
+`vault.deposit(caller, amount, min_shares_out)` has no protocol-selection parameter. Which protocol the deposit actually reaches is entirely determined by whichever adapter contract the vault currently has set (see [Vault Contract](../architecture/vault-contract.md#adapter-contracts)).
 
 ## Withdraw flow
 

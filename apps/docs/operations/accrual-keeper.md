@@ -104,8 +104,8 @@ execution model is the same thing to reason about.
 
 Two things differ, both following from what a duplicate `accrue()` actually
 costs: it re-syncs a cached value from the adapter's live position and
-produces the same result however many times it lands, so at most one extra
-Soroban fee, never incorrect accounting.
+produces the same result no matter how many times it lands, so a duplicate
+costs at most one extra Soroban fee, never incorrect accounting.
 
 - **Fallback.** Where the migration keeper refuses to run on a deployment
   without a shared store, this keeper falls back to a per-invocation one and
