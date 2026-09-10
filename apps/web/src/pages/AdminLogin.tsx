@@ -47,8 +47,8 @@ export function AdminLogin() {
 
   if (!connected) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
-        <div className="w-full max-w-md rounded-xl border border-gray-800 bg-[#161b22] p-8 text-center">
+      <div className="flex items-center justify-center min-h-screen bg-[#070d19]">
+        <div className="w-full max-w-md rounded-xl border border-gray-800 bg-[#0d1e35] p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-gray-800">
             <LockOpen className="h-5 w-5 text-gray-400" />
           </div>
@@ -71,8 +71,8 @@ export function AdminLogin() {
 
   if (status === "blocked") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
-        <div className="w-full max-w-md rounded-xl border border-gray-800 bg-[#161b22] p-8 text-center">
+      <div className="flex items-center justify-center min-h-screen bg-[#070d19]">
+        <div className="w-full max-w-md rounded-xl border border-gray-800 bg-[#0d1e35] p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-red-500/10">
             <Lock className="h-5 w-5 text-red-400" />
           </div>
@@ -81,7 +81,7 @@ export function AdminLogin() {
             The connected wallet doesn't match the vault's admin address. This
             page is only accessible to the vault admin.
           </p>
-          <div className="mt-6 flex items-center justify-between rounded-lg bg-[#0d1117] px-4 py-3 text-sm">
+          <div className="mt-6 flex items-center justify-between rounded-lg bg-[#070d19] px-4 py-3 text-sm">
             <span className="text-xs font-medium tracking-wide text-gray-500 uppercase">
               Connected
             </span>
@@ -102,14 +102,14 @@ export function AdminLogin() {
 
   if (status === "allowed") {
     return (
-      <div className="min-h-screen bg-[#0d1117] text-white">
+      <div className="min-h-screen bg-[#070d19] text-white">
         <AdminDashboard />
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-[#0d1117] text-gray-400">
+    <div className="flex items-center justify-center min-h-screen bg-[#070d19] text-gray-400">
       Loading...
     </div>
   );

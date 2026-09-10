@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="apps/web/public/brand/logo-mark.svg" alt="Meridian" width="96" />
+</p>
+
 # Meridian
 
 **Stablecoin yield aggregator on Stellar, built for emerging market savers.**

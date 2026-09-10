@@ -10,6 +10,12 @@
   --vp-button-brand-hover-text: #ffffff;
   --vp-button-brand-active-bg: #065f46;
   --vp-button-brand-active-text: #ffffff;
+
+  /* Paper, the brand's light surface (brand-guidelines.md). */
+  --vp-c-bg: #f0f4ff;
+  --vp-c-bg-alt: #e2e8f5;
+  --vp-c-bg-soft: #e2e8f5;
+  --vp-c-bg-elv: #ffffff;
 }
 
 .dark {
@@ -24,4 +30,54 @@
   --vp-button-brand-hover-text: #ffffff;
   --vp-button-brand-active-bg: #047857;
   --vp-button-brand-active-text: #ffffff;
+
+  /* Night and Deep, the same two background tokens the app and landing
+     page use (brand-guidelines.md). */
+  --vp-c-bg: #070d19;
+  --vp-c-bg-alt: #0d1e35;
+  --vp-c-bg-soft: #0d1e35;
+  --vp-c-bg-elv: #0d1e35;
+}
+
+/* VPHero's own padding-top and its .main/.image order are set on scoped
+   selectors, which outrank a plain override here without !important. */
+.VPHero {
+  padding-top: calc(
+    var(--vp-nav-height) + var(--vp-layout-top-height, 0px) + 64px
+  ) !important;
+}
+
+/* Below 960px, VPHero stacks .main after .image by default (order: 2 vs 1),
+   putting the hero image above the heading. Force heading-first at every
+   width instead; this matches the existing order at 960px and up. */
+.VPHero .main {
+  order: 1 !important;
+}
+.VPHero .image {
+  order: 2 !important;
+}
+
+/* Below 960px the chart becomes a faint full-bleed background instead. */
+@media (max-width: 959px) {
+  .VPHero .container {
+    position: relative;
+  }
+  .VPHero .image {
+    position: absolute !important;
+    inset: 0;
+    z-index: 0;
+    margin: 0 !important;
+    opacity: 0.12;
+    pointer-events: none;
+  }
+  .VPHero .image-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  .VPHero .image-bg {
+    display: none;
+  }
 }

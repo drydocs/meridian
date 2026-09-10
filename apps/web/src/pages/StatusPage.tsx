@@ -88,7 +88,7 @@ export function StatusPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-white">
+    <div className="min-h-screen bg-[#070d19] text-white">
       <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
         <div>
           <div className="flex items-center gap-3 mb-2">
@@ -102,7 +102,7 @@ export function StatusPage() {
           <p className="text-sm text-gray-500">{t("status.subtitle")}</p>
         </div>
 
-        <div className="rounded-2xl border border-gray-800 bg-[#161b22] overflow-hidden shadow-xl shadow-black/40 px-6">
+        <div className="rounded-2xl border border-gray-800 bg-[#0d1e35] overflow-hidden shadow-xl shadow-black/40 px-6">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider pt-6 pb-1">
             {t("status.addresses.title")}
           </h2>
@@ -113,7 +113,7 @@ export function StatusPage() {
           <VaultStatePanel />
         </ErrorBoundary>
 
-        <div className="rounded-2xl border border-gray-800 bg-[#161b22] overflow-hidden shadow-xl shadow-black/40 px-6 py-6">
+        <div className="rounded-2xl border border-gray-800 bg-[#0d1e35] overflow-hidden shadow-xl shadow-black/40 px-6 py-6">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
             {t("status.parameters.title")}
           </h2>
@@ -140,7 +140,7 @@ export function StatusPage() {
           />
         </ErrorBoundary>
 
-        <div className="rounded-2xl border border-gray-800 bg-[#161b22] overflow-hidden shadow-xl shadow-black/40 px-6 py-6">
+        <div className="rounded-2xl border border-gray-800 bg-[#0d1e35] overflow-hidden shadow-xl shadow-black/40 px-6 py-6">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">
             {t("status.audit.title")}
           </h2>

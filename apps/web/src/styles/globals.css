@@ -1,1 +1,8 @@
 @import "tailwindcss";
+
+/* The oversized fixed-position watermark in App.tsx isn't clipped by an
+   ancestor's overflow-hidden, so it needs this instead. */
+html,
+body {
+  overflow-x: hidden;
+}
