@@ -6,10 +6,6 @@
   >
     <svg viewBox="0 0 260 130" class="chart-svg">
       <defs>
-        <linearGradient id="heroApyLine" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#3b82f6" />
-          <stop offset="100%" stop-color="#10b981" />
-        </linearGradient>
         <linearGradient id="heroApyFill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#10b981" stop-opacity="0.35" />
           <stop offset="100%" stop-color="#10b981" stop-opacity="0" />
@@ -26,21 +22,19 @@
       />
       <circle class="chart-dot" cx="254" cy="18" />
     </svg>
-    <p class="chart-label">APY tracking <span class="chart-live">live</span></p>
   </div>
 </template>
 
 <style scoped>
 .hero-apy-chart {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
+  width: 100%;
+  max-width: 560px;
 }
 
 .chart-svg {
-  width: 260px;
-  height: 130px;
+  width: 100%;
+  height: auto;
   overflow: visible;
 }
 
@@ -51,7 +45,7 @@
 
 .chart-line {
   fill: none;
-  stroke: url(#heroApyLine);
+  stroke: #10b981;
   stroke-width: 2.5;
   stroke-linecap: round;
   stroke-dasharray: 220;
@@ -69,17 +63,6 @@
   fill: #10b981;
   opacity: 0;
   animation: hero-apy-dot 2.4s ease-out infinite;
-}
-
-.chart-label {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--vp-c-text-1);
-  font-variant-numeric: tabular-nums;
-}
-
-.chart-live {
-  color: #10b981;
 }
 
 @keyframes hero-apy-draw {
