@@ -56,3 +56,28 @@
 .VPHero .image {
   order: 2 !important;
 }
+
+/* Below 960px the chart becomes a faint full-bleed background instead. */
+@media (max-width: 959px) {
+  .VPHero .container {
+    position: relative;
+  }
+  .VPHero .image {
+    position: absolute !important;
+    inset: 0;
+    z-index: 0;
+    margin: 0 !important;
+    opacity: 0.12;
+    pointer-events: none;
+  }
+  .VPHero .image-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  .VPHero .image-bg {
+    display: none;
+  }
+}
