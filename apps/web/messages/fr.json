@@ -34,12 +34,12 @@
   },
 
   "riskDisclosure": {
-    "title": "Avant de vous connecter",
-    "description": "Meridian est un produit non-custodial basé sur des contrats intelligents, pas une banque. Son utilisation, y compris la connexion d'un portefeuille, implique d'accepter les risques ci-dessous.",
+    "title": "Avant de continuer",
+    "description": "Meridian est un produit non-custodial basé sur des contrats intelligents, pas une banque. Son utilisation, y compris la connexion d'un portefeuille ou la réalisation d'un dépôt, implique d'accepter les risques ci-dessous.",
     "smartContractRisk": "Risque lié aux contrats intelligents : des bugs ou des attaques dans les contrats de Meridian peuvent affecter les fonds détenus via le produit.",
     "adapterRisk": "Risque lié aux adapteurs et protocoles : les fonds passent par des protocoles de prêt et adapteurs externes, dont la performance ou les défaillances peuvent affecter votre solde et vos rendements.",
     "acknowledgement": "Je comprends qu'il s'agit d'un produit exposé à des risques de contrats intelligents et j'accepte ces risques.",
-    "continue": "Accepter et se connecter",
+    "continue": "Accepter et continuer",
     "cancel": "Annuler"
   },
 

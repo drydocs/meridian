@@ -7,14 +7,8 @@ interface RiskDisclosureModalProps {
   onCancel: () => void;
 }
 
-/**
- * Shown before a wallet connection is ever initiated (#720): accepting is
- * what triggers the actual connect, cancelling rejects the connection
- * request outright, so no wallet interaction happens at all. This is a
- * general usage caveat, not a deposit-specific one, and deliberately has no
- * wallet identity to key an acknowledgement to yet; see
- * WalletConnect.tsx for where the resulting accepted flag is read.
- */
+// Shown before either connecting a wallet or making a deposit, whichever
+// comes first for a given browser; accepting runs the caller's onAccept.
 export function RiskDisclosureModal({
   onAccept,
   onCancel,

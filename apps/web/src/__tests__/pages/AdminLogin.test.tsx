@@ -4,10 +4,9 @@ import { AdminLogin } from "../../pages/AdminLogin";
 import { useWalletStore } from "../../store/wallet";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
 import { fetchVaultAdmin } from "@meridian/stellar-sdk-helpers";
+import { shortenAddress } from "@meridian/shared";
 
 const handleConnect = vi.fn();
-const acceptRiskDisclosure = vi.fn();
-const cancelRiskDisclosure = vi.fn();
 const ADMIN = "GCKFBEIYTKP6RCZNVPH73XL7XFJVSFAKQR4E4XQD4PGGPCCQTVMWXW6D";
 const OTHER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
@@ -29,8 +28,8 @@ beforeEach(() => {
     status: "idle",
     attemptedWalletId: "freighter",
     showRiskDisclosure: false,
-    acceptRiskDisclosure,
-    cancelRiskDisclosure,
+    acceptRiskDisclosure: vi.fn(),
+    cancelRiskDisclosure: vi.fn(),
   } as ReturnType<typeof useWalletConnect>);
 });
 
@@ -45,36 +44,31 @@ describe("AdminLogin", () => {
     expect(handleConnect).toHaveBeenCalledTimes(1);
   });
 
-  it("renders the risk disclosure modal when the connect hook says to show it", () => {
-    vi.mocked(useWalletConnect).mockReturnValue({
-      handleConnect,
-      status: "idle",
-      attemptedWalletId: "freighter",
-      showRiskDisclosure: true,
-      acceptRiskDisclosure,
-      cancelRiskDisclosure,
-    } as ReturnType<typeof useWalletConnect>);
-
+  it("skips the depositor risk-disclosure gate, since admin auth isn't a deposit", () => {
     render(<AdminLogin />);
 
-    fireEvent.click(screen.getByTestId("risk-disclosure-acknowledgement"));
-    fireEvent.click(screen.getByTestId("risk-disclosure-accept"));
-    expect(acceptRiskDisclosure).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByTestId("risk-disclosure-cancel"));
-    expect(cancelRiskDisclosure).toHaveBeenCalledTimes(1);
+    expect(useWalletConnect).toHaveBeenCalledWith({
+      skipRiskDisclosure: true,
+    });
+    expect(screen.queryByTestId("risk-disclosure")).toBeNull();
   });
 
   it("shows the blocked screen with only the connected address for a non-admin wallet", async () => {
     vi.mocked(fetchVaultAdmin).mockResolvedValue(ADMIN);
-    useWalletStore.setState({ publicKey: OTHER, connected: true });
+    const disconnect = vi.fn();
+    useWalletStore.setState({ publicKey: OTHER, connected: true, disconnect });
 
     render(<AdminLogin />);
 
     await waitFor(() => {
-      expect(screen.getByText(`Not authorized: ${OTHER}`)).toBeDefined();
+      expect(screen.getByText("Not authorized")).toBeDefined();
     });
-    expect(screen.queryByText(ADMIN)).toBeNull();
+    expect(screen.getByText(shortenAddress(OTHER))).toBeDefined();
+    expect(screen.queryByText(OTHER)).toBeNull();
+    expect(screen.queryByText(ADMIN, { exact: false })).toBeNull();
+
+    fireEvent.click(screen.getByText("Switch Wallet"));
+    expect(disconnect).toHaveBeenCalledTimes(1);
   });
 
   it("shows the dashboard shell when the connected wallet matches get_admin", async () => {
@@ -95,7 +89,7 @@ describe("AdminLogin", () => {
     render(<AdminLogin />);
 
     await waitFor(() => {
-      expect(screen.getByText(`Not authorized: ${OTHER}`)).toBeDefined();
+      expect(screen.getByText("Not authorized")).toBeDefined();
     });
   });
 });

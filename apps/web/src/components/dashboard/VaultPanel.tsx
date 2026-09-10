@@ -4,7 +4,11 @@ import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
-import { getWalletMeta, hasAcceptedRiskDisclosure } from "../../lib/wallet";
+import {
+  getWalletMeta,
+  hasAcceptedRiskDisclosure,
+  setRiskDisclosureAccepted,
+} from "../../lib/wallet";
 import { PositionSummary } from "./PositionSummary";
 import { DepositTab } from "./DepositTab";
 import { WithdrawTab } from "./WithdrawTab";
@@ -42,6 +46,12 @@ export function VaultPanel() {
 
   const [tab, setTab] = useState<Tab>("deposit");
   const [amount, setAmount] = useState("");
+  // Separate from useWalletConnect's showRiskDisclosure: that one only ever
+  // fires from the connect button, so a wallet already connected elsewhere
+  // (e.g. via AdminLogin, which skips the disclosure) would otherwise reach
+  // this deposit button with no way to ever see or accept it.
+  const [showDepositRiskDisclosure, setShowDepositRiskDisclosure] =
+    useState(false);
 
   function onAmountKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     const allowed = [
@@ -73,6 +83,10 @@ export function VaultPanel() {
 
   async function handleDeposit() {
     if (!amount || !bestVault) return;
+    if (!hasAcceptedRiskDisclosure()) {
+      setShowDepositRiskDisclosure(true);
+      return;
+    }
     // Only a position actually held in bestVault carries a share price
     // relevant to this deposit: `position` above can fall back to a
     // different vault's entry, and a first-time depositor has none at all.
@@ -312,6 +326,16 @@ export function VaultPanel() {
             hasPosition={!!hasPosition}
             isWithdrawing={isWithdrawing}
             onSubmit={handleWithdraw}
+          />
+        )}
+        {showDepositRiskDisclosure && (
+          <RiskDisclosureModal
+            onAccept={() => {
+              setRiskDisclosureAccepted();
+              setShowDepositRiskDisclosure(false);
+              void handleDeposit();
+            }}
+            onCancel={() => setShowDepositRiskDisclosure(false)}
           />
         )}
       </div>

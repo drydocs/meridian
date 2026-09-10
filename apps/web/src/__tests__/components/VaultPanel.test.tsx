@@ -182,11 +182,9 @@ describe("VaultPanel — tab switcher", () => {
 
 describe("VaultPanel — deposit", () => {
   beforeEach(() => {
-    // A connected wallet has necessarily already been through the
-    // connect-time risk-disclosure gate (#720) — there is no path to
-    // "connected" without it. Deposit tests exercise the post-connect
-    // state, so the accepted flag is set up front here rather than in
-    // each test.
+    // Deposit tests exercise the state after the disclosure is already
+    // accepted; the case where it isn't (e.g. a wallet connected elsewhere,
+    // skipping the gate) is covered separately below.
     window.localStorage.setItem("meridian-risk-disclosure-accepted", "true");
   });
 
@@ -263,7 +261,7 @@ describe("VaultPanel — deposit", () => {
     });
   });
 
-  it("passes riskAcknowledged as false if the accepted flag is somehow absent at deposit time", async () => {
+  it("shows the risk disclosure instead of silently no-opping when the accepted flag is absent, then deposits once accepted", async () => {
     window.localStorage.clear();
     render(<VaultPanel />);
 
@@ -272,13 +270,19 @@ describe("VaultPanel — deposit", () => {
     });
     fireEvent.click(screen.getByTestId("vault-deposit-submit"));
 
+    expect(deposit).not.toHaveBeenCalled();
+    expect(screen.getByTestId("risk-disclosure")).toBeDefined();
+
+    fireEvent.click(screen.getByTestId("risk-disclosure-acknowledgement"));
+    fireEvent.click(screen.getByTestId("risk-disclosure-accept"));
+
     await waitFor(() => {
       expect(deposit).toHaveBeenCalledWith(
         "25",
         "meridian-usdc",
         "USDC",
         undefined,
-        false
+        true
       );
     });
   });
