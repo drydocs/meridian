@@ -39,10 +39,20 @@
   --vp-c-bg-elv: #0d1e35;
 }
 
-/* VPHero's own padding-top is set inline on a scoped selector, which
-   outranks a plain override here without !important. */
+/* VPHero's own padding-top and its .main/.image order are set on scoped
+   selectors, which outrank a plain override here without !important. */
 .VPHero {
   padding-top: calc(
-    var(--vp-nav-height) + var(--vp-layout-top-height, 0px) + 160px
+    var(--vp-nav-height) + var(--vp-layout-top-height, 0px) + 64px
   ) !important;
+}
+
+/* Below 960px, VPHero stacks .main after .image by default (order: 2 vs 1),
+   putting the hero image above the heading. Force heading-first at every
+   width instead; this matches the existing order at 960px and up. */
+.VPHero .main {
+  order: 1 !important;
+}
+.VPHero .image {
+  order: 2 !important;
 }
