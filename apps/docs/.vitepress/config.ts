@@ -13,12 +13,8 @@ export default defineConfig({
     ],
   ],
   themeConfig: {
-    // Meridian's own convergence mark (three arcs sharing one center — see
-    // /overview/brand-guidelines), not a borrowed protocol icon. VitePress's
-    // `logo` only accepts a path/src, not inline SVG markup (see
-    // vitepress/types/default-theme.d.ts's ThemeableImage) — an inline
-    // `{ svg: ... }` key is silently ignored, which is why this never
-    // actually rendered before.
+    // `logo` only accepts a path/src; an inline `{ svg: ... }` key is
+    // silently ignored (see vitepress/types/default-theme.d.ts).
     logo: "/logo-mark.svg",
     nav: [
       { text: "Overview", link: "/overview/introduction" },
