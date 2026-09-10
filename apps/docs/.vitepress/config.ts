@@ -14,10 +14,12 @@ export default defineConfig({
   ],
   themeConfig: {
     // Meridian's own convergence mark (three arcs sharing one center — see
-    // /overview/brand-guidelines), not a borrowed protocol icon.
-    logo: {
-      svg: '<svg viewBox="4 4 32 17" xmlns="http://www.w3.org/2000/svg" fill="none"><defs><linearGradient id="meridian-convergence-nav" x1="34" y1="20" x2="17" y2="17" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#10b981"/></linearGradient></defs><path d="M34 20 A14 14 0 0 0 6 20 A11 11 0 0 1 28 20 A8 8 0 0 0 12 20 A5 5 0 0 1 22 20" stroke="url(#meridian-convergence-nav)" stroke-width="2.25" stroke-linecap="butt"/><circle cx="17" cy="17.3" r="2.6" fill="url(#meridian-convergence-nav)"/></svg>',
-    },
+    // /overview/brand-guidelines), not a borrowed protocol icon. VitePress's
+    // `logo` only accepts a path/src, not inline SVG markup (see
+    // vitepress/types/default-theme.d.ts's ThemeableImage) — an inline
+    // `{ svg: ... }` key is silently ignored, which is why this never
+    // actually rendered before.
+    logo: "/logo-mark.svg",
     nav: [
       { text: "Overview", link: "/overview/introduction" },
       { text: "Architecture", link: "/architecture/monorepo" },
