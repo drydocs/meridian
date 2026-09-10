@@ -39,14 +39,11 @@ function Dashboard() {
 
   return (
     <div className="relative min-h-screen bg-[#070d19] text-white overflow-hidden">
-      {/* The convergence mark, enlarged and faint, behind all content.
-          Fixed and pointer-events-none so it never intercepts a click or
-          scrolls with the page. */}
       <svg
         aria-hidden="true"
         viewBox="4 4 32 17"
         fill="none"
-        className="pointer-events-none fixed -right-1/4 -top-1/4 z-0 w-[140vw] max-w-none opacity-[0.04] sm:w-[70vw]"
+        className="pointer-events-none fixed left-[6vw] top-1/2 z-0 h-[170vh] w-auto max-w-none -translate-y-1/2 opacity-[0.055]"
       >
         <defs>
           <linearGradient
