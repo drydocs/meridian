@@ -30,6 +30,6 @@
    outranks a plain override here without !important. */
 .VPHero {
   padding-top: calc(
-    var(--vp-nav-height) + var(--vp-layout-top-height, 0px) + 96px
+    var(--vp-nav-height) + var(--vp-layout-top-height, 0px) + 160px
   ) !important;
 }
