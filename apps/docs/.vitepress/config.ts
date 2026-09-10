@@ -82,10 +82,6 @@ export default defineConfig({
     socialLinks: [
       { icon: "github", link: "https://github.com/drydocs/meridian" },
     ],
-    footer: {
-      message: "Open source on Stellar.",
-      copyright: "MIT License",
-    },
     search: {
       provider: "local",
     },

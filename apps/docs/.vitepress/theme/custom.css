@@ -25,3 +25,11 @@
   --vp-button-brand-active-bg: #047857;
   --vp-button-brand-active-text: #ffffff;
 }
+
+/* VPHero's own padding-top is set inline on a scoped selector, which
+   outranks a plain override here without !important. */
+.VPHero {
+  padding-top: calc(
+    var(--vp-nav-height) + var(--vp-layout-top-height, 0px) + 96px
+  ) !important;
+}
