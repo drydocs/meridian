@@ -31,7 +31,7 @@ export function RiskDisclosureModal({
     >
       <section
         data-testid="risk-disclosure"
-        className="relative w-full max-w-md rounded-2xl border border-gray-800 bg-[#161b22] p-6 space-y-4 shadow-2xl shadow-black/60"
+        className="relative w-full max-w-md rounded-2xl border border-gray-800 bg-[#0d1e35] p-6 space-y-4 shadow-2xl shadow-black/60"
       >
         <button
           type="button"

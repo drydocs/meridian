@@ -129,7 +129,7 @@ export function VaultPanel() {
   }
 
   return (
-    <div className="rounded-2xl border border-gray-800 bg-[#161b22] overflow-hidden shadow-xl shadow-black/40">
+    <div className="rounded-2xl border border-gray-800 bg-[#0d1e35] overflow-hidden shadow-xl shadow-black/40">
       {/* Hero — identity + stats */}
       <div className="px-7 pt-7 pb-6">
         {/* Identity row */}

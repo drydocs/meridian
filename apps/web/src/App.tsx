@@ -38,8 +38,39 @@ function Dashboard() {
   }, [i18n]);
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-white">
-      <header className="sticky top-0 z-50 border-b border-gray-800 bg-[#0d1117]/95 backdrop-blur-sm pb-4">
+    <div className="relative min-h-screen bg-[#070d19] text-white overflow-hidden">
+      {/* The convergence mark, enlarged and faint, behind all content.
+          Fixed and pointer-events-none so it never intercepts a click or
+          scrolls with the page. */}
+      <svg
+        aria-hidden="true"
+        viewBox="4 4 32 17"
+        fill="none"
+        className="pointer-events-none fixed -right-1/4 -top-1/4 z-0 w-[140vw] max-w-none opacity-[0.04] sm:w-[70vw]"
+      >
+        <defs>
+          <linearGradient
+            id="app-bg-convergence"
+            x1="34"
+            y1="20"
+            x2="17"
+            y2="17"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0%" stopColor="#3b82f6" />
+            <stop offset="100%" stopColor="#10b981" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M34 20 A14 14 0 0 0 6 20 A11 11 0 0 1 28 20 A8 8 0 0 0 12 20 A5 5 0 0 1 22 20"
+          stroke="url(#app-bg-convergence)"
+          strokeWidth="2.25"
+          strokeLinecap="butt"
+        />
+        <circle cx="17" cy="17.3" r="2.6" fill="url(#app-bg-convergence)" />
+      </svg>
+
+      <header className="sticky top-0 z-50 border-b border-gray-800 bg-[#070d19]/95 backdrop-blur-sm pb-4">
         <div className="max-w-xl mx-auto px-6 h-20 flex items-end justify-between pb-4">
           <span className="font-extrabold text-lg tracking-tight text-white">
             {t("header.title")}
@@ -56,7 +87,7 @@ function Dashboard() {
         </div>
       </header>
 
-      <main className="max-w-xl mx-auto px-6 py-10">
+      <main className="relative z-10 max-w-xl mx-auto px-6 py-10">
         <ErrorBoundary>
           <VaultPanel />
         </ErrorBoundary>

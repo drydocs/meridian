@@ -153,7 +153,7 @@ export function WalletConnect() {
       {pickerOpen && (
         <div
           data-testid="wallet-picker-menu"
-          className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-gray-800 bg-[#161b22] shadow-xl shadow-black/40 overflow-hidden z-10"
+          className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-gray-800 bg-[#0d1e35] shadow-xl shadow-black/40 overflow-hidden z-10"
         >
           {WALLETS.map((w) => (
             <button

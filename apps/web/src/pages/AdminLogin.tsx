@@ -51,7 +51,7 @@ export function AdminLogin() {
 
   if (!connected) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
+      <div className="flex items-center justify-center min-h-screen bg-[#070d19]">
         {showRiskDisclosure && (
           <RiskDisclosureModal
             onAccept={acceptRiskDisclosure}
@@ -71,8 +71,8 @@ export function AdminLogin() {
 
   if (status === "blocked") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
-        <div className="rounded-xl border border-gray-800 bg-[#161b22] px-6 py-4 text-red-400 text-sm">
+      <div className="flex items-center justify-center min-h-screen bg-[#070d19]">
+        <div className="rounded-xl border border-gray-800 bg-[#0d1e35] px-6 py-4 text-red-400 text-sm">
           Not authorized: {publicKey}
         </div>
       </div>
@@ -81,14 +81,14 @@ export function AdminLogin() {
 
   if (status === "allowed") {
     return (
-      <div className="min-h-screen bg-[#0d1117] text-white">
+      <div className="min-h-screen bg-[#070d19] text-white">
         <AdminDashboard />
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-[#0d1117] text-gray-400">
+    <div className="flex items-center justify-center min-h-screen bg-[#070d19] text-gray-400">
       Loading...
     </div>
   );

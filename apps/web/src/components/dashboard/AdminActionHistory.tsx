@@ -70,7 +70,7 @@ export function AdminActionHistory({
   const actions = data?.actions ?? [];
 
   return (
-    <div className="rounded-2xl border border-gray-800 bg-[#161b22] overflow-hidden shadow-xl shadow-black/40">
+    <div className="rounded-2xl border border-gray-800 bg-[#0d1e35] overflow-hidden shadow-xl shadow-black/40">
       <div className="px-7 pt-7 pb-4">
         <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
           {t("adminHistory.title", "Admin Action History")}
@@ -118,7 +118,7 @@ export function AdminActionHistory({
               return (
                 <div
                   key={action.id}
-                  className="flex items-center gap-4 rounded-xl border border-gray-800 bg-[#0d1117] px-4 py-3 hover:border-gray-700 transition-colors duration-150"
+                  className="flex items-center gap-4 rounded-xl border border-gray-800 bg-[#070d19] px-4 py-3 hover:border-gray-700 transition-colors duration-150"
                 >
                   <span
                     className={`shrink-0 rounded-lg border px-2.5 py-1 text-xs font-semibold ${badge.className}`}

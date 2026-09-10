@@ -6,9 +6,17 @@ export default defineConfig({
     "Stablecoin yield aggregator on Stellar, built for emerging market savers.",
   base: "/docs/",
   vite: { server: { port: 3002 } },
+  head: [
+    [
+      "link",
+      { rel: "icon", type: "image/svg+xml", href: "/docs/logo-mark.svg" },
+    ],
+  ],
   themeConfig: {
+    // Meridian's own convergence mark (three arcs sharing one center — see
+    // /overview/brand-guidelines), not a borrowed protocol icon.
     logo: {
-      svg: '<svg viewBox="0 0 2000 2000" xmlns="http://www.w3.org/2000/svg"><path d="M1000 2000c554.17 0 1000-445.83 1000-1000S1554.17 0 1000 0 0 445.83 0 1000s445.83 1000 1000 1000z" fill="#2775ca"/><path d="M1275 1158.33c0-145.83-87.5-195.83-262.5-216.66-125-16.67-150-50-150-108.34s41.67-95.83 125-95.83c75 0 116.67 25 137.5 87.5 4.17 12.5 16.67 20.83 29.17 20.83h66.66c16.67 0 29.17-12.5 29.17-29.16v-4.17c-16.67-91.67-91.67-162.5-187.5-170.83v-100c0-16.67-12.5-29.17-33.33-33.34h-62.5c-16.67 0-29.17 12.5-33.34 33.34v95.83c-125 16.67-204.16 100-204.16 204.17 0 137.5 83.33 191.66 258.33 212.5 116.67 20.83 154.17 45.83 154.17 112.5s-58.34 112.5-137.5 112.5c-108.34 0-145.84-45.84-158.34-108.34-4.16-16.66-16.66-25-29.16-25h-70.84c-16.66 0-29.16 12.5-29.16 29.17v4.17c16.66 104.16 83.33 179.16 220.83 200v100c0 16.66 12.5 29.16 33.33 33.33h62.5c16.67 0 29.17-12.5 33.34-33.33v-100c125-20.84 208.33-108.34 208.33-220.84z" fill="#fff"/></svg>',
+      svg: '<svg viewBox="4 4 32 17" xmlns="http://www.w3.org/2000/svg" fill="none"><defs><linearGradient id="meridian-convergence-nav" x1="34" y1="20" x2="17" y2="17" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#10b981"/></linearGradient></defs><path d="M34 20 A14 14 0 0 0 6 20 A11 11 0 0 1 28 20 A8 8 0 0 0 12 20 A5 5 0 0 1 22 20" stroke="url(#meridian-convergence-nav)" stroke-width="2.25" stroke-linecap="butt"/><circle cx="17" cy="17.3" r="2.6" fill="url(#meridian-convergence-nav)"/></svg>',
     },
     nav: [
       { text: "Overview", link: "/overview/introduction" },
@@ -25,6 +33,7 @@ export default defineConfig({
           { text: "Why Meridian", link: "/overview/why-meridian" },
           { text: "How It Works", link: "/overview/how-it-works" },
           { text: "Trust Model", link: "/overview/trust-model" },
+          { text: "Brand Guidelines", link: "/overview/brand-guidelines" },
         ],
       },
       {
