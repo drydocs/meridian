@@ -2,7 +2,6 @@
 layout: home
 
 hero:
-  name: Meridian
   text: Stablecoin yield aggregator on Stellar
   tagline: Deposit USDC and earn the best available yield, automatically routed to whichever protocol is leading.
   actions:
