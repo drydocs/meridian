@@ -289,7 +289,8 @@ async function submitAccrualTransaction(
   config: BlendAccrualKeeperConfig,
   server: KeeperRpcServer,
   priorHash?: string,
-  hooks?: KeeperSubmissionHooks
+  hooks?: KeeperSubmissionHooks,
+  attempt = 0
 ): Promise<Omit<AccrualSuccess, "attempts" | "vaultId" | "adapterId">> {
   // The accrue and migration keepers act on the same vault's adapter with no
   // coordination between them: this keeper can read get_adapter() at
@@ -322,7 +323,8 @@ async function submitAccrualTransaction(
     },
     server,
     priorHash,
-    hooks
+    hooks,
+    attempt
   );
 }
 
@@ -499,7 +501,8 @@ export async function runBlendAccrualKeeper(
                 config,
                 server,
                 priorHash,
-                submissionHooks
+                submissionHooks,
+                attempt
               ).catch((err: unknown) => {
                 if (err instanceof SubmissionInFlightError) {
                   priorHash = err.sentHash;

@@ -766,7 +766,8 @@ async function submitMigrationTransaction(
   config: MigrationKeeperConfig,
   server: KeeperRpcServer,
   priorHash?: string,
-  hooks?: KeeperSubmissionHooks
+  hooks?: KeeperSubmissionHooks,
+  attempt = 0
 ): Promise<{ hash: string; ledger: number }> {
   // Only checked before building a brand-new transaction, never when
   // rechecking an already-sent one (priorHash set): a cheap, best-effort
@@ -799,7 +800,8 @@ async function submitMigrationTransaction(
     },
     server,
     priorHash,
-    hooks
+    hooks,
+    attempt
   );
 }
 
@@ -1174,7 +1176,8 @@ export async function runMigrationKeeper(
                 config,
                 server,
                 priorHash,
-                submissionHooks
+                submissionHooks,
+                attempt
               ).catch((err: unknown) => {
                 if (err instanceof SubmissionInFlightError) {
                   priorHash = err.sentHash;

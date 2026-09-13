@@ -11,7 +11,6 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { withRaceTimeout } from "@meridian/shared";
-import { BASE_FEE } from "./internal";
 import {
   describeSendError,
   simErrorMessage,
@@ -27,6 +26,26 @@ import { errorMessage } from "./keeper-retry";
 // from it: a record that expired sooner would clear while its transaction
 // could still be landing.
 export const TX_VALIDITY_WINDOW_MS = 300_000;
+
+// Starting classic inclusion fee for keeper-submitted transactions, in
+// stroops. Deliberately well above the network's absolute floor (100
+// stroops, `internal.ts`'s BASE_FEE, still fine for user-facing tx building
+// where a wallet can react to a rejection): an unattended keeper has no
+// human to bump a fee after the fact, so bidding at the literal minimum
+// produces real `txInsufficientFee` rejections during ordinary fee-market
+// congestion. Still economically negligible (0.001 XLM) for a bot with no
+// other reason to save stroops.
+export const KEEPER_BASE_FEE_STROOPS = 10_000;
+
+// Doubles per retry attempt (attempt 0 -> 1x, 1 -> 2x, 2 -> 4x, ...) so a
+// `txInsufficientFee` rejection (now classified transient, see
+// isTransientKeeperError below) has an actual chance of clearing on retry
+// instead of failing identically every time with the same losing bid.
+// Exported for direct unit testing rather than exercising it only through
+// the full build/sign/submit pipeline in submitKeeperOperation.
+export function keeperFeeForAttempt(attempt: number): string {
+  return String(KEEPER_BASE_FEE_STROOPS * 2 ** attempt);
+}
 
 // A real rpc.Server satisfies this directly (no cast needed); a narrower
 // Pick instead of the hand-written interface this used to be means the
@@ -102,6 +121,11 @@ export function isTransientKeeperError(err: unknown): boolean {
     message.includes("timed out") ||
     message.includes("rate limit") ||
     message.includes("temporarily") ||
+    // The network rejected the bid before the transaction ever entered the
+    // mempool, not a definitive on-chain outcome. Retrying with a higher fee
+    // (see submitKeeperOperation's per-attempt fee escalation) is the
+    // correct response, unlike most other rejections here.
+    message.includes("txinsufficientfee") ||
     TRANSIENT_STATUS_CODE.test(message)
   );
 }
@@ -253,6 +277,11 @@ export interface KeeperTxConfig {
 // confirmed on-chain failure). Callers must persist `priorHash` across their
 // own retry attempts (see accrual-keeper.ts and migration-keeper.ts), and
 // persist it across invocations through `hooks` (see keeper-state.ts).
+// `attempt` (0-indexed, matching withKeeperRetry's own callback) sets the
+// classic inclusion fee for a freshly-built transaction, escalating on each
+// retry so a `txInsufficientFee` rejection has a real chance of clearing
+// next time; irrelevant when `priorHash` is set, since that path only
+// rechecks an already-sent transaction and never rebuilds one.
 export async function submitKeeperOperation(
   contractId: string,
   method: string,
@@ -260,7 +289,8 @@ export async function submitKeeperOperation(
   config: KeeperTxConfig,
   server: KeeperRpcServer,
   priorHash?: string,
-  hooks?: KeeperSubmissionHooks
+  hooks?: KeeperSubmissionHooks,
+  attempt = 0
 ): Promise<{ hash: string; ledger: number }> {
   if (priorHash) {
     try {
@@ -286,7 +316,7 @@ export async function submitKeeperOperation(
   );
   const contract = new Contract(contractId);
   const tx = new TransactionBuilder(source, {
-    fee: BASE_FEE,
+    fee: keeperFeeForAttempt(attempt),
     networkPassphrase: config.network.passphrase,
   })
     .addOperation(contract.call(method, ...args))
