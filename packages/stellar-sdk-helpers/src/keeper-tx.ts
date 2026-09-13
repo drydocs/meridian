@@ -37,14 +37,17 @@ export const TX_VALIDITY_WINDOW_MS = 300_000;
 // other reason to save stroops.
 export const KEEPER_BASE_FEE_STROOPS = 10_000;
 
-// Doubles per retry attempt (attempt 0 -> 1x, 1 -> 2x, 2 -> 4x, ...) so a
+// Doubles per retry attempt (attempt 1 -> 1x, 2 -> 2x, 3 -> 4x, ...) so a
 // `txInsufficientFee` rejection (now classified transient, see
 // isTransientKeeperError below) has an actual chance of clearing on retry
 // instead of failing identically every time with the same losing bid.
-// Exported for direct unit testing rather than exercising it only through
-// the full build/sign/submit pipeline in submitKeeperOperation.
+// `attempt` is 1-indexed to match withKeeperRetry's own callback
+// (keeper-retry.ts converts withRetry's 0-indexed attempt to a 1-indexed
+// one before calling the caller's callback), not 0-indexed. Exported for
+// direct unit testing rather than exercising it only through the full
+// build/sign/submit pipeline in submitKeeperOperation.
 export function keeperFeeForAttempt(attempt: number): string {
-  return String(KEEPER_BASE_FEE_STROOPS * 2 ** attempt);
+  return String(KEEPER_BASE_FEE_STROOPS * 2 ** (attempt - 1));
 }
 
 // A real rpc.Server satisfies this directly (no cast needed); a narrower
@@ -277,11 +280,12 @@ export interface KeeperTxConfig {
 // confirmed on-chain failure). Callers must persist `priorHash` across their
 // own retry attempts (see accrual-keeper.ts and migration-keeper.ts), and
 // persist it across invocations through `hooks` (see keeper-state.ts).
-// `attempt` (0-indexed, matching withKeeperRetry's own callback) sets the
-// classic inclusion fee for a freshly-built transaction, escalating on each
-// retry so a `txInsufficientFee` rejection has a real chance of clearing
-// next time; irrelevant when `priorHash` is set, since that path only
-// rechecks an already-sent transaction and never rebuilds one.
+// `attempt` (1-indexed, matching withKeeperRetry's own callback, see
+// keeperFeeForAttempt above) sets the classic inclusion fee for a
+// freshly-built transaction, escalating on each retry so a
+// `txInsufficientFee` rejection has a real chance of clearing next time;
+// irrelevant when `priorHash` is set, since that path only rechecks an
+// already-sent transaction and never rebuilds one.
 export async function submitKeeperOperation(
   contractId: string,
   method: string,
@@ -290,7 +294,7 @@ export async function submitKeeperOperation(
   server: KeeperRpcServer,
   priorHash?: string,
   hooks?: KeeperSubmissionHooks,
-  attempt = 0
+  attempt = 1
 ): Promise<{ hash: string; ledger: number }> {
   if (priorHash) {
     try {

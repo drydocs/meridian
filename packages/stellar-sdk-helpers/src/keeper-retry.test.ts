@@ -151,6 +151,30 @@ describe("keeper-retry", () => {
       expect(fn).toHaveBeenCalledTimes(1);
     });
 
+    it("calls fn with a 1-indexed attempt number, not 0-indexed", async () => {
+      // Callers (accrual-keeper.ts, migration-keeper.ts) forward this value
+      // straight into submitKeeperOperation's fee escalation
+      // (keeperFeeForAttempt): if this ever silently became 0-indexed, every
+      // real submission would bid one fee-doubling step off from intended.
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("transient"))
+        .mockResolvedValueOnce("ok");
+
+      await withKeeperRetry(
+        fn,
+        { maxAttempts: 3, baseDelayMs: 10 },
+        mockLogger,
+        {},
+        mockSleep,
+        () => true,
+        "TEST"
+      );
+
+      expect(fn).toHaveBeenNthCalledWith(1, 1);
+      expect(fn).toHaveBeenNthCalledWith(2, 2);
+    });
+
     it("retries on transient failure and succeeds", async () => {
       const fn = vi
         .fn()

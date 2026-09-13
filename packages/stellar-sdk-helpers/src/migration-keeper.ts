@@ -767,7 +767,7 @@ async function submitMigrationTransaction(
   server: KeeperRpcServer,
   priorHash?: string,
   hooks?: KeeperSubmissionHooks,
-  attempt = 0
+  attempt = 1
 ): Promise<{ hash: string; ledger: number }> {
   // Only checked before building a brand-new transaction, never when
   // rechecking an already-sent one (priorHash set): a cheap, best-effort

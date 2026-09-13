@@ -104,9 +104,12 @@ describe("keeper-tx", () => {
     });
 
     it("keeperFeeForAttempt doubles per attempt starting from the keeper base fee", () => {
-      expect(keeperFeeForAttempt(0)).toBe(String(KEEPER_BASE_FEE_STROOPS));
-      expect(keeperFeeForAttempt(1)).toBe(String(KEEPER_BASE_FEE_STROOPS * 2));
-      expect(keeperFeeForAttempt(2)).toBe(String(KEEPER_BASE_FEE_STROOPS * 4));
+      // 1-indexed to match withKeeperRetry's own callback (keeper-retry.ts
+      // converts withRetry's 0-indexed attempt to 1-indexed before calling
+      // the caller's callback), not 0-indexed.
+      expect(keeperFeeForAttempt(1)).toBe(String(KEEPER_BASE_FEE_STROOPS));
+      expect(keeperFeeForAttempt(2)).toBe(String(KEEPER_BASE_FEE_STROOPS * 2));
+      expect(keeperFeeForAttempt(3)).toBe(String(KEEPER_BASE_FEE_STROOPS * 4));
     });
 
     it("keeperFeeForAttempt starts well above the network's absolute fee floor", () => {

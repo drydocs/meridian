@@ -290,7 +290,7 @@ async function submitAccrualTransaction(
   server: KeeperRpcServer,
   priorHash?: string,
   hooks?: KeeperSubmissionHooks,
-  attempt = 0
+  attempt = 1
 ): Promise<Omit<AccrualSuccess, "attempts" | "vaultId" | "adapterId">> {
   // The accrue and migration keepers act on the same vault's adapter with no
   // coordination between them: this keeper can read get_adapter() at
