@@ -37,17 +37,28 @@ export const TX_VALIDITY_WINDOW_MS = 300_000;
 // other reason to save stroops.
 export const KEEPER_BASE_FEE_STROOPS = 10_000;
 
-// Doubles per retry attempt (attempt 1 -> 1x, 2 -> 2x, 3 -> 4x, ...) so a
-// `txInsufficientFee` rejection (now classified transient, see
-// isTransientKeeperError below) has an actual chance of clearing on retry
-// instead of failing identically every time with the same losing bid.
-// `attempt` is 1-indexed to match withKeeperRetry's own callback
-// (keeper-retry.ts converts withRetry's 0-indexed attempt to a 1-indexed
-// one before calling the caller's callback), not 0-indexed. Exported for
-// direct unit testing rather than exercising it only through the full
-// build/sign/submit pipeline in submitKeeperOperation.
+// Ceiling on the escalated fee, in stroops (0.1 XLM). `maxAttempts` is only
+// validated as a positive integer (parsePositiveInt, keeper-retry.ts) with
+// no upper bound, so an operator raising it to ride out sustained
+// congestion (e.g. to 20) would otherwise make the doubling schedule below
+// bid billions of stroops with nothing to stop it. 0.1 XLM is already a
+// very high inclusion fee for Stellar; real congestion is not expected to
+// require bidding anywhere near this.
+const KEEPER_MAX_FEE_STROOPS = 1_000_000;
+
+// Doubles per retry attempt (attempt 1 -> 1x, 2 -> 2x, 3 -> 4x, ...), capped
+// at KEEPER_MAX_FEE_STROOPS, so a `txInsufficientFee` rejection (now
+// classified transient, see isTransientKeeperError below) has an actual
+// chance of clearing on retry instead of failing identically every time
+// with the same losing bid. `attempt` is 1-indexed to match
+// withKeeperRetry's own callback (keeper-retry.ts converts withRetry's
+// 0-indexed attempt to a 1-indexed one before calling the caller's
+// callback), not 0-indexed. Exported for direct unit testing rather than
+// exercising it only through the full build/sign/submit pipeline in
+// submitKeeperOperation.
 export function keeperFeeForAttempt(attempt: number): string {
-  return String(KEEPER_BASE_FEE_STROOPS * 2 ** (attempt - 1));
+  const fee = KEEPER_BASE_FEE_STROOPS * 2 ** (attempt - 1);
+  return String(Math.min(fee, KEEPER_MAX_FEE_STROOPS));
 }
 
 // A real rpc.Server satisfies this directly (no cast needed); a narrower

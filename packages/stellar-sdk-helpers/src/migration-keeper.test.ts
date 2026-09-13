@@ -1370,6 +1370,57 @@ describe("runMigrationKeeper", () => {
     ]);
   });
 
+  it("retries begin_migration with an escalating fee after a txInsufficientFee rejection", async () => {
+    // Regression test for a gap the fee-escalation fix initially missed:
+    // begin_migration is a direct submitKeeperOperation call, not routed
+    // through withKeeperRetry, so it must still retry with a bumped fee on
+    // this rejection like the main migrate_adapter submission does.
+    const server = makeServer({
+      sendTransaction: vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: "ERROR",
+          errorResult: {
+            result: () => ({ switch: () => ({ name: "txInsufficientFee" }) }),
+          },
+        })
+        .mockResolvedValueOnce({ hash: "HASH", status: "PENDING" }),
+    });
+    stellarMocks.getRpcServer.mockReturnValue(server);
+    stellarMocks.waitForTransaction.mockResolvedValue({ ledger: 321 });
+    stellarMocks.simulateView.mockImplementation(
+      async (_server, _contractId, _passphrase, method) => {
+        if (method === "get_migration_snapshot") {
+          throw new Error("MigrationNotInitialized");
+        }
+        return DISCOVERED_VAULT.currentAdapterId;
+      }
+    );
+    const rateSource = vi.fn(async ({ protocol }: { protocol: string }) =>
+      protocol === "blend" ? 500 : 700
+    );
+
+    const result = await runMigrationKeeper(CONFIG, {
+      logger: logger(),
+      discoverVaults: async () => ({
+        vaults: [DISCOVERED_VAULT],
+        failures: [],
+      }),
+      rateSource,
+      resolveCandidatePool: async () => "CDEFINDEXPOOL",
+      sleep: vi.fn(),
+    });
+
+    expect(server.sendTransaction).toHaveBeenCalledTimes(2);
+    expect(result.failures).toEqual([]);
+    expect(result.skipped).toMatchObject([
+      {
+        vaultId: "meridian-usdc",
+        reason: expect.stringContaining("begin_migration submitted"),
+      },
+    ]);
+  });
+
   it("reports a transient failure reading the migration snapshot instead of assuming none exists", async () => {
     // A timeout/rate-limit reading get_migration_snapshot must not be
     // treated the same as a genuine MigrationNotInitialized trap: doing so

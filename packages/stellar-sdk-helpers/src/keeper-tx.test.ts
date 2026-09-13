@@ -112,6 +112,14 @@ describe("keeper-tx", () => {
       expect(keeperFeeForAttempt(3)).toBe(String(KEEPER_BASE_FEE_STROOPS * 4));
     });
 
+    it("keeperFeeForAttempt caps the fee instead of growing unbounded at high attempt counts", () => {
+      // An operator raising maxAttempts to ride out sustained congestion
+      // (parsePositiveInt enforces no upper bound on it) must not turn the
+      // doubling schedule into an unbounded real-money bid.
+      expect(keeperFeeForAttempt(20)).toBe("1000000");
+      expect(keeperFeeForAttempt(30)).toBe("1000000");
+    });
+
     it("keeperFeeForAttempt starts well above the network's absolute fee floor", () => {
       // The whole point of this constant: 100 stroops (the network minimum)
       // is what produced the real txInsufficientFee rejections this fix

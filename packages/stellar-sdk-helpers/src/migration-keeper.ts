@@ -765,9 +765,13 @@ async function submitMigrationTransaction(
   maxSlippageBps: number,
   config: MigrationKeeperConfig,
   server: KeeperRpcServer,
-  priorHash?: string,
-  hooks?: KeeperSubmissionHooks,
-  attempt = 1
+  priorHash: string | undefined,
+  hooks: KeeperSubmissionHooks | undefined,
+  // Unexported, single call site (withKeeperRetry's callback below), which
+  // always passes this explicitly: required rather than defaulted so a
+  // future call site added without threading a real attempt through fails
+  // to compile instead of silently submitting at the base fee.
+  attempt: number
 ): Promise<{ hash: string; ledger: number }> {
   // Only checked before building a brand-new transaction, never when
   // rechecking an already-sent one (priorHash set): a cheap, best-effort
@@ -1115,18 +1119,50 @@ export async function runMigrationKeeper(
     // assertAdapterUnchanged inside submitMigrationTransaction only runs
     // on the real path.
     if (!hasMatchingSnapshot) {
+      // Routed through withKeeperRetry like the main migrate_adapter
+      // submission below, not a one-shot call: a txInsufficientFee
+      // rejection here needs the same escalating-fee retry, otherwise this
+      // path fails outright on the first underpriced bid and never
+      // benefits from keeperFeeForAttempt at all.
+      let beginMigrationPriorHash: string | undefined;
       try {
-        await submitKeeperOperation(
-          vault.vaultContractId,
-          "begin_migration",
-          [Address.fromString(best.adapterId).toScVal()],
+        const result = await withKeeperRetry(
+          (attempt) =>
+            submitKeeperOperation(
+              vault.vaultContractId,
+              "begin_migration",
+              [Address.fromString(best.adapterId).toScVal()],
+              {
+                network: config.network,
+                secretKey: config.secretKey,
+                rpcTimeoutMs: config.rpcTimeoutMs,
+                confirmationTimeoutMs: CONFIRMATION_TIMEOUT_MS,
+              },
+              server,
+              beginMigrationPriorHash,
+              submissionHooks,
+              attempt
+            ).catch((err: unknown) => {
+              if (err instanceof SubmissionInFlightError) {
+                beginMigrationPriorHash = err.sentHash;
+              }
+              throw err;
+            }),
           {
-            network: config.network,
-            secretKey: config.secretKey,
-            rpcTimeoutMs: config.rpcTimeoutMs,
-            confirmationTimeoutMs: CONFIRMATION_TIMEOUT_MS,
+            maxAttempts: config.maxAttempts,
+            baseDelayMs: config.baseDelayMs,
+            deadlineAt,
           },
-          server
+          logger,
+          {
+            vaultId: vault.vaultId,
+            adapterId: best.adapterId,
+            protocol: best.protocol,
+            stage: "begin_migration",
+          },
+          sleepFn,
+          isTransientKeeperError,
+          "migration-keeper"
         );
         logger.info(
           "[migration-keeper] begin_migration submitted; migrate_adapter deferred to a later run once the ledger-gap cooldown elapses",
@@ -1134,6 +1170,7 @@ export async function runMigrationKeeper(
             vaultId: vault.vaultId,
             toAdapterId: best.adapterId,
             toProtocol: best.protocol,
+            attempts: result.attempts,
           }
         );
         skipped.push({
@@ -1142,14 +1179,18 @@ export async function runMigrationKeeper(
             "begin_migration submitted; waiting for the ledger-gap cooldown before migrate_adapter",
         });
       } catch (err) {
+        const { attempts, transient } = retryOutcome(
+          err,
+          isTransientKeeperError
+        );
         failures.push({
           vaultId: vault.vaultId,
           vaultContractId: vault.vaultContractId,
           adapterId: best.adapterId,
           protocol: best.protocol,
           stage: "submit",
-          attempts: 1,
-          transient: isTransientKeeperError(err),
+          attempts,
+          transient,
           error: redactedErrorMessage(err),
         });
       }
