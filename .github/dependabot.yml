@@ -11,6 +11,17 @@ updates:
       prefix: "chore(deps)"
     labels:
       - dependencies
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
     ignore:
       - dependency-name: "@stellar/stellar-sdk"
         update-types: ["version-update:semver-major"]
