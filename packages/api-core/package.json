@@ -13,7 +13,7 @@
   "dependencies": {
     "@meridian/shared": "workspace:*",
     "@meridian/stellar-sdk-helpers": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "5.0.1",
