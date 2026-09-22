@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/web/public/brand/logo-mark.svg" alt="Meridian" width="96" />
+  <img src="apps/web/public/brand/logo-mark.svg" alt="Meridian" width="144" />
 </p>
 
 # Meridian
@@ -7,8 +7,6 @@
 **Stablecoin yield aggregator on Stellar, built for emerging market savers.**
 
 Meridian is a savings dashboard that surfaces live USDC yields across [Blend](https://blend.capital) and [DeFindex](https://defindex.io) on the Stellar network and builds the deposit transactions your own wallet signs. Its goal is to route deposits to the highest-yielding vault automatically. It targets users in West Africa and other emerging markets where dollar-denominated savings yield meaningful real returns compared to local currency alternatives.
-
-Submitted to the **Drips Stellar Wave Program**.
 
 ---
 
@@ -18,7 +16,7 @@ Meridian is **live on Stellar mainnet**. Real USDC deposits are routed through a
 
 **Working today**
 
-- Live on mainnet and testnet: real USDC deposits into the `MeridianVault` coordinator contract, forwarded to its active adapter (`BlendAdapter`) and supplied straight into a real Blend pool. You receive mUSDC shares representing the position, with no Meridian-controlled custody of the underlying funds.
+- Live on mainnet: real USDC deposits into the `MeridianVault` coordinator contract, forwarded to its active adapter (`BlendAdapter`) and supplied straight into a real Blend pool. You receive mUSDC shares representing the position, with no Meridian-controlled custody of the underlying funds.
 - Live APY / TVL feed across Stellar stablecoin pools (via DeFiLlama on mainnet; direct on-chain queries on testnet, since DeFiLlama doesn't index it) with a risk heuristic
 - Non-custodial signing flow: the API builds an unsigned Soroban XDR, and your wallet signs and submits it, so keys never leave the browser. Freighter, LOBSTR, and xBull are wired up in the wallet picker (Albedo has an implemented, tested adapter but isn't exposed in the picker yet).
 - Live TVL and per-address position reads directly from the vault (`get_total_assets`, `get_position`)
@@ -179,7 +177,7 @@ Issues are tagged `good first issue`, `medium`, and `hard`. Pick your level.
 
 ### Shipped: deposit, withdraw, and earn, on mainnet
 
-Non-custodial USDC deposits into the `MeridianVault` coordinator contract, live end-to-end for Blend via `BlendAdapter` on both testnet and Stellar mainnet. Wallet connects in one click (Freighter, LOBSTR, or xBull), the best-rate vault is selected automatically, and the signed transaction never leaves the browser. Live APY and TVL across protocols with risk-tier labelling. Withdraw at any time, no lock-up. DeFindex support is built (`DefindexAdapter`) but not yet wired to a live vault on either network.
+Non-custodial USDC deposits into the `MeridianVault` coordinator contract, live end-to-end for Blend via `BlendAdapter` on Stellar mainnet. Wallet connects in one click (Freighter, LOBSTR, or xBull), the best-rate vault is selected automatically, and the signed transaction never leaves the browser. Live APY and TVL across protocols with risk-tier labelling. Withdraw at any time, no lock-up. DeFindex support is built (`DefindexAdapter`) but not yet wired to a live vault on either network.
 
 ### Shipped: yield history and position analytics (partial)
 
