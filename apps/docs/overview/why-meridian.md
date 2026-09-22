@@ -26,7 +26,7 @@ Meridian solves this by separating the routing decision (off-chain, by the API r
 Meridian is built for users in West Africa and other emerging markets who:
 
 - Already hold USDC or are comfortable acquiring it through a local exchange
-- Have a Freighter wallet or are willing to set one up
+- Have a wallet or are willing to set one up
 - Want dollar-denominated yield without navigating multiple protocols themselves
 
 The UI is intentionally minimal. No charts to interpret, no liquidity pools to research. One number (APY), one action (deposit).
