@@ -15,6 +15,7 @@ import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
+import { DEFAULT_SLIPPAGE_BPS } from "@meridian/shared";
 
 function formatTvl(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -81,6 +82,8 @@ export function VaultPanel() {
   const hasPosition =
     position && Number.isFinite(position.deposited) && position.deposited > 0;
 
+  const slippageFactor = 1 - DEFAULT_SLIPPAGE_BPS / 10000;
+
   async function handleDeposit() {
     if (!amount || !bestVault) return;
     if (!hasAcceptedRiskDisclosure()) {
@@ -106,7 +109,7 @@ export function VaultPanel() {
             0,
             ((numAmount * bestVaultPosition.shares) /
               bestVaultPosition.deposited) *
-              0.995
+              slippageFactor
           ).toFixed(7)
         : undefined;
     const ok = await deposit(
@@ -127,7 +130,7 @@ export function VaultPanel() {
       position.shares > 0
         ? (numShares * position.deposited) / position.shares
         : numShares;
-    const minUsdcOut = Math.max(0, expectedUsdc * 0.995).toFixed(7);
+    const minUsdcOut = Math.max(0, expectedUsdc * slippageFactor).toFixed(7);
     const ok = await withdraw(
       amount,
       position.vaultId,

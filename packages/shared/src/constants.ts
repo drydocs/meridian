@@ -95,6 +95,8 @@ export const CONTRACT_ADDRESSES = {
   },
 } as const;
 
+export const DEFAULT_SLIPPAGE_BPS = 50;
+
 export const STELLAR_NETWORKS = {
   testnet: {
     network: "testnet" as const,
