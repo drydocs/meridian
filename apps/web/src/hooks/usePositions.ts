@@ -10,7 +10,7 @@ export function usePositions(publicKey: string | null) {
       return data.positions;
     },
     enabled: !!publicKey,
-    staleTime: 30_000,
+    staleTime: 30_000, // 30s: positions change on every deposit/withdraw
     retry: 1,
   });
 }
