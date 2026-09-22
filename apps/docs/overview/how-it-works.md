@@ -16,9 +16,9 @@ simulates transaction to get resource footprint and fee
 returns { xdr, fee }
        │
        ▼
-Frontend passes XDR to Freighter
+Frontend passes XDR to the wallet
 User reviews and approves (sees: contract, function, amount)
-Freighter returns signed XDR
+The wallet returns signed XDR
        │
        ▼
 Frontend POSTs { xdr } to POST /api/v1/tx/submit
@@ -35,7 +35,7 @@ the user's wallet (reverting if shares minted < min_shares_out)
 
 ## Withdraw flow
 
-Symmetric to deposit. The user specifies a share amount (mUSDC), the API builds a `vault.withdraw(caller, shares, min_usdc_out)` invocation, Freighter signs, and the vault redeems the proportional adapter position and returns USDC.
+Symmetric to deposit. The user specifies a share amount (mUSDC), the API builds a `vault.withdraw(caller, shares, min_usdc_out)` invocation, the wallet signs, and the vault redeems the proportional adapter position and returns USDC.
 
 `min_usdc_out` is a caller-supplied floor, not a fixed protocol parameter. The vault's adapter-share ratio is a shared, mutable value, so a concurrent withdrawal by another depositor can shift it between when the API quoted a payout and when this transaction lands. If the delivered amount would fall below the floor, the transaction reverts with a typed `MinAmountOutNotMet` error instead of silently paying out less than the user was shown.
 

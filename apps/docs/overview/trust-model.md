@@ -121,11 +121,12 @@ does: rotating the admin key via `transfer_admin`/`accept_admin`, or pausing
 deposits, before the cooldown elapses. See the
 "Rollback plan" section of
 [Mainnet Deployment](../operations/mainnet-deployment.md#rollback-plan) for
-what reacting in time actually involves, and the incident-response runbook
-tracked as **#721** (not yet written as of this page) for the operational
-playbook once it exists. This page describes what the contract enforces;
-#721 is where "what do we actually do right now" belongs, and duplicating
-that content here would only let the two drift out of sync.
+what reacting in time actually involves, and the incident-response
+runbook at
+[apps/docs/operations/incident-response.md](../operations/incident-response.md)
+for the operational playbook. This page describes what the contract
+enforces; the incident-response runbook covers what people do in
+response.
 
 **`set_adapter` and one-shot `set_paused` calls are not similarly bounded.**
 Unlike `migrate_adapter`, neither has a slippage cap or a timelock, because
@@ -143,7 +144,7 @@ ready to call `accept_admin` immediately. Detecting and reacting to a
 suspicious `transfer_admin` nomination before its matching `accept_admin`
 lands is the same race the migration timelock exists for, but without a
 compiled-in delay to widen the window. This is the highest-severity
-incident category #721 will need to cover.
+incident category the incident-response runbook will need to cover.
 
 ## See also
 
@@ -156,8 +157,8 @@ incident category #721 will need to cover.
   live deployment's actual parameter values, addresses, and go-live
   checklist status, including the two open items ("ADMIN key custody" and
   "security audit") this page's "Current status" section refers to.
-- **#721** (incident-response runbook, not yet written): the operational
+- [Incident response](../operations/incident-response.md): the operational
   playbook for what to actually do during a live incident (a suspected key
   compromise, a decision to pause, rotating a keeper secret). This page
-  documents what the contract _enforces_; #721 will document what
+  documents what the contract _enforces_; the runbook documents what
   _people_ do in response.

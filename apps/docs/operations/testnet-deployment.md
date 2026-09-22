@@ -272,8 +272,8 @@ The WASM itself was built in a Linux GitHub Actions job rather than locally, the
 
 With the contracts deployed and `known-pools.ts`/`constants.ts` updated:
 
-1. Open the app, connect Freighter (testnet mode).
+1. Open the app, connect your wallet (testnet mode).
 2. Enter a USDC amount and click **Deposit**.
-3. Freighter displays the transaction details; verify the contract address matches `VAULT_CONTRACT_ID`.
+3. Your wallet displays the transaction details; verify the contract address matches `VAULT_CONTRACT_ID`.
 4. Approve the transaction.
 5. After ~5 seconds, the position summary updates with your deposited amount.

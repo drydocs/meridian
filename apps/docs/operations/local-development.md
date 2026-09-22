@@ -110,8 +110,8 @@ cargo test --manifest-path blend-adapter/Cargo.toml
 
 See [Testnet Deployment](./testnet-deployment.md) for deploying the contracts to testnet, and [Vault Contract](../architecture/vault-contract.md) for how the vault and adapters fit together.
 
-## Freighter wallet
+## Wallet setup
 
-Install the [Freighter browser extension](https://freighter.app) and switch it to **Testnet** mode. Fund your testnet account using [Stellar Friendbot](https://friendbot.stellar.org/?addr=YOUR_ADDRESS).
+Install a Stellar wallet browser extension (for example, [Freighter](https://freighter.app)) and switch it to **Testnet** mode. Fund your testnet account using [Stellar Friendbot](https://friendbot.stellar.org/?addr=YOUR_ADDRESS).
 
 The local API server targets testnet because `.env.example` pins `STELLAR_NETWORK=testnet` explicitly, not because testnet is the fallback: mainnet is now the default when `STELLAR_NETWORK` is unset at all, since the product is live there. Copy `.env.example` to `.env` (see "Environment setup" above) rather than skipping it, an environment that never loads `.env` targets mainnet by default, not testnet.

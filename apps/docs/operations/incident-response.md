@@ -3,8 +3,7 @@
 This page is the operational playbook for a live mainnet incident: the code
 is fine, but something is actively going wrong (a suspected admin key
 compromise, a keeper misbehaving, deciding whether to pause). It covers
-three things that `apps/docs/overview/trust-model.md` (Trust Model, #726,
-not yet merged as of this writing) and
+three things that `apps/docs/overview/trust-model.md` (Trust Model) and
 [Mainnet Deployment](./mainnet-deployment.md#rollback-plan) both point here
 for instead of duplicating: `set_paused`, admin key rotation, and
 keeper-secret rotation.

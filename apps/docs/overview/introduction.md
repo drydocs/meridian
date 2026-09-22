@@ -4,7 +4,7 @@ Meridian is a stablecoin yield aggregator on the Stellar network. Users deposit 
 
 ## What it does
 
-1. A user connects their Freighter wallet and deposits USDC into the `MeridianVault` coordinator contract.
+1. A user connects their wallet and deposits USDC into the `MeridianVault` coordinator contract.
 2. The vault forwards the deposit to its currently active adapter contract, which deploys it to the underlying protocol (today, Blend Capital via `BlendAdapter`; DeFindex support exists as a `DefindexAdapter` contract but has no live testnet vault wired up yet).
 3. Meridian compares live APY across supported protocols to recommend which vault to deposit into, but which protocol a given vault's funds actually reach is on-chain state (the vault's active adapter, `vault.get_adapter()`), not a parameter chosen at signing time.
 4. The user receives mUSDC share tokens representing their position. Share price appreciates as yield accrues.
@@ -14,7 +14,7 @@ Which protocol a vault routes to can change after a deposit, without any action 
 
 ## What it does not do
 
-- Meridian never holds or controls private keys. The server builds an unsigned transaction and returns it to the browser; the user signs with Freighter.
+- Meridian never holds or controls private keys. The server builds an unsigned transaction and returns it to the browser; the user signs with their wallet.
 - Meridian does not custody funds in the traditional sense. The vault forwards deposited USDC to its active adapter, which deploys it directly to the underlying protocol (e.g. supplied as collateral in a Blend pool). mUSDC, the token representing the resulting position, is a custom SEP-41 token rather than a classic Stellar asset. See [Wallet and DEX compatibility](../architecture/vault-contract.md#transferable-shares) for what that trade-off means.
 - Meridian does not guarantee yield. APY figures are live estimates from on-chain data and DeFiLlama. Past rates do not predict future rates.
 
