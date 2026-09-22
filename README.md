@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/web/public/brand/logo-mark.svg" alt="Meridian" width="144" />
+  <img src="apps/web/public/brand/logo-mark.svg" alt="Meridian"/>
 </p>
 
 # Meridian
