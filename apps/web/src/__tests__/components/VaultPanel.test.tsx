@@ -318,6 +318,31 @@ describe("VaultPanel — withdraw", () => {
     expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
   });
 
+  it("withdraws from the recommended vault when another position is listed first", async () => {
+    mockPositions({
+      isError: false,
+      data: [
+        { ...POSITION, vaultId: "blend-usdc-fixed", shares: 10, deposited: 10 },
+        POSITION,
+      ],
+    });
+    render(<VaultPanel />);
+
+    fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByTestId("vault-withdraw-submit"));
+
+    await waitFor(() => {
+      expect(withdraw).toHaveBeenCalledWith(
+        "10",
+        "meridian-usdc",
+        "USDC",
+        "19.9000000"
+      );
+    });
+  });
   it("does not offer a withdraw from a different vault when the recommended vault has no position", () => {
     mockPositions({
       isError: false,

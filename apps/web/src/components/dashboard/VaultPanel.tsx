@@ -90,15 +90,12 @@ export function VaultPanel() {
       setShowDepositRiskDisclosure(true);
       return;
     }
-    // Only a position actually held in bestVault carries a share price
-    // relevant to this deposit: `position` above can fall back to a
-    // different vault's entry, and a first-time depositor has none at all.
-    // In both cases there's no reliable price to derive a floor from, so
-    // the deposit goes through with no slippage protection (min_shares_out
-    // omitted, which the contract treats as "0") rather than guessing a
-    // wrong floor that could revert every legitimate deposit with
-    // SlippageExceeded — a 1:1 fallback assumption is wrong the moment the
-    // vault has accrued any yield past inception.
+    // Only a position held in bestVault has a share price for this deposit.
+    // A first-time depositor has none. There is no reliable price to derive
+    // a floor from, so the deposit goes through with no slippage protection
+    // (min_shares_out omitted, which the contract treats as "0") rather than
+    // guessing a floor that could revert a legitimate deposit with
+    // SlippageExceeded.
     const bestVaultPosition = positions.find((p) => p.vaultId === bestVault.id);
     const numAmount = parseFloat(amount);
     const minSharesOut =
@@ -124,6 +121,7 @@ export function VaultPanel() {
 
   async function handleWithdraw() {
     if (!amount || !bestVault || !position) return;
+    if (position.vaultId !== bestVault.id) return;
     if (parseFloat(amount) > position.shares) return;
     const numShares = parseFloat(amount);
     const expectedUsdc =
@@ -133,7 +131,7 @@ export function VaultPanel() {
     const minUsdcOut = Math.max(0, expectedUsdc * slippageFactor).toFixed(7);
     const ok = await withdraw(
       amount,
-      position.vaultId,
+      bestVault.id,
       bestVault.asset,
       minUsdcOut
     );
