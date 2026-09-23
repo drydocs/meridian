@@ -289,6 +289,24 @@ describe("VaultPanel — deposit", () => {
 });
 
 describe("VaultPanel — withdraw", () => {
+  it.each([null, "unavailable-vault"])(
+    "does not fall back to a position when the recommendation is %s",
+    (recommendedVaultId) => {
+      vi.mocked(useVaults).mockReturnValue({
+        data: { vaults: [VAULT], recommendedVaultId },
+        isLoading: false,
+      } as ReturnType<typeof useVaults>);
+      mockPositions({ data: [POSITION] });
+      render(<VaultPanel />);
+
+      fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
+      expect(screen.queryByText("vaultPanel.yourPosition")).toBeNull();
+      expect(screen.getByText("vaultPanel.position")).toBeDefined();
+      expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
+      expect(withdraw).not.toHaveBeenCalled();
+    }
+  );
+
   it("shows the position and calls withdraw with the entered shares", async () => {
     mockPositions({ isError: false, data: [POSITION] });
     render(<VaultPanel />);

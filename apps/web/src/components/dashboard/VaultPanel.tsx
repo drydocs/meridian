@@ -78,7 +78,7 @@ export function VaultPanel() {
   // balance and the contract would revert.
   const position = bestVault
     ? positions.find((p) => p.vaultId === bestVault.id)
-    : positions[0];
+    : undefined;
   const hasPosition =
     position && Number.isFinite(position.deposited) && position.deposited > 0;
 
