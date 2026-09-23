@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@meridian/stellar-sdk-helpers", () => ({
+vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
+  ContractSimulationError: (
+    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
+  ).ContractSimulationError,
   buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
   buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
   buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
@@ -18,11 +21,39 @@ import {
   buildWithdrawTx,
   buildAddTrustlineTx,
   submitTx,
+  ContractSimulationError,
 } from "@meridian/stellar-sdk-helpers";
 
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
 beforeEach(() => vi.clearAllMocks());
+
+it.each([
+  ["deposit", handleDepositRequest, buildDepositTx],
+  ["withdraw", handleWithdrawRequest, buildWithdrawTx],
+] as const)(
+  "returns 400 for a known %s contract rejection",
+  async (_, handler, builder) => {
+    const err = new ContractSimulationError(
+      18,
+      "HostError: Error(Contract, #18)\nEvent log"
+    );
+    vi.mocked(builder).mockRejectedValueOnce(err);
+    const result = await handler({
+      walletAddress: PUBKEY,
+      vaultId: "meridian-usdc",
+      amount: "10",
+      shares: "5",
+      riskAcknowledged: true,
+    });
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({
+      error:
+        "Simulation failed: Slippage tolerance exceeded. Adjust slippage and retry.",
+    });
+    expect(result.error).toBe(err);
+  }
+);
 
 describe("handleDepositRequest", () => {
   it("returns 400 listing the missing fields", async () => {

@@ -12,6 +12,7 @@ import {
   buildWithdrawTx,
   buildAddTrustlineTx,
   submitTx,
+  ContractSimulationError,
 } from "@meridian/stellar-sdk-helpers";
 import type { RouteResult } from "./types";
 
@@ -35,7 +36,7 @@ export async function handleDepositRequest(
     return { status: 200, body: result };
   } catch (err) {
     return {
-      status: 500,
+      status: err instanceof ContractSimulationError ? 400 : 500,
       body: {
         error: sanitizeTxError(err, "Failed to build deposit transaction"),
       },
@@ -64,7 +65,7 @@ export async function handleWithdrawRequest(
     return { status: 200, body: result };
   } catch (err) {
     return {
-      status: 500,
+      status: err instanceof ContractSimulationError ? 400 : 500,
       body: {
         error: sanitizeTxError(err, "Failed to build withdraw transaction"),
       },

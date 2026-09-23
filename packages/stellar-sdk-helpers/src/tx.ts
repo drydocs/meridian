@@ -37,6 +37,17 @@ export class SorobanTimeoutError extends Error {
   }
 }
 
+/** A recognized contract rejection, distinct from an RPC/server failure. */
+export class ContractSimulationError extends Error {
+  constructor(
+    readonly code: number,
+    readonly cause: string
+  ) {
+    super(`Simulation failed: ${simErrorMessage(cause)}`);
+    this.name = "ContractSimulationError";
+  }
+}
+
 const withSorobanTimeout = <T>(
   fn: () => Promise<T>,
   ms = SOROBAN_RPC_TIMEOUT_MS
@@ -153,6 +164,10 @@ export async function prepareSorobanTx(
     .build();
   const sim = await withSorobanTimeout(() => server.simulateTransaction(tx));
   if (rpc.Api.isSimulationError(sim)) {
+    const code = leadingContractErrorCode(sim.error);
+    if (code !== undefined && VAULT_CONTRACT_ERROR_MESSAGES[code]) {
+      throw new ContractSimulationError(code, sim.error);
+    }
     const error = new Error(
       `Simulation failed: ${simErrorMessage(sim.error)}`
     ) as Error & { cause?: unknown };
@@ -270,27 +285,16 @@ export async function waitForTransaction(
 
 /**
  * User-facing copy for vault `ContractError` discriminants that do not
- * collide with another Meridian contract.
+ * collide with another Meridian contract or the Stellar Asset Contract.
  *
  * Source of truth: `packages/contracts/vault/src/errors.rs`.
- * Codes 1 and 2 mean "already initialized" and "not initialized" on the
- * vault, the adapters, and mUSDC. Codes 3–6 are reused with different
- * meanings (for example vault #3 is `DepositsPaused`, mUSDC #3 is
- * `NonPositiveAmount`), so those stay as the raw host line. Codes 7–24
- * exist only on the vault, including #18 `SlippageExceeded`.
+ * Codes 2–15 have conflicting meanings in the adapters, mUSDC, or the
+ * Stellar Asset Contract (e.g. #2 is adapter Overflow, #10 is SAC
+ * BalanceError). Without the originating contract, leave those codes raw.
+ * #1 and #16–24 do not conflict in these contracts; #18 is SlippageExceeded.
  */
 export const VAULT_CONTRACT_ERROR_MESSAGES: Record<number, string> = {
   1: "This contract is already initialized.",
-  2: "This contract has not been initialized yet.",
-  7: "You don't have enough shares for this withdrawal.",
-  8: "Withdrawal is too small to return any USDC.",
-  9: "This amount overflows the vault's accounting.",
-  10: "The adapter cannot be swapped while the vault still has a position.",
-  11: "Migration target is already the active adapter.",
-  12: "Migration moved value outside the allowed slippage.",
-  13: "The current adapter has no position to migrate.",
-  14: "Slippage setting is above the allowed maximum.",
-  15: "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
   16: "There is no pending admin transfer to accept.",
   17: "The adapter reported no assets while shares are still outstanding.",
   18: "Slippage tolerance exceeded. Adjust slippage and retry.",
