@@ -72,12 +72,12 @@ export function VaultPanel() {
   // Route to the server's recommendation: the highest-APY vault Meridian can
   // actually deposit into (excludes display-only protocols and risky pools).
   const bestVault = vaults?.find((v) => v.id === data?.recommendedVaultId);
-  // Prefer the position that matches the recommended vault so deposits and
-  // withdrawals target the same protocol. Fall back to positions[0] when no
-  // match exists (e.g. funds are in a legacy vault that is no longer recommended)
-  // so the balance remains visible and withdrawable.
+  // Deposits and withdrawals both target the recommended vault. A position
+  // in some other vault must not be shown or withdrawn here: its share price
+  // does not match bestVault, so the withdraw tab would display the wrong
+  // balance and the contract would revert.
   const position = bestVault
-    ? (positions.find((p) => p.vaultId === bestVault.id) ?? positions[0])
+    ? positions.find((p) => p.vaultId === bestVault.id)
     : positions[0];
   const hasPosition =
     position && Number.isFinite(position.deposited) && position.deposited > 0;

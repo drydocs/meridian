@@ -315,5 +315,19 @@ describe("VaultPanel — withdraw", () => {
 
     fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
     expect(screen.getByText("vaultPanel.position")).toBeDefined();
+    expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
+  });
+
+  it("does not offer a withdraw from a different vault when the recommended vault has no position", () => {
+    mockPositions({
+      isError: false,
+      data: [{ ...POSITION, vaultId: "blend-usdc-fixed" }],
+    });
+    render(<VaultPanel />);
+
+    fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
+    expect(screen.getByText("vaultPanel.position")).toBeDefined();
+    expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
+    expect(withdraw).not.toHaveBeenCalled();
   });
 });
