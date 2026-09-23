@@ -11,7 +11,7 @@ A GitHub Actions workflow (`.github/workflows/keepers.yml`) calls
 `POST /api/v1/keepers/accrue` every 15 minutes. Not Vercel Cron: the Hobby
 plan restricts Cron Jobs to once per day, which can't express a 15-minute
 interval, so scheduling lives in GitHub Actions instead, authenticating with
-the same `CRON_SECRET` bearer token Vercel Cron would have used. See #513.
+the same `CRON_SECRET` bearer token Vercel Cron would have used. See [#513](https://github.com/drydocs/meridian/issues/513).
 
 GitHub disables scheduled workflows after 60 days of repository inactivity
 (no pushes); an active repo keeps this running indefinitely, but a long-quiet
@@ -90,7 +90,7 @@ If a submitted `accrue()` transaction is still unconfirmed when a retry
 attempt times out, the keeper re-checks that same transaction hash instead of
 sending a new one, within a single run.
 
-That tracking also persists **across** invocations (#515). The submitted
+That tracking also persists **across** invocations ([#515](https://github.com/drydocs/meridian/issues/515)). The submitted
 hash is recorded in the shared store (Upstash Redis, keyed
 `meridian:keeper:accrual:<network>:<vaultId>:<adapterId>`) as soon as the
 transaction is broadcast, and every run resolves an existing record against

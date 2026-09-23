@@ -1,7 +1,7 @@
 # Admin-Event Alert Keeper
 
 The vault emits on-chain events for admin actions: `paused`, `transfer`,
-`accept`, `adapter`, and `migrate` (#698). Nothing consumed that feed until
+`accept`, `adapter`, and `migrate` ([#698](https://github.com/drydocs/meridian/issues/698)). Nothing consumed that feed until
 now, so an unexpected pause, an admin-key rotation, or an adapter migration
 would only be noticed by whoever happened to check the app. This keeper
 watches for those events and posts a webhook alert as soon as one lands.

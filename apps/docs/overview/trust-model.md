@@ -4,7 +4,7 @@ Meridian's vault holds real user USDC. This page states, in one place, what
 the `ADMIN` key can and cannot do, what happens if it's lost or compromised,
 and what that means for a depositor or an auditor evaluating custody risk.
 The goal is to save the reader from reconstructing it from `docs/contracts.md`,
-`SECURITY.md`, and scattered issue threads (#557 in
+`SECURITY.md`, and scattered issue threads ([#557](https://github.com/drydocs/meridian/issues/557) in
 particular). Nothing here is new policy: it's a consolidation of decisions
 already made and already implemented, with citations back to the source.
 
@@ -46,7 +46,7 @@ multisig account) _is_ the entire on-chain access-control model for all five:
   `packages/contracts/vault/src/storage.rs`,
   not admin-adjustable at call time. See the "Parameter selection" table
   in [Mainnet Deployment](../operations/mainnet-deployment.md#parameter-selection)
-  for their exact values, and #557, the incident that established both
+  for their exact values, and [#557](https://github.com/drydocs/meridian/issues/557), the incident that established both
   limits (previously: unbounded slippage, ~1-minute timelock).
 - **`transfer_admin(new_admin)` / `accept_admin()`**: a two-step handoff,
   in which the current admin nominates a successor, but authority only actually
