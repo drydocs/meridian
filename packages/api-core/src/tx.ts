@@ -36,7 +36,9 @@ export async function handleDepositRequest(
     return { status: 200, body: result };
   } catch (err) {
     return {
-      status: err instanceof ContractSimulationError ? 400 : 500,
+      // Only SlippageExceeded is client-correctable; adapter failures stay 5xx.
+      status:
+        err instanceof ContractSimulationError && err.code === 18 ? 400 : 500,
       body: {
         error: sanitizeTxError(err, "Failed to build deposit transaction"),
       },
@@ -65,7 +67,8 @@ export async function handleWithdrawRequest(
     return { status: 200, body: result };
   } catch (err) {
     return {
-      status: err instanceof ContractSimulationError ? 400 : 500,
+      status:
+        err instanceof ContractSimulationError && err.code === 18 ? 400 : 500,
       body: {
         error: sanitizeTxError(err, "Failed to build withdraw transaction"),
       },

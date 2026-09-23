@@ -28,32 +28,40 @@ const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
 beforeEach(() => vi.clearAllMocks());
 
-it.each([
+describe.each([
   ["deposit", handleDepositRequest, buildDepositTx],
   ["withdraw", handleWithdrawRequest, buildWithdrawTx],
-] as const)(
-  "returns 400 for a known %s contract rejection",
-  async (_, handler, builder) => {
-    const err = new ContractSimulationError(
-      18,
-      "HostError: Error(Contract, #18)\nEvent log"
-    );
-    vi.mocked(builder).mockRejectedValueOnce(err);
-    const result = await handler({
-      walletAddress: PUBKEY,
-      vaultId: "meridian-usdc",
-      amount: "10",
-      shares: "5",
-      riskAcknowledged: true,
-    });
-    expect(result.status).toBe(400);
-    expect(result.body).toEqual({
-      error:
-        "Simulation failed: Slippage tolerance exceeded. Adjust slippage and retry.",
-    });
-    expect(result.error).toBe(err);
-  }
-);
+] as const)("%s contract rejections", (_, handler, builder) => {
+  it.each([
+    [18, 400, "Slippage tolerance exceeded. Adjust slippage and retry."],
+    [
+      17,
+      500,
+      "The adapter reported no assets while shares are still outstanding.",
+    ],
+    [23, 500, "The adapter did not credit any shares for this deposit."],
+    [24, 500, "The vault hit a divide-by-zero in adapter accounting."],
+  ] as const)(
+    "returns %i as HTTP %i with a friendly message",
+    async (code, status, message) => {
+      const err = new ContractSimulationError(
+        code,
+        `HostError: Error(Contract, #${code})\nEvent log`
+      );
+      vi.mocked(builder).mockRejectedValueOnce(err);
+      const result = await handler({
+        walletAddress: PUBKEY,
+        vaultId: "meridian-usdc",
+        amount: "10",
+        shares: "5",
+        riskAcknowledged: true,
+      });
+      expect(result.status).toBe(status);
+      expect(result.body).toEqual({ error: `Simulation failed: ${message}` });
+      expect(result.error).toBe(err);
+    }
+  );
+});
 
 describe("handleDepositRequest", () => {
   it("returns 400 listing the missing fields", async () => {
