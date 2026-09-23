@@ -8,7 +8,7 @@ by hand. This keeper closes that gap: it periodically compares live rates
 across the protocols a vault's adapters can target, and calls
 `migrate_adapter` when a candidate clears a configured minimum improvement.
 
-See #469 for the full background, including why an earlier per-user
+See [#469](https://github.com/drydocs/meridian/issues/469) for the full background, including why an earlier per-user
 delegated-authorization design (`MeridianRouter`) was abandoned: Stellar's
 token contracts require the token holder's own signature for any transfer or
 burn, with no allowance/delegation primitive, so a keeper could never act on
@@ -20,9 +20,9 @@ consent, delegation, or signature is needed.
 
 ## Current status: fully built, not yet authorized to act on either network
 
-Rate comparison (below) is implemented (#511), and the live testnet vault was
+Rate comparison (below) is implemented ([#511](https://github.com/drydocs/meridian/issues/511)), and the live testnet vault was
 redeployed on 2026-09-06 with `migrate_adapter` present and confirmed callable
-(#514, closed). Every code and contract prerequisite this document describes
+([#514](https://github.com/drydocs/meridian/issues/514), closed). Every code and contract prerequisite this document describes
 is done. What's left on both networks is operational, not code:
 
 - **Testnet**: nothing has actually exercised a real end-to-end migration
@@ -58,7 +58,7 @@ protocol from what's actually available on-chain:
   each `RateQuery` from the vault's `KNOWN_POOLS` entry (`assetId`, see
   `known-pools.ts`), falling back to the network's USDC address for a vault
   without one, so a EURC pool prices its EURC reserve, not the USDC one
-  (#539).
+  ([#539](https://github.com/drydocs/meridian/issues/539)).
 - **DeFindex**: `DefindexAdapter` exposes `get_asset_amounts_per_shares()`, a
   live share-price snapshot with no rate of its own. Deriving a rate needs a
   second sample separated in time. `createDefindexRateSource` takes a fresh
@@ -89,7 +89,7 @@ A GitHub Actions workflow (`.github/workflows/keepers.yml`) calls
 `POST /api/v1/keepers/rebalance` hourly. Not Vercel Cron: the Hobby plan
 restricts Cron Jobs to once per day, which neither this nor the accrue
 keeper's 15-minute schedule could express, so scheduling lives in GitHub
-Actions instead (see #513 and `apps/docs/operations/accrual-keeper.md`).
+Actions instead (see [#513](https://github.com/drydocs/meridian/issues/513) and `apps/docs/operations/accrual-keeper.md`).
 Hourly, not every 15 minutes like the accrue keeper: a migration decision is
 not time-sensitive the way interest accrual staleness is, and unnecessary
 runs cost nothing while no candidate adapters are configured (or DeFindex
@@ -97,7 +97,7 @@ hasn't accumulated a second snapshot yet, see above), but there is no reason
 to poll faster than the decision needs.
 
 The schedule runs unconditionally, independent of whether the feature is
-actually ready (#514). If `MERIDIAN_MIGRATION_KEEPER_SECRET_KEY`
+actually ready ([#514](https://github.com/drydocs/meridian/issues/514)). If `MERIDIAN_MIGRATION_KEEPER_SECRET_KEY`
 isn't set, the endpoint returns `200 { status: "disabled" }` rather than
 throwing, so an intentionally-unfinished feature doesn't produce an hourly
 false alarm.
@@ -179,7 +179,7 @@ vault, so there's a real candidate to point `MERIDIAN_ADAPTER_DEFINDEX_ID`
 at once the other gaps above close. It is deliberately not wired into
 `packages/shared/src/constants.ts`: that file gates a required CI check
 (`.github/workflows/verify-contract-addresses.yml`) that verifies the vault
-address's on-chain bytecode against source, and #514 (the live vault predating
+address's on-chain bytecode against source, and [#514](https://github.com/drydocs/meridian/issues/514) (the live vault predating
 `migrate_adapter`) already fails it independent of this address, so adding it
 there would tie an inert, standalone adapter's config to an unrelated,
 already-broken check. Set the env var directly instead.
@@ -197,17 +197,17 @@ adapter either.
 to every discovered vault, not scoped per vault. The deployed
 `MeridianDefindexAdapter` above is only initialized against one specific
 vault; if a second Meridian vault is ever added to `KNOWN_POOLS`, this
-would need to become per-vault-scoped first (tracked on #511 alongside the
+would need to become per-vault-scoped first (tracked on [#511](https://github.com/drydocs/meridian/issues/511) alongside the
 rate source work, since both matter most once a second vault is likely).
 
 ## Two-Phase Migration (`begin_migration` / `migrate_adapter`)
 
 `migrate_adapter` requires an active `begin_migration` snapshot for the same
-target adapter, at least `MIN_LEDGER_GAP` ledgers old (~1 day as of #557;
+target adapter, at least `MIN_LEDGER_GAP` ledgers old (~1 day as of [#557](https://github.com/drydocs/meridian/issues/557);
 ~1 minute before it), before it will run. This closes a front-running
-window (issue #567): without it, an attacker could transiently inflate a
+window (issue [#567](https://github.com/drydocs/meridian/issues/567)): without it, an attacker could transiently inflate a
 candidate adapter's reported valuation right as a migration lands, then
-drain it once the funds arrive. The longer gap (#557) also turns this into
+drain it once the funds arrive. The longer gap ([#557](https://github.com/drydocs/meridian/issues/557)) also turns this into
 a genuine timelock: observers or automated monitoring get a real window to
 notice and react to a `begin_migration` call before funds can actually move.
 
@@ -238,11 +238,11 @@ chosen candidate:
    This was deliberately left as a generic `failures` entry while
    `MIN_LEDGER_GAP` was ~1 minute, since the cooldown had always long since
    elapsed by the run after `begin_migration` fired, making the distinction
-   moot in practice. Once #557 lengthened it to ~1 day, every hourly run
+   moot in practice. Once [#557](https://github.com/drydocs/meridian/issues/557) lengthened it to ~1 day, every hourly run
    during that window hit the same rejection and reported it as a
    `failures` entry, producing roughly a day's worth of false-positive
    failed runs (and paging, if wired to one) per migration before it could
-   proceed. Fixed in #725 by special-casing it the same way the
+   proceed. Fixed in [#725](https://github.com/drydocs/meridian/issues/725) by special-casing it the same way the
    stale-adapter race already was.
 
 A migration to a given candidate therefore now normally spans roughly a
