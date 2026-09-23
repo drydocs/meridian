@@ -11,7 +11,8 @@
     "walletDisconnected": "Portefeuille déconnecté",
     "walletConnected": "Portefeuille connecté",
     "chooseWallet": "Choisir un portefeuille",
-    "installed": "Installé"
+    "installed": "Installé",
+    "install": "Installer"
   },
 
   "vaultPanel": {
