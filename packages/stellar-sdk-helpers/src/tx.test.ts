@@ -72,6 +72,25 @@ describe("simErrorMessage", () => {
     expect(simErrorMessage(raw)).toBe("HostError: Error(Contract, #99)");
   });
 
+  it("does not relabel codes 3-6, which other contracts reuse", () => {
+    expect(simErrorMessage("HostError: Error(Contract, #3)")).toBe(
+      "HostError: Error(Contract, #3)"
+    );
+    expect(simErrorMessage("HostError: Error(Contract, #6)")).toBe(
+      "HostError: Error(Contract, #6)"
+    );
+  });
+
+  it("does not use a contract code buried under a different host error", () => {
+    const raw =
+      "HostError: Error(WasmVm, InvalidAction)\n" +
+      "Event log:\n" +
+      "topics:[error, Error(Contract, #18)]";
+    expect(simErrorMessage(raw)).toBe(
+      "HostError: Error(WasmVm, InvalidAction)"
+    );
+  });
+
   it("trims surrounding whitespace", () => {
     expect(simErrorMessage("  Error(WasmVm, InvalidAction)  ")).toBe(
       "Error(WasmVm, InvalidAction)"

@@ -269,20 +269,19 @@ export async function waitForTransaction(
 }
 
 /**
- * User-facing copy for vault `ContractError` discriminants.
- * Source of truth: `packages/contracts/vault/src/errors.rs`.
+ * User-facing copy for vault `ContractError` discriminants that do not
+ * collide with another Meridian contract.
  *
- * Codes 2–4 are also emitted by the Blend and DeFindex adapters with
- * different meanings. Deposit and withdraw simulations surface the vault
- * code, which is what this map describes.
+ * Source of truth: `packages/contracts/vault/src/errors.rs`.
+ * Codes 1 and 2 mean "already initialized" and "not initialized" on the
+ * vault, the adapters, and mUSDC. Codes 3–6 are reused with different
+ * meanings (for example vault #3 is `DepositsPaused`, mUSDC #3 is
+ * `NonPositiveAmount`), so those stay as the raw host line. Codes 7–24
+ * exist only on the vault, including #18 `SlippageExceeded`.
  */
 export const VAULT_CONTRACT_ERROR_MESSAGES: Record<number, string> = {
   1: "This contract is already initialized.",
   2: "This contract has not been initialized yet.",
-  3: "Deposits are paused. Try again later.",
-  4: "Amount must be greater than zero.",
-  5: "Deposit is too small to mint any shares.",
-  6: "This vault has no shares to withdraw.",
   7: "You don't have enough shares for this withdrawal.",
   8: "Withdrawal is too small to return any USDC.",
   9: "This amount overflows the vault's accounting.",
@@ -306,6 +305,22 @@ export const VAULT_CONTRACT_ERROR_MESSAGES: Record<number, string> = {
 const CONTRACT_ERROR_CODE = /Error\(\s*Contract\s*,\s*#(\d+)\s*\)/i;
 
 /**
+ * The host error is the first line. A wrapped `Error(Contract,` may spill
+ * onto the next line; contract codes later in the event log are not the
+ * failure.
+ */
+function leadingContractErrorCode(raw: string): number | undefined {
+  const lines = raw.split("\n");
+  const first = lines[0] ?? "";
+  const header = /Error\(\s*Contract\s*,?\s*$/i.test(first.trimEnd())
+    ? `${first} ${lines[1] ?? ""}`
+    : first;
+  const match = header.match(CONTRACT_ERROR_CODE);
+  if (!match?.[1]) return undefined;
+  return Number(match[1]);
+}
+
+/**
  * Extract a safe, one-line summary from a Soroban simulation error string.
  * The first line is usually just a terse error code (e.g. "Error(Contract,
  * #13)") with no actionable detail; the useful diagnostic text is buried
@@ -322,9 +337,9 @@ export function simErrorMessage(raw: string): string {
   const trustlineDetail = raw.match(/data:\["([^"]*trustline[^"]*)"/i)?.[1];
   if (trustlineDetail) return trustlineDetail;
 
-  const code = raw.match(CONTRACT_ERROR_CODE);
-  if (code) {
-    const message = VAULT_CONTRACT_ERROR_MESSAGES[Number(code[1])];
+  const code = leadingContractErrorCode(raw);
+  if (code !== undefined) {
+    const message = VAULT_CONTRACT_ERROR_MESSAGES[code];
     if (message) return message;
   }
 
