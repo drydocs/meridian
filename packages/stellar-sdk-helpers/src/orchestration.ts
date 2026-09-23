@@ -16,10 +16,14 @@ function resolveVaultEntry(vaultId: string, network: StellarNetwork) {
   const pools =
     network.network === "testnet" ? KNOWN_POOLS.testnet : KNOWN_POOLS.mainnet;
   const entry = Object.values(pools).find((p) => p.id === vaultId);
-  if (!entry?.contractId) {
-    throw new Error(
-      `Vault not configured: ${vaultId}. Add it to KNOWN_POOLS with a contractId.`
-    );
+  if (!entry) {
+    throw new Error(`Vault not found: ${vaultId}`);
+  }
+  if (entry.protocol !== "meridian") {
+    throw new Error("Only Meridian vaults supported");
+  }
+  if (!entry.contractId) {
+    throw new Error(`Vault not deployed: ${vaultId} has no contractId`);
   }
   return { ...entry, contractId: entry.contractId };
 }

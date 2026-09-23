@@ -105,7 +105,7 @@ describe("buildDepositTx", () => {
   it("throws for a vault not in KNOWN_POOLS", async () => {
     await expect(
       buildDepositTx("unknown-vault", WALLET, "10", network)
-    ).rejects.toThrow(/Vault not configured/);
+    ).rejects.toThrow(/Vault not found/);
   });
 });
 
@@ -134,7 +134,7 @@ describe("buildWithdrawTx", () => {
   it("throws for a vault not in KNOWN_POOLS", async () => {
     await expect(
       buildWithdrawTx("unknown-vault", WALLET, "5", network)
-    ).rejects.toThrow(/Vault not configured/);
+    ).rejects.toThrow(/Vault not found/);
   });
 });
 
