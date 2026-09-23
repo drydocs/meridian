@@ -15,6 +15,7 @@ import {
   resolveProtocol,
   waitForTransaction,
   simErrorMessage,
+  VAULT_CONTRACT_ERROR_MESSAGES,
   buildAddTrustlineTx,
   simulateView,
   assertFaucetPayment,
@@ -49,9 +50,26 @@ function steppingClock(stepMs: number) {
 }
 
 describe("simErrorMessage", () => {
-  it("returns just the first line of a multi-line diagnostic", () => {
+  it("maps a known vault contract code instead of the terse first line", () => {
     const raw = "HostError: Error(Contract, #1)\n  at [0]: ...\n  at [1]: ...";
-    expect(simErrorMessage(raw)).toBe("HostError: Error(Contract, #1)");
+    expect(simErrorMessage(raw)).toBe(VAULT_CONTRACT_ERROR_MESSAGES[1]);
+  });
+
+  it("maps SlippageExceeded (#18) to an actionable message", () => {
+    const raw = "Simulation failed: Error(Contract, #18)";
+    expect(simErrorMessage(raw)).toBe(
+      "Slippage tolerance exceeded. Adjust slippage and retry."
+    );
+  });
+
+  it("maps a contract code split across lines", () => {
+    const raw = "HostError: Error(Contract,\n #15)";
+    expect(simErrorMessage(raw)).toBe(VAULT_CONTRACT_ERROR_MESSAGES[15]);
+  });
+
+  it("keeps the first line when the contract code is not in the vault catalog", () => {
+    const raw = "HostError: Error(Contract, #99)\n  at [0]: ...";
+    expect(simErrorMessage(raw)).toBe("HostError: Error(Contract, #99)");
   });
 
   it("trims surrounding whitespace", () => {
@@ -188,7 +206,7 @@ describe("simulateView", () => {
 
     await expect(
       simulateView(server, CONTRACT_ID, PASSPHRASE, "failing_method")
-    ).rejects.toThrow("HostError: Error(Contract, #1)");
+    ).rejects.toThrow(VAULT_CONTRACT_ERROR_MESSAGES[1]);
   });
 });
 

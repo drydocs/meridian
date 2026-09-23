@@ -269,19 +269,65 @@ export async function waitForTransaction(
 }
 
 /**
+ * User-facing copy for vault `ContractError` discriminants.
+ * Source of truth: `packages/contracts/vault/src/errors.rs`.
+ *
+ * Codes 2–4 are also emitted by the Blend and DeFindex adapters with
+ * different meanings. Deposit and withdraw simulations surface the vault
+ * code, which is what this map describes.
+ */
+export const VAULT_CONTRACT_ERROR_MESSAGES: Record<number, string> = {
+  1: "This contract is already initialized.",
+  2: "This contract has not been initialized yet.",
+  3: "Deposits are paused. Try again later.",
+  4: "Amount must be greater than zero.",
+  5: "Deposit is too small to mint any shares.",
+  6: "This vault has no shares to withdraw.",
+  7: "You don't have enough shares for this withdrawal.",
+  8: "Withdrawal is too small to return any USDC.",
+  9: "This amount overflows the vault's accounting.",
+  10: "The adapter cannot be swapped while the vault still has a position.",
+  11: "Migration target is already the active adapter.",
+  12: "Migration moved value outside the allowed slippage.",
+  13: "The current adapter has no position to migrate.",
+  14: "Slippage setting is above the allowed maximum.",
+  15: "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
+  16: "There is no pending admin transfer to accept.",
+  17: "The adapter reported no assets while shares are still outstanding.",
+  18: "Slippage tolerance exceeded. Adjust slippage and retry.",
+  19: "Start a migration before calling migrate.",
+  20: "The migration cooldown has not elapsed yet.",
+  21: "The migration target's value moved outside the allowed slippage.",
+  22: "The migration target reported an invalid asset balance.",
+  23: "The adapter did not credit any shares for this deposit.",
+  24: "The vault hit a divide-by-zero in adapter accounting.",
+};
+
+const CONTRACT_ERROR_CODE = /Error\(\s*Contract\s*,\s*#(\d+)\s*\)/i;
+
+/**
  * Extract a safe, one-line summary from a Soroban simulation error string.
  * The first line is usually just a terse error code (e.g. "Error(Contract,
  * #13)") with no actionable detail; the useful diagnostic text is buried
  * several lines down in the event log. When that log names a missing
  * trustline, surface that specific message instead so callers like
  * useVaultActions' isMissingTrustline() can detect it and prompt the user to
- * add the trustline rather than showing an opaque failure. Otherwise falls
- * back to the first line. Returns a generic fallback when the string is
- * empty.
+ * add the trustline rather than showing an opaque failure. A known vault
+ * `Error(Contract, #N)` becomes the matching user-facing string (for example
+ * #18 is "Slippage tolerance exceeded. Adjust slippage and retry."). Unknown
+ * codes and non-contract errors fall back to the first line. Returns a
+ * generic fallback when the string is empty.
  */
 export function simErrorMessage(raw: string): string {
   const trustlineDetail = raw.match(/data:\["([^"]*trustline[^"]*)"/i)?.[1];
   if (trustlineDetail) return trustlineDetail;
+
+  const code = raw.match(CONTRACT_ERROR_CODE);
+  if (code) {
+    const message = VAULT_CONTRACT_ERROR_MESSAGES[Number(code[1])];
+    if (message) return message;
+  }
+
   return raw.split("\n")[0]?.trim() || "Simulation failed (no detail)";
 }
 

@@ -174,6 +174,15 @@ describe("keeper-tx", () => {
       expect(
         isMigrationCooldownError(new Error(MIGRATION_COOLDOWN_ERROR_TEXT))
       ).toBe(true);
+      // simulateTransaction rewrites the host error through simErrorMessage
+      // before it is thrown, so the cooldown skip must still match.
+      expect(
+        isMigrationCooldownError(
+          new Error(
+            `Simulation failed: ${txModule.simErrorMessage("HostError: Error(Contract, #20)")}`
+          )
+        )
+      ).toBe(true);
       // A different contract error code must not false-positive as a
       // cooldown rejection.
       expect(
