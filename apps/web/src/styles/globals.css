@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Brand tokens: Night and Deep (apps/docs/overview/brand-guidelines.md).
+   Mirrored in apps/landing/index.html and
+   apps/docs/.vitepress/theme/custom.css. */
+@theme {
+  --color-night: #070d19;
+  --color-deep: #0d1e35;
+}
+
 /* The oversized fixed-position watermark in App.tsx isn't clipped by an
    ancestor's overflow-hidden, so it needs this instead. */
 html,

@@ -38,7 +38,7 @@ function Dashboard() {
   }, [i18n]);
 
   return (
-    <div className="relative min-h-screen bg-[#070d19] text-white overflow-hidden">
+    <div className="relative min-h-screen bg-night text-white overflow-hidden">
       <svg
         aria-hidden="true"
         viewBox="4 4 32 17"
@@ -67,7 +67,7 @@ function Dashboard() {
         <circle cx="17" cy="17.3" r="2.6" fill="url(#app-bg-convergence)" />
       </svg>
 
-      <header className="sticky top-0 z-50 border-b border-gray-800 bg-[#070d19]/95 backdrop-blur-sm pb-4">
+      <header className="sticky top-0 z-50 border-b border-gray-800 bg-night/95 backdrop-blur-sm pb-4">
         <div className="max-w-xl mx-auto px-6 h-20 flex items-end justify-between pb-4">
           <span className="font-extrabold text-lg tracking-tight text-white">
             {t("header.title")}
