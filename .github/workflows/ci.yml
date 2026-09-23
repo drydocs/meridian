@@ -7,6 +7,60 @@ on:
     branches: [main, develop]
 
 jobs:
+  # Decides which of the expensive jobs below a push actually needs.
+  # Job-level `paths` doesn't exist in Actions, and a workflow-level filter
+  # would also skip lint-typecheck and vercel-build. Skipped jobs report as
+  # successful, so required checks don't block docs-only PRs.
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      test: ${{ steps.filter.outputs.test }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+      contracts: ${{ steps.filter.outputs.contracts }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            workspace: &workspace
+              - package.json
+              - pnpm-lock.yaml
+              - pnpm-workspace.yaml
+              - turbo.json
+              - tsconfig.json
+              - .github/workflows/ci.yml
+            test:
+              - *workspace
+              - "api/**"
+              - "apps/web/**"
+              - "apps/api-local/**"
+              - "packages/shared/**"
+              - "packages/stellar-sdk-helpers/**"
+              - "packages/api-core/**"
+              - "!**/*.md"
+            e2e:
+              - *workspace
+              - "api/**"
+              - "apps/web/**"
+              - "apps/api-local/**"
+              - "packages/shared/**"
+              - "packages/stellar-sdk-helpers/**"
+              - "packages/api-core/**"
+              - "!**/*.md"
+            contracts:
+              - .github/workflows/ci.yml
+              - "packages/contracts/**"
+              - "scripts/deploy-*.sh"
+              - "scripts/redeploy-*.sh"
+              - "scripts/lib/**"
+              - "!**/*.md"
+
   lint-typecheck:
     name: Lint & Typecheck
     runs-on: ubuntu-latest
@@ -53,6 +107,8 @@ jobs:
 
   test:
     name: Test
+    needs: changes
+    if: needs.changes.outputs.test == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -107,6 +163,8 @@ jobs:
 
   e2e:
     name: E2E Tests
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     # Drives the real dev stack against real Stellar testnet RPC (wallet
     # signing is mocked, see apps/web/e2e/fixtures.ts), so it exercises
@@ -139,6 +197,8 @@ jobs:
 
   contracts:
     name: Soroban Contract Tests
+    needs: changes
+    if: needs.changes.outputs.contracts == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
