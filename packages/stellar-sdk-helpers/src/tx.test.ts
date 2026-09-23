@@ -64,6 +64,12 @@ describe("simErrorMessage", () => {
     );
   });
 
+  it("maps MinAmountOutNotMet (#15) to actionable withdrawal guidance", () => {
+    expect(simErrorMessage("HostError: Error(Contract, #15)")).toBe(
+      "Withdrawal returned less USDC than your minimum. Adjust slippage and retry."
+    );
+  });
+
   it("maps a contract code split across lines", () => {
     const raw = "HostError: Error(Contract,\n #18)";
     expect(simErrorMessage(raw)).toBe(VAULT_CONTRACT_ERROR_MESSAGES[18]);
@@ -74,7 +80,7 @@ describe("simErrorMessage", () => {
     expect(simErrorMessage(raw)).toBe("HostError: Error(Contract, #99)");
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])(
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])(
     "does not relabel ambiguous contract code #%i",
     (code) => {
       const raw = `HostError: Error(Contract, #${code})`;
@@ -119,6 +125,7 @@ describe("prepareSorobanTx contract errors", () => {
 
   it.each([
     ["HostError: Error(Contract, #18)", true],
+    ["HostError: Error(Contract, #15)", true],
     ["HostError: Error(Contract, #2)", false],
     ["HostError: Error(Contract, #10)", false],
     ["HostError: Error(Contract, #99)", false],

@@ -31,9 +31,18 @@ beforeEach(() => vi.clearAllMocks());
 describe.each([
   ["deposit", handleDepositRequest, buildDepositTx],
   ["withdraw", handleWithdrawRequest, buildWithdrawTx],
-] as const)("%s contract rejections", (_, handler, builder) => {
+] as const)("%s contract rejections", (action, handler, builder) => {
   it.each([
-    [18, 400, "Slippage tolerance exceeded. Adjust slippage and retry."],
+    [
+      18,
+      action === "deposit" ? 400 : 500,
+      "Slippage tolerance exceeded. Adjust slippage and retry.",
+    ],
+    [
+      15,
+      action === "withdraw" ? 400 : 500,
+      "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
+    ],
     [
       17,
       500,

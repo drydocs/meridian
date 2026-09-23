@@ -68,7 +68,7 @@ export async function handleWithdrawRequest(
   } catch (err) {
     return {
       status:
-        err instanceof ContractSimulationError && err.code === 18 ? 400 : 500,
+        err instanceof ContractSimulationError && err.code === 15 ? 400 : 500,
       body: {
         error: sanitizeTxError(err, "Failed to build withdraw transaction"),
       },

@@ -284,17 +284,15 @@ export async function waitForTransaction(
 }
 
 /**
- * User-facing copy for vault `ContractError` discriminants that do not
- * collide with another Meridian contract or the Stellar Asset Contract.
- *
- * Source of truth: `packages/contracts/vault/src/errors.rs`.
- * Codes 2–15 have conflicting meanings in the adapters, mUSDC, or the
- * Stellar Asset Contract (e.g. #2 is adapter Overflow, #10 is SAC
- * BalanceError). Without the originating contract, leave those codes raw.
- * #1 and #16–24 do not conflict in these contracts; #18 is SlippageExceeded.
+ * User-facing copy for recognized vault ContractError discriminants.
+ * Source of truth: packages/contracts/vault/src/errors.rs.
+ * Codes 2–14 overlap adapter, mUSDC, or Stellar Asset Contract failures
+ * reachable during vault operations, so leave them raw. Vault withdrawal
+ * slippage uses #15 MinAmountOutNotMet; deposit slippage uses #18.
  */
 export const VAULT_CONTRACT_ERROR_MESSAGES: Record<number, string> = {
   1: "This contract is already initialized.",
+  15: "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
   16: "There is no pending admin transfer to accept.",
   17: "The adapter reported no assets while shares are still outstanding.",
   18: "Slippage tolerance exceeded. Adjust slippage and retry.",
