@@ -4,10 +4,9 @@ import {
   getSelectedWalletId,
   getWalletAdapter,
   setSelectedWalletId,
-  hasAcceptedRiskDisclosure,
-  setRiskDisclosureAccepted,
   type WalletId,
 } from "../lib/wallet";
+import { useRiskDisclosure } from "./useRiskDisclosure";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "react-i18next";
 
@@ -35,12 +34,11 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
   // trigger a connect (#720): there is more than one such call site
   // (WalletConnect.tsx's own button, VaultPanel.tsx's inline connect
   // prompt), and gating only one of them would let the other silently skip
-  // the disclosure entirely. undefined means "the default/selected
-  // wallet," matching what an omitted handleConnect argument already means.
-  const [showRiskDisclosure, setShowRiskDisclosure] = useState(false);
-  const [walletIdToConnect, setWalletIdToConnect] = useState<
-    WalletId | undefined
-  >(undefined);
+  // the disclosure entirely. The show/accept/cancel state itself comes
+  // from the shared useRiskDisclosure hook (#814), which VaultPanel's
+  // deposit gate uses too; the requested wallet id is captured in the
+  // gated callback instead of a separate walletIdToConnect state.
+  const riskDisclosure = useRiskDisclosure();
 
   async function connectNow(walletId: WalletId) {
     setAttemptedWalletId(walletId);
@@ -81,30 +79,21 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
   // before this gate existed: it resolves once connectNow finishes, or
   // immediately if only the risk prompt was shown.
   async function handleConnect(walletId: WalletId = getSelectedWalletId()) {
-    if (skipRiskDisclosure || hasAcceptedRiskDisclosure()) {
+    if (skipRiskDisclosure) {
       await connectNow(walletId);
       return;
     }
-    setWalletIdToConnect(walletId);
-    setShowRiskDisclosure(true);
+    await riskDisclosure.requireAcceptance(() => connectNow(walletId));
   }
 
-  async function acceptRiskDisclosure() {
-    setRiskDisclosureAccepted();
-    setShowRiskDisclosure(false);
-    await connectNow(walletIdToConnect ?? getSelectedWalletId());
-  }
-
-  function cancelRiskDisclosure() {
-    setShowRiskDisclosure(false);
-  }
-
+  // Same return shape as before #814, so WalletConnect, VaultPanel and
+  // AdminLogin keep consuming these names unchanged.
   return {
     handleConnect,
     status,
     attemptedWalletId,
-    showRiskDisclosure,
-    acceptRiskDisclosure,
-    cancelRiskDisclosure,
+    showRiskDisclosure: riskDisclosure.show,
+    acceptRiskDisclosure: riskDisclosure.accept,
+    cancelRiskDisclosure: riskDisclosure.cancel,
   };
 }
