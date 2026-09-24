@@ -97,6 +97,11 @@ export const CONTRACT_ADDRESSES = {
 
 export const DEFAULT_SLIPPAGE_BPS = 50;
 
+/** Hard ceiling on admin `migrate_adapter` slippage (bps), mirroring
+ * `MAX_ADMIN_SLIPPAGE_BPS` in packages/contracts/vault/src/storage.rs.
+ * Deposit/withdraw UI floors use this so frontend tolerance matches the contract. */
+export const MAX_ADMIN_SLIPPAGE_BPS = 500;
+
 export const STELLAR_NETWORKS = {
   testnet: {
     network: "testnet" as const,
