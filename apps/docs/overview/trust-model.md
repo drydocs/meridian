@@ -58,6 +58,23 @@ That's the complete list. `deposit`, `withdraw`, `accrue` (the yield-accrual
 keeper call), and every read-only getter require no special authority beyond
 the caller's own signature where a signature is required at all.
 
+## Performance-fee treasury
+
+Each vault deployment fixes a dedicated `TREASURY` address in its constructor.
+On a profitable withdrawal the vault charges 10% of the positive gain above
+the withdrawing account's `Principal`, keeps that fee invested through the
+active adapter, and mints the corresponding backed mUSDC shares to the
+treasury. Principal, losses, and deposits are not charged.
+
+Neither `ADMIN` nor the treasury can change the 10% rate or replace the
+treasury address: the rate is compiled into the vault WASM, the address has no
+setter, and the contract has no upgrade entry point. Changing either requires
+a fresh vault deployment and coordinated cutover. The treasury controls the
+fee shares it receives and can transfer or redeem them like any other mUSDC
+holder. Promotional waivers are therefore operational rebates paid by the
+treasury after the normal on-chain charge, not an admin-controlled bypass in
+the vault.
+
 ## What the admin key structurally cannot do
 
 - **There is no upgrade entry point, for the admin or anyone else.** See
