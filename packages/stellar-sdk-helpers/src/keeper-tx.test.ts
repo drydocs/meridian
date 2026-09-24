@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   assertAdapterUnchanged,
+  DEFAULT_FEE_ESCALATION,
   expectString,
   isDefinitiveOnChainFailure,
   isMigrationCooldownError,
@@ -8,6 +9,7 @@ import {
   isTransientKeeperError,
   keeperFeeForAttempt,
   KEEPER_BASE_FEE_STROOPS,
+  KEEPER_MAX_FEE_STROOPS,
   MIGRATION_COOLDOWN_ERROR_TEXT,
   rawErrorText,
   StaleAdapterError,
@@ -16,6 +18,7 @@ import {
   SubmissionInFlightError,
   submitKeeperOperation,
   TX_VALIDITY_WINDOW_MS,
+  type FeeEscalationConfig,
 } from "./keeper-tx";
 import * as txModule from "./tx";
 
@@ -103,21 +106,65 @@ describe("keeper-tx", () => {
       expect(isTransientKeeperError(new Error("Timed Out waiting"))).toBe(true);
     });
 
-    it("keeperFeeForAttempt doubles per attempt starting from the keeper base fee", () => {
-      // 1-indexed to match withKeeperRetry's own callback (keeper-retry.ts
-      // converts withRetry's 0-indexed attempt to 1-indexed before calling
-      // the caller's callback), not 0-indexed.
-      expect(keeperFeeForAttempt(1)).toBe(String(KEEPER_BASE_FEE_STROOPS));
-      expect(keeperFeeForAttempt(2)).toBe(String(KEEPER_BASE_FEE_STROOPS * 2));
-      expect(keeperFeeForAttempt(3)).toBe(String(KEEPER_BASE_FEE_STROOPS * 4));
+    it("keeperFeeForAttempt doubles per attempt starting from the base fee (0-indexed)", () => {
+      // attempt 0 is the first try: baseFee * multiplier^0 = baseFee
+      // attempt 1 is the first retry: baseFee * multiplier^1 = 2*baseFee
+      // attempt 2 is the second retry: baseFee * multiplier^2 = 4*baseFee
+      expect(keeperFeeForAttempt(0, KEEPER_BASE_FEE_STROOPS)).toBe(
+        KEEPER_BASE_FEE_STROOPS
+      );
+      expect(keeperFeeForAttempt(1, KEEPER_BASE_FEE_STROOPS)).toBe(
+        KEEPER_BASE_FEE_STROOPS * 2
+      );
+      expect(keeperFeeForAttempt(2, KEEPER_BASE_FEE_STROOPS)).toBe(
+        KEEPER_BASE_FEE_STROOPS * 4
+      );
+    });
+
+    it("keeperFeeForAttempt accepts a custom base fee", () => {
+      expect(keeperFeeForAttempt(0, 5000)).toBe(5000);
+      expect(keeperFeeForAttempt(1, 5000)).toBe(10000);
+      expect(keeperFeeForAttempt(2, 5000)).toBe(20000);
     });
 
     it("keeperFeeForAttempt caps the fee instead of growing unbounded at high attempt counts", () => {
       // An operator raising maxAttempts to ride out sustained congestion
       // (parsePositiveInt enforces no upper bound on it) must not turn the
       // doubling schedule into an unbounded real-money bid.
-      expect(keeperFeeForAttempt(20)).toBe("1000000");
-      expect(keeperFeeForAttempt(30)).toBe("1000000");
+      expect(keeperFeeForAttempt(20, KEEPER_BASE_FEE_STROOPS)).toBe(
+        KEEPER_MAX_FEE_STROOPS
+      );
+      expect(keeperFeeForAttempt(30, KEEPER_BASE_FEE_STROOPS)).toBe(
+        KEEPER_MAX_FEE_STROOPS
+      );
+    });
+
+    it("keeperFeeForAttempt respects a custom maxFee via FeeEscalationConfig", () => {
+      const customMax = 80000;
+      expect(keeperFeeForAttempt(0, 10000, { maxFee: customMax })).toBe(10000);
+      expect(keeperFeeForAttempt(3, 10000, { maxFee: customMax })).toBe(80000);
+      expect(keeperFeeForAttempt(4, 10000, { maxFee: customMax })).toBe(80000);
+    });
+
+    it("keeperFeeForAttempt respects a custom multiplier via FeeEscalationConfig", () => {
+      expect(keeperFeeForAttempt(0, 1000, { multiplier: 3 })).toBe(1000);
+      expect(keeperFeeForAttempt(1, 1000, { multiplier: 3 })).toBe(3000);
+      expect(keeperFeeForAttempt(2, 1000, { multiplier: 3 })).toBe(9000);
+    });
+
+    it("keeperFeeForAttempt uses DEFAULT_FEE_ESCALATION defaults when config is omitted", () => {
+      expect(DEFAULT_FEE_ESCALATION.maxFee).toBe(KEEPER_MAX_FEE_STROOPS);
+      expect(DEFAULT_FEE_ESCALATION.multiplier).toBe(2);
+    });
+
+    it("KEEPER_MAX_FEE_STROOPS is exported and matches the default cap", () => {
+      expect(KEEPER_MAX_FEE_STROOPS).toBe(1_000_000);
+    });
+
+    it("FeeEscalationConfig type is exported", () => {
+      const config: FeeEscalationConfig = { maxFee: 50000, multiplier: 2 };
+      expect(config.maxFee).toBe(50000);
+      expect(config.multiplier).toBe(2);
     });
 
     it("keeperFeeForAttempt starts well above the network's absolute fee floor", () => {

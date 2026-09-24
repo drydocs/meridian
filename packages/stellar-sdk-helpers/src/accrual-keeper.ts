@@ -243,16 +243,18 @@ export async function discoverLiveAdapters(
             protocol,
           };
         },
-        retryConfig,
-        logger,
         {
-          vaultId: meta.id,
-          vaultContractId,
-          stage: "discover",
-        },
-        sleepFn,
-        isTransientKeeperError,
-        "accrual-keeper"
+          ...retryConfig,
+          logger,
+          context: {
+            vaultId: meta.id,
+            vaultContractId,
+            stage: "discover",
+          },
+          sleepFn,
+          isTransient: isTransientKeeperError,
+          logPrefix: "accrual-keeper",
+        }
       );
     })
   );
@@ -517,16 +519,16 @@ export async function runBlendAccrualKeeper(
           maxAttempts: config.maxAttempts,
           baseDelayMs: config.baseDelayMs,
           deadlineAt,
-        },
-        logger,
-        {
-          vaultId: adapter.vaultId,
-          adapterId: adapter.adapterId,
-          protocol: adapter.protocol,
-        },
-        sleepFn,
-        isTransientKeeperError,
-        "accrual-keeper"
+          logger,
+          context: {
+            vaultId: adapter.vaultId,
+            adapterId: adapter.adapterId,
+            protocol: adapter.protocol,
+          },
+          sleepFn,
+          isTransient: isTransientKeeperError,
+          logPrefix: "accrual-keeper",
+        }
       );
       successes.push({
         vaultId: adapter.vaultId,
