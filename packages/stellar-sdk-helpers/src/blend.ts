@@ -150,3 +150,160 @@ export async function fetchBlendPositions(
   }
   return positions;
 }
+
+// ---------------------------------------------------------------------------
+// Blend adapter client (@meridian SDK surface for issue #805)
+// ---------------------------------------------------------------------------
+
+export interface BlendTx {
+  /** Base64 transaction XDR ready for wallet signing. */
+  xdr: string;
+  fee: string;
+}
+
+export interface BlendPoolInfo {
+  poolId: string;
+  backstopRate: number;
+  reserveCount: number;
+  reserves: string[];
+}
+
+export interface BlendUserPosition {
+  account: string;
+  poolId: string;
+  collateral: Record<string, number>;
+  liabilities: Record<string, number>;
+  supply: Record<string, number>;
+}
+
+export interface BlendAdapterConfig extends BlendPoolConfig {}
+
+/**
+ * High-level Blend Capital adapter used by Meridian callers.
+ * Builds unsigned Soroban transactions for supply / borrow / repay / withdraw
+ * and reads pool + health data over RPC.
+ */
+export class BlendAdapterClient {
+  constructor(private readonly config: BlendAdapterConfig) {}
+
+  /** Supply (as collateral) `amount` of the configured reserve asset. */
+  supply(asset: string, amount: bigint, account: string): Promise<BlendTx> {
+    return buildPoolRequestTx(
+      { ...this.config, assetId: asset || this.config.assetId },
+      account,
+      RequestType.SupplyCollateral,
+      amount
+    );
+  }
+
+  /**
+   * Borrow `amount` of `asset` against the caller's collateral position.
+   * `collateral` is accepted for API completeness; Blend V2 borrow uses the
+   * pool's existing collateral balances for `account`.
+   */
+  borrow(
+    asset: string,
+    amount: bigint,
+    account: string,
+    _collateral: string
+  ): Promise<BlendTx> {
+    return buildPoolRequestTx(
+      { ...this.config, assetId: asset || this.config.assetId },
+      account,
+      RequestType.Borrow,
+      amount
+    );
+  }
+
+  /** Repay `amount` of borrowed `asset`. */
+  repay(asset: string, amount: bigint, account: string): Promise<BlendTx> {
+    return buildPoolRequestTx(
+      { ...this.config, assetId: asset || this.config.assetId },
+      account,
+      RequestType.Repay,
+      amount
+    );
+  }
+
+  /** Withdraw supplied collateral of `asset`. */
+  withdraw(asset: string, amount: bigint, account: string): Promise<BlendTx> {
+    return buildPoolRequestTx(
+      { ...this.config, assetId: asset || this.config.assetId },
+      account,
+      RequestType.WithdrawCollateral,
+      amount
+    );
+  }
+
+  /**
+   * Approximate Blend health factor as collateral / borrowed (float units).
+   * Returns `Number.POSITIVE_INFINITY` when there is no borrow.
+   */
+  async getHealthFactor(
+    account: string,
+    collateralAsset: string,
+    borrowedAsset: string
+  ): Promise<number> {
+    const pool = await withRetry(() =>
+      withBlendTimeout(() =>
+        PoolV2.load(
+          { rpc: this.config.network.rpcUrl, passphrase: this.config.network.passphrase },
+          this.config.poolId
+        )
+      )
+    );
+    const user = await withRetry(() => withBlendTimeout(() => pool.loadUser(account)));
+    const collRes = pool.reserves.get(collateralAsset);
+    const borrowRes = pool.reserves.get(borrowedAsset);
+    const collateral = collRes ? user.getCollateralFloat(collRes) : 0;
+    const borrowed = borrowRes ? user.getLiabilitiesFloat(borrowRes) : 0;
+    if (borrowed <= 0) return Number.POSITIVE_INFINITY;
+    return collateral / borrowed;
+  }
+
+  async getPoolInfo(poolId: string = this.config.poolId): Promise<BlendPoolInfo> {
+    const pool = await withRetry(() =>
+      withBlendTimeout(() =>
+        PoolV2.load(
+          { rpc: this.config.network.rpcUrl, passphrase: this.config.network.passphrase },
+          poolId
+        )
+      )
+    );
+    const reserves = [...pool.reserves.keys()];
+    return {
+      poolId,
+      backstopRate: Number((pool as { config?: { backstopRate?: number } }).config?.backstopRate ?? 0),
+      reserveCount: reserves.length,
+      reserves,
+    };
+  }
+
+  async getUserPosition(
+    account: string,
+    poolId: string = this.config.poolId
+  ): Promise<BlendUserPosition> {
+    const pool = await withRetry(() =>
+      withBlendTimeout(() =>
+        PoolV2.load(
+          { rpc: this.config.network.rpcUrl, passphrase: this.config.network.passphrase },
+          poolId
+        )
+      )
+    );
+    const user = await withRetry(() => withBlendTimeout(() => pool.loadUser(account)));
+    const collateral: Record<string, number> = {};
+    const liabilities: Record<string, number> = {};
+    const supply: Record<string, number> = {};
+    for (const [assetId, reserve] of pool.reserves.entries()) {
+      const c = user.getCollateralFloat(reserve);
+      const l = user.getLiabilitiesFloat(reserve);
+      const s = user.getSupplyFloat(reserve);
+      if (c > 0) collateral[assetId] = c;
+      if (l > 0) liabilities[assetId] = l;
+      if (s > 0) supply[assetId] = s;
+    }
+    return { account, poolId, collateral, liabilities, supply };
+  }
+}
+

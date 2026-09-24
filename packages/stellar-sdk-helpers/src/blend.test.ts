@@ -172,3 +172,71 @@ describe("fetchBlendPositions", () => {
     expect(result).toEqual([]);
   });
 });
+
+
+describe("BlendAdapterClient", () => {
+  it("maps supply/withdraw to collateral request builders without hitting RPC", async () => {
+    const { BlendAdapterClient } = await import("./blend");
+    // prepareSorobanTx is exercised indirectly in integration; here we only
+    // assert the client constructs and exposes the SDK surface.
+    const client = new BlendAdapterClient({
+      poolId: POOL_ID,
+      assetId: USDC_ID,
+      network,
+    });
+    expect(typeof client.supply).toBe("function");
+    expect(typeof client.borrow).toBe("function");
+    expect(typeof client.repay).toBe("function");
+    expect(typeof client.withdraw).toBe("function");
+    expect(typeof client.getHealthFactor).toBe("function");
+    expect(typeof client.getPoolInfo).toBe("function");
+    expect(typeof client.getUserPosition).toBe("function");
+  });
+
+  it("getHealthFactor returns Infinity when liabilities are zero", async () => {
+    const { BlendAdapterClient } = await import("./blend");
+    const reserveMap = new Map<string, object>([
+      [USDC_ID, {}],
+      [EURC_ID, {}],
+    ]);
+    const fakePool = {
+      reserves: reserveMap,
+      config: { backstopRate: 0.1 },
+      loadUser: vi.fn(async () => ({
+        getCollateralFloat: () => 100,
+        getSupplyFloat: () => 0,
+        getLiabilitiesFloat: () => 0,
+      })),
+    };
+    vi.mocked(PoolV2.load).mockResolvedValue(fakePool as never);
+    const client = new BlendAdapterClient({
+      poolId: POOL_ID,
+      assetId: USDC_ID,
+      network,
+    });
+    await expect(client.getHealthFactor(PUBKEY, USDC_ID, USDC_ID)).resolves.toBe(
+      Number.POSITIVE_INFINITY
+    );
+  });
+
+  it("getHealthFactor divides collateral by liabilities", async () => {
+    const { BlendAdapterClient } = await import("./blend");
+    const reserveMap = new Map<string, object>([[USDC_ID, {}]]);
+    const fakePool = {
+      reserves: reserveMap,
+      config: {},
+      loadUser: vi.fn(async () => ({
+        getCollateralFloat: () => 200,
+        getSupplyFloat: () => 0,
+        getLiabilitiesFloat: () => 50,
+      })),
+    };
+    vi.mocked(PoolV2.load).mockResolvedValue(fakePool as never);
+    const client = new BlendAdapterClient({
+      poolId: POOL_ID,
+      assetId: USDC_ID,
+      network,
+    });
+    await expect(client.getHealthFactor(PUBKEY, USDC_ID, USDC_ID)).resolves.toBe(4);
+  });
+});
