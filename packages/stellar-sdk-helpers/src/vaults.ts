@@ -8,6 +8,7 @@ import { KNOWN_POOLS } from "./known-pools";
 import { APP_NETWORK, withRaceTimeout } from "@meridian/shared";
 import { simulateView } from "./tx";
 import { getRpcServer, toBigInt } from "./internal";
+import { getCachedVaults, setCachedVaults } from "./vault-cache";
 
 export interface ApiVault {
   id: string;
@@ -21,9 +22,9 @@ export interface ApiVault {
   riskLevel: RiskLevel;
 }
 
-// TTL matches the CDN s-maxage on the vaults endpoint (60 s). Both the Fastify
-// server (long-lived process) and warm Vercel invocations benefit from this
-// without adding any external dependency.
+// TTL matches the CDN s-maxage on the vaults endpoint (60 s). The in-process
+// cache covers warm invocations; `vault-cache.ts` mirrors the same TTL in
+// Upstash so cold starts share results across serverless instances.
 const CACHE_TTL_MS = 60_000;
 let vaultCache: { vaults: ApiVault[]; expiresAt: number } | null = null;
 
@@ -159,7 +160,15 @@ export async function fetchAllVaults(
   if (network === "testnet") return fetchTestnetVaults();
 
   const now = Date.now();
+  // L1: warm in-process cache (same Lambda instance).
   if (vaultCache && now < vaultCache.expiresAt) return vaultCache.vaults;
+
+  // L2: shared Upstash cache — survives cold starts across invocations (#811).
+  const shared = await getCachedVaults(network);
+  if (shared && shared.length > 0) {
+    vaultCache = { vaults: shared, expiresAt: now + CACHE_TTL_MS };
+    return shared;
+  }
 
   const pools = await getStellarStablecoinPools();
 
@@ -187,6 +196,8 @@ export async function fetchAllVaults(
 
   if (vaults.length > 0) {
     vaultCache = { vaults, expiresAt: now + CACHE_TTL_MS };
+    // Best-effort shared write; failures must not block the response.
+    await setCachedVaults(network, vaults);
     return vaults;
   }
 
