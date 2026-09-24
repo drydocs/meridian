@@ -17,7 +17,10 @@ vi.mock("../_lib/middleware.js", async () => {
 // Stub the workspace builders/readers — these tests exercise the HTTP handler
 // contract (method guards, field validation, status codes, payload shape), not
 // the Soroban transaction building, which is unit-tested in the helpers package.
-vi.mock("@meridian/stellar-sdk-helpers", () => ({
+vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
+  ContractSimulationError: (
+    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
+  ).ContractSimulationError,
   redactedErrorMessage: vi.fn((err: unknown) => {
     if (!(err instanceof Error)) return "Keeper operation failed";
     const first = err.message.split("\n")[0]?.trim();

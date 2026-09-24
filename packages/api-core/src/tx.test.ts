@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@meridian/stellar-sdk-helpers", () => ({
+vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
+  ContractSimulationError: (
+    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
+  ).ContractSimulationError,
   buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
   buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
   buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
@@ -18,11 +21,56 @@ import {
   buildWithdrawTx,
   buildAddTrustlineTx,
   submitTx,
+  ContractSimulationError,
 } from "@meridian/stellar-sdk-helpers";
 
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
 beforeEach(() => vi.clearAllMocks());
+
+describe.each([
+  ["deposit", handleDepositRequest, buildDepositTx],
+  ["withdraw", handleWithdrawRequest, buildWithdrawTx],
+] as const)("%s contract rejections", (action, handler, builder) => {
+  it.each([
+    [
+      18,
+      action === "deposit" ? 400 : 500,
+      "Slippage tolerance exceeded. Adjust slippage and retry.",
+    ],
+    [
+      15,
+      action === "withdraw" ? 400 : 500,
+      "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
+    ],
+    [
+      17,
+      500,
+      "The adapter reported no assets while shares are still outstanding.",
+    ],
+    [23, 500, "The adapter did not credit any shares for this deposit."],
+    [24, 500, "The vault hit a divide-by-zero in adapter accounting."],
+  ] as const)(
+    "returns %i as HTTP %i with a friendly message",
+    async (code, status, message) => {
+      const err = new ContractSimulationError(
+        code,
+        `HostError: Error(Contract, #${code})\nEvent log`
+      );
+      vi.mocked(builder).mockRejectedValueOnce(err);
+      const result = await handler({
+        walletAddress: PUBKEY,
+        vaultId: "meridian-usdc",
+        amount: "10",
+        shares: "5",
+        riskAcknowledged: true,
+      });
+      expect(result.status).toBe(status);
+      expect(result.body).toEqual({ error: `Simulation failed: ${message}` });
+      expect(result.error).toBe(err);
+    }
+  );
+});
 
 describe("handleDepositRequest", () => {
   it("returns 400 listing the missing fields", async () => {

@@ -5,7 +5,10 @@ import { positionsRoute } from "../routes/positions.js";
 import { txRoute } from "../routes/tx.js";
 import { vaultsRoute } from "../routes/vaults.js";
 
-vi.mock("@meridian/stellar-sdk-helpers", () => ({
+vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
+  ContractSimulationError: (
+    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
+  ).ContractSimulationError,
   resolvePositions: vi.fn(),
   buildDepositTx: vi.fn(),
   buildWithdrawTx: vi.fn(),

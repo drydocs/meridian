@@ -28,7 +28,7 @@
     "amount": "Montant",
     "balance": "Solde",
     "max": "Max",
-    "position": "Vous n'avez aucune position active à retirer.",
+    "position": "Aucune position dans ce coffre.",
     "waiting": "En attente de signature...",
     "positionsError": "Impossible de charger votre position. Les dépôts et retraits fonctionnent toujours."
   },

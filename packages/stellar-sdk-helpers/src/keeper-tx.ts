@@ -209,8 +209,18 @@ export function isStaleAdapterError(err: unknown): boolean {
 // consecutive runs per migration (#725).
 export const MIGRATION_COOLDOWN_ERROR_TEXT = "Error(Contract, #20)";
 
+// Same sentence as VAULT_CONTRACT_ERROR_MESSAGES[20]. Kept here so this
+// check still works after simErrorMessage rewrites the host error, without
+// importing that map through the tx module the keeper tests mock.
+const MIGRATION_COOLDOWN_FRIENDLY_TEXT =
+  "The migration cooldown has not elapsed yet.";
+
 export function isMigrationCooldownError(err: unknown): boolean {
-  return errorMessage(err).includes(MIGRATION_COOLDOWN_ERROR_TEXT);
+  const message = errorMessage(err);
+  return (
+    message.includes(MIGRATION_COOLDOWN_ERROR_TEXT) ||
+    message.includes(MIGRATION_COOLDOWN_FRIENDLY_TEXT)
+  );
 }
 
 /**

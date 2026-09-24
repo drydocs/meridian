@@ -28,7 +28,7 @@
     "amount": "Amount",
     "balance": "Balance",
     "max": "Max",
-    "position": "You have no active position to withdraw from.",
+    "position": "No position in this vault.",
     "waiting": "Waiting for signature...",
     "positionsError": "Couldn't load your position. Deposits and withdrawals still work."
   },

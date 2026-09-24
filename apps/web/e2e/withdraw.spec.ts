@@ -87,9 +87,8 @@ test.describe("withdraw", () => {
     await acknowledgeRiskDisclosure(page);
     await page.getByTestId("vault-tab-withdraw").click();
 
-    await expect(
-      page.getByText("You have no active position to withdraw from.")
-    ).toBeVisible();
+    await expect(page.getByText("No position in this vault.")).toBeVisible();
+    await expect(page.getByTestId("vault-withdraw-submit")).toHaveCount(0);
   });
 
   test("Max button fills the full position balance", async ({

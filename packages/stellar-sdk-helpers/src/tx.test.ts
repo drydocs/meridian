@@ -15,16 +15,16 @@ import {
   resolveProtocol,
   waitForTransaction,
   simErrorMessage,
+  prepareSorobanTx,
+  ContractSimulationError,
+  VAULT_CONTRACT_ERROR_MESSAGES,
   buildAddTrustlineTx,
   simulateView,
   assertFaucetPayment,
   assertSubmittable,
 } from "./tx";
 import type { StellarNetwork } from "./types";
-import {
-  isMigrationCooldownError,
-  MIGRATION_COOLDOWN_ERROR_TEXT,
-} from "./keeper-tx";
+import { isMigrationCooldownError } from "./keeper-tx";
 import { CONTRACT_ADDRESSES, USDC_ISSUER } from "@meridian/shared";
 
 const { SUCCESS, FAILED, NOT_FOUND } = rpc.Api.GetTransactionStatus;
@@ -53,9 +53,50 @@ function steppingClock(stepMs: number) {
 }
 
 describe("simErrorMessage", () => {
-  it("returns just the first line of a multi-line diagnostic", () => {
+  it("maps a known vault contract code instead of the terse first line", () => {
     const raw = "HostError: Error(Contract, #1)\n  at [0]: ...\n  at [1]: ...";
-    expect(simErrorMessage(raw)).toBe("HostError: Error(Contract, #1)");
+    expect(simErrorMessage(raw)).toBe(VAULT_CONTRACT_ERROR_MESSAGES[1]);
+  });
+
+  it("maps SlippageExceeded (#18) to an actionable message", () => {
+    const raw = "Simulation failed: Error(Contract, #18)";
+    expect(simErrorMessage(raw)).toBe(
+      "Slippage tolerance exceeded. Adjust slippage and retry."
+    );
+  });
+
+  it("maps MinAmountOutNotMet (#15) to actionable withdrawal guidance", () => {
+    expect(simErrorMessage("HostError: Error(Contract, #15)")).toBe(
+      "Withdrawal returned less USDC than your minimum. Adjust slippage and retry."
+    );
+  });
+
+  it("maps a contract code split across lines", () => {
+    const raw = "HostError: Error(Contract,\n #18)";
+    expect(simErrorMessage(raw)).toBe(VAULT_CONTRACT_ERROR_MESSAGES[18]);
+  });
+
+  it("keeps the first line when the contract code is not in the vault catalog", () => {
+    const raw = "HostError: Error(Contract, #99)\n  at [0]: ...";
+    expect(simErrorMessage(raw)).toBe("HostError: Error(Contract, #99)");
+  });
+
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])(
+    "does not relabel ambiguous contract code #%i",
+    (code) => {
+      const raw = `HostError: Error(Contract, #${code})`;
+      expect(simErrorMessage(raw)).toBe(raw);
+    }
+  );
+
+  it("does not use a contract code buried under a different host error", () => {
+    const raw =
+      "HostError: Error(WasmVm, InvalidAction)\n" +
+      "Event log:\n" +
+      "topics:[error, Error(Contract, #18)]";
+    expect(simErrorMessage(raw)).toBe(
+      "HostError: Error(WasmVm, InvalidAction)"
+    );
   });
 
   it("trims surrounding whitespace", () => {
@@ -82,7 +123,7 @@ describe("simErrorMessage", () => {
 
 // Discriminants from `ContractError` in packages/contracts/vault/src/errors.rs.
 // Every variant the vault can return, so a new or renumbered error, or a change
-// to simErrorMessage's output, shows up as a snapshot diff.
+// to what simErrorMessage surfaces for one, shows up as a snapshot diff.
 const VAULT_CONTRACT_ERRORS: ReadonlyArray<readonly [string, number]> = [
   ["AlreadyInitialized", 1],
   ["NotInitialized", 2],
@@ -112,7 +153,7 @@ const VAULT_CONTRACT_ERRORS: ReadonlyArray<readonly [string, number]> = [
 
 // The shape of `sim.error` for a contract error: the HostError line, then the
 // diagnostic event log the RPC appends. It carries no trustline diagnostic, so
-// these exercise the first-line path rather than the trustline one.
+// these exercise the contract-code path rather than the trustline one.
 function contractSimError(code: number): string {
   return (
     `HostError: Error(Contract, #${code})\n\n` +
@@ -122,7 +163,7 @@ function contractSimError(code: number): string {
 }
 
 describe("simErrorMessage snapshots", () => {
-  it("surfaces each vault ContractError as its HostError line", () => {
+  it("surfaces the message users see for each vault ContractError", () => {
     const surfaced = Object.fromEntries(
       VAULT_CONTRACT_ERRORS.map(([name, code]) => [
         name,
@@ -131,28 +172,28 @@ describe("simErrorMessage snapshots", () => {
     );
     expect(surfaced).toMatchInlineSnapshot(`
       {
-        "AdapterCreditedNothing": "HostError: Error(Contract, #23)",
-        "AdapterReportedNoAssets": "HostError: Error(Contract, #17)",
+        "AdapterCreditedNothing": "The adapter did not credit any shares for this deposit.",
+        "AdapterReportedNoAssets": "The adapter reported no assets while shares are still outstanding.",
         "AdapterSwapUnsafe": "HostError: Error(Contract, #10)",
-        "AlreadyInitialized": "HostError: Error(Contract, #1)",
+        "AlreadyInitialized": "This contract is already initialized.",
         "DepositTooSmall": "HostError: Error(Contract, #5)",
         "DepositsPaused": "HostError: Error(Contract, #3)",
-        "DivisionByZero": "HostError: Error(Contract, #24)",
+        "DivisionByZero": "The vault hit a divide-by-zero in adapter accounting.",
         "InsufficientShares": "HostError: Error(Contract, #7)",
         "InvalidSlippageBps": "HostError: Error(Contract, #14)",
-        "MigrationCooldownNotMet": "HostError: Error(Contract, #20)",
-        "MigrationNotInitialized": "HostError: Error(Contract, #19)",
-        "MigrationSnapshotAssetsInvalid": "HostError: Error(Contract, #22)",
-        "MigrationStabilityDrift": "HostError: Error(Contract, #21)",
+        "MigrationCooldownNotMet": "The migration cooldown has not elapsed yet.",
+        "MigrationNotInitialized": "Start a migration before calling migrate.",
+        "MigrationSnapshotAssetsInvalid": "The migration target reported an invalid asset balance.",
+        "MigrationStabilityDrift": "The migration target's value moved outside the allowed slippage.",
         "MigrationValueDrift": "HostError: Error(Contract, #12)",
-        "MinAmountOutNotMet": "HostError: Error(Contract, #15)",
+        "MinAmountOutNotMet": "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
         "NoAdapterPosition": "HostError: Error(Contract, #13)",
-        "NoPendingAdmin": "HostError: Error(Contract, #16)",
+        "NoPendingAdmin": "There is no pending admin transfer to accept.",
         "NoSharesOutstanding": "HostError: Error(Contract, #6)",
         "NotInitialized": "HostError: Error(Contract, #2)",
         "Overflow": "HostError: Error(Contract, #9)",
         "SameAdapter": "HostError: Error(Contract, #11)",
-        "SlippageExceeded": "HostError: Error(Contract, #18)",
+        "SlippageExceeded": "Slippage tolerance exceeded. Adjust slippage and retry.",
         "WithdrawalTooSmall": "HostError: Error(Contract, #8)",
         "ZeroAmount": "HostError: Error(Contract, #4)",
       }
@@ -179,13 +220,15 @@ describe("simErrorMessage snapshots", () => {
   });
 
   // The migration keeper treats a cooldown rejection as "retry next run" rather
-  // than a failure, by matching this text in the error it throws:
-  // `Simulation failed: ${simErrorMessage(sim.error)}` (keeper-tx.ts). The
-  // keeper's own test builds that error by hand, so a change to simErrorMessage's
-  // output would not fail it. This goes through the real function.
+  // than a failure, by matching the error it throws:
+  // `Simulation failed: ${simErrorMessage(sim.error)}` (keeper-tx.ts). Since
+  // simErrorMessage maps #20 to a sentence, the keeper recognises it through its
+  // own copy of that sentence. The keeper's test builds the error by hand, so
+  // the two copies could drift apart without it failing; this goes through the
+  // real function.
   it("keeps the text the migration keeper matches for a cooldown rejection", () => {
     const cooldown = simErrorMessage(contractSimError(20));
-    expect(cooldown).toContain(MIGRATION_COOLDOWN_ERROR_TEXT);
+    expect(cooldown).toBe(VAULT_CONTRACT_ERROR_MESSAGES[20]);
     expect(
       isMigrationCooldownError(new Error(`Simulation failed: ${cooldown}`))
     ).toBe(true);
@@ -196,6 +239,51 @@ describe("simErrorMessage snapshots", () => {
       isMigrationCooldownError(new Error(`Simulation failed: ${notStarted}`))
     ).toBe(false);
   });
+});
+
+describe("prepareSorobanTx contract errors", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([
+    ["HostError: Error(Contract, #18)", true],
+    ["HostError: Error(Contract, #15)", true],
+    ["HostError: Error(Contract, #2)", false],
+    ["HostError: Error(Contract, #10)", false],
+    ["HostError: Error(Contract, #99)", false],
+    ["HostError: Error(WasmVm, InvalidAction)\nError(Contract, #18)", false],
+  ] as const)(
+    "classifies %s and preserves the diagnostic",
+    async (raw, known) => {
+      const caller = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+      vi.spyOn(rpc.Server.prototype, "getAccount").mockResolvedValue(
+        new Account(caller, "0")
+      );
+      vi.spyOn(rpc.Server.prototype, "simulateTransaction").mockResolvedValue({
+        id: "1",
+        latestLedger: 1,
+        error: raw,
+        events: [],
+      });
+      const network: StellarNetwork = {
+        network: "testnet",
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        passphrase: "Test SDF Network ; September 2015",
+      };
+      const error = await prepareSorobanTx(
+        network,
+        caller,
+        new Contract(CONTRACT_ADDRESSES.testnet.vault).call("deposit")
+      ).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error instanceof ContractSimulationError).toBe(known);
+      expect(error).toHaveProperty("cause", raw);
+      expect(error).toHaveProperty(
+        "message",
+        `Simulation failed: ${simErrorMessage(raw)}`
+      );
+    }
+  );
 });
 
 describe("simulateView RPC timeout", () => {
@@ -310,7 +398,7 @@ describe("simulateView", () => {
 
     await expect(
       simulateView(server, CONTRACT_ID, PASSPHRASE, "failing_method")
-    ).rejects.toThrow("HostError: Error(Contract, #1)");
+    ).rejects.toThrow(VAULT_CONTRACT_ERROR_MESSAGES[1]);
   });
 });
 

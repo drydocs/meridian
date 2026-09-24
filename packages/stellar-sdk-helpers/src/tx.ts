@@ -37,6 +37,17 @@ export class SorobanTimeoutError extends Error {
   }
 }
 
+/** A recognized contract rejection, distinct from an RPC/server failure. */
+export class ContractSimulationError extends Error {
+  constructor(
+    readonly code: number,
+    readonly cause: string
+  ) {
+    super(`Simulation failed: ${simErrorMessage(cause)}`);
+    this.name = "ContractSimulationError";
+  }
+}
+
 const withSorobanTimeout = <T>(
   fn: () => Promise<T>,
   ms = SOROBAN_RPC_TIMEOUT_MS
@@ -153,6 +164,10 @@ export async function prepareSorobanTx(
     .build();
   const sim = await withSorobanTimeout(() => server.simulateTransaction(tx));
   if (rpc.Api.isSimulationError(sim)) {
+    const code = leadingContractErrorCode(sim.error);
+    if (code !== undefined && VAULT_CONTRACT_ERROR_MESSAGES[code]) {
+      throw new ContractSimulationError(code, sim.error);
+    }
     const error = new Error(
       `Simulation failed: ${simErrorMessage(sim.error)}`
     ) as Error & { cause?: unknown };
@@ -269,19 +284,67 @@ export async function waitForTransaction(
 }
 
 /**
+ * User-facing copy for recognized vault ContractError discriminants.
+ * Source of truth: packages/contracts/vault/src/errors.rs.
+ * Codes 2–14 overlap adapter, mUSDC, or Stellar Asset Contract failures
+ * reachable during vault operations, so leave them raw. Vault withdrawal
+ * slippage uses #15 MinAmountOutNotMet; deposit slippage uses #18.
+ */
+export const VAULT_CONTRACT_ERROR_MESSAGES: Record<number, string> = {
+  1: "This contract is already initialized.",
+  15: "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
+  16: "There is no pending admin transfer to accept.",
+  17: "The adapter reported no assets while shares are still outstanding.",
+  18: "Slippage tolerance exceeded. Adjust slippage and retry.",
+  19: "Start a migration before calling migrate.",
+  20: "The migration cooldown has not elapsed yet.",
+  21: "The migration target's value moved outside the allowed slippage.",
+  22: "The migration target reported an invalid asset balance.",
+  23: "The adapter did not credit any shares for this deposit.",
+  24: "The vault hit a divide-by-zero in adapter accounting.",
+};
+
+const CONTRACT_ERROR_CODE = /Error\(\s*Contract\s*,\s*#(\d+)\s*\)/i;
+
+/**
+ * The host error is the first line. A wrapped `Error(Contract,` may spill
+ * onto the next line; contract codes later in the event log are not the
+ * failure.
+ */
+function leadingContractErrorCode(raw: string): number | undefined {
+  const lines = raw.split("\n");
+  const first = lines[0] ?? "";
+  const header = /Error\(\s*Contract\s*,?\s*$/i.test(first.trimEnd())
+    ? `${first} ${lines[1] ?? ""}`
+    : first;
+  const match = header.match(CONTRACT_ERROR_CODE);
+  if (!match?.[1]) return undefined;
+  return Number(match[1]);
+}
+
+/**
  * Extract a safe, one-line summary from a Soroban simulation error string.
  * The first line is usually just a terse error code (e.g. "Error(Contract,
  * #13)") with no actionable detail; the useful diagnostic text is buried
  * several lines down in the event log. When that log names a missing
  * trustline, surface that specific message instead so callers like
  * useVaultActions' isMissingTrustline() can detect it and prompt the user to
- * add the trustline rather than showing an opaque failure. Otherwise falls
- * back to the first line. Returns a generic fallback when the string is
- * empty.
+ * add the trustline rather than showing an opaque failure. A known vault
+ * `Error(Contract, #N)` becomes the matching user-facing string (for example
+ * #18 is "Slippage tolerance exceeded. Adjust slippage and retry."). Unknown
+ * codes and non-contract errors fall back to the first line. Returns a
+ * generic fallback when the string is empty.
  */
 export function simErrorMessage(raw: string): string {
   const trustlineDetail = raw.match(/data:\["([^"]*trustline[^"]*)"/i)?.[1];
   if (trustlineDetail) return trustlineDetail;
+
+  const code = leadingContractErrorCode(raw);
+  if (code !== undefined) {
+    const message = VAULT_CONTRACT_ERROR_MESSAGES[code];
+    if (message) return message;
+  }
+
   return raw.split("\n")[0]?.trim() || "Simulation failed (no detail)";
 }
 

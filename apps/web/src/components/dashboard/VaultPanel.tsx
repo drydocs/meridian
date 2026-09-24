@@ -72,13 +72,13 @@ export function VaultPanel() {
   // Route to the server's recommendation: the highest-APY vault Meridian can
   // actually deposit into (excludes display-only protocols and risky pools).
   const bestVault = vaults?.find((v) => v.id === data?.recommendedVaultId);
-  // Prefer the position that matches the recommended vault so deposits and
-  // withdrawals target the same protocol. Fall back to positions[0] when no
-  // match exists (e.g. funds are in a legacy vault that is no longer recommended)
-  // so the balance remains visible and withdrawable.
+  // Deposits and withdrawals both target the recommended vault. A position
+  // in some other vault must not be shown or withdrawn here: its share price
+  // does not match bestVault, so the withdraw tab would display the wrong
+  // balance and the contract would revert.
   const position = bestVault
-    ? (positions.find((p) => p.vaultId === bestVault.id) ?? positions[0])
-    : positions[0];
+    ? positions.find((p) => p.vaultId === bestVault.id)
+    : undefined;
   const hasPosition =
     position && Number.isFinite(position.deposited) && position.deposited > 0;
 
@@ -90,15 +90,12 @@ export function VaultPanel() {
       setShowDepositRiskDisclosure(true);
       return;
     }
-    // Only a position actually held in bestVault carries a share price
-    // relevant to this deposit: `position` above can fall back to a
-    // different vault's entry, and a first-time depositor has none at all.
-    // In both cases there's no reliable price to derive a floor from, so
-    // the deposit goes through with no slippage protection (min_shares_out
-    // omitted, which the contract treats as "0") rather than guessing a
-    // wrong floor that could revert every legitimate deposit with
-    // SlippageExceeded — a 1:1 fallback assumption is wrong the moment the
-    // vault has accrued any yield past inception.
+    // Only a position held in bestVault has a share price for this deposit.
+    // A first-time depositor has none. There is no reliable price to derive
+    // a floor from, so the deposit goes through with no slippage protection
+    // (min_shares_out omitted, which the contract treats as "0") rather than
+    // guessing a floor that could revert a legitimate deposit with
+    // SlippageExceeded.
     const bestVaultPosition = positions.find((p) => p.vaultId === bestVault.id);
     const numAmount = parseFloat(amount);
     const minSharesOut =
@@ -124,6 +121,7 @@ export function VaultPanel() {
 
   async function handleWithdraw() {
     if (!amount || !bestVault || !position) return;
+    if (position.vaultId !== bestVault.id) return;
     if (parseFloat(amount) > position.shares) return;
     const numShares = parseFloat(amount);
     const expectedUsdc =
@@ -133,7 +131,7 @@ export function VaultPanel() {
     const minUsdcOut = Math.max(0, expectedUsdc * slippageFactor).toFixed(7);
     const ok = await withdraw(
       amount,
-      position.vaultId,
+      bestVault.id,
       bestVault.asset,
       minUsdcOut
     );
@@ -146,7 +144,7 @@ export function VaultPanel() {
   }
 
   return (
-    <div className="rounded-2xl border border-gray-800 bg-[#0d1e35] overflow-hidden shadow-xl shadow-black/40">
+    <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40">
       {/* Hero — identity + stats */}
       <div className="px-7 pt-7 pb-6">
         {/* Identity row */}

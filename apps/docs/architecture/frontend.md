@@ -13,7 +13,7 @@
 
 ## Component structure
 
-The public UI is intentionally minimal: one page, one panel. A second, admin-only page (`/app/admin`) was added for #615, but there is no router. `App.tsx` picks between the two by checking `window.location.pathname` directly, since a full router is a heavier change than a single static path split needs (see its comment).
+The public UI is intentionally minimal: one page, one panel. A second, admin-only page (`/app/admin`) was added for [#615](https://github.com/drydocs/meridian/issues/615), but there is no router. `App.tsx` picks between the two by checking `window.location.pathname` directly, since a full router is a heavier change than a single static path split needs (see its comment).
 
 ```
 App
@@ -81,9 +81,9 @@ interface WalletAdapter {
 }
 ```
 
-### Wallet registry and picker (#611)
+### Wallet registry and picker ([#611](https://github.com/drydocs/meridian/issues/611))
 
-`wallet.ts` exports `WALLETS: WalletMeta[]`, one entry per adapter actually exposed in the picker: `FreighterWallet`, `LobstrWallet`, `XBullWallet`. An `AlbedoWallet` adapter is also implemented and tested (#674) but deliberately not added to `WALLETS` yet, since wallet-picker exposure was out of scope for the PR that added it. Adding it later means one more entry in `WALLETS`; nothing else here needs to change for that. Each entry carries an `id`, a display `name`, an `installUrl` for the no-extension fallback, and the adapter instance itself.
+`wallet.ts` exports `WALLETS: WalletMeta[]`, one entry per adapter actually exposed in the picker: `FreighterWallet`, `LobstrWallet`, `XBullWallet`. An `AlbedoWallet` adapter is also implemented and tested ([#674](https://github.com/drydocs/meridian/issues/674)) but deliberately not added to `WALLETS` yet, since wallet-picker exposure was out of scope for the PR that added it. Adding it later means one more entry in `WALLETS`; nothing else here needs to change for that. Each entry carries an `id`, a display `name`, an `installUrl` for the no-extension fallback, and the adapter instance itself.
 
 Which wallet is "selected" is tracked independently of `useWalletStore`. It lives in `wallet.ts` itself (`getSelectedWalletId()`/`setSelectedWalletId()`, backed by a plain `localStorage` key) rather than in the Zustand store, to avoid a circular import (`store/wallet.ts` already imports from `lib/wallet.ts`). It defaults to Freighter and only changes on a _successful_ connect, so a failed or cancelled attempt never silently switches which wallet later sign/reconnect calls go through.
 
