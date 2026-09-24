@@ -26,6 +26,13 @@ import {
 
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
+const USER_FIXABLE_MESSAGES: Record<number, string> = {
+  3: "Deposits are currently paused. Try again later.",
+  7: "Insufficient shares for this withdrawal.",
+  15: "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
+  18: "Slippage tolerance exceeded. Adjust slippage and retry.",
+};
+
 beforeEach(() => vi.clearAllMocks());
 
 describe.each([
@@ -33,16 +40,10 @@ describe.each([
   ["withdraw", handleWithdrawRequest, buildWithdrawTx],
 ] as const)("%s contract rejections", (action, handler, builder) => {
   it.each([
-    [
-      18,
-      action === "deposit" ? 400 : 500,
-      "Slippage tolerance exceeded. Adjust slippage and retry.",
-    ],
-    [
-      15,
-      action === "withdraw" ? 400 : 500,
-      "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
-    ],
+    [18, 400, USER_FIXABLE_MESSAGES[18]],
+    [15, 400, USER_FIXABLE_MESSAGES[15]],
+    [3, 400, USER_FIXABLE_MESSAGES[3]],
+    [7, 400, USER_FIXABLE_MESSAGES[7]],
     [
       17,
       500,
@@ -66,10 +67,28 @@ describe.each([
         riskAcknowledged: true,
       });
       expect(result.status).toBe(status);
-      expect(result.body).toEqual({ error: `Simulation failed: ${message}` });
+      if (status === 400) {
+        expect(result.body).toEqual({ error: message });
+      } else {
+        expect(result.body).toEqual({ error: `Simulation failed: ${message}` });
+      }
       expect(result.error).toBe(err);
     }
   );
+
+  it("maps user-fixable codes from generic Error messages to HTTP 400", async () => {
+    const err = new Error("Simulation failed: Error(Contract, #3)");
+    vi.mocked(builder).mockRejectedValueOnce(err);
+    const result = await handler({
+      walletAddress: PUBKEY,
+      vaultId: "meridian-usdc",
+      amount: "10",
+      shares: "5",
+      riskAcknowledged: true,
+    });
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: USER_FIXABLE_MESSAGES[3] });
+  });
 });
 
 describe("handleDepositRequest", () => {
@@ -241,5 +260,16 @@ describe("handleSubmitRequest", () => {
     expect(result.status).toBe(500);
     expect(result.body).toEqual({ error: "submit failed" });
     expect(result.error).toBe(err);
+  });
+
+  it("maps user-fixable contract codes on submit to HTTP 400", async () => {
+    const err = new ContractSimulationError(
+      18,
+      "HostError: Error(Contract, #18)"
+    );
+    vi.mocked(submitTx).mockRejectedValueOnce(err);
+    const result = await handleSubmitRequest({ xdr: "SIGNED" });
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: USER_FIXABLE_MESSAGES[18] });
   });
 });
