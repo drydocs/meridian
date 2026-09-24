@@ -97,6 +97,13 @@ export const CONTRACT_ADDRESSES = {
 
 export const DEFAULT_SLIPPAGE_BPS = 50;
 
+// Hard ceiling on migrate_adapter's max_slippage_bps, mirrored from
+// packages/contracts/vault/src/storage.rs MAX_ADMIN_SLIPPAGE_BPS.
+// If you change this value, change it in that file too (and vice-versa):
+// the two are in different languages and build systems so they can't be
+// kept in sync automatically.
+export const MAX_ADMIN_SLIPPAGE_BPS = 500;
+
 export const STELLAR_NETWORKS = {
   testnet: {
     network: "testnet" as const,

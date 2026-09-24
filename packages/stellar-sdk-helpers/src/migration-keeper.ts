@@ -15,7 +15,7 @@
 // budget); see accrual-keeper.ts.
 
 import { Address, nativeToScVal } from "@stellar/stellar-sdk";
-import { APP_NETWORK } from "@meridian/shared";
+import { APP_NETWORK, MAX_ADMIN_SLIPPAGE_BPS } from "@meridian/shared";
 import { KNOWN_POOLS, type KnownPoolMeta } from "./known-pools";
 import { getRpcServer } from "./internal";
 import { simulateView } from "./tx";
@@ -73,12 +73,11 @@ const FUNCTION_BUDGET_MS = 50_000;
 // fraction of the vault's position to a rounding error, a stale rate read,
 // or a misbehaving adapter. 100 bps (1%) is a deliberately tight default;
 // operators can widen it via config, but the loader rejects anything above
-// the contract's own hard ceiling (MAX_ADMIN_SLIPPAGE_BPS in
-// packages/contracts/vault/src/lib.rs, #557): a value the contract itself
-// would reject with InvalidSlippageBps is caught at config time instead of
-// permanently breaking every subsequent migrate_adapter submission.
+// the contract's own hard ceiling (MAX_ADMIN_SLIPPAGE_BPS, #557): a value
+// the contract itself would reject with InvalidSlippageBps is caught at
+// config time instead of permanently breaking every subsequent
+// migrate_adapter submission.
 const DEFAULT_MAX_SLIPPAGE_BPS = 100;
-const MAX_ALLOWED_SLIPPAGE_BPS = 500;
 
 // A minimum improvement floor avoids churning between two protocols whose
 // rates are within noise of each other: migrate_adapter costs a real
@@ -324,9 +323,9 @@ export function loadMigrationKeeperConfig(
     DEFAULT_MAX_SLIPPAGE_BPS,
     "MERIDIAN_MIGRATION_MAX_SLIPPAGE_BPS"
   );
-  if (maxSlippageBps > MAX_ALLOWED_SLIPPAGE_BPS) {
+  if (maxSlippageBps > MAX_ADMIN_SLIPPAGE_BPS) {
     throw new Error(
-      `MERIDIAN_MIGRATION_MAX_SLIPPAGE_BPS must be at most ${MAX_ALLOWED_SLIPPAGE_BPS} (the contract's own MAX_ADMIN_SLIPPAGE_BPS ceiling; anything above it would make every migrate_adapter submission fail on-chain with InvalidSlippageBps)`
+      `MERIDIAN_MIGRATION_MAX_SLIPPAGE_BPS must be at most ${MAX_ADMIN_SLIPPAGE_BPS} (the contract's own MAX_ADMIN_SLIPPAGE_BPS ceiling; anything above it would make every migrate_adapter submission fail on-chain with InvalidSlippageBps)`
     );
   }
 
