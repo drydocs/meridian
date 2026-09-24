@@ -673,7 +673,7 @@ describe("runBlendAccrualKeeper", () => {
     // submitter is expected to forward them to keep cross-invocation dedup.
     expect(submitAccrual).toHaveBeenCalledWith(
       BLEND_ADAPTER,
-      1,
+      0,
       expect.objectContaining({
         onSigned: expect.any(Function),
         onResolved: expect.any(Function),
@@ -799,9 +799,9 @@ describe("runBlendAccrualKeeper", () => {
       onSigned: expect.any(Function),
       onResolved: expect.any(Function),
     });
-    expect(submitAccrual).toHaveBeenNthCalledWith(1, BLEND_ADAPTER, 1, hooks);
-    expect(submitAccrual).toHaveBeenNthCalledWith(2, BLEND_ADAPTER, 2, hooks);
-    expect(submitAccrual).toHaveBeenNthCalledWith(3, BLEND_ADAPTER, 3, hooks);
+    expect(submitAccrual).toHaveBeenNthCalledWith(1, BLEND_ADAPTER, 0, hooks);
+    expect(submitAccrual).toHaveBeenNthCalledWith(2, BLEND_ADAPTER, 1, hooks);
+    expect(submitAccrual).toHaveBeenNthCalledWith(3, BLEND_ADAPTER, 2, hooks);
     expect(sleep).toHaveBeenNthCalledWith(1, 1);
     expect(sleep).toHaveBeenNthCalledWith(2, 2);
     expect(result.successes[0]).toMatchObject({

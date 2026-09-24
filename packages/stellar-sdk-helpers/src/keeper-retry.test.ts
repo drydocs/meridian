@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   consoleLogger,
+  DEFAULT_RETRY_OPTIONS,
   errorMessage,
+  KeeperError,
   KeeperRetryError,
   parseNonNegativeInt,
   parsePositiveInt,
@@ -9,6 +11,7 @@ import {
   retryOutcome,
   sleep,
   withKeeperRetry,
+  type RetryOptions,
 } from "./keeper-retry";
 
 describe("keeper-retry", () => {
@@ -100,13 +103,57 @@ describe("keeper-retry", () => {
     });
   });
 
+  describe("KeeperError", () => {
+    it("creates a KeeperError with message and cause", () => {
+      const cause = new Error("root cause");
+      const err = new KeeperError("keeper failure", cause);
+      expect(err.name).toBe("KeeperError");
+      expect(err.message).toBe("keeper failure");
+      expect(err.cause).toBe(cause);
+    });
+
+    it("creates a KeeperError without cause", () => {
+      const err = new KeeperError("simple failure");
+      expect(err.name).toBe("KeeperError");
+      expect(err.message).toBe("simple failure");
+      expect(err.cause).toBeUndefined();
+    });
+  });
+
   describe("KeeperRetryError", () => {
-    it("creates an error with attempt count and transient status", () => {
-      const err = new KeeperRetryError(new Error("boom"), 3, true);
+    it("creates an error with attempt count and transient status, and is a KeeperError subclass", () => {
+      const inner = new Error("boom");
+      const err = new KeeperRetryError(inner, 3, true);
       expect(err.name).toBe("KeeperRetryError");
       expect(err.message).toBe("boom");
       expect(err.attempts).toBe(3);
       expect(err.transient).toBe(true);
+      expect(err.cause).toBe(inner);
+      expect(err).toBeInstanceOf(KeeperError);
+    });
+  });
+
+  describe("RetryOptions type and DEFAULT_RETRY_OPTIONS", () => {
+    it("DEFAULT_RETRY_OPTIONS has sensible defaults", () => {
+      expect(DEFAULT_RETRY_OPTIONS.maxAttempts).toBe(3);
+      expect(DEFAULT_RETRY_OPTIONS.baseDelayMs).toBe(200);
+      expect(typeof DEFAULT_RETRY_OPTIONS.sleepFn).toBe("function");
+      expect(DEFAULT_RETRY_OPTIONS.isTransient("anything")).toBe(true);
+    });
+
+    it("RetryOptions type accepts all optional fields", () => {
+      const opts: RetryOptions = {
+        maxAttempts: 5,
+        baseDelayMs: 500,
+        deadlineAt: Date.now() + 60_000,
+        logger: consoleLogger,
+        context: { key: "value" },
+        sleepFn: sleep,
+        isTransient: () => true,
+        logPrefix: "test",
+      };
+      expect(opts.maxAttempts).toBe(5);
+      expect(opts.baseDelayMs).toBe(500);
     });
   });
 
@@ -138,41 +185,76 @@ describe("keeper-retry", () => {
 
     it("returns value on first success", async () => {
       const fn = vi.fn().mockResolvedValue("ok");
-      const res = await withKeeperRetry(
-        fn,
-        { maxAttempts: 3, baseDelayMs: 10 },
-        mockLogger,
-        {},
-        mockSleep,
-        () => true,
-        "TEST"
-      );
+      const res = await withKeeperRetry(fn, {
+        sleepFn: mockSleep,
+        logger: mockLogger,
+      });
       expect(res).toEqual({ value: "ok", attempts: 1 });
       expect(fn).toHaveBeenCalledTimes(1);
     });
 
-    it("calls fn with a 1-indexed attempt number, not 0-indexed", async () => {
-      // Callers (accrual-keeper.ts, migration-keeper.ts) forward this value
-      // straight into submitKeeperOperation's fee escalation
-      // (keeperFeeForAttempt): if this ever silently became 0-indexed, every
-      // real submission would bid one fee-doubling step off from intended.
+    it("calls fn with a 0-indexed attempt number (attempt 0 is the first try)", async () => {
+        // The off-by-one fix: attempt 0 = first try, attempt 1 = first retry.
+        // keeperFeeForAttempt uses 0-indexed, so withKeeperRetry must pass
+        // the same convention; otherwise every submission's fee doubling is
+        // silently one step off from intended.
       const fn = vi
         .fn()
         .mockRejectedValueOnce(new Error("transient"))
         .mockResolvedValueOnce("ok");
 
-      await withKeeperRetry(
-        fn,
-        { maxAttempts: 3, baseDelayMs: 10 },
-        mockLogger,
-        {},
-        mockSleep,
-        () => true,
-        "TEST"
-      );
+      await withKeeperRetry(fn, {
+        maxAttempts: 3,
+        baseDelayMs: 10,
+        sleepFn: mockSleep,
+        logger: mockLogger,
+      });
 
-      expect(fn).toHaveBeenNthCalledWith(1, 1);
-      expect(fn).toHaveBeenNthCalledWith(2, 2);
+      expect(fn).toHaveBeenNthCalledWith(1, 0);
+      expect(fn).toHaveBeenNthCalledWith(2, 1);
+    });
+
+    it("uses options-based API with explicit isTransient", async () => {
+      const transientErr = new Error("transient");
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(transientErr)
+        .mockResolvedValueOnce("ok");
+      const isTransient = vi.fn().mockReturnValue(true);
+
+      const res = await withKeeperRetry(fn, {
+        maxAttempts: 3,
+        baseDelayMs: 10,
+        sleepFn: mockSleep,
+        logger: mockLogger,
+        isTransient,
+      });
+
+      expect(res).toEqual({ value: "ok", attempts: 2 });
+      expect(isTransient).toHaveBeenCalledWith(transientErr);
+    });
+
+    it("uses options-based API with logPrefix and context for logging", async () => {
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("transient"))
+        .mockResolvedValueOnce("ok");
+      const warn = vi.fn();
+
+      await withKeeperRetry(fn, {
+        maxAttempts: 3,
+        baseDelayMs: 10,
+        sleepFn: mockSleep,
+        logger: { ...mockLogger, warn },
+        isTransient: () => true,
+        context: { vaultId: "v1" },
+        logPrefix: "TEST",
+      });
+
+      expect(warn).toHaveBeenCalledWith(
+        "[TEST] transient failure; retrying",
+        expect.objectContaining({ vaultId: "v1" })
+      );
     });
 
     it("retries on transient failure and succeeds", async () => {
@@ -181,15 +263,14 @@ describe("keeper-retry", () => {
         .mockRejectedValueOnce(new Error("transient"))
         .mockResolvedValueOnce("success");
 
-      const res = await withKeeperRetry(
-        fn,
-        { maxAttempts: 3, baseDelayMs: 10 },
-        mockLogger,
-        {},
-        mockSleep,
-        () => true,
-        "TEST"
-      );
+      const res = await withKeeperRetry(fn, {
+        maxAttempts: 3,
+        baseDelayMs: 10,
+        sleepFn: mockSleep,
+        logger: mockLogger,
+        isTransient: () => true,
+        logPrefix: "TEST",
+      });
 
       expect(res).toEqual({ value: "success", attempts: 2 });
       expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -203,40 +284,117 @@ describe("keeper-retry", () => {
       const fn = vi.fn().mockRejectedValue(nonTransientErr);
 
       await expect(
-        withKeeperRetry(
-          fn,
-          { maxAttempts: 3, baseDelayMs: 10 },
-          mockLogger,
-          {},
-          mockSleep,
-          () => false,
-          "TEST"
-        )
+        withKeeperRetry(fn, {
+          maxAttempts: 3,
+          baseDelayMs: 10,
+          sleepFn: mockSleep,
+          logger: mockLogger,
+          isTransient: () => false,
+        })
       ).rejects.toThrow(KeeperRetryError);
 
       expect(fn).toHaveBeenCalledTimes(1);
     });
 
+    it("reports retry exhaustion: KeeperRetryError has correct attempts and transient after maxAttempts exhausted", async () => {
+      const fn = vi.fn().mockRejectedValue(new Error("persistent"));
+
+      let thrown: KeeperRetryError | null = null;
+      try {
+        await withKeeperRetry(fn, {
+          maxAttempts: 3,
+          baseDelayMs: 10,
+          sleepFn: mockSleep,
+          logger: mockLogger,
+          isTransient: () => true,
+        });
+      } catch (err) {
+        thrown = err as KeeperRetryError;
+      }
+
+      expect(thrown).not.toBeNull();
+      expect(thrown!.attempts).toBe(3);
+      expect(thrown!.transient).toBe(true);
+      expect(thrown!).toBeInstanceOf(KeeperRetryError);
+      expect(fn).toHaveBeenCalledTimes(3);
+      expect(fn).toHaveBeenNthCalledWith(1, 0);
+      expect(fn).toHaveBeenNthCalledWith(2, 1);
+      expect(fn).toHaveBeenNthCalledWith(3, 2);
+    });
+
     it("stops when approaching deadline", async () => {
       const fn = vi.fn().mockRejectedValue(new Error("transient"));
-      const deadlineAt = Date.now() + 15; // less than delay calculated for retry
+      const deadlineAt = Date.now() + 15;
 
       await expect(
-        withKeeperRetry(
-          fn,
-          { maxAttempts: 3, baseDelayMs: 20, deadlineAt },
-          mockLogger,
-          {},
-          mockSleep,
-          () => true,
-          "TEST"
-        )
+        withKeeperRetry(fn, {
+          maxAttempts: 3,
+          baseDelayMs: 20,
+          deadlineAt,
+          sleepFn: mockSleep,
+          logger: mockLogger,
+          isTransient: () => true,
+          logPrefix: "TEST",
+        })
       ).rejects.toThrow(KeeperRetryError);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
         "[TEST] stopping retries; run deadline approaching",
         expect.objectContaining({ attempt: 1 })
       );
+    });
+
+    it("applies exponential backoff for retries", async () => {
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("t1"))
+        .mockRejectedValueOnce(new Error("t2"))
+        .mockResolvedValueOnce("ok");
+
+      await withKeeperRetry(fn, {
+        maxAttempts: 4,
+        baseDelayMs: 10,
+        sleepFn: mockSleep,
+        logger: mockLogger,
+        isTransient: () => true,
+      });
+
+      expect(mockSleep).toHaveBeenNthCalledWith(1, 10);
+      expect(mockSleep).toHaveBeenNthCalledWith(2, 20);
+      expect(mockSleep).toHaveBeenCalledTimes(2);
+    });
+
+    it("default isTransient classifies all errors as transient when not set", async () => {
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("anything"))
+        .mockResolvedValueOnce("ok");
+
+      const res = await withKeeperRetry(fn, {
+        maxAttempts: 3,
+        baseDelayMs: 10,
+        sleepFn: mockSleep,
+        logger: mockLogger,
+      });
+
+      expect(res.attempts).toBe(2);
+    });
+
+    it("uses consoleLogger by default when logger option is omitted", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("transient"))
+        .mockResolvedValueOnce("ok");
+
+      await withKeeperRetry(fn, {
+        maxAttempts: 3,
+        baseDelayMs: 10,
+        sleepFn: mockSleep,
+      });
+
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
     });
   });
 });
