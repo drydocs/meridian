@@ -2,7 +2,7 @@ import { useWalletStore } from "../../store/wallet";
 import { useToastStore } from "../../store/toast";
 import { shortenAddress } from "@meridian/shared";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
-import { WALLETS, getWalletMeta, type WalletId } from "../../lib/wallet";
+import { WALLETS, type WalletId } from "../../lib/wallet";
 import { RiskDisclosureModal } from "./RiskDisclosureModal";
 import { Copy, Check, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -13,9 +13,8 @@ export function WalletConnect() {
   const { connected, publicKey, disconnect } = useWalletStore();
   const { push } = useToastStore();
   const {
-    handleConnect,
+    handleConnect
     status,
-    attemptedWalletId,
     showRiskDisclosure,
     acceptRiskDisclosure,
     cancelRiskDisclosure,
@@ -71,9 +70,13 @@ export function WalletConnect() {
     push("info", t("walletConnect.walletDisconnected"));
   }
 
-  function handlePick(walletId: WalletId) {
+  function handlePick(wallet: (typeof WALLETS)[number]) {
     setPickerOpen(false);
-    void handleConnect(walletId);
+    if (installedById[wallet.id]) {
+      void handleConnect(wallet.id);
+    } else {
+      window.open(wallet.installUrl, "_blank", "noopener,noreferrer");
+    }
   }
 
   if (connected && publicKey) {
@@ -105,20 +108,6 @@ export function WalletConnect() {
     );
   }
 
-  if (status === "no-extension") {
-    const meta = getWalletMeta(attemptedWalletId);
-    return (
-      <a
-        href={meta.installUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-sm border border-amber-800 rounded-lg px-4 py-2 font-medium text-amber-400 hover:border-amber-600 hover:text-amber-300 transition-colors duration-150"
-      >
-        {t("common.installWallet", { name: meta.name })}
-      </a>
-    );
-  }
-
   return (
     <div className="relative flex" ref={pickerRef}>
       {showRiskDisclosure && (
@@ -127,26 +116,18 @@ export function WalletConnect() {
           onCancel={cancelRiskDisclosure}
         />
       )}
-      {/* Plain click connects through whichever wallet is already selected
-          (Freighter by default), unchanged from before the picker existed —
-          the picker itself is the separate caret beside it. */}
-      <button
-        onClick={() => void handleConnect()}
-        disabled={status === "connecting"}
-        className="text-sm border border-gray-700 rounded-l-lg pl-4 pr-3 py-2 font-medium text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {status === "connecting"
-          ? t("common.connecting")
-          : t("common.connectWallet")}
-      </button>
+
       <button
         data-testid="wallet-picker-toggle"
         onClick={() => setPickerOpen((open) => !open)}
         disabled={status === "connecting"}
-        aria-label={t("walletConnect.chooseWallet")}
-        title={t("walletConnect.chooseWallet")}
-        className="text-sm border border-l-0 border-gray-700 rounded-r-lg px-2 text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+        aria-haspopup="menu"
+        aria-expanded={pickerOpen}
+        className="text-sm border border-gray-700 rounded-lg pl-4 pr-3 py-2 font-medium text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
       >
+        {status === "connecting"
+          ? t("common.connecting")
+          : t("common.connectWallet")}
         <ChevronDown size={14} />
       </button>
 
@@ -155,21 +136,29 @@ export function WalletConnect() {
           data-testid="wallet-picker-menu"
           className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-gray-800 bg-deep shadow-xl shadow-black/40 overflow-hidden z-10"
         >
-          {WALLETS.map((w) => (
-            <button
-              key={w.id}
-              data-testid={`wallet-picker-option-${w.id}`}
-              onClick={() => handlePick(w.id)}
-              className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-gray-300 hover:bg-gray-800/60 hover:text-white transition-colors duration-150"
-            >
-              <span>{w.name}</span>
-              {installedById[w.id] === true && (
-                <span className="text-xs text-emerald-400">
-                  {t("walletConnect.installed")}
-                </span>
-              )}
-            </button>
-          ))}
+          {WALLETS.map((w) => {
+            const installed = installedById[w.id];
+            return (
+              <button
+                key={w.id}
+                data-testid={`wallet-picker-option-${w.id}`}
+                onClick={() => handlePick(w)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-gray-300 hover:bg-gray-800/60 hover:text-white transition-colors duration-150"
+              >
+                <span>{w.name}</span>
+                {installed === true && (
+                  <span className="text-xs text-emerald-400">
+                    {t("walletConnect.installed")}
+                  </span>
+                )}
+                {installed === false && (
+                  <span className="text-xs text-amber-400">
+                    {t("walletConnect.install")}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
