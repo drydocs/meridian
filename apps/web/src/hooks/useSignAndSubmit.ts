@@ -1,4 +1,4 @@
-import { STELLAR_NETWORKS } from "@meridian/shared";
+import { APP_NETWORK } from "@meridian/shared";
 import { useWalletStore } from "../store/wallet";
 import { wallet } from "../lib/wallet";
 import { api } from "../lib/api";
@@ -6,9 +6,12 @@ import { useTranslation } from "react-i18next";
 
 export function useSignAndSubmit() {
   const { t } = useTranslation();
-  const { network, revalidate } = useWalletStore();
-  const passphrase =
-    STELLAR_NETWORKS[network as keyof typeof STELLAR_NETWORKS]?.passphrase;
+  const { revalidate } = useWalletStore();
+  // The passphrase is a build-time invariant, not user state. Sourcing it from
+  // APP_NETWORK avoids the stale-persisted-network bug (#851) where the store
+  // could hold "testnet" on a mainnet build and cause xBull to sign against
+  // the wrong network hash.
+  const passphrase = APP_NETWORK.passphrase;
 
   async function signAndSubmit(xdr: string) {
     await revalidate();
