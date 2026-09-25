@@ -71,6 +71,12 @@ NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
 # so this run cannot complete without it.
 : "${ADMIN_KEY:?ADMIN_KEY env var required (Stellar secret key or 'stellar keys' alias for ADMIN)}"
 
+# Dedicated recipient for the constructor-fixed performance-fee shares. It
+# need not sign the deployment, but must be reviewed as carefully as ADMIN:
+# changing it later requires a fresh vault deployment.
+: "${TREASURY:?TREASURY env var required (Stellar public key or contract address)}"
+TREASURY_ADDRESS="$TREASURY"
+
 # Mainnet USDC/Blend pool addresses are validated against these checked-in
 # allow-lists rather than accepted from any env var override. Add an entry
 # only after independently verifying the contract, matching the standard
@@ -148,6 +154,7 @@ fi
 echo "About to deploy to MAINNET with:"
 echo "  DEPLOYER: $DEPLOYER_ADDRESS"
 echo "  ADMIN:    $ADMIN_ADDRESS"
+echo "  TREASURY: $TREASURY_ADDRESS"
 echo "  USDC_ID:  $USDC_ID (${ALLOWED_USDC_IDS[$USDC_ID]})"
 echo "  BLEND_POOL_ID: $BLEND_POOL_ID (${ALLOWED_BLEND_POOL_IDS[$BLEND_POOL_ID]})"
 echo ""
