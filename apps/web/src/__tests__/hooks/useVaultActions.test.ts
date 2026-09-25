@@ -180,7 +180,7 @@ describe("useVaultActions — deposit", () => {
     });
     expect(wallet.sign).toHaveBeenCalledWith(
       "DEPOSIT_XDR",
-      expect.stringContaining("Test SDF")
+      expect.stringContaining("Public Global")
     );
     expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
     expect(useToastStore.getState().toasts[0]).toMatchObject({

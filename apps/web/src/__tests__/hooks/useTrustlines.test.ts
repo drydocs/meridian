@@ -140,7 +140,7 @@ describe("useTrustlines", () => {
     expect(api.addTrustline).toHaveBeenCalledWith(KEY);
     expect(wallet.sign).toHaveBeenCalledWith(
       "TRUSTLINE_XDR",
-      expect.stringContaining("Test SDF")
+      expect.stringContaining("Public Global")
     );
     expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
     expect(useToastStore.getState().toasts).toContainEqual(
