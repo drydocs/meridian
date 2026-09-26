@@ -9,6 +9,11 @@ import { useTrustlines } from "./useTrustlines";
 import { useBlendFaucet } from "./useBlendFaucet";
 import { usePositionPolling } from "./usePositionPolling";
 import { useTranslation } from "react-i18next";
+import {
+  computeMinSharesOut,
+  computeMinUsdcOut,
+  fetchFreshVaultState,
+} from "./useVaultState";
 
 export function useVaultActions() {
   const { t } = useTranslation();
@@ -53,11 +58,30 @@ export function useVaultActions() {
         }
       }
 
+      // Prefer an explicit floor (tests / callers), otherwise price from live
+      // vault totals so stale position.deposited/shares cannot understate the
+      // share price after yield accrual and trigger SlippageExceeded.
+      let resolvedMinSharesOut = minSharesOut;
+      if (resolvedMinSharesOut === undefined) {
+        try {
+          const state = await fetchFreshVaultState();
+          resolvedMinSharesOut = computeMinSharesOut(
+            parseFloat(amount),
+            state.totalAssets,
+            state.totalShares
+          );
+        } catch {
+          // If vault state is unavailable, omit the floor rather than guess
+          // from a stale position cache (contract treats omitted as 0).
+          resolvedMinSharesOut = undefined;
+        }
+      }
+
       const { xdr } = await api.buildDeposit({
         walletAddress: publicKey,
         vaultId,
         amount,
-        min_shares_out: minSharesOut,
+        min_shares_out: resolvedMinSharesOut,
         riskAcknowledged: true,
       });
       await signAndSubmit(xdr);
@@ -98,11 +122,25 @@ export function useVaultActions() {
       const sharesBefore = matchedBefore?.shares ?? Infinity;
       const withdrawnShares = parseFloat(shares);
 
+      let resolvedMinUsdcOut = minUsdcOut;
+      if (resolvedMinUsdcOut === undefined) {
+        try {
+          const state = await fetchFreshVaultState();
+          resolvedMinUsdcOut = computeMinUsdcOut(
+            parseFloat(shares),
+            state.totalAssets,
+            state.totalShares
+          );
+        } catch {
+          resolvedMinUsdcOut = undefined;
+        }
+      }
+
       const { xdr } = await api.buildWithdraw({
         walletAddress: publicKey,
         vaultId,
         shares,
-        min_usdc_out: minUsdcOut,
+        min_usdc_out: resolvedMinUsdcOut,
       });
 
       await signAndSubmit(xdr);

@@ -188,11 +188,9 @@ describe("VaultPanel — deposit", () => {
     window.localStorage.setItem("meridian-risk-disclosure-accepted", "true");
   });
 
-  it("deposits with no slippage floor for a first-time depositor (no existing position)", async () => {
-    // No matching position exists yet, so there's no reliable share price
-    // to derive a floor from — assuming 1:1 would be wrong for any vault
-    // that has already accrued yield, and would revert every first deposit
-    // with SlippageExceeded. min_shares_out must be omitted, not guessed.
+  it("omits a panel-side slippage floor for a first-time depositor", async () => {
+    // Panel always defers flooring to useVaultActions (fresh vault state).
+    // Passing undefined here is intentional — not a 1:1 guess.
     render(<VaultPanel />);
 
     fireEvent.change(screen.getByPlaceholderText("0.00"), {
@@ -214,7 +212,7 @@ describe("VaultPanel — deposit", () => {
     });
   });
 
-  it("derives the slippage floor from the caller's own position in the recommended vault", async () => {
+  it("defers slippage floor computation to useVaultActions (fresh vault state)", async () => {
     mockPositions({ isError: false, data: [POSITION] });
     render(<VaultPanel />);
 
@@ -224,13 +222,13 @@ describe("VaultPanel — deposit", () => {
     fireEvent.click(screen.getByTestId("vault-deposit-submit"));
 
     await waitFor(() => {
-      // POSITION: 50 shares / 100 deposited -> 0.5 share price.
-      // 25 * 0.5 = 12.5 expected shares, * 0.995 tolerance = 12.4375.
+      // Panel must not price from stale position.deposited/shares; the
+      // action hook fetches live totalAssets/totalShares at build time.
       expect(deposit).toHaveBeenCalledWith(
         "25",
         "meridian-usdc",
         "USDC",
-        "12.4375000",
+        undefined,
         true
       );
     });
@@ -322,7 +320,7 @@ describe("VaultPanel — withdraw", () => {
         "10",
         "meridian-usdc",
         "USDC",
-        "19.9000000"
+        undefined
       );
     });
   });
@@ -357,7 +355,7 @@ describe("VaultPanel — withdraw", () => {
         "10",
         "meridian-usdc",
         "USDC",
-        "19.9000000"
+        undefined
       );
     });
   });

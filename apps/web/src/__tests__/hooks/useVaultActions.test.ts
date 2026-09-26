@@ -79,6 +79,15 @@ vi.mock("../../lib/api", () => ({
     buildWithdraw: vi.fn(async () => ({ xdr: "WITHDRAW_XDR" })),
     submitTx: vi.fn(async () => ({ hash: "TX_HASH" })),
     getPositions: vi.fn(async () => ({ positions: [] })),
+    getVaultState: vi.fn(async () => ({
+      protocol: "blend",
+      adapterId: "adapter",
+      // Live share price = 2.0 (assets/shares) — intentionally different from
+      // any stale position.deposited/shares the panel might have cached.
+      totalShares: 50,
+      totalAssets: 100,
+      paused: false,
+    })),
   },
 }));
 
@@ -175,7 +184,7 @@ describe("useVaultActions — deposit", () => {
       walletAddress: KEY,
       vaultId: "blend-usdc-fixed",
       amount: "10",
-      min_shares_out: undefined,
+      min_shares_out: "4.9750000",
       riskAcknowledged: true,
     });
     expect(wallet.sign).toHaveBeenCalledWith(
@@ -258,7 +267,7 @@ describe("useVaultActions — withdraw", () => {
       walletAddress: KEY,
       vaultId: "blend-usdc-fixed",
       shares: "5",
-      min_usdc_out: undefined,
+      min_usdc_out: "9.9500000",
     });
     expect(wallet.sign).toHaveBeenCalled();
     expect(useToastStore.getState().toasts[0]).toMatchObject({
@@ -303,5 +312,97 @@ describe("useVaultActions — withdraw", () => {
 
     expect(ok).toBe(false);
     expect(useToastStore.getState().toasts[0]).toMatchObject({ kind: "error" });
+  });
+});
+
+describe("useVaultActions — fresh vault state slippage", () => {
+  it("computes min_shares_out from live totalAssets/totalShares when omitted", async () => {
+    const { result } = renderHook(() => useVaultActions());
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.deposit(
+        "25",
+        "blend-usdc-fixed",
+        "USDC",
+        undefined,
+        true
+      );
+    });
+
+    expect(ok).toBe(true);
+    expect(api.getVaultState).toHaveBeenCalled();
+    // 25 * (50/100) * 0.995 = 12.4375
+    expect(api.buildDeposit).toHaveBeenCalledWith({
+      walletAddress: KEY,
+      vaultId: "blend-usdc-fixed",
+      amount: "25",
+      min_shares_out: "12.4375000",
+      riskAcknowledged: true,
+    });
+  });
+
+  it("computes min_usdc_out from live vault state when omitted", async () => {
+    const { result } = renderHook(() => useVaultActions());
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.withdraw("10", "blend-usdc-fixed", "USDC");
+    });
+
+    expect(ok).toBe(true);
+    expect(api.getVaultState).toHaveBeenCalled();
+    // 10 * (100/50) * 0.995 = 19.9
+    expect(api.buildWithdraw).toHaveBeenCalledWith({
+      walletAddress: KEY,
+      vaultId: "blend-usdc-fixed",
+      shares: "10",
+      min_usdc_out: "19.9000000",
+    });
+  });
+
+  it("keeps an explicit minSharesOut override without re-fetching price math", async () => {
+    const { result } = renderHook(() => useVaultActions());
+
+    await act(async () => {
+      await result.current.deposit(
+        "10",
+        "blend-usdc-fixed",
+        "USDC",
+        "9.5",
+        true
+      );
+    });
+
+    expect(api.buildDeposit).toHaveBeenCalledWith({
+      walletAddress: KEY,
+      vaultId: "blend-usdc-fixed",
+      amount: "10",
+      min_shares_out: "9.5",
+      riskAcknowledged: true,
+    });
+  });
+
+  it("omits the floor when vault state fetch fails", async () => {
+    vi.mocked(api.getVaultState).mockRejectedValueOnce(new Error("rpc down"));
+    const { result } = renderHook(() => useVaultActions());
+
+    await act(async () => {
+      await result.current.deposit(
+        "10",
+        "blend-usdc-fixed",
+        "USDC",
+        undefined,
+        true
+      );
+    });
+
+    expect(api.buildDeposit).toHaveBeenCalledWith({
+      walletAddress: KEY,
+      vaultId: "blend-usdc-fixed",
+      amount: "10",
+      min_shares_out: undefined,
+      riskAcknowledged: true,
+    });
   });
 });

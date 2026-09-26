@@ -4,15 +4,17 @@ import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
-import { useRiskDisclosure } from "../../hooks/useRiskDisclosure";
-import { getWalletMeta, hasAcceptedRiskDisclosure } from "../../lib/wallet";
+import {
+  getWalletMeta,
+  hasAcceptedRiskDisclosure,
+  setRiskDisclosureAccepted,
+} from "../../lib/wallet";
 import { PositionSummary } from "./PositionSummary";
 import { DepositTab } from "./DepositTab";
 import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
-import { DEFAULT_SLIPPAGE_BPS } from "@meridian/shared";
 
 function formatTvl(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -44,12 +46,12 @@ export function VaultPanel() {
 
   const [tab, setTab] = useState<Tab>("deposit");
   const [amount, setAmount] = useState("");
-  // Deposit-time gate. useWalletConnect's gate only fires from the connect
-  // button, so a wallet already connected elsewhere (e.g. via AdminLogin,
-  // which skips the disclosure) would otherwise reach this deposit button
-  // with no way to ever see or accept it. Both gates now share the same
-  // useRiskDisclosure hook (#814) rather than duplicating its state/logic.
-  const depositRiskDisclosure = useRiskDisclosure();
+  // Separate from useWalletConnect's showRiskDisclosure: that one only ever
+  // fires from the connect button, so a wallet already connected elsewhere
+  // (e.g. via AdminLogin, which skips the disclosure) would otherwise reach
+  // this deposit button with no way to ever see or accept it.
+  const [showDepositRiskDisclosure, setShowDepositRiskDisclosure] =
+    useState(false);
 
   function onAmountKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     const allowed = [
@@ -79,42 +81,21 @@ export function VaultPanel() {
   const hasPosition =
     position && Number.isFinite(position.deposited) && position.deposited > 0;
 
-  const slippageFactor = 1 - DEFAULT_SLIPPAGE_BPS / 10000;
-
   async function handleDeposit() {
     if (!amount || !bestVault) return;
-    // Runs the deposit now if already accepted, otherwise once the user
-    // accepts the disclosure modal below (#814).
-    await depositRiskDisclosure.requireAcceptance(() =>
-      executeDeposit(bestVault)
-    );
-  }
-
-  async function executeDeposit(vault: NonNullable<typeof bestVault>) {
-    // Only a position held in bestVault has a share price for this deposit.
-    // A first-time depositor has none. There is no reliable price to derive
-    // a floor from, so the deposit goes through with no slippage protection
-    // (min_shares_out omitted, which the contract treats as "0") rather than
-    // guessing a floor that could revert a legitimate deposit with
-    // SlippageExceeded.
-    const bestVaultPosition = positions.find((p) => p.vaultId === vault.id);
-    const numAmount = parseFloat(amount);
-    const minSharesOut =
-      bestVaultPosition &&
-      bestVaultPosition.shares > 0 &&
-      bestVaultPosition.deposited > 0
-        ? Math.max(
-            0,
-            ((numAmount * bestVaultPosition.shares) /
-              bestVaultPosition.deposited) *
-              slippageFactor
-          ).toFixed(7)
-        : undefined;
+    if (!hasAcceptedRiskDisclosure()) {
+      setShowDepositRiskDisclosure(true);
+      return;
+    }
+    // Slippage floors are computed in useVaultActions from a fresh on-chain
+    // vault state read at tx-build time. Do not derive them from cached
+    // position.deposited / position.shares — that share price can lag yield
+    // accrual and cause unnecessary SlippageExceeded reverts.
     const ok = await deposit(
       amount,
-      vault.id,
-      vault.asset,
-      minSharesOut,
+      bestVault.id,
+      bestVault.asset,
+      undefined,
       hasAcceptedRiskDisclosure()
     );
     if (ok) setAmount("");
@@ -124,17 +105,11 @@ export function VaultPanel() {
     if (!amount || !bestVault || !position) return;
     if (position.vaultId !== bestVault.id) return;
     if (parseFloat(amount) > position.shares) return;
-    const numShares = parseFloat(amount);
-    const expectedUsdc =
-      position.shares > 0
-        ? (numShares * position.deposited) / position.shares
-        : numShares;
-    const minUsdcOut = Math.max(0, expectedUsdc * slippageFactor).toFixed(7);
     const ok = await withdraw(
       amount,
       bestVault.id,
       bestVault.asset,
-      minUsdcOut
+      undefined
     );
     if (ok) setAmount("");
   }
@@ -330,10 +305,14 @@ export function VaultPanel() {
             onSubmit={handleWithdraw}
           />
         )}
-        {depositRiskDisclosure.show && (
+        {showDepositRiskDisclosure && (
           <RiskDisclosureModal
-            onAccept={() => void depositRiskDisclosure.accept()}
-            onCancel={depositRiskDisclosure.cancel}
+            onAccept={() => {
+              setRiskDisclosureAccepted();
+              setShowDepositRiskDisclosure(false);
+              void handleDeposit();
+            }}
+            onCancel={() => setShowDepositRiskDisclosure(false)}
           />
         )}
       </div>
