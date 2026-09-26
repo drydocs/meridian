@@ -13,7 +13,7 @@
 
 ## Component structure
 
-The public UI is intentionally minimal: one page, one panel. A second, admin-only page (`/app/admin`) was added for [#615](https://github.com/drydocs/meridian/issues/615), but there is no router. `App.tsx` picks between the two by checking `window.location.pathname` directly, since a full router is a heavier change than a single static path split needs (see its comment).
+The public UI is intentionally minimal: one page, one panel. A second, admin-only page (`/admin`) was added for [#615](https://github.com/drydocs/meridian/issues/615), but there is no router. `App.tsx` picks between the pages by checking `window.location.pathname` directly, since a full router is a heavier change than a small static path split needs (see its comment). The previous `/app/admin` path permanently redirects to `/admin` on Vercel.
 
 ```
 App
@@ -25,7 +25,7 @@ App
     ├── Tab switcher         # Deposit | Withdraw
     └── Action area          # Amount input + submit button
 
-AdminDashboard (/app/admin)
+AdminDashboard (/admin)
 ├── useIsAdminWallet          # Placeholder client-side gate (see its comment); #614 replaces this
 ├── KeeperHealthPanel         # Accrual/migration keeper status, last run, overdue-by
 └── VaultStatePanel           # Active adapter, total shares/assets, Active/Paused badge
