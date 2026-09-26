@@ -6,7 +6,7 @@ import { useToastStore } from "../../store/toast";
 
 const invalidateQueries = vi.fn();
 const setQueryData = vi.fn();
-const getQueryData = vi.fn(() => undefined);
+const getQueryData = vi.fn<(key: unknown) => unknown>(() => undefined);
 vi.mock("@tanstack/react-query", async () => {
   const { useEffect, useRef, useState } = await import("react");
 
@@ -241,6 +241,57 @@ describe("useVaultActions — deposit", () => {
 
     expect(ok).toBe(false);
     expect(api.buildDeposit).not.toHaveBeenCalled();
+  });
+
+  it("optimistically raises the cached position for the depositing vault", async () => {
+    const cached = [
+      { vaultId: "blend-usdc-fixed", shares: 100, deposited: 100 },
+      { vaultId: "other-vault", shares: 7, deposited: 7 },
+    ];
+    getQueryData.mockReturnValueOnce(cached);
+
+    const { result } = renderHook(() => useVaultActions());
+
+    await act(async () => {
+      await result.current.deposit(
+        "10",
+        "blend-usdc-fixed",
+        "USDC",
+        undefined,
+        true
+      );
+    });
+
+    expect(setQueryData).toHaveBeenCalledTimes(1);
+
+    // Mirrors the withdraw flow: the cache entry is computed eagerly from the
+    // pre-submit snapshot and written back as a value, not an updater fn.
+    const [key, updated] = setQueryData.mock.calls[0] as [
+      unknown,
+      typeof cached
+    ];
+    expect(key).toEqual(["positions", KEY]);
+    expect(updated[0]).toMatchObject({ shares: 110, deposited: 110 });
+    // Unrelated positions are passed through untouched.
+    expect(updated[1]).toBe(cached[1]);
+  });
+
+  it("does not fabricate a position when none is cached yet", async () => {
+    getQueryData.mockReturnValueOnce(undefined);
+
+    const { result } = renderHook(() => useVaultActions());
+
+    await act(async () => {
+      await result.current.deposit(
+        "10",
+        "blend-usdc-fixed",
+        "USDC",
+        undefined,
+        true
+      );
+    });
+
+    expect(setQueryData).not.toHaveBeenCalled();
   });
 });
 
