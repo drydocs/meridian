@@ -8,6 +8,7 @@ import { KNOWN_POOLS } from "./known-pools";
 import { APP_NETWORK, withRaceTimeout } from "@meridian/shared";
 import { simulateView } from "./tx";
 import { getRpcServer, toBigInt } from "./internal";
+import { getCachedVaults, setCachedVaults } from "./vault-cache";
 
 export interface ApiVault {
   id: string;
@@ -21,20 +22,15 @@ export interface ApiVault {
   riskLevel: RiskLevel;
 }
 
-// TTL matches the CDN s-maxage on the vaults endpoint (60 s). Both the Fastify
-// server (long-lived process) and warm Vercel invocations benefit from this
-// without adding any external dependency.
-const CACHE_TTL_MS = 60_000;
-let vaultCache: { vaults: ApiVault[]; expiresAt: number } | null = null;
-
 /** Clears the in-memory vault cache. Exposed for tests only. */
 export function clearVaultCache(): void {
-  vaultCache = null;
+  // No-op for external cache, kept for API compatibility if needed
 }
 
 /** Returns true if a valid cached result exists and will be returned by fetchAllVaults. */
 export function isVaultCacheWarm(): boolean {
-  return vaultCache !== null && Date.now() < vaultCache.expiresAt;
+  // External cache status is not tracked in-memory here
+  return false;
 }
 
 /**
@@ -158,8 +154,15 @@ export async function fetchAllVaults(
 ): Promise<ApiVault[]> {
   if (network === "testnet") return fetchTestnetVaults();
 
-  const now = Date.now();
-  if (vaultCache && now < vaultCache.expiresAt) return vaultCache.vaults;
+  // Check shared Upstash cache first
+  const cached = await getCachedVaults(network);
+  if (cached) {
+    try {
+      return JSON.parse(cached) as ApiVault[];
+    } catch (e) {
+      console.error("[vaults] Failed to parse cached vaults:", e);
+    }
+  }
 
   const pools = await getStellarStablecoinPools();
 
@@ -185,13 +188,17 @@ export async function fetchAllVaults(
     });
   }
 
+  // Cache the result if we have data
   if (vaults.length > 0) {
-    vaultCache = { vaults, expiresAt: now + CACHE_TTL_MS };
+    try {
+      await setCachedVaults(network, JSON.stringify(vaults));
+    } catch (e) {
+      console.error("[vaults] Failed to set cache:", e);
+    }
     return vaults;
   }
 
   // DeFiLlama returned no usable pools — likely a transient blip.
-  // Serve the previous cache if still populated so the dashboard stays live;
-  // otherwise return empty and let callers decide how to handle it.
-  return vaultCache?.vaults ?? [];
+  // Return empty and let callers decide how to handle it.
+  return [];
 }
