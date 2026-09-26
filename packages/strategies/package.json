@@ -1,0 +1,19 @@
+{
+  "name": "@meridian/strategies",
+  "version": "0.1.0",
+  "description": "Deterministic strategy and backtest cost models for Meridian.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.0"
+  },
+  "license": "MIT"
+}
