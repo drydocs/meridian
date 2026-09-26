@@ -15,7 +15,11 @@
 // budget); see accrual-keeper.ts.
 
 import { Address, nativeToScVal } from "@stellar/stellar-sdk";
-import { APP_NETWORK, MAX_ADMIN_SLIPPAGE_BPS } from "@meridian/shared";
+import {
+  APP_NETWORK,
+  MAX_ADMIN_SLIPPAGE_BPS,
+  MIGRATION_DEFAULT_SLIPPAGE_BPS,
+} from "@meridian/shared";
 import { KNOWN_POOLS, type KnownPoolMeta } from "./known-pools";
 import { getRpcServer } from "./internal";
 import { simulateView } from "./tx";
@@ -77,7 +81,7 @@ const FUNCTION_BUDGET_MS = 50_000;
 // the contract itself would reject with InvalidSlippageBps is caught at
 // config time instead of permanently breaking every subsequent
 // migrate_adapter submission.
-const DEFAULT_MAX_SLIPPAGE_BPS = 100;
+const DEFAULT_MAX_SLIPPAGE_BPS = MIGRATION_DEFAULT_SLIPPAGE_BPS;
 
 // A minimum improvement floor avoids churning between two protocols whose
 // rates are within noise of each other: migrate_adapter costs a real
