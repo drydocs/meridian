@@ -120,12 +120,23 @@ function collectTargets(): VerifyTarget[] {
     }
   }
 
-  const knownPoolAddress = KNOWN_POOLS.testnet["meridian-usdc"]?.contractId;
-  if (knownPoolAddress) {
+  const testnetKnownPoolAddress =
+    KNOWN_POOLS.testnet["meridian-usdc"]?.contractId;
+  if (testnetKnownPoolAddress) {
     targets.push({
       label: 'KNOWN_POOLS.testnet["meridian-usdc"].contractId',
       network: "testnet",
-      address: knownPoolAddress,
+      address: testnetKnownPoolAddress,
+    });
+  }
+
+  const mainnetKnownPoolAddress =
+    KNOWN_POOLS.mainnet["meridian-usdc"]?.contractId;
+  if (mainnetKnownPoolAddress) {
+    targets.push({
+      label: 'KNOWN_POOLS.mainnet["meridian-usdc"].contractId',
+      network: "mainnet",
+      address: mainnetKnownPoolAddress,
     });
   }
 
@@ -133,16 +144,18 @@ function collectTargets(): VerifyTarget[] {
 }
 
 function checkInternalConsistency(targets: VerifyTarget[]): boolean {
-  const testnetAddresses = new Set(
-    targets.filter((t) => t.network === "testnet").map((t) => t.address)
-  );
-  if (testnetAddresses.size > 1) {
-    console.error(
-      "MISMATCH: CONTRACT_ADDRESSES.testnet.vault and " +
-        'KNOWN_POOLS.testnet["meridian-usdc"].contractId disagree on the ' +
-        `vault address: ${[...testnetAddresses].join(", ")}`
+  for (const network of ["testnet", "mainnet"] as const) {
+    const addresses = new Set(
+      targets.filter((t) => t.network === network).map((t) => t.address)
     );
-    return false;
+    if (addresses.size > 1) {
+      console.error(
+        `MISMATCH: CONTRACT_ADDRESSES.${network}.vault and ` +
+          `KNOWN_POOLS.${network}["meridian-usdc"].contractId disagree on the ` +
+          `vault address: ${[...addresses].join(", ")}`
+      );
+      return false;
+    }
   }
   return true;
 }

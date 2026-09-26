@@ -16,6 +16,15 @@ describe("known-pools", () => {
     }
   });
 
+  it("contains valid mainnet meridian-usdc metadata with asset, contractId, and assetId", () => {
+    const pool = KNOWN_POOLS.mainnet["meridian-usdc"];
+    expect(pool).toBeDefined();
+    expect(pool.protocol).toBe("meridian");
+    expect(pool.asset).toBe("USDC");
+    expect(pool.contractId).toBeTruthy();
+    expect(pool.assetId).toBeTruthy();
+  });
+
   it("contains valid testnet pools metadata", () => {
     expect(KNOWN_POOLS.testnet).toBeDefined();
     const testnetKeys = Object.keys(KNOWN_POOLS.testnet);

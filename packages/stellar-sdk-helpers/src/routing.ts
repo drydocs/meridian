@@ -1,29 +1,28 @@
 import type { ApiVault } from "./vaults";
 
 export interface RouteOptions {
-  // DeFindex vaults are only routable once a real vault contract is configured.
-  defindexConfigured: boolean;
+  // Retained for backward compatibility. Third-party pools (Blend, DeFindex)
+  // are display-only; all deposits route through the Meridian coordinator vault (#850).
+  defindexConfigured?: boolean;
 }
 
 // A vault is routable only if Meridian can build a deposit for its protocol.
-// Blend and the Meridian coordinator vault are always supported; DeFindex
-// once a vault contract is configured.
-function isRoutable(vault: ApiVault, opts: RouteOptions): boolean {
-  if (vault.protocol === "blend") return true;
-  if (vault.protocol === "meridian") return true;
-  if (vault.protocol === "defindex") return opts.defindexConfigured;
-  return false;
+// Only Meridian coordinator vaults can be deposited into; third-party pools
+// (Blend, DeFindex) are displayed for comparison but cannot be deposited into
+// directly because all deposits route through the coordinator vault (#850).
+function isRoutable(vault: ApiVault, _opts?: RouteOptions): boolean {
+  return vault.protocol === "meridian";
 }
 
 /**
  * Pick the vault to route a new deposit into: the highest-APY vault Meridian can
- * actually build a deposit for, preferring pools not flagged "risky". Falls back
- * to the best routable pool when every option is risky, and returns null when
- * nothing is routable. Pure — no I/O.
+ * actually build a deposit for (a Meridian coordinator vault), preferring pools
+ * not flagged "risky". Falls back to the best routable pool when every option is
+ * risky, and returns null when nothing is routable. Pure — no I/O.
  */
 export function selectBestVault(
   vaults: ApiVault[],
-  opts: RouteOptions
+  opts?: RouteOptions
 ): ApiVault | null {
   const routable = vaults.filter((v) => isRoutable(v, opts));
   if (routable.length === 0) return null;

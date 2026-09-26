@@ -3,9 +3,14 @@ import {
   getStellarStablecoinPools,
   assessPoolRisk,
   type RiskLevel,
+  type DefiLlamaPool,
 } from "./defilamma";
-import { KNOWN_POOLS } from "./known-pools";
-import { APP_NETWORK, withRaceTimeout } from "@meridian/shared";
+import { KNOWN_POOLS, type KnownPoolMeta } from "./known-pools";
+import {
+  APP_NETWORK,
+  STELLAR_NETWORKS,
+  withRaceTimeout,
+} from "@meridian/shared";
 import { simulateView } from "./tx";
 import { getRpcServer, toBigInt } from "./internal";
 
@@ -35,6 +40,27 @@ export function clearVaultCache(): void {
 /** Returns true if a valid cached result exists and will be returned by fetchAllVaults. */
 export function isVaultCacheWarm(): boolean {
   return vaultCache !== null && Date.now() < vaultCache.expiresAt;
+}
+
+/**
+ * Returns the RPC URL and passphrase for `network`, preferring `APP_NETWORK`
+ * when it matches the requested network so environment overrides are respected.
+ */
+function getNetworkConfig(network: "mainnet" | "testnet"): {
+  rpc: string;
+  passphrase: string;
+} {
+  if (APP_NETWORK.network === network) {
+    return {
+      rpc: APP_NETWORK.rpcUrl,
+      passphrase: APP_NETWORK.passphrase,
+    };
+  }
+  const fallback = STELLAR_NETWORKS[network];
+  return {
+    rpc: fallback.rpcUrl,
+    passphrase: fallback.passphrase,
+  };
 }
 
 /**
@@ -81,6 +107,8 @@ async function fetchMeridianApy(
     "get_adapter"
   )) as string;
 
+  if (!adapterId) return 0;
+
   const [poolId, protocol] = (await Promise.all([
     simulateView(server, adapterId, network.passphrase, "get_pool"),
     simulateView(server, adapterId, network.passphrase, "get_protocol"),
@@ -94,6 +122,46 @@ async function fetchMeridianApy(
 }
 
 /**
+ * Reads the on-chain state for a Meridian coordinator vault: reads
+ * get_total_assets for TVL and discovers its active adapter's APY via
+ * fetchMeridianApy. Returns null if contractId or assetId is missing.
+ */
+async function fetchMeridianVault(
+  server: ReturnType<typeof getRpcServer>,
+  network: { rpc: string; passphrase: string },
+  meta: KnownPoolMeta
+): Promise<ApiVault | null> {
+  if (!meta.contractId || !meta.assetId) return null;
+  const [totalAssetsRaw, apy] = await Promise.all([
+    withRaceTimeout(
+      () =>
+        simulateView(
+          server,
+          meta.contractId!,
+          network.passphrase,
+          "get_total_assets"
+        ),
+      10_000,
+      "Meridian RPC"
+    ),
+    withRaceTimeout(
+      () => fetchMeridianApy(server, network, meta.contractId!, meta.assetId!),
+      10_000,
+      "Meridian adapter RPC"
+    ),
+  ]);
+  const tvl = Math.round(Number(toBigInt(totalAssetsRaw) ?? 0n) / 1e7);
+  return {
+    ...meta,
+    asset: meta.asset ?? "USDC",
+    apy,
+    tvl,
+    userBalance: 0,
+    riskLevel: "safe",
+  };
+}
+
+/**
  * Query each pool in KNOWN_POOLS.testnet on-chain and return its TVL and APY.
  * Blend pools use PoolV2.load directly; Meridian coordinator vaults read
  * get_total_assets for TVL and discover their active adapter's protocol
@@ -101,10 +169,8 @@ async function fetchMeridianApy(
  * requires a new entry in KNOWN_POOLS.testnet.
  */
 async function fetchTestnetVaults(): Promise<ApiVault[]> {
-  const network = {
-    rpc: APP_NETWORK.rpcUrl,
-    passphrase: APP_NETWORK.passphrase,
-  };
+  const network = getNetworkConfig("testnet");
+  const server = getRpcServer(network.rpc, 10_000);
   const vaults: ApiVault[] = [];
 
   for (const meta of Object.values(KNOWN_POOLS.testnet)) {
@@ -119,28 +185,8 @@ async function fetchTestnetVaults(): Promise<ApiVault[]> {
       const apy = reserve ? Number((reserve.estSupplyApy * 100).toFixed(2)) : 0;
       vaults.push({ ...meta, apy, tvl, userBalance: 0, riskLevel: "safe" });
     } else if (meta.protocol === "meridian") {
-      const server = getRpcServer(network.rpc, 10_000);
-      const [totalAssetsRaw, apy] = await Promise.all([
-        withRaceTimeout(
-          () =>
-            simulateView(
-              server,
-              meta.contractId,
-              network.passphrase,
-              "get_total_assets"
-            ),
-          10_000,
-          "Meridian RPC"
-        ),
-        withRaceTimeout(
-          () =>
-            fetchMeridianApy(server, network, meta.contractId, meta.assetId),
-          10_000,
-          "Meridian adapter RPC"
-        ),
-      ]);
-      const tvl = Math.round(Number(toBigInt(totalAssetsRaw)) / 1e7);
-      vaults.push({ ...meta, apy, tvl, userBalance: 0, riskLevel: "safe" });
+      const vault = await fetchMeridianVault(server, network, meta);
+      if (vault) vaults.push(vault);
     }
   }
 
@@ -149,8 +195,10 @@ async function fetchTestnetVaults(): Promise<ApiVault[]> {
 
 /**
  * Fetch vaults for the given network. On mainnet, pulls live APY/TVL from
- * DeFiLlama and matches against KNOWN_POOLS.mainnet. On testnet, queries the
- * Blend TestnetV2 pool on-chain directly (DeFiLlama does not index testnet).
+ * DeFiLlama for third-party pools, reads live Meridian coordinator vault(s)
+ * on-chain directly (equivalent to the testnet branch), and matches against
+ * KNOWN_POOLS.mainnet. On testnet, queries pools on-chain directly
+ * (DeFiLlama does not index testnet).
  * Mainnet results are cached for 60 s; testnet results are always fresh.
  */
 export async function fetchAllVaults(
@@ -161,9 +209,28 @@ export async function fetchAllVaults(
   const now = Date.now();
   if (vaultCache && now < vaultCache.expiresAt) return vaultCache.vaults;
 
-  const pools = await getStellarStablecoinPools();
+  const net = getNetworkConfig("mainnet");
+  const server = getRpcServer(net.rpc, 10_000);
 
-  const vaults: ApiVault[] = [];
+  const meridianMetas = Object.values(KNOWN_POOLS.mainnet).filter(
+    (meta) => meta.protocol === "meridian"
+  );
+
+  const [meridianVaultsRaw, poolsResult] = await Promise.all([
+    Promise.all(
+      meridianMetas.map((meta) => fetchMeridianVault(server, net, meta))
+    ),
+    getStellarStablecoinPools().catch((err) => {
+      console.warn("[vaults] failed to fetch DeFiLlama pools:", err);
+      return [] as DefiLlamaPool[];
+    }),
+  ]);
+  const meridianVaults = meridianVaultsRaw.filter(
+    (v): v is ApiVault => v !== null
+  );
+  const pools = poolsResult;
+
+  const llamaVaults: ApiVault[] = [];
   for (const pool of pools) {
     const meta = KNOWN_POOLS.mainnet[pool.pool];
     if (!meta) {
@@ -175,7 +242,9 @@ export async function fetchAllVaults(
       );
       continue;
     }
-    vaults.push({
+    // Prevent duplicate if a Meridian vault ever appears in DeFiLlama
+    if (meridianVaults.some((v) => v.id === meta.id)) continue;
+    llamaVaults.push({
       ...meta,
       asset: pool.symbol,
       apy: Number(pool.apy.toFixed(2)),
@@ -185,13 +254,19 @@ export async function fetchAllVaults(
     });
   }
 
+  // If DeFiLlama returned no usable pools — likely a transient blip.
+  // Recover third-party pools from stale cache if available.
+  const resolvedLlamaVaults =
+    llamaVaults.length > 0
+      ? llamaVaults
+      : (vaultCache?.vaults.filter((v) => v.protocol !== "meridian") ?? []);
+
+  const vaults: ApiVault[] = [...meridianVaults, ...resolvedLlamaVaults];
+
   if (vaults.length > 0) {
     vaultCache = { vaults, expiresAt: now + CACHE_TTL_MS };
     return vaults;
   }
 
-  // DeFiLlama returned no usable pools — likely a transient blip.
-  // Serve the previous cache if still populated so the dashboard stays live;
-  // otherwise return empty and let callers decide how to handle it.
   return vaultCache?.vaults ?? [];
 }

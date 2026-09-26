@@ -7,7 +7,7 @@ function vault(
 ): ApiVault {
   return {
     id: p.id ?? "v",
-    protocol: (p.protocol ?? "blend") as ApiVault["protocol"],
+    protocol: (p.protocol ?? "meridian") as ApiVault["protocol"],
     asset: "USDC",
     name: "n",
     label: "l",
@@ -24,42 +24,49 @@ describe("selectBestVault", () => {
   it("picks the highest-APY routable vault", () => {
     const best = selectBestVault(
       [
-        vault({ id: "a", protocol: "blend", apy: 4 }),
-        vault({ id: "b", protocol: "defindex", apy: 7 }),
-        vault({ id: "c", protocol: "blend", apy: 6 }),
+        vault({ id: "a", protocol: "meridian", apy: 4 }),
+        vault({ id: "b", protocol: "meridian", apy: 7 }),
+        vault({ id: "c", protocol: "meridian", apy: 6 }),
       ],
       opts
     );
     expect(best?.id).toBe("b");
   });
 
-  it("excludes non-depositable protocols even when they have the best APY", () => {
+  it("excludes non-depositable protocols (Blend, DeFindex, Ondo) even when they have the best APY", () => {
     const best = selectBestVault(
       [
         vault({ id: "ondo", protocol: "ondo", apy: 12 }),
-        vault({ id: "blend", protocol: "blend", apy: 5 }),
+        vault({ id: "blend", protocol: "blend", apy: 10 }),
+        vault({ id: "dfx", protocol: "defindex", apy: 9 }),
+        vault({ id: "meridian-usdc", protocol: "meridian", apy: 5 }),
       ],
       opts
     );
-    expect(best?.id).toBe("blend");
+    expect(best?.id).toBe("meridian-usdc");
   });
 
-  it("excludes DeFindex when no vault is configured", () => {
+  it("excludes third-party pools when no Meridian vault is present", () => {
     const best = selectBestVault(
       [
         vault({ id: "dfx", protocol: "defindex", apy: 9 }),
         vault({ id: "blend", protocol: "blend", apy: 5 }),
       ],
-      { defindexConfigured: false }
+      opts
     );
-    expect(best?.id).toBe("blend");
+    expect(best).toBeNull();
   });
 
   it("prefers a non-risky pool over a higher-APY risky one", () => {
     const best = selectBestVault(
       [
-        vault({ id: "risky", protocol: "blend", apy: 15, riskLevel: "risky" }),
-        vault({ id: "safe", protocol: "blend", apy: 6, riskLevel: "safe" }),
+        vault({
+          id: "risky",
+          protocol: "meridian",
+          apy: 15,
+          riskLevel: "risky",
+        }),
+        vault({ id: "safe", protocol: "meridian", apy: 6, riskLevel: "safe" }),
       ],
       opts
     );
@@ -69,8 +76,8 @@ describe("selectBestVault", () => {
   it("falls back to the best risky pool when nothing safer is routable", () => {
     const best = selectBestVault(
       [
-        vault({ id: "r1", protocol: "blend", apy: 11, riskLevel: "risky" }),
-        vault({ id: "r2", protocol: "blend", apy: 14, riskLevel: "risky" }),
+        vault({ id: "r1", protocol: "meridian", apy: 11, riskLevel: "risky" }),
+        vault({ id: "r2", protocol: "meridian", apy: 14, riskLevel: "risky" }),
       ],
       opts
     );
@@ -87,13 +94,15 @@ describe("selectBestVault", () => {
 
   it("returns null when nothing is routable", () => {
     expect(selectBestVault([vault({ protocol: "ondo" })], opts)).toBeNull();
+    expect(selectBestVault([vault({ protocol: "blend" })], opts)).toBeNull();
+    expect(selectBestVault([vault({ protocol: "defindex" })], opts)).toBeNull();
     expect(selectBestVault([], opts)).toBeNull();
   });
 
   it("breaks APY ties deterministically by vault id regardless of input order", () => {
-    const a = vault({ id: "blend-eurc-fixed", apy: 5 });
-    const b = vault({ id: "blend-usdc-fixed", apy: 5 });
-    expect(selectBestVault([a, b], opts)?.id).toBe("blend-eurc-fixed");
-    expect(selectBestVault([b, a], opts)?.id).toBe("blend-eurc-fixed");
+    const a = vault({ id: "meridian-eurc", protocol: "meridian", apy: 5 });
+    const b = vault({ id: "meridian-usdc", protocol: "meridian", apy: 5 });
+    expect(selectBestVault([a, b], opts)?.id).toBe("meridian-eurc");
+    expect(selectBestVault([b, a], opts)?.id).toBe("meridian-eurc");
   });
 });
