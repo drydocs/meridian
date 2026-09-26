@@ -268,7 +268,7 @@ describe("useVaultActions — deposit", () => {
     // pre-submit snapshot and written back as a value, not an updater fn.
     const [key, updated] = setQueryData.mock.calls[0] as [
       unknown,
-      typeof cached
+      typeof cached,
     ];
     expect(key).toEqual(["positions", KEY]);
     expect(updated[0]).toMatchObject({ shares: 110, deposited: 110 });

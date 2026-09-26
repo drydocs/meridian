@@ -216,7 +216,9 @@ describe("usePositionPolling", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(12_000);
     });
-    expect(vi.mocked(api.getPositions).mock.calls.length).toBe(callsAfterSettle);
+    expect(vi.mocked(api.getPositions).mock.calls.length).toBe(
+      callsAfterSettle
+    );
 
     vi.useRealTimers();
   });
@@ -250,7 +252,9 @@ describe("usePositionPolling", () => {
       await vi.advanceTimersByTimeAsync(12_000);
     });
     expect(callsAfterSettle).toBeGreaterThan(callsWithNoPosition);
-    expect(vi.mocked(api.getPositions).mock.calls.length).toBe(callsAfterSettle);
+    expect(vi.mocked(api.getPositions).mock.calls.length).toBe(
+      callsAfterSettle
+    );
 
     vi.useRealTimers();
   });

@@ -19,7 +19,7 @@ export type PositionPollDirection = "increase" | "decrease";
 function hasSettled(
   liveShares: number,
   sharesBefore: number,
-  direction: PositionPollDirection,
+  direction: PositionPollDirection
 ): boolean {
   if (direction === "increase") {
     return Number.isFinite(sharesBefore)
