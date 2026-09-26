@@ -15,6 +15,7 @@ export * from "./orchestration";
 export * from "./positions";
 export * from "./rate-sources";
 export * from "./routing";
+export * from "./time-series";
 export * from "./tx";
 export * from "./types";
 export * from "./vaults";
