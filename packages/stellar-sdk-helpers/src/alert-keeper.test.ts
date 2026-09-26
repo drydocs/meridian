@@ -97,6 +97,17 @@ describe("formatAlertMessage", () => {
     });
     expect(msg).toContain("migrated adapter");
   });
+
+  it("formats a mig_begin event with target adapter and earliest ledger", () => {
+    const msg = at({
+      action: "mig_begin",
+      ledgerSequence: 5,
+      payload: { newAdapter: NEW_ADAPTER, earliestLedger: 17380 },
+    });
+    expect(msg).toContain("migration cooldown started");
+    expect(msg).toContain(NEW_ADAPTER.slice(0, 8));
+    expect(msg).toContain("17380");
+  });
 });
 
 describe("runAlertKeeper", () => {
@@ -179,6 +190,47 @@ describe("runAlertKeeper", () => {
 
     expect(result.alertsSent).toEqual([
       { vaultId: "meridian-usdc", action: "paused", ledgerSequence: 300 },
+    ]);
+    expect(
+      await cursorStore.get(alertCursorKey(VAULT_CONTRACT_ID, "testnet"))
+    ).toBe(301);
+  });
+
+  it("sends an alert for a mig_begin action and advances the cursor past it", async () => {
+    vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
+      events: [
+        adminEvent(
+          "mig_begin",
+          xdr.ScVal.scvVec([
+            Address.fromString(NEW_ADAPTER).toScVal(),
+            xdr.ScVal.scvU32(17380),
+          ]),
+          300
+        ),
+      ],
+      latestLedger: 300,
+    } as never);
+
+    const cursorStore = createInMemoryKeeperHeartbeatStore();
+    await cursorStore.set(alertCursorKey(VAULT_CONTRACT_ID, "testnet"), 200);
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true });
+
+    const result = await runAlertKeeper(baseConfig(), {
+      targets: [target],
+      cursorStore,
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://hooks.example.com/webhook");
+    const body = JSON.parse((init as { body: string }).body);
+    expect(body.text).toContain("migration cooldown started");
+    expect(body.text).toContain("17380");
+    expect(body.content).toBe(body.text);
+
+    expect(result.alertsSent).toEqual([
+      { vaultId: "meridian-usdc", action: "mig_begin", ledgerSequence: 300 },
     ]);
     expect(
       await cursorStore.get(alertCursorKey(VAULT_CONTRACT_ID, "testnet"))

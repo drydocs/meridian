@@ -532,6 +532,28 @@ describe("getRpcAdminHistory", () => {
     });
   });
 
+  it("parses a mig_begin event with target adapter and earliest ledger", async () => {
+    vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
+      events: [
+        adminEvent(
+          "mig_begin",
+          xdr.ScVal.scvVec([
+            Address.fromString(NEW_ADAPTER).toScVal(),
+            xdr.ScVal.scvU32(17380),
+          ])
+        ),
+      ],
+      latestLedger: 100,
+    } as never);
+
+    const { actions } = await getRpcAdminHistory(network.rpcUrl, VAULT_ID);
+
+    expect(actions[0]).toMatchObject({
+      action: "mig_begin",
+      payload: { newAdapter: NEW_ADAPTER, earliestLedger: 17380 },
+    });
+  });
+
   it("skips events with an unrecognised action symbol", async () => {
     vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
       events: [adminEvent("unknown_action", xdr.ScVal.scvBool(true))],
