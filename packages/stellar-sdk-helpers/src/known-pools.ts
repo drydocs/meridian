@@ -13,6 +13,7 @@ export interface KnownPoolMeta {
   // reserve rather than a hardcoded USDC address (#539). Optional on mainnet
   // until a vault is deployed there.
   assetId?: string;
+  asset?: string;
 }
 
 export interface TestnetPoolMeta extends KnownPoolMeta {
@@ -66,6 +67,7 @@ export const KNOWN_POOLS: {
       label: "USDC Vault",
       contractId: "CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ",
       assetId: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+      asset: "USDC",
     },
   },
   testnet: {
