@@ -1,6 +1,6 @@
 /**
  * Tests for ReflectorOraclePriceFeed implementation
- * 
+ *
  * Tests conversion precision, stale-reading handling, error propagation,
  * and isolation guard compliance.
  */
@@ -25,7 +25,8 @@ const NETWORK: StellarNetwork = {
   passphrase: "Test SDF Network ; September 2015",
 };
 
-const TEST_ORACLE_ADDRESS = "CCYOZJCOG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63";
+const TEST_ORACLE_ADDRESS =
+  "CCYOZJCOG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63";
 const ASSET_ID = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQAHHAGPYNPK";
 const BTC_SYMBOL = "BTC";
 
@@ -42,16 +43,21 @@ function reflectorQuery(assetId?: string): RateQuery {
 function nonReflectorQuery(): RateQuery {
   return {
     protocol: "blend",
-    adapterId: "test-adapter", 
+    adapterId: "test-adapter",
     poolId: "test-pool",
   };
 }
 
 // Mock oracle client for testing
 class MockReflectorOracleClient implements ReflectorOracleClient {
-  private lastpriceResult: ReflectorPriceData | null = null;
+  private lastpriceResult: ReflectorPriceData | null = {
+    price: "100000000", // Default: $1 with 8 decimals
+    timestamp: Math.floor(Date.now() / 1000).toString(), // Current time
+  };
   private decimalsResult: number = 8;
-  private lastTimestampResult: string = "1640995200"; // 2022-01-01 00:00:00 UTC
+  private lastTimestampResult: string = Math.floor(
+    Date.now() / 1000
+  ).toString();
 
   setLastpriceResult(result: ReflectorPriceData | null): void {
     this.lastpriceResult = result;
@@ -66,15 +72,15 @@ class MockReflectorOracleClient implements ReflectorOracleClient {
   }
 
   async lastprice(asset: ReflectorAsset): Promise<ReflectorPriceData | null> {
-    return this.lastpriceResult;
+    return Promise.resolve(this.lastpriceResult);
   }
 
   async decimals(): Promise<number> {
-    return this.decimalsResult;
+    return Promise.resolve(this.decimalsResult);
   }
 
   async lastTimestamp(): Promise<string> {
-    return this.lastTimestampResult;
+    return Promise.resolve(this.lastTimestampResult);
   }
 }
 
@@ -112,7 +118,14 @@ describe("createReflectorOraclePriceFeed", () => {
       oracleClient: mockClient,
     });
 
-    await expect(rateSource(reflectorQuery())).rejects.toThrow(MissingOracleDataError);
+    // Use a try-catch to ensure the error is properly handled
+    try {
+      await rateSource(reflectorQuery());
+      // If we get here, the test should fail because an error should have been thrown
+      expect.fail("Expected MissingOracleDataError to be thrown");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MissingOracleDataError);
+    }
   });
 
   it("throws StaleOracleDataError when oracle data is too old", async () => {
@@ -122,14 +135,20 @@ describe("createReflectorOraclePriceFeed", () => {
       price: "5000000000000", // $50,000 with 8 decimals
       timestamp: staleTimestamp.toString(),
     });
-    
+
     const rateSource = createReflectorOraclePriceFeed({
       network: NETWORK,
       oracleClient: mockClient,
       stalenessThresholdMs: 10 * 60 * 1000, // 10 minutes
     });
 
-    await expect(rateSource(reflectorQuery())).rejects.toThrow(StaleOracleDataError);
+    // Use a try-catch to ensure the error is properly handled
+    try {
+      await rateSource(reflectorQuery());
+      expect.fail("Expected StaleOracleDataError to be thrown");
+    } catch (error) {
+      expect(error).toBeInstanceOf(StaleOracleDataError);
+    }
   });
 
   it("converts oracle price to basis points preserving precision", async () => {
@@ -158,7 +177,7 @@ describe("createReflectorOraclePriceFeed", () => {
     // Test with different oracle decimal precision
     const testCases = [
       { decimals: 6, price: "50000000000", expected: "finite" }, // 6 decimals
-      { decimals: 8, price: "5000000000000", expected: "finite" }, // 8 decimals  
+      { decimals: 8, price: "5000000000000", expected: "finite" }, // 8 decimals
       { decimals: 18, price: "50000000000000000000000", expected: "finite" }, // 18 decimals
     ];
 
@@ -175,7 +194,7 @@ describe("createReflectorOraclePriceFeed", () => {
       });
 
       const rate = await rateSource(reflectorQuery());
-      
+
       if (testCase.expected === "finite") {
         expect(Number.isFinite(rate)).toBe(true);
       }
@@ -272,23 +291,26 @@ describe("createReflectorOraclePriceFeed", () => {
   it("fetches oracle data concurrently, not sequentially", async () => {
     // Track the order of calls to ensure parallel execution
     const callOrder: string[] = [];
-    
+
     const delayedClient: ReflectorOracleClient = {
       async lastprice(_asset: ReflectorAsset) {
         callOrder.push("lastprice-start");
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await new Promise((resolve) => setTimeout(resolve, 10));
         callOrder.push("lastprice-end");
-        return { price: "100000000", timestamp: Math.floor(Date.now() / 1000).toString() };
+        return {
+          price: "100000000",
+          timestamp: Math.floor(Date.now() / 1000).toString(),
+        };
       },
       async decimals() {
         callOrder.push("decimals-start");
-        await new Promise(resolve => setTimeout(resolve, 5));
+        await new Promise((resolve) => setTimeout(resolve, 5));
         callOrder.push("decimals-end");
         return 8;
       },
       async lastTimestamp() {
         callOrder.push("lastTimestamp-start");
-        await new Promise(resolve => setTimeout(resolve, 15));
+        await new Promise((resolve) => setTimeout(resolve, 15));
         callOrder.push("lastTimestamp-end");
         return Math.floor(Date.now() / 1000).toString();
       },
@@ -306,16 +328,16 @@ describe("createReflectorOraclePriceFeed", () => {
     const decimalsStartIndex = callOrder.indexOf("decimals-start");
     const lastpriceEndIndex = callOrder.indexOf("lastprice-end");
     const decimalsEndIndex = callOrder.indexOf("decimals-end");
-    
+
     // Both should have started before either ended
     expect(lastpriceStartIndex).toBeGreaterThanOrEqual(0);
     expect(decimalsStartIndex).toBeGreaterThanOrEqual(0);
     expect(lastpriceEndIndex).toBeGreaterThanOrEqual(0);
     expect(decimalsEndIndex).toBeGreaterThanOrEqual(0);
-    
+
     const maxStartIndex = Math.max(lastpriceStartIndex, decimalsStartIndex);
     const minEndIndex = Math.min(lastpriceEndIndex, decimalsEndIndex);
-    
+
     // All starts should happen before any ends for parallel execution
     expect(maxStartIndex).toBeLessThan(minEndIndex);
   });
@@ -345,7 +367,7 @@ describe("createReflectorOraclePriceFeed", () => {
   it("uses custom staleness threshold when provided", async () => {
     const customThresholdMs = 5 * 60 * 1000; // 5 minutes
     const staleTimestamp = Math.floor((Date.now() - 6 * 60 * 1000) / 1000); // 6 minutes ago
-    
+
     mockClient.setLastpriceResult({
       price: "100000000",
       timestamp: staleTimestamp.toString(),
@@ -357,13 +379,18 @@ describe("createReflectorOraclePriceFeed", () => {
       stalenessThresholdMs: customThresholdMs,
     });
 
-    await expect(rateSource(reflectorQuery())).rejects.toThrow(StaleOracleDataError);
+    await expect(rateSource(reflectorQuery())).rejects.toThrow(
+      StaleOracleDataError
+    );
   });
 });
 
 describe("StellarRpcReflectorOracleClient", () => {
   it("constructs with network and oracle contract ID", () => {
-    const client = new StellarRpcReflectorOracleClient(NETWORK, TEST_ORACLE_ADDRESS);
+    const client = new StellarRpcReflectorOracleClient(
+      NETWORK,
+      TEST_ORACLE_ADDRESS
+    );
     expect(client).toBeDefined();
   });
 
@@ -404,7 +431,7 @@ describe("Isolation guard compliance", () => {
     // The rate source function should only have read methods
     // This test ensures that no write methods are exposed
     expect(typeof rateSource).toBe("function");
-    
+
     // Verify that the rateSource function only accepts a RateQuery and returns a Promise
     // This ensures it complies with the read-only RateSourceFn interface
     const query = reflectorQuery();
@@ -414,22 +441,30 @@ describe("Isolation guard compliance", () => {
 
   it("oracle client interface is read-only", () => {
     const client = new MockReflectorOracleClient();
-    
-    // Verify all required client methods are read operations  
+
+    // Verify all required client methods are read operations
     expect(typeof client.lastprice).toBe("function");
     expect(typeof client.decimals).toBe("function");
     expect(typeof client.lastTimestamp).toBe("function");
-    
+
     // Check the interface definition itself (ReflectorOracleClient) rather than mock implementation
     // The mock has test helper methods that aren't part of the actual interface
     const interfaceMethods = ["lastprice", "decimals", "lastTimestamp"];
-    
+
     // None of the interface methods should suggest write operations
-    const writeMethodPatterns = [/set/, /update/, /write/, /delete/, /create/, /submit/, /send/];
-    const hasWriteMethods = interfaceMethods.some(method => 
-      writeMethodPatterns.some(pattern => pattern.test(method.toLowerCase()))
+    const writeMethodPatterns = [
+      /set/,
+      /update/,
+      /write/,
+      /delete/,
+      /create/,
+      /submit/,
+      /send/,
+    ];
+    const hasWriteMethods = interfaceMethods.some((method) =>
+      writeMethodPatterns.some((pattern) => pattern.test(method.toLowerCase()))
     );
-    
+
     expect(hasWriteMethods).toBe(false);
   });
 });

@@ -1,14 +1,17 @@
 /**
  * ReflectorOraclePriceFeed - A read-only Reflector oracle price adapter
  * that satisfies the price-feed interface for sourcing live Stellar oracle prices.
- * 
+ *
  * This adapter integrates with Reflector's Pulse oracle (free, read-only) to provide
  * annualized rates in basis points, maintaining precision through fixed-point conversion.
  * It handles stale or missing oracle readings with typed errors and remains strictly
  * read-only with no on-chain write paths.
  */
 
-import { simulateView, type StellarNetwork } from "@meridian/stellar-sdk-helpers";
+import {
+  simulateView,
+  type StellarNetwork,
+} from "@meridian/stellar-sdk-helpers";
 import { getRpcServer } from "@meridian/stellar-sdk-helpers/dist/internal.js";
 import type { RateQuery, RateSourceFn } from "@meridian/stellar-sdk-helpers";
 import { withRaceTimeout } from "@meridian/shared";
@@ -46,7 +49,10 @@ export interface ReflectorPriceData {
  * Typed errors for oracle issues
  */
 export class ReflectorOracleError extends Error {
-  constructor(message: string, public readonly code: string) {
+  constructor(
+    message: string,
+    public readonly code: string
+  ) {
     super(message);
     this.name = "ReflectorOracleError";
   }
@@ -78,13 +84,13 @@ export class MissingOracleDataError extends ReflectorOracleError {
  */
 export interface ReflectorOraclePriceFeedOptions {
   network: StellarNetwork;
-  /** 
-   * Custom oracle contract address. 
+  /**
+   * Custom oracle contract address.
    * Defaults to the official Reflector oracle for the given network.
    */
   oracleContractId?: string;
   /**
-   * Injectable oracle client for testing. 
+   * Injectable oracle client for testing.
    * Defaults to real Stellar RPC simulation calls.
    */
   oracleClient?: ReflectorOracleClient;
@@ -103,12 +109,12 @@ export interface ReflectorOracleClient {
    * Get the latest price for an asset
    */
   lastprice(asset: ReflectorAsset): Promise<ReflectorPriceData | null>;
-  
+
   /**
    * Get the number of decimal places for price precision
    */
   decimals(): Promise<number>;
-  
+
   /**
    * Get the last update timestamp from the oracle
    */
@@ -125,37 +131,45 @@ export class StellarRpcReflectorOracleClient implements ReflectorOracleClient {
   ) {}
 
   async lastprice(asset: ReflectorAsset): Promise<ReflectorPriceData | null> {
-    const server = getRpcServer(this.network.rpcUrl, REFLECTOR_ORACLE_TIMEOUT_MS);
+    const server = getRpcServer(
+      this.network.rpcUrl,
+      REFLECTOR_ORACLE_TIMEOUT_MS
+    );
     const assetArg = this.encodeAssetArg(asset);
-    
+
     const result = await withRaceTimeout(
-      () => simulateView(
-        server,
-        this.oracleContractId,
-        this.network.passphrase,
-        "lastprice",
-        assetArg
-      ),
+      () =>
+        simulateView(
+          server,
+          this.oracleContractId,
+          this.network.passphrase,
+          "lastprice",
+          assetArg
+        ),
       REFLECTOR_ORACLE_TIMEOUT_MS,
       "Reflector oracle lastprice"
     );
 
     if (!result) return null;
-    
+
     // The result should be a PriceData struct with price and timestamp
     return this.decodePriceData(result);
   }
 
   async decimals(): Promise<number> {
-    const server = getRpcServer(this.network.rpcUrl, REFLECTOR_ORACLE_TIMEOUT_MS);
-    
+    const server = getRpcServer(
+      this.network.rpcUrl,
+      REFLECTOR_ORACLE_TIMEOUT_MS
+    );
+
     const result = await withRaceTimeout(
-      () => simulateView(
-        server,
-        this.oracleContractId,
-        this.network.passphrase,
-        "decimals"
-      ),
+      () =>
+        simulateView(
+          server,
+          this.oracleContractId,
+          this.network.passphrase,
+          "decimals"
+        ),
       REFLECTOR_ORACLE_TIMEOUT_MS,
       "Reflector oracle decimals"
     );
@@ -164,15 +178,19 @@ export class StellarRpcReflectorOracleClient implements ReflectorOracleClient {
   }
 
   async lastTimestamp(): Promise<string> {
-    const server = getRpcServer(this.network.rpcUrl, REFLECTOR_ORACLE_TIMEOUT_MS);
-    
+    const server = getRpcServer(
+      this.network.rpcUrl,
+      REFLECTOR_ORACLE_TIMEOUT_MS
+    );
+
     const result = await withRaceTimeout(
-      () => simulateView(
-        server,
-        this.oracleContractId,
-        this.network.passphrase,
-        "last_timestamp"
-      ),
+      () =>
+        simulateView(
+          server,
+          this.oracleContractId,
+          this.network.passphrase,
+          "last_timestamp"
+        ),
       REFLECTOR_ORACLE_TIMEOUT_MS,
       "Reflector oracle lastTimestamp"
     );
@@ -180,13 +198,11 @@ export class StellarRpcReflectorOracleClient implements ReflectorOracleClient {
     return String(result);
   }
 
-
-
   private encodeAssetArg(asset: ReflectorAsset) {
     // Encode the asset argument for the Soroban contract call
     // This is a simplified implementation - in practice, you'd need to
     // match the exact encoding expected by the Reflector contract
-    
+
     if (asset.tag === "Stellar") {
       // For now, we'll use a simple string representation
       // A full implementation would need proper Address encoding
@@ -200,13 +216,18 @@ export class StellarRpcReflectorOracleClient implements ReflectorOracleClient {
   private decodePriceData(result: any): ReflectorPriceData {
     // Decode the PriceData struct from the Soroban contract response
     // The exact structure depends on how soroban-sdk serializes the PriceData struct
-    if (result && typeof result === 'object' && result.price && result.timestamp) {
+    if (
+      result &&
+      typeof result === "object" &&
+      result.price &&
+      result.timestamp
+    ) {
       return {
         price: String(result.price),
         timestamp: String(result.timestamp),
       };
     }
-    
+
     throw new ReflectorOracleError(
       "Invalid price data format from oracle contract",
       "INVALID_PRICE_FORMAT"
@@ -223,18 +244,18 @@ function convertOraclePriceToRate(
 ): number {
   const price = BigInt(oraclePrice);
   const decimalsScalar = BigInt(10) ** BigInt(oracleDecimals);
-  
+
   // Convert to a decimal rate (price per unit)
   // Oracle price is already in the base asset, so this is the direct rate
   const rateDecimal = Number(price) / Number(decimalsScalar);
-  
+
   // For now, we'll assume the oracle provides a rate that we can convert to basis points
   // This might need adjustment based on the actual oracle behavior and what rate means
   // in the context of the Meridian system
-  
+
   // If the oracle price represents an annualized yield rate, convert to basis points
   const rateBps = rateDecimal * BPS_SCALAR;
-  
+
   return Number.isFinite(rateBps) ? Math.round(rateBps) : 0;
 }
 
@@ -253,7 +274,7 @@ function createReflectorAsset(assetId: string): ReflectorAsset {
   } else {
     // Treat as an external symbol
     return {
-      tag: "Other", 
+      tag: "Other",
       values: [assetId],
     };
   }
@@ -261,7 +282,7 @@ function createReflectorAsset(assetId: string): ReflectorAsset {
 
 /**
  * Creates a Reflector oracle price adapter that implements the RateSourceFn interface.
- * 
+ *
  * This adapter:
  * - Only handles queries with protocol "reflector"
  * - Fetches live price data from Reflector oracle contracts
@@ -273,11 +294,15 @@ function createReflectorAsset(assetId: string): ReflectorAsset {
 export function createReflectorOraclePriceFeed(
   options: ReflectorOraclePriceFeedOptions
 ): RateSourceFn {
-  const networkKey = options.network.network === "mainnet" ? "mainnet" : "testnet";
-  const oracleContractId = options.oracleContractId ?? REFLECTOR_ORACLE_ADDRESSES[networkKey];
-  const oracleClient = options.oracleClient ?? 
+  const networkKey =
+    options.network.network === "mainnet" ? "mainnet" : "testnet";
+  const oracleContractId =
+    options.oracleContractId ?? REFLECTOR_ORACLE_ADDRESSES[networkKey];
+  const oracleClient =
+    options.oracleClient ??
     new StellarRpcReflectorOracleClient(options.network, oracleContractId);
-  const stalenessThresholdMs = options.stalenessThresholdMs ?? STALENESS_THRESHOLD_MS;
+  const stalenessThresholdMs =
+    options.stalenessThresholdMs ?? STALENESS_THRESHOLD_MS;
 
   return async (query: RateQuery): Promise<number | null> => {
     // Only handle reflector protocol queries
@@ -307,7 +332,10 @@ export function createReflectorOraclePriceFeed(
       const ageMs = currentTimeMs - lastUpdateMs;
 
       if (ageMs > stalenessThresholdMs) {
-        throw new StaleOracleDataError(new Date(lastUpdateMs), stalenessThresholdMs);
+        throw new StaleOracleDataError(
+          new Date(lastUpdateMs),
+          stalenessThresholdMs
+        );
       }
 
       // Convert oracle price to rate in basis points, preserving precision
@@ -322,13 +350,12 @@ export function createReflectorOraclePriceFeed(
       }
 
       return rate;
-
     } catch (error) {
       // Re-throw our typed errors as-is
       if (error instanceof ReflectorOracleError) {
         throw error;
       }
-      
+
       // Let network/RPC errors propagate for retry logic
       // (following the pattern from existing rate sources)
       throw error;
