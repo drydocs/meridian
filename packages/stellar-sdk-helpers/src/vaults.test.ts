@@ -17,7 +17,8 @@ vi.mock("./internal", async (importOriginal) => {
 
 import { simulateView } from "./tx";
 import { toBigInt } from "./internal";
-import { fetchAllVaults, clearVaultCache } from "./vaults";
+import { fetchAllVaults, clearVaultCache, isVaultCacheWarm } from "./vaults";
+import { KNOWN_POOLS } from "./known-pools";
 
 // Mainnet DeFiLlama pool UUID mapping to blend-usdc-fixed in KNOWN_POOLS.mainnet.
 const KNOWN_BLEND = "ecf788e3-d2ef-4fdd-9ece-8a2d96226ddf";
@@ -54,6 +55,7 @@ function stubPools(data: unknown[]) {
 function mockAdapterDiscovery(opts: {
   totalAssets?: bigint;
   protocol?: string;
+  adapterId?: string;
 }) {
   vi.mocked(simulateView).mockImplementation(
     async (_server, _contractId, _passphrase, method) => {
@@ -61,7 +63,9 @@ function mockAdapterDiscovery(opts: {
         case "get_total_assets":
           return (opts.totalAssets ?? 0n) as never;
         case "get_adapter":
-          return ADAPTER_ID as never;
+          return (
+            opts.adapterId !== undefined ? opts.adapterId : ADAPTER_ID
+          ) as never;
         case "get_pool":
           return POOL_ID as never;
         case "get_protocol":
@@ -72,6 +76,31 @@ function mockAdapterDiscovery(opts: {
     }
   );
 }
+
+describe("isVaultCacheWarm", () => {
+  beforeEach(() => clearVaultCache());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    clearVaultCache();
+  });
+
+  it("returns false when cache is empty", () => {
+    expect(isVaultCacheWarm()).toBe(false);
+  });
+
+  it("returns true when cache is populated and not expired, and false after expiry", async () => {
+    mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
+    stubPools([llamaPool()]);
+
+    await fetchAllVaults("mainnet");
+    expect(isVaultCacheWarm()).toBe(true);
+
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(61_000);
+    expect(isVaultCacheWarm()).toBe(false);
+  });
+});
 
 describe("fetchAllVaults (mainnet)", () => {
   beforeEach(() => {
@@ -186,6 +215,107 @@ describe("fetchAllVaults (mainnet)", () => {
     );
     expect(meridianVault?.apy).toBe(8);
   });
+
+  it("returns 0 APY when the active adapter Blend pool lacks the requested reserve", async () => {
+    mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "blend" });
+    vi.mocked(toBigInt).mockReturnValue(10_000_000_000n);
+    vi.spyOn(PoolV2, "load").mockResolvedValue({
+      reserves: new Map([
+        ["OTHER_ASSET", { totalSupply: () => 0n, estSupplyApy: 0.1 }],
+      ]),
+    } as unknown as Awaited<ReturnType<typeof PoolV2.load>>);
+    stubPools([]);
+
+    const vaults = await fetchAllVaults("mainnet");
+    const meridianVault = vaults.find((v) => v.id === "meridian-usdc");
+    expect(meridianVault?.apy).toBe(0);
+  });
+
+  it("returns 0 APY when get_adapter returns empty or falsy adapterId", async () => {
+    mockAdapterDiscovery({ totalAssets: 10_000_000_000n, adapterId: "" });
+    stubPools([]);
+
+    const vaults = await fetchAllVaults("mainnet");
+    const meridianVault = vaults.find((v) => v.id === "meridian-usdc");
+    expect(meridianVault?.apy).toBe(0);
+  });
+
+  it("skips Meridian vaults that lack contractId or assetId", async () => {
+    const incompleteVaultId = "meridian-incomplete";
+    KNOWN_POOLS.mainnet[incompleteVaultId] = {
+      id: incompleteVaultId,
+      name: "Incomplete Vault",
+      protocol: "meridian",
+      label: "Incomplete",
+    };
+
+    try {
+      stubPools([]);
+      const vaults = await fetchAllVaults("mainnet");
+      expect(vaults.find((v) => v.id === incompleteVaultId)).toBeUndefined();
+    } finally {
+      delete KNOWN_POOLS.mainnet[incompleteVaultId];
+    }
+  });
+
+  it("defaults asset to USDC when meta.asset is undefined", async () => {
+    const noAssetVaultId = "meridian-no-asset";
+    KNOWN_POOLS.mainnet[noAssetVaultId] = {
+      id: noAssetVaultId,
+      name: "No Asset Vault",
+      protocol: "meridian",
+      label: "No Asset",
+      contractId: "CNOASSET00000000000000000000000000000000000000000000000000",
+      assetId: "CASSET0000000000000000000000000000000000000000000000000000",
+    };
+
+    try {
+      mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
+      stubPools([]);
+      const vaults = await fetchAllVaults("mainnet");
+      const found = vaults.find((v) => v.id === noAssetVaultId);
+      expect(found).toBeDefined();
+      expect(found?.asset).toBe("USDC");
+    } finally {
+      delete KNOWN_POOLS.mainnet[noAssetVaultId];
+    }
+  });
+
+  it("handles DeFiLlama fetch failure gracefully and still returns on-chain Meridian vault", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("DeFiLlama network error");
+      })
+    );
+    const vaults = await fetchAllVaults("mainnet");
+    expect(vaults).toHaveLength(1);
+    expect(vaults[0].id).toBe("meridian-usdc");
+  });
+
+  it("prevents duplicates when DeFiLlama returns a pool matching a Meridian vault id", async () => {
+    stubPools([
+      llamaPool({ pool: "meridian-usdc" }),
+      llamaPool({ pool: KNOWN_BLEND }),
+    ]);
+    const vaults = await fetchAllVaults("mainnet");
+    const meridianVaults = vaults.filter((v) => v.id === "meridian-usdc");
+    expect(meridianVaults).toHaveLength(1);
+    expect(vaults.some((v) => v.id === "blend-usdc-fixed")).toBe(true);
+  });
+
+  it("returns empty array when no vaults are found and cache is empty", async () => {
+    const origMeridian = KNOWN_POOLS.mainnet["meridian-usdc"];
+    delete KNOWN_POOLS.mainnet["meridian-usdc"];
+
+    try {
+      stubPools([]);
+      const vaults = await fetchAllVaults("mainnet");
+      expect(vaults).toEqual([]);
+    } finally {
+      KNOWN_POOLS.mainnet["meridian-usdc"] = origMeridian;
+    }
+  });
 });
 
 describe("fetchAllVaults (testnet)", () => {
@@ -261,5 +391,53 @@ describe("fetchAllVaults (testnet)", () => {
 
     expect(vaults[0].apy).toBe(0);
     expect(loadSpy).not.toHaveBeenCalled();
+  });
+
+  it("processes Blend protocol pools in KNOWN_POOLS.testnet with and without reserves", async () => {
+    const dummyPoolId = "testnet-blend-pool";
+    const dummyAssetId = "testnet-blend-asset";
+    const blendMeta = {
+      id: dummyPoolId,
+      name: "Blend Test",
+      protocol: "blend" as const,
+      label: "Blend Pool",
+      contractId: "CBLEND0000000000000000000000000000000000000000000000000000",
+      assetId: dummyAssetId,
+      asset: "USDC",
+    };
+
+    KNOWN_POOLS.testnet[dummyPoolId] = blendMeta;
+
+    try {
+      // Case 1: reserve exists
+      const loadSpy = vi.spyOn(PoolV2, "load").mockResolvedValue({
+        reserves: new Map([
+          [
+            dummyAssetId,
+            { totalSupply: () => 50_000_000_000n, estSupplyApy: 0.05 },
+          ],
+        ]),
+      } as unknown as Awaited<ReturnType<typeof PoolV2.load>>);
+
+      mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
+      let vaults = await fetchAllVaults("testnet");
+      const foundWithReserve = vaults.find((v) => v.id === dummyPoolId);
+      expect(foundWithReserve).toBeDefined();
+      expect(foundWithReserve?.tvl).toBe(5000);
+      expect(foundWithReserve?.apy).toBe(5);
+
+      // Case 2: reserve does not exist in reserves map
+      loadSpy.mockResolvedValue({
+        reserves: new Map(),
+      } as unknown as Awaited<ReturnType<typeof PoolV2.load>>);
+
+      vaults = await fetchAllVaults("testnet");
+      const foundWithoutReserve = vaults.find((v) => v.id === dummyPoolId);
+      expect(foundWithoutReserve).toBeDefined();
+      expect(foundWithoutReserve?.tvl).toBe(0);
+      expect(foundWithoutReserve?.apy).toBe(0);
+    } finally {
+      delete KNOWN_POOLS.testnet[dummyPoolId];
+    }
   });
 });
