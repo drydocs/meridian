@@ -199,6 +199,7 @@ describe("BacktestPriceFeed", () => {
   it("throws for asset with no data points", () => {
     const emptyFeed = BacktestPriceFeed.create({
       USDC: [],
+      EURC: [],
     });
     expect(() => emptyFeed.getSpotPrice(USDC, BASE_TIMESTAMP)).toThrow(
       UnknownAssetError
@@ -218,6 +219,7 @@ describe("BacktestPriceFeed", () => {
         { timestamp: BASE_TIMESTAMP, price: "1.0000000" },
         { timestamp: BASE_TIMESTAMP + 3600_000, price: "1.0001000" },
       ],
+      EURC: [],
     });
     const price = unsortedFeed.getSpotPrice(USDC, BASE_TIMESTAMP + 3600_000);
     expect(price.toString()).toBe("1.0001");
