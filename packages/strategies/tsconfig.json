@@ -6,5 +6,11 @@
     "declaration": true,
     "types": ["node"]
   },
+<<<<<<< Updated upstream
   "include": ["src"]
 }
+=======
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}
+>>>>>>> Stashed changes
