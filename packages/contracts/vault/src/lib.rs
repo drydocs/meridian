@@ -803,12 +803,16 @@ impl MeridianVault {
         let snapshot_ledger = env.ledger().sequence();
 
         let snapshot = MigrationSnapshot {
-            adapter: new_adapter,
+            adapter: new_adapter.clone(),
             total_assets: snapshot_assets,
             ledger_seq: snapshot_ledger,
         };
         env.storage().instance().set(&MIG_SNAP, &snapshot);
         env.storage().instance().set(&MIG_ACTIVE, &1_i128);
+        env.events().publish(
+            (ADMIN_EVT, symbol_short!("mig_begin")),
+            (new_adapter, snapshot_ledger + MIN_LEDGER_GAP),
+        );
 
         Ok(())
     }
@@ -3435,5 +3439,44 @@ mod tests {
         let data: (Address, i128, i128) =
             soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
         assert_eq!(data, (user, shares, usdc_out));
+    }
+
+    /// Finds the two-topic admin event published under `(admin, action)` from `address`.
+    fn find_admin_event(
+        env: &Env,
+        address: &Address,
+        action: Symbol,
+    ) -> Option<(
+        Address,
+        soroban_sdk::Vec<soroban_sdk::Val>,
+        soroban_sdk::Val,
+    )> {
+        env.events().all().into_iter().find(|e| {
+            e.0 == *address
+                && e.1.len() == 2
+                && soroban_sdk::TryIntoVal::<_, Symbol>::try_into_val(&e.1.get(0).unwrap(), env)
+                    .map(|t: Symbol| t == symbol_short!("admin"))
+                    .unwrap_or(false)
+                && soroban_sdk::TryIntoVal::<_, Symbol>::try_into_val(&e.1.get(1).unwrap(), env)
+                    .map(|t: Symbol| t == action)
+                    .unwrap_or(false)
+        })
+    }
+
+    #[test]
+    fn begin_migration_publishes_event_with_adapter_and_earliest_ledger() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter_id).initialize(&usdc);
+
+        let current_ledger = env.ledger().sequence();
+        vault.begin_migration(&new_adapter_id);
+
+        let event = find_admin_event(&env, &vault.address, symbol_short!("mig_begin"))
+            .expect("mig_begin event not found");
+        let (target_adapter, earliest_ledger): (Address, u32) =
+            soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(target_adapter, new_adapter_id);
+        assert_eq!(earliest_ledger, current_ledger + MIN_LEDGER_GAP);
     }
 }
