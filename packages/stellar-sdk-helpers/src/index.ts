@@ -19,3 +19,5 @@ export * from "./tx";
 export * from "./types";
 export * from "./vaults";
 export * from "./admin-history";
+export * from "./time-series";
+export * from "./historical-loader";
