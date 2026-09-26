@@ -4,10 +4,14 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
   ContractSimulationError: (
     await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
   ).ContractSimulationError,
+  MissingTrustlineError: (
+    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
+  ).MissingTrustlineError,
   buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
   buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
   buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
   submitTx: vi.fn(async () => ({ hash: "HASH" })),
+  assertRequiredTrustlines: vi.fn(async () => undefined),
 }));
 
 import {
@@ -22,6 +26,8 @@ import {
   buildAddTrustlineTx,
   submitTx,
   ContractSimulationError,
+  assertRequiredTrustlines,
+  MissingTrustlineError,
 } from "@meridian/stellar-sdk-helpers";
 
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -199,6 +205,57 @@ describe("handleWithdrawRequest", () => {
     expect(result.status).toBe(500);
     expect(result.body).toEqual({ error: "withdraw failed" });
     expect(result.error).toBe(err);
+  });
+});
+
+
+describe("trustline pre-validation", () => {
+  it("returns 400 for deposit when USDC trustline is missing", async () => {
+    vi.mocked(assertRequiredTrustlines).mockRejectedValueOnce(
+      new MissingTrustlineError(["USDC"])
+    );
+    const result = await handleDepositRequest({
+      walletAddress: PUBKEY,
+      vaultId: "blend-usdc-fixed",
+      amount: "10",
+      riskAcknowledged: true,
+    });
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({
+      error:
+        "Missing USDC trustline. Add the trustline via POST /api/v1/tx/trustline before depositing or withdrawing.",
+    });
+    expect(buildDepositTx).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for withdraw when USDC trustline is missing", async () => {
+    vi.mocked(assertRequiredTrustlines).mockRejectedValueOnce(
+      new MissingTrustlineError(["USDC"])
+    );
+    const result = await handleWithdrawRequest({
+      walletAddress: PUBKEY,
+      vaultId: "blend-usdc-fixed",
+      shares: "5",
+    });
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({
+      error:
+        "Missing USDC trustline. Add the trustline via POST /api/v1/tx/trustline before depositing or withdrawing.",
+    });
+    expect(buildWithdrawTx).not.toHaveBeenCalled();
+  });
+
+  it("checks trustlines before building a deposit", async () => {
+    await handleDepositRequest({
+      walletAddress: PUBKEY,
+      vaultId: "blend-usdc-fixed",
+      amount: "10",
+      riskAcknowledged: true,
+    });
+    expect(assertRequiredTrustlines).toHaveBeenCalledWith(
+      PUBKEY,
+      expect.anything()
+    );
   });
 });
 

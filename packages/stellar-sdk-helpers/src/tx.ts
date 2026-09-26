@@ -92,6 +92,63 @@ function hasAssetTrustline(
   );
 }
 
+/**
+ * Raised when a wallet is missing a classic USDC/mUSDC trustline required
+ * for deposit/withdraw. Callers should map this to HTTP 400 so direct API
+ * clients get an actionable error instead of a simulation 500.
+ */
+export class MissingTrustlineError extends Error {
+  constructor(readonly missing: string[]) {
+    const list = missing.join(", ");
+    super(
+      missing.length === 1
+        ? `Missing ${list} trustline. Add the trustline via POST /api/v1/tx/trustline before depositing or withdrawing.`
+        : `Missing required trustlines: ${list}. Add them via POST /api/v1/tx/trustline before depositing or withdrawing.`
+    );
+    this.name = "MissingTrustlineError";
+  }
+}
+
+/**
+ * Query Horizon for the wallet's classic balances and throw
+ * {@link MissingTrustlineError} if any required USDC/mUSDC trustline is
+ * absent. Networks where `MUSDC_ISSUER` is empty (SEP-41 cutover) skip the
+ * mUSDC check. An account that does not yet exist on Horizon is treated as
+ * missing every required trustline.
+ */
+export async function assertRequiredTrustlines(
+  walletAddress: string,
+  network: StellarNetwork
+): Promise<void> {
+  const horizon = horizonServer(network);
+  let balances: Horizon.HorizonApi.BalanceLine[];
+  try {
+    const account = await horizon.loadAccount(walletAddress);
+    balances = account.balances;
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response
+      ?.status;
+    if (status === 404) {
+      const missing: string[] = [];
+      if (USDC_ISSUER[network.network]) missing.push("USDC");
+      if (MUSDC_ISSUER[network.network]) missing.push("MUSDC");
+      throw new MissingTrustlineError(missing.length ? missing : ["USDC"]);
+    }
+    throw err;
+  }
+
+  const missing: string[] = [];
+  const usdcIssuer = USDC_ISSUER[network.network];
+  if (usdcIssuer && !hasAssetTrustline(balances, "USDC", usdcIssuer)) {
+    missing.push("USDC");
+  }
+  const musdcIssuer = MUSDC_ISSUER[network.network];
+  if (musdcIssuer && !hasAssetTrustline(balances, "MUSDC", musdcIssuer)) {
+    missing.push("MUSDC");
+  }
+  if (missing.length > 0) throw new MissingTrustlineError(missing);
+}
+
 /** Convert a decimal string (up to 7 fractional digits) to stroops as a bigint. */
 export function toStroops(value: string): bigint {
   const [whole = "0", frac = ""] = value.split(".");

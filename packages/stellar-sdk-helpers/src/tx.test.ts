@@ -19,6 +19,8 @@ import {
   ContractSimulationError,
   VAULT_CONTRACT_ERROR_MESSAGES,
   buildAddTrustlineTx,
+  assertRequiredTrustlines,
+  MissingTrustlineError,
   simulateView,
   assertFaucetPayment,
   assertSubmittable,
@@ -473,6 +475,51 @@ function makeBalance(
     sponsor: undefined,
   } as unknown as Horizon.HorizonApi.BalanceLine;
 }
+
+
+describe("assertRequiredTrustlines", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("resolves when the USDC trustline is present", async () => {
+    vi.spyOn(Horizon.Server.prototype, "loadAccount").mockResolvedValue({
+      balances: [makeBalance("USDC", USDC_ISSUER_TESTNET)],
+    } as unknown as Awaited<ReturnType<Horizon.Server["loadAccount"]>>);
+
+    await expect(
+      assertRequiredTrustlines(
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        TESTNET
+      )
+    ).resolves.toBeUndefined();
+  });
+
+  it("throws MissingTrustlineError when USDC trustline is absent", async () => {
+    vi.spyOn(Horizon.Server.prototype, "loadAccount").mockResolvedValue({
+      balances: [],
+    } as unknown as Awaited<ReturnType<Horizon.Server["loadAccount"]>>);
+
+    await expect(
+      assertRequiredTrustlines(
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        TESTNET
+      )
+    ).rejects.toBeInstanceOf(MissingTrustlineError);
+  });
+
+  it("treats a missing Horizon account as missing trustlines", async () => {
+    const err = Object.assign(new Error("Not Found"), {
+      response: { status: 404 },
+    });
+    vi.spyOn(Horizon.Server.prototype, "loadAccount").mockRejectedValue(err);
+
+    await expect(
+      assertRequiredTrustlines(
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        TESTNET
+      )
+    ).rejects.toMatchObject({ missing: ["USDC"] });
+  });
+});
 
 describe("buildAddTrustlineTx", () => {
   afterEach(() => vi.restoreAllMocks());
