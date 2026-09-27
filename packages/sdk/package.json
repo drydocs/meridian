@@ -1,0 +1,25 @@
+{
+  "name": "@meridian/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run --passWithNoTests",
+    "coverage": "vitest run --coverage --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@meridian/shared": "workspace:*",
+    "@meridian/stellar-sdk-helpers": "workspace:*",
+    "@stellar/stellar-sdk": "^14.6.1"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "5.0.1",
+    "vitest": "^5.0.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
