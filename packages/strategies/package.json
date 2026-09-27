@@ -1,17 +1,35 @@
 {
   "name": "@meridian/strategies",
   "version": "0.1.0",
+  "description": "Strategy engine and simulation library for Meridian",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run --passWithNoTests",
     "coverage": "vitest run --coverage --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@meridian/shared": "workspace:*"
+  },
   "devDependencies": {
     "@vitest/coverage-v8": "5.0.1",
+    "typescript": "^5.0.0",
     "vitest": "^5.0.0"
   }
 }
