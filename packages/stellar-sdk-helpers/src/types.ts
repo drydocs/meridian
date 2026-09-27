@@ -1,12 +1,12 @@
 export interface StellarNetwork {
   network: "mainnet" | "testnet" | "futurenet";
-  rpUrl: string;
-  passphase: string;
+  rpcUrl: string;
+  passphrase: string;
 }
 
 export interface SubmissionOptions {
   priorHash?: string;
-  maxTryGes?: number;
+  maxTries?: number;
   timeout?: number;
 }
 
