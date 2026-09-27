@@ -1,4 +1,4 @@
-#!/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # deploy-external-pinger.sh
@@ -21,10 +21,10 @@ echo "Deploying external pinger for ${KEEPER_REPO}..."
 # The actual pinger should hit the GitHub API to trigger the workflow.
 
 # GitHub API endpoint to trigger a workflow run
-WORKFLOW_TRIGGER_URL=""https://api.github.com/repos/${KEEPER_REPO/}/actions/workflows/keepers.yml/dispatches"
+WORKFLOW_TRIGGER_URL="https://api.github.com/repos/${KEEPER_REPO}/actions/workflows/keepers.yml/dispatches"
 
 # Generate a unique run ID for the dispatch
-REN_ID=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)
+RUN_ID=$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 8)
 
 # Create the payload
 PAYLOAD=$(cat <<EOF
@@ -41,12 +41,12 @@ EOF
 # that sets up a cron job on an external server to execute a curl command 
 # similar to the one below:
 #
-# curl -X POST \
-#   -H "Accept: application/json" \
-#   -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-#   -H" X-GitHub-Api-Version: 2022-11-28" \
-#   -d "${PAYLOAD}" \
-#   "${WORKFLOW_TRIGGER_URL}"
+curl -sf -X POST \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  -d "${PAYLOAD}" \
+  "${WORKFLOW_TRIGGER_URL}"
 
 echo "External pinger deployment script prepared."
 echo "Please ensure the following are configured:"

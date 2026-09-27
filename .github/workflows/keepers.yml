@@ -9,33 +9,16 @@ name: Keepers Schedule
 # workflow_dispatch, ensuring that each keeper runs on its intended cadence
 # without relying on GitHub's unreliable cron implementation.
 on:
-  schedule:
-    - cron: "*/5 * * * *" # admin-event alert keeper
-    - cron: "*/15 * * * *" # accrual keeper
-    - cron: "0 * * * *" # migration keeper
-  workflow_dispatch: # manual trigger for debugging
-
-jobs:
-  trigger-keepers:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger alert keeper
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.keeper == 'alert'
-        run: |
-          curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/alert" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
-
-      - name: Trigger accrual keeper
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.keeper == 'accrue'
-        run: |
-          curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/accrue" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
-
-      - name: Trigger migration keeper
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.keeper == 'rebalance'
-        run: |
-          curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/rebalance" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+  workflow_dispatch:
+    inputs:
+      keeper:
+        description: "Which keeper to run"
+        required: true
+        type: choice
+        options:
+          - alert
+          - accrue
+          - rebalance
 
 jobs:
   trigger-keepers:
