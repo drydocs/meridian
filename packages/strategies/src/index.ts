@@ -1,3 +1,6 @@
+export * from "./decimal";
+export * from "./guard";
+
 export interface StrategyEngine {
   readonly name: string;
   readonly version: string;
