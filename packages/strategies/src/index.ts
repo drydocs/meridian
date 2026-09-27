@@ -1,3 +1,5 @@
+export * from "./decimal";
+
 export interface StrategyEngine {
   readonly name: string;
   readonly version: string;
