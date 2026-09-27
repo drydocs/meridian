@@ -126,6 +126,46 @@ importers:
         specifier: ^1.6.3
         version: 1.6.4(@algolia/client-search@5.52.1)(@types/node@26.6.2)(@types/react@19.3.0)(axios@1.18.0)(lightningcss@1.33.0)(postcss@8.5.28)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(search-insights@2.17.3)(typescript@6.0.3)
 
+  apps/strategies:
+    dependencies:
+      '@meridian/strategies':
+        specifier: workspace:*
+        version: link:../../packages/strategies
+      react:
+        specifier: ^19.3.0
+        version: 19.3.0
+      react-dom:
+        specifier: ^19.3.0
+        version: 19.3.0(react@19.3.0)
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^8.70.0
+        version: 8.70.0(@typescript-eslint/parser@8.70.0(eslint@10.10.0(jiti@2.7.0))(typescript@6.0.3))(eslint@10.10.0(jiti@2.7.0))(typescript@6.0.3)
+      '@typescript-eslint/parser':
+        specifier: ^8.70.0
+        version: 8.70.0(eslint@10.10.0(jiti@2.7.0))(typescript@6.0.3)
+      '@vitejs/plugin-react':
+        specifier: ^6.1.1
+        version: 6.1.1(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13))
+      eslint-plugin-react-hooks:
+        specifier: ^7.1.1
+        version: 7.1.1(eslint@10.10.0(jiti@2.7.0))
+      eslint-plugin-react-refresh:
+        specifier: ^0.5.7
+        version: 0.5.7(eslint@10.10.0(jiti@2.7.0))
+      vite:
+        specifier: ^8.3.0
+        version: 8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)
+
   apps/web:
     dependencies:
       '@albedo-link/intent':
@@ -286,6 +326,15 @@ importers:
       zod:
         specifier: ^4.6.5
         version: 4.6.5
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: 5.0.1
+        version: 5.0.1(vitest@5.0.1)
+      vitest:
+        specifier: ^5.0.0
+        version: 5.0.1(@edge-runtime/vm@3.2.0)(@types/node@26.6.2)(@vitest/coverage-v8@5.0.1)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13))
+
+  packages/strategies:
     devDependencies:
       '@vitest/coverage-v8':
         specifier: 5.0.1
@@ -6169,7 +6218,7 @@ snapshots:
   eslint-plugin-react-hooks@7.1.1(eslint@10.10.0(jiti@2.7.0)):
     dependencies:
       '@babel/core': 7.29.7
-      '@babel/parser': 7.29.7
+      '@babel/parser': 7.29.8
       eslint: 10.10.0(jiti@2.7.0)
       hermes-parser: 0.25.1
       zod: 4.6.5
@@ -6755,7 +6804,7 @@ snapshots:
 
   magic-string@0.30.21:
     dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.5
+      '@jridgewell/sourcemap-codec': 1.6.0
 
   magic-string@1.4.1:
     dependencies:
