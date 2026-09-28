@@ -12,12 +12,12 @@ export interface SubmissionOptions {
 
 export interface SubmissionResult {
   txId: string;
-  status: 'success' | 'failed' | 'pending';
+  status: "success" | "failed" | "pending";
   priorHash?: string;
 }
 
 export interface LeaseConflictError extends Error {
-  name: 'LeaseConflictError';
+  name: "LeaseConflictError";
   leaseID: string;
   keyerAddress: string;
 }
