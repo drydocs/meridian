@@ -98,7 +98,10 @@ export async function getCachedVaults(
   options: VaultCacheOptions = {}
 ): Promise<ApiVault[] | null> {
   try {
-    const value = await upstashCommand(["GET", vaultCacheKey(network)], options);
+    const value = await upstashCommand(
+      ["GET", vaultCacheKey(network)],
+      options
+    );
     if (typeof value !== "string" || !value) return null;
     const parsed = JSON.parse(value) as unknown;
     if (!Array.isArray(parsed)) return null;
