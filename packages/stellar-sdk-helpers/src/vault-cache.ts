@@ -50,6 +50,17 @@ export interface VaultCacheOptions {
   ttlSeconds?: number;
 }
 
+/**
+ * Logs a cache failure with the error's message only. The messages thrown by
+ * `upstashCommand` carry the HTTP status or Redis error text, never the store
+ * URL or token, so the log surfaces a misconfigured cache without leaking
+ * credentials.
+ */
+function logCacheFailure(op: "read" | "write", error: unknown): void {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error(`[vault-cache] ${op} failed: ${detail}`);
+}
+
 async function upstashCommand(
   args: (string | number)[],
   options: VaultCacheOptions = {}
@@ -106,7 +117,8 @@ export async function getCachedVaults(
     const parsed = JSON.parse(value) as unknown;
     if (!Array.isArray(parsed)) return null;
     return parsed as ApiVault[];
-  } catch {
+  } catch (error) {
+    logCacheFailure("read", error);
     return null;
   }
 }
@@ -127,7 +139,8 @@ export async function setCachedVaults(
       ["SETEX", vaultCacheKey(network), ttl, JSON.stringify(vaults)],
       options
     );
-  } catch {
+  } catch (error) {
     // Shared cache is best-effort; in-memory still covers this instance.
+    logCacheFailure("write", error);
   }
 }
