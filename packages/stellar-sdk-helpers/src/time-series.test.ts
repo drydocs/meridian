@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  FixedPoint,
-  TimeSeries,
-  type TimeSeriesEntry,
-} from "./time-series";
+import { FixedPoint, TimeSeries, type TimeSeriesEntry } from "./time-series";
 
 /** Scale-0 point helper for the integer-arithmetic cases below. */
 function point(timestampMs: number, value: bigint): TimeSeriesEntry {
@@ -59,7 +55,9 @@ describe("FixedPoint", () => {
       mantissa: 15_000_000n,
       scale: 7,
     });
-    expect(FixedPoint.toString(FixedPoint.fromStroops(15_000_000n))).toBe("1.5");
+    expect(FixedPoint.toString(FixedPoint.fromStroops(15_000_000n))).toBe(
+      "1.5"
+    );
   });
 
   it("rescales exactly upward and with rounding when shrinking", () => {
@@ -75,21 +73,22 @@ describe("FixedPoint", () => {
   });
 
   it("adds and subtracts exactly, rejecting mismatched scales", () => {
-    const sum = FixedPoint.add(FixedPoint.from(125n, 2), FixedPoint.from(275n, 2));
+    const sum = FixedPoint.add(
+      FixedPoint.from(125n, 2),
+      FixedPoint.from(275n, 2)
+    );
     expect(sum).toEqual({ mantissa: 400n, scale: 2 });
     expect(FixedPoint.toString(sum)).toBe("4");
-    expect(FixedPoint.subtract(FixedPoint.from(125n, 2), FixedPoint.from(275n, 2))).toEqual(
-      { mantissa: -150n, scale: 2 }
-    );
+    expect(
+      FixedPoint.subtract(FixedPoint.from(125n, 2), FixedPoint.from(275n, 2))
+    ).toEqual({ mantissa: -150n, scale: 2 });
     expect(() =>
       FixedPoint.add(FixedPoint.from(1n, 2), FixedPoint.from(1n, 3))
     ).toThrow(TypeError);
   });
 
   it("divides by integers with an explicit rounding mode", () => {
-    expect(
-      FixedPoint.divideByInt(FixedPoint.from(5n, 0), 2).mantissa
-    ).toBe(3n); // 2.5 rounds half away from zero
+    expect(FixedPoint.divideByInt(FixedPoint.from(5n, 0), 2).mantissa).toBe(3n); // 2.5 rounds half away from zero
     expect(
       FixedPoint.divideByInt(FixedPoint.from(5n, 0), 2, "toward-zero").mantissa
     ).toBe(2n);
@@ -99,9 +98,9 @@ describe("FixedPoint", () => {
     expect(
       FixedPoint.divideByInt(FixedPoint.from(-5n, 0), 2, "toward-zero").mantissa
     ).toBe(-2n);
-    expect(() =>
-      FixedPoint.divideByInt(FixedPoint.from(1n, 0), 0)
-    ).toThrow(RangeError);
+    expect(() => FixedPoint.divideByInt(FixedPoint.from(1n, 0), 0)).toThrow(
+      RangeError
+    );
   });
 
   it("compares and tests equality on equal scales", () => {
@@ -123,11 +122,7 @@ describe("FixedPoint", () => {
 describe("TimeSeries.from", () => {
   it("stores ordered fixed-point points and its interval/scale", () => {
     const series = TimeSeries.from(
-      [
-        point(0, 1n),
-        point(1_000, 2n),
-        point(2_000, 3n),
-      ],
+      [point(0, 1n), point(1_000, 2n), point(2_000, 3n)],
       { intervalMs: 1_000, scale: 0 }
     );
     expect(series.intervalMs).toBe(1_000);
@@ -157,10 +152,10 @@ describe("TimeSeries.from", () => {
 
   it("rejects values whose scale differs from the series scale", () => {
     expect(() =>
-      TimeSeries.from(
-        [{ timestampMs: 0, value: FixedPoint.from(1n, 3) }],
-        { intervalMs: 1_000, scale: 2 }
-      )
+      TimeSeries.from([{ timestampMs: 0, value: FixedPoint.from(1n, 3) }], {
+        intervalMs: 1_000,
+        scale: 2,
+      })
     ).toThrow(/expected 2/);
   });
 
@@ -239,14 +234,16 @@ describe("TimeSeries.resample downsample", () => {
   });
 
   it("supports first, last and sum aggregations", () => {
-    expect(mantissas(series.resample(2_000, { aggregation: "first" }))).toEqual([
-      0n, 20n,
-    ]);
+    expect(mantissas(series.resample(2_000, { aggregation: "first" }))).toEqual(
+      [0n, 20n]
+    );
     expect(mantissas(series.resample(2_000, { aggregation: "last" }))).toEqual([
-      10n, 30n,
+      10n,
+      30n,
     ]);
     expect(mantissas(series.resample(2_000, { aggregation: "sum" }))).toEqual([
-      10n, 50n,
+      10n,
+      50n,
     ]);
   });
 

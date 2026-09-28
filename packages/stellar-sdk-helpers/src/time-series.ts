@@ -437,7 +437,10 @@ export class TimeSeries {
         throw new TypeError("TimeSeries.from: every entry must be an object");
       }
       assertTimestampMs(entry.timestampMs, "TimeSeries.from");
-      assertFixedPoint(entry.value, `TimeSeries.from entry ${entry.timestampMs}`);
+      assertFixedPoint(
+        entry.value,
+        `TimeSeries.from entry ${entry.timestampMs}`
+      );
       if (entry.value.scale !== scale) {
         throw new RangeError(
           `TimeSeries.from: entry ${entry.timestampMs} has scale ${entry.value.scale}, expected ${scale}`
@@ -610,9 +613,7 @@ export class TimeSeries {
       // Carry forward the latest value observable by the end of this bucket.
       // A bucket that ends before the first sample has nothing to carry, so
       // it is omitted (leading gap is not back-filled).
-      const carried = this.atOrBefore(
-        bucketStart + targetIntervalMs - 1
-      );
+      const carried = this.atOrBefore(bucketStart + targetIntervalMs - 1);
       if (!carried) continue;
       out.push(
         Object.freeze({ timestampMs: bucketStart, value: carried.value })
