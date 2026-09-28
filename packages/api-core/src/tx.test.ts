@@ -33,6 +33,13 @@ const USER_FIXABLE_MESSAGES: Record<number, string> = {
   18: "Slippage tolerance exceeded. Adjust slippage and retry.",
 };
 
+// The per-action fallback txErrorResult passes to sanitizeTxError, which is
+// what a non-Error rejection ends up producing.
+const FALLBACK_MESSAGES = {
+  deposit: "Failed to build deposit transaction",
+  withdraw: "Failed to build withdraw transaction",
+} as const;
+
 beforeEach(() => vi.clearAllMocks());
 
 describe.each([
@@ -89,6 +96,31 @@ describe.each([
     expect(result.status).toBe(400);
     expect(result.body).toEqual({ error: USER_FIXABLE_MESSAGES[3] });
   });
+
+  // contractErrorCode can only read a discriminant off a ContractSimulationError
+  // or an Error. Anything else — a thrown string, a null, a plain object — has
+  // to fall through it rather than blow up while the response is being built.
+  it.each([
+    ["a thrown string", "boom"],
+    ["a thrown null", null],
+    ["a thrown plain object", { code: 18 }],
+  ] as const)(
+    "maps %s to HTTP 500 with the fallback message",
+    async (_label, thrown) => {
+      vi.mocked(builder).mockRejectedValueOnce(thrown);
+      const result = await handler({
+        walletAddress: PUBKEY,
+        vaultId: "meridian-usdc",
+        amount: "10",
+        shares: "5",
+        riskAcknowledged: true,
+      });
+      expect(result.status).toBe(500);
+      // sanitizeTxError returns the fallback for any non-Error value.
+      expect(result.body).toEqual({ error: FALLBACK_MESSAGES[action] });
+      expect(result.error).toBe(thrown);
+    }
+  );
 });
 
 describe("handleDepositRequest", () => {
