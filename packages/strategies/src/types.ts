@@ -108,3 +108,31 @@ export function isTimestampOutOfRangeError(
 ): error is TimestampOutOfRangeError {
   return error instanceof TimestampOutOfRangeError;
 }
+
+/**
+ * A periodic funding rate expressed in stroops-per-unit of notional per second.
+ *
+ * Sign convention:
+ *   positive rate → longs pay shorts (short leg *receives* funding)
+ *   negative rate → shorts pay longs (short leg *pays* funding)
+ *
+ * Stored as a FixedPointDecimal so arithmetic stays in integer stroops with
+ * no floating-point rounding.  The rate itself is dimensionless (rate per
+ * second); callers supply elapsed seconds as a bigint to keep the full
+ * precision path integer-only end-to-end.
+ */
+export interface FundingRate {
+  /** The per-second rate as a FixedPointDecimal (can be negative). */
+  readonly ratePerSecond: FixedPointDecimal;
+}
+
+/**
+ * A single short position in the simulation.
+ *
+ * `notional` is the absolute size of the position in the base asset,
+ * expressed as a FixedPointDecimal (always ≥ 0).  The sign of any accrued
+ * funding is determined by the FundingRate, not by this field.
+ */
+export interface Position {
+  readonly notional: FixedPointDecimal;
+}
