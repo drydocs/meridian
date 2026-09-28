@@ -66,7 +66,10 @@ function parseDecimalToScaled(raw: string, precision: number): bigint {
   const whole = match[2]!;
   const fraction = match[3] ?? "";
   const exponent = match[4] === undefined ? 0 : Number(match[4]);
-  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > MAX_DECIMAL_EXPONENT) {
+  if (
+    !Number.isSafeInteger(exponent) ||
+    Math.abs(exponent) > MAX_DECIMAL_EXPONENT
+  ) {
     throw new Error(`decimal exponent out of range: "${raw}"`);
   }
 
@@ -78,16 +81,18 @@ function parseDecimalToScaled(raw: string, precision: number): bigint {
   } else {
     const divisor = pow10(-scale);
     if (digits % divisor !== 0n) {
-      throw new Error(
-        `"${raw}" has more than ${precision} decimal place(s)`
-      );
+      throw new Error(`"${raw}" has more than ${precision} decimal place(s)`);
     }
     scaled = digits / divisor;
   }
   return sign * scaled;
 }
 
-function formatScaled(scaled: bigint, precision: number, trim: boolean): string {
+function formatScaled(
+  scaled: bigint,
+  precision: number,
+  trim: boolean
+): string {
   const negative = scaled < 0n;
   const magnitude = negative ? -scaled : scaled;
   const factor = pow10(precision);
@@ -132,7 +137,10 @@ export class FixedPoint {
     if (typeof value === "bigint") {
       return new FixedPoint(value * pow10(precision), precision);
     }
-    return new FixedPoint(parseDecimalToScaled(String(value), precision), precision);
+    return new FixedPoint(
+      parseDecimalToScaled(String(value), precision),
+      precision
+    );
   }
 
   /** Wraps an already-scaled bigint (e.g. stroops) without further scaling. */

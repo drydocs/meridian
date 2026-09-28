@@ -69,9 +69,9 @@ describe("FixedPoint", () => {
   });
 
   it("refuses to combine different precisions", () => {
-    expect(() =>
-      FixedPoint.from("1", 7).add(FixedPoint.from("1", 8))
-    ).toThrow(/different precision/);
+    expect(() => FixedPoint.from("1", 7).add(FixedPoint.from("1", 8))).toThrow(
+      /different precision/
+    );
   });
 
   it("validates the precision", () => {
@@ -129,13 +129,18 @@ describe("loadHistoricalSeries - parsing", () => {
       { asset: "USDC", timestamp: 2_000, price: "1.0001" },
       { asset: "blend:USDC", timestamp: 1_000, rate: "0.0525" },
     ]);
-    expect(Object.keys(result).sort()).toEqual(["price:USDC", "rate:blend:USDC"]);
+    expect(Object.keys(result).sort()).toEqual([
+      "price:USDC",
+      "rate:blend:USDC",
+    ]);
     const usdc = result["price:USDC"]!;
     expect(usdc.kind).toBe("price");
     expect(usdc.precision).toBe(DEFAULT_HISTORICAL_PRECISION);
     expect(usdc.points.map((p) => p.timestamp)).toEqual([1_000, 2_000]);
     expect(usdc.at(0)?.value.toFixedString()).toBe("0.9999000");
-    expect(result["rate:blend:USDC"]!.at(0)?.value.toFixedString()).toBe("0.0525000");
+    expect(result["rate:blend:USDC"]!.at(0)?.value.toFixedString()).toBe(
+      "0.0525000"
+    );
   });
 
   it("accepts ISO-8601 timestamps", () => {
@@ -174,10 +179,7 @@ describe("loadHistoricalSeries - parsing", () => {
         },
       },
     });
-    expect(Object.keys(result).sort()).toEqual([
-      "blend-usdc",
-      "defindex-usdc",
-    ]);
+    expect(Object.keys(result).sort()).toEqual(["blend-usdc", "defindex-usdc"]);
     expect(result["blend-usdc"]!.precision).toBe(DEFAULT_HISTORICAL_PRECISION);
     expect(result["defindex-usdc"]!.precision).toBe(2);
     expect(result["defindex-usdc"]!.at(0)?.value.toFixedString()).toBe("7.25");
@@ -196,7 +198,11 @@ describe("loadHistoricalSeries - parsing", () => {
       { asset: "B", timestamp: 1, price: "2" },
       { asset: "C", timestamp: 1, price: "3" },
     ]);
-    expect(Object.keys(result).sort()).toEqual(["price:A", "price:B", "price:C"]);
+    expect(Object.keys(result).sort()).toEqual([
+      "price:A",
+      "price:B",
+      "price:C",
+    ]);
   });
 });
 
@@ -221,10 +227,14 @@ describe("loadHistoricalSeries - ordering and duplicates", () => {
       ],
       { onOutOfOrder: "sort" }
     );
-    expect(result["price:A"]!.points.map((p) => p.timestamp)).toEqual([1, 2, 3]);
-    expect(
-      result["price:A"]!.points.map((p) => p.value.toString())
-    ).toEqual(["1", "2", "3"]);
+    expect(result["price:A"]!.points.map((p) => p.timestamp)).toEqual([
+      1, 2, 3,
+    ]);
+    expect(result["price:A"]!.points.map((p) => p.value.toString())).toEqual([
+      "1",
+      "2",
+      "3",
+    ]);
   });
 
   it("rejects duplicate timestamps by default", () => {
@@ -282,10 +292,7 @@ describe("loadHistoricalSeries - malformed input", () => {
   });
 
   it("rejects a row with neither price nor rate", () => {
-    expectCode(
-      () => load([{ asset: "A", timestamp: 1 }]),
-      "malformed-input"
-    );
+    expectCode(() => load([{ asset: "A", timestamp: 1 }]), "malformed-input");
   });
 
   it("rejects an explicit kind whose field is missing", () => {
@@ -416,10 +423,9 @@ describe("loadHistoricalSeries - lossless round-trip", () => {
   });
 
   it("round-trips scientific-notation source values", () => {
-    const loaded = load(
-      [{ asset: "A", timestamp: 1, price: "1e-8" }],
-      { precision: 8 }
-    );
+    const loaded = load([{ asset: "A", timestamp: 1, price: "1e-8" }], {
+      precision: 8,
+    });
     expect(loaded["price:A"]!.at(0)?.value.toFixedString()).toBe("0.00000001");
   });
 });

@@ -93,9 +93,7 @@ export interface HistoricalStreamMapInput {
 }
 
 export type HistoricalInput =
-  | readonly HistoricalRow[]
-  | HistoricalRowInput
-  | HistoricalStreamMapInput;
+  readonly HistoricalRow[] | HistoricalRowInput | HistoricalStreamMapInput;
 
 export type OutOfOrderPolicy = "reject" | "sort";
 export type DuplicatePolicy = "reject" | "first" | "last";
@@ -366,7 +364,13 @@ function collectRow(
     });
   }
   for (const point of parsed) {
-    bucketFor(buckets, point.id, asset, point.kind, options.precision).points.push({
+    bucketFor(
+      buckets,
+      point.id,
+      asset,
+      point.kind,
+      options.precision
+    ).points.push({
       timestamp,
       value: point.value,
       source: index,
@@ -480,7 +484,10 @@ function collectStreams(
         }
         bucket.points.push({
           timestamp,
-          value: parseValue(point.value, bucket.precision, { stream: id, index }),
+          value: parseValue(point.value, bucket.precision, {
+            stream: id,
+            index,
+          }),
           source: index,
         });
       } catch (err) {
