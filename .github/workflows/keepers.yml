@@ -1,43 +1,40 @@
 name: Keepers Schedule
 
-# GitHub Actions' native cron scheduler can silently drop ticks during high
-# load periods (e.g., top-of-hour), causing gaps in keeper execution. To
-# ensure reliability, we replace the native schedule trigger with an external
-# pinger that guarantees timely execution.
+# Replaces vercel.json's crons array (#513): Vercel's Hobby plan only allows
+# daily cron jobs, so neither the accrual keeper's 15-minute schedule nor the
+# migration keeper's hourly one could actually run there. GitHub Actions'
+# schedule trigger has no such restriction.
 #
-# The external pinger calls the GitHub API to trigger this workflow via
-# workflow_dispatch, ensuring that each keeper runs on its intended cadence
-# without relying on GitHub's unreliable cron implementation.
+# Three schedule entries fire three independent workflow runs on their own
+# cadence; each run only triggers the step matching its own schedule
+# (github.event.schedule), so a tick where several crons coincide (every
+# hour, on the hour) still calls each matching endpoint exactly once, not
+# one call doing double duty.
 on:
-  workflow_dispatch:
-    inputs:
-      keeper:
-        description: "Which keeper to run"
-        required: true
-        type: choice
-        options:
-          - alert
-          - accrue
-          - rebalance
+  schedule:
+    - cron: "*/5 * * * *" # admin-event alert keeper
+    - cron: "*/15 * * * *" # accrual keeper
+    - cron: "0 * * * *" # migration keeper
+  workflow_dispatch: # manual trigger for debugging
 
 jobs:
   trigger-keepers:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger alert keeper
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.keeper == 'alert'
+        if: github.event.schedule == '*/5 * * * *' || github.event_name == 'workflow_dispatch'
         run: |
           curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/alert" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
 
       - name: Trigger accrual keeper
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.keeper == 'accrue'
+        if: github.event.schedule == '*/15 * * * *' || github.event_name == 'workflow_dispatch'
         run: |
           curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/accrue" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
 
       - name: Trigger migration keeper
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.keeper == 'rebalance'
+        if: github.event.schedule == '0 * * * *' || github.event_name == 'workflow_dispatch'
         run: |
           curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/rebalance" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
