@@ -38,3 +38,4 @@ export * from "./monitor";
 export * from "./scenario-runner";
 export * from "./accrual";
 export * from "./liquidation";
+export * from "./correlated-paths";
