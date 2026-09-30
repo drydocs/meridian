@@ -34,6 +34,9 @@ const POSITION = {
   entryTime: 1_700_000_000,
 };
 
+vi.mock("../../components/dashboard/YieldHistoryChart", () => ({
+  YieldHistoryChart: () => null,
+}));
 vi.mock("../../hooks/useVaults", () => ({ useVaults: vi.fn() }));
 vi.mock("../../hooks/usePositions", () => ({ usePositions: vi.fn() }));
 vi.mock("../../hooks/useVaultActions", () => ({ useVaultActions: vi.fn() }));

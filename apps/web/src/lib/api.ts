@@ -10,6 +10,21 @@ export interface KeeperHealthEntry {
   healthy: boolean;
 }
 
+export interface VaultSnapshot {
+  vaultId: string;
+  protocol: string;
+  value: number;
+  earned: number;
+}
+
+export interface PositionSnapshot {
+  /** Capture time, epoch ms. */
+  timestamp: number;
+  totalValue: number;
+  totalEarned: number;
+  vaults: VaultSnapshot[];
+}
+
 export interface VaultState {
   protocol: string;
   adapterId: string;
@@ -58,6 +73,12 @@ export const api = {
     }>("/api/v1/vaults"),
   getPositions: (publicKey: string) =>
     apiFetch<{ positions: ApiPosition[] }>(`/api/v1/positions/${publicKey}`),
+  getPositionHistory: (publicKey: string, days: number) =>
+    apiFetch<{
+      publicKey: string;
+      days: number;
+      snapshots: PositionSnapshot[];
+    }>(`/api/v1/positions/${publicKey}/history?days=${days}`),
   addTrustline: (walletAddress: string) =>
     apiFetch<{ xdr: string }>("/api/v1/tx/add-trustline", {
       method: "POST",
