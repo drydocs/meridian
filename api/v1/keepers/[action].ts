@@ -7,11 +7,14 @@ import {
   loadBlendAccrualKeeperConfig,
   loadKeeperHeartbeatStore,
   loadMigrationKeeperConfig,
+  loadPositionSnapshotStore,
   recordKeeperHeartbeat,
   redactedErrorMessage,
   runAlertKeeper,
   runBlendAccrualKeeper,
+  resolvePositions,
   runMigrationKeeper,
+  runPositionSnapshotKeeper,
 } from "@meridian/stellar-sdk-helpers";
 import { handleGetKeeperHealth } from "@meridian/api-core";
 import { APP_NETWORK } from "@meridian/shared";
@@ -47,7 +50,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(result.status).json(result.body);
   }
 
-  if (action !== "accrue" && action !== "rebalance" && action !== "alert") {
+  if (
+    action !== "accrue" &&
+    action !== "rebalance" &&
+    action !== "alert" &&
+    action !== "snapshot"
+  ) {
     return res.status(404).json({ error: "Unknown action" });
   }
 
@@ -99,6 +107,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(status).json(result);
     } catch (err) {
       console.error("[accrual-keeper] run failed:", err);
+      return res.status(500).json({ error: redactedErrorMessage(err) });
+    }
+  }
+
+  if (action === "snapshot") {
+    // Records a position-value snapshot for every tracked user (#973). Reads
+    // only, signs nothing; the shared throttle in position-snapshots.ts makes
+    // an overlapping or repeated run a no-op for users snapshotted recently.
+    try {
+      const store = loadPositionSnapshotStore(process.env, {
+        logger: consoleLogger,
+      });
+      const result = await runPositionSnapshotKeeper({
+        store,
+        network: APP_NETWORK.network,
+        resolve: (publicKey) => resolvePositions(publicKey, APP_NETWORK),
+        logger: consoleLogger,
+      });
+      const status = result.failures.length > 0 ? 500 : 200;
+      return res.status(status).json(result);
+    } catch (err) {
+      console.error("[snapshot-keeper] run failed:", err);
       return res.status(500).json({ error: redactedErrorMessage(err) });
     }
   }
