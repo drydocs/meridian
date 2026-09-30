@@ -19,3 +19,4 @@ export * from "./gbm";
 export * from "./sizing";
 export * from "./portfolio";
 export * from "./strategy";
+export * from "./clock";
