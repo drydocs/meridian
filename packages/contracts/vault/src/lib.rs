@@ -7,7 +7,7 @@ pub use errors::ContractError;
 pub use storage::{
     clear_position_records, DataKey, MigrationSnapshot, ADAPTER, ADMIN, ADPT_SH,
     MAX_ADMIN_SLIPPAGE_BPS, MIG_ACTIVE, MIG_SNAP, MIN_LEDGER_GAP, MUSDC, OFFSET, PAUSED, PEND_ADM,
-    TOTAL_SH, USDC,
+    TOTAL_SH, TREASURY, USDC,
 };
 
 use soroban_sdk::{
@@ -31,6 +31,13 @@ use adapter_common::{DAY_IN_LEDGERS, INSTANCE_BUMP, INSTANCE_THRESHOLD};
 // a quarter is the target user, not an edge case.
 const POSITION_BUMP: u32 = 120 * DAY_IN_LEDGERS;
 const POSITION_THRESHOLD: u32 = POSITION_BUMP - 7 * DAY_IN_LEDGERS;
+
+/// Immutable performance fee: 1,000 basis points = 10%.
+///
+/// This is compiled into the vault WASM rather than stored behind an admin
+/// setter. Changing it therefore requires a fresh deployment.
+pub const PERFORMANCE_FEE_BPS: i128 = 1_000;
+const BPS_DENOMINATOR: i128 = 10_000;
 
 // ---------------------------------------------------------------------------
 // Adapter interface
@@ -100,9 +107,9 @@ pub struct MeridianVault;
 
 #[contractimpl]
 impl MeridianVault {
-    /// Sets the admin, USDC token address, mUSDC share token address, and
-    /// the initial yield adapter address, inside the deploying transaction's
-    /// own `CreateContract` operation. Unlike a separate `initialize()` call,
+    /// Sets the admin, USDC token address, mUSDC share token address, initial
+    /// yield adapter, and performance-fee treasury inside the deploying
+    /// transaction's own `CreateContract` operation. Unlike a separate `initialize()` call,
     /// there is no intervening ledger where an attacker could land a
     /// self-authorized call first: the deployer's transaction is the only
     /// one that can ever set this contract's state (#551, same bug class as
@@ -125,13 +132,14 @@ impl MeridianVault {
         usdc: Address,
         musdc: Address,
         adapter: Address,
+        treasury: Address,
     ) {
         admin.require_auth();
-        Self::init_state(&env, &admin, &usdc, &musdc, &adapter);
+        Self::init_state(&env, &admin, &usdc, &musdc, &adapter, &treasury);
     }
 
-    /// Retained so the ABI of vaults already deployed from earlier WASM is
-    /// unchanged, and so an old vault can still be initialized by hand.
+    /// Retained as a hand-initialization path for undeployed legacy flows.
+    /// Its arguments mirror the constructor, including the treasury.
     ///
     /// On any vault deployed from this WASM it is unreachable: `__constructor`
     /// has already set `ADMIN`, so every call returns `AlreadyInitialized`.
@@ -143,23 +151,32 @@ impl MeridianVault {
         usdc: Address,
         musdc: Address,
         adapter: Address,
+        treasury: Address,
     ) -> Result<(), ContractError> {
         if env.storage().instance().has(&ADMIN) {
             return Err(ContractError::AlreadyInitialized);
         }
         admin.require_auth();
-        Self::init_state(&env, &admin, &usdc, &musdc, &adapter);
+        Self::init_state(&env, &admin, &usdc, &musdc, &adapter, &treasury);
         Ok(())
     }
 
     /// The write half of initialization, shared by `__constructor` and
     /// `initialize` so the two can never set up different state. Not exported
     /// (no `pub`), so it is not callable from outside the contract.
-    fn init_state(env: &Env, admin: &Address, usdc: &Address, musdc: &Address, adapter: &Address) {
+    fn init_state(
+        env: &Env,
+        admin: &Address,
+        usdc: &Address,
+        musdc: &Address,
+        adapter: &Address,
+        treasury: &Address,
+    ) {
         env.storage().instance().set(&ADMIN, admin);
         env.storage().instance().set(&USDC, usdc);
         env.storage().instance().set(&MUSDC, musdc);
         env.storage().instance().set(&ADAPTER, adapter);
+        env.storage().instance().set(&TREASURY, treasury);
         env.storage().instance().set(&TOTAL_SH, &0_i128);
         env.storage().instance().set(&ADPT_SH, &0_i128);
     }
@@ -368,28 +385,9 @@ impl MeridianVault {
             return Err(ContractError::WithdrawalTooSmall);
         }
 
-        // Slippage guard: the caller can supply a floor so a ratio shift by a
-        // concurrent withdrawal gives them a typed, predictable error instead
-        // of silently returning less USDC than they expected.
-        if usdc_out < min_usdc_out {
-            return Err(ContractError::MinAmountOutNotMet);
-        }
-
-        // Burn mUSDC from caller and send USDC back.
-        TokenClient::new(&env, &musdc).burn(&caller, &shares);
-        TokenClient::new(&env, &usdc).transfer(&env.current_contract_address(), &caller, &usdc_out);
-
-        // Update global counters.
-        env.storage()
-            .instance()
-            .set(&TOTAL_SH, &(total_shares - shares));
-        env.storage()
-            .instance()
-            .set(&ADPT_SH, &adapter_client.total_shares());
-
-        let remaining = caller_shares - shares;
-
-        // Retire cost basis in proportion to shares burned.
+        // Retire cost basis in proportion to the caller's live share balance.
+        // Only positive gain on the withdrawn slice is fee-bearing; principal
+        // and loss recovery are never charged.
         let principal_key = DataKey::Principal(caller.clone());
         let principal: i128 = env.storage().persistent().get(&principal_key).unwrap_or(0);
         let principal_out = principal
@@ -397,9 +395,112 @@ impl MeridianVault {
             .ok_or(ContractError::Overflow)?
             .checked_div(caller_shares)
             .ok_or(ContractError::DivisionByZero)?;
+        let gain = if usdc_out > principal_out {
+            usdc_out
+                .checked_sub(principal_out)
+                .ok_or(ContractError::Overflow)?
+        } else {
+            0
+        };
+        let fee = gain
+            .checked_mul(PERFORMANCE_FEE_BPS)
+            .ok_or(ContractError::Overflow)?
+            .checked_div(BPS_DENOMINATOR)
+            .ok_or(ContractError::DivisionByZero)?;
+        let net_usdc_out = usdc_out.checked_sub(fee).ok_or(ContractError::Overflow)?;
+        let mut actual_usdc_out = net_usdc_out;
+
+        // Slippage is enforced against what the caller actually receives,
+        // after the performance fee, so off-chain simulations can provide a
+        // meaningful minimum.
+        if net_usdc_out < min_usdc_out {
+            return Err(ContractError::MinAmountOutNotMet);
+        }
+
+        // Burn mUSDC from caller and send the net USDC back. Any fee remains
+        // in the vault briefly, then is re-deposited below so treasury shares
+        // are fully backed rather than being an uncollateralized mint.
+        TokenClient::new(&env, &musdc).burn(&caller, &shares);
+        TokenClient::new(&env, &usdc).transfer(
+            &env.current_contract_address(),
+            &caller,
+            &net_usdc_out,
+        );
+
+        let remaining_shares = total_shares
+            .checked_sub(shares)
+            .ok_or(ContractError::Overflow)?;
+        let mut treasury_shares = 0_i128;
+
+        if fee > 0 {
+            let treasury: Address = env
+                .storage()
+                .instance()
+                .get(&TREASURY)
+                .ok_or(ContractError::NotInitialized)?;
+            let remaining_assets = adapter_client.total_assets();
+
+            // Price the treasury mint exactly like a deposit against the
+            // post-withdrawal vault. OFFSET also gives a full-exit fee a
+            // well-defined 1:1 price when no user shares/assets remain.
+            treasury_shares = fee
+                .checked_mul(
+                    remaining_shares
+                        .checked_add(OFFSET)
+                        .ok_or(ContractError::Overflow)?,
+                )
+                .ok_or(ContractError::Overflow)?
+                .checked_div(
+                    remaining_assets
+                        .checked_add(OFFSET)
+                        .ok_or(ContractError::Overflow)?,
+                )
+                .ok_or(ContractError::DivisionByZero)?;
+
+            if treasury_shares > 0 {
+                TokenClient::new(&env, &usdc).transfer(
+                    &env.current_contract_address(),
+                    &adapter_addr,
+                    &fee,
+                );
+                let credited = adapter_client.deposit(&fee);
+                if credited <= 0 {
+                    return Err(ContractError::AdapterCreditedNothing);
+                }
+                MusdcAdminClient::new(&env, &musdc).mint(&treasury, &treasury_shares);
+
+                env.events().publish(
+                    (symbol_short!("perf_fee"),),
+                    (caller.clone(), treasury, fee, treasury_shares),
+                );
+            } else {
+                // A fee too small to mint one share remains user-owned: send
+                // it with the withdrawal instead of silently trapping dust.
+                TokenClient::new(&env, &usdc).transfer(
+                    &env.current_contract_address(),
+                    &caller,
+                    &fee,
+                );
+                actual_usdc_out = usdc_out;
+            }
+        }
+
+        // Update global counters.
         env.storage()
-            .persistent()
-            .set(&principal_key, &(principal - principal_out));
+            .instance()
+            .set(&TOTAL_SH, &(remaining_shares + treasury_shares));
+        env.storage()
+            .instance()
+            .set(&ADPT_SH, &adapter_client.total_shares());
+
+        let remaining = caller_shares - shares;
+
+        // Retire the withdrawn basis and ratchet the high-water mark by the
+        // gain already taxed, so that gain cannot be charged a second time.
+        env.storage().persistent().set(
+            &principal_key,
+            &(principal - principal_out + if treasury_shares > 0 { gain } else { 0 }),
+        );
 
         // A full exit clears the entry time and cost basis so a later re-deposit
         // starts fresh.
@@ -409,10 +510,12 @@ impl MeridianVault {
 
         Self::extend_position(&env, &caller);
 
-        env.events()
-            .publish((symbol_short!("withdraw"),), (caller, shares, usdc_out));
+        env.events().publish(
+            (symbol_short!("withdraw"),),
+            (caller, shares, actual_usdc_out),
+        );
 
-        Ok(usdc_out)
+        Ok(actual_usdc_out)
     }
 
     /// Called by the mUSDC token contract immediately after it moves a
@@ -661,6 +764,20 @@ impl MeridianVault {
     /// Returns total mUSDC shares outstanding.
     pub fn get_total_shares(env: Env) -> i128 {
         env.storage().instance().get(&TOTAL_SH).unwrap_or(0)
+    }
+
+    /// Returns the constructor-fixed address that receives performance-fee
+    /// mUSDC. There is deliberately no corresponding setter.
+    pub fn get_treasury(env: Env) -> Result<Address, ContractError> {
+        env.storage()
+            .instance()
+            .get(&TREASURY)
+            .ok_or(ContractError::NotInitialized)
+    }
+
+    /// Returns the fee compiled into this vault deployment, in basis points.
+    pub fn get_performance_fee_bps(_env: Env) -> i128 {
+        PERFORMANCE_FEE_BPS
     }
 
     // -----------------------------------------------------------------------
@@ -1621,7 +1738,7 @@ mod tests {
         env.register_at(
             &vault_id,
             MeridianVault,
-            (&admin, &usdc_id, &musdc_id, &adapter_id),
+            (&admin, &usdc_id, &musdc_id, &adapter_id, &admin),
         );
         let vault = MeridianVaultClient::new(&env, &vault_id);
 
@@ -1676,7 +1793,7 @@ mod tests {
         env.register_at(
             &vault_id,
             MeridianVault,
-            (&admin, &usdc_id, &musdc_id, &adapter_id),
+            (&admin, &usdc_id, &musdc_id, &adapter_id, &admin),
         );
         let vault = MeridianVaultClient::new(&env, &vault_id);
 
@@ -1753,6 +1870,67 @@ mod tests {
         let shares = vault.get_position(&user);
         vault.withdraw(&user, &shares, &0_i128);
         assert_eq!(vault.get_principal(&user), 0);
+    }
+
+    #[test]
+    fn withdrawal_charges_ten_percent_of_positive_gain_and_mints_to_treasury() {
+        let (env, treasury, user, usdc_id, musdc_id, adapter_id, vault) = setup();
+        let principal = 100_0000000_i128;
+        let yield_amount = 10_0000000_i128;
+        vault.deposit(&user, &principal, &0);
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &yield_amount);
+
+        let shares = vault.get_position(&user);
+        let received = vault.withdraw(&user, &shares, &0);
+        let expected_fee = yield_amount * PERFORMANCE_FEE_BPS / BPS_DENOMINATOR;
+
+        assert_eq!(received, principal + yield_amount - expected_fee);
+        assert_eq!(
+            TokenClient::new(&env, &musdc_id).balance(&treasury),
+            expected_fee
+        );
+        assert_eq!(vault.get_total_shares(), expected_fee);
+        assert_eq!(vault.get_total_assets(), expected_fee);
+    }
+
+    #[test]
+    fn partial_profitable_withdrawal_ratchets_principal_by_taxed_gain() {
+        let (env, _treasury, user, usdc_id, _musdc, adapter_id, vault) = setup();
+        let principal = 100_0000000_i128;
+        let yield_amount = 10_0000000_i128;
+        vault.deposit(&user, &principal, &0);
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &yield_amount);
+
+        let half = vault.get_position(&user) / 2;
+        vault.withdraw(&user, &half, &0);
+
+        // Half the original basis is retired and the withdrawn slice's
+        // 5-USDC gain becomes part of the high-water mark.
+        assert_eq!(vault.get_principal(&user), 55_0000000_i128);
+    }
+
+    #[test]
+    fn withdrawal_at_a_loss_charges_no_fee() {
+        let (env, treasury, user, usdc_id, musdc_id, adapter_id, vault) = setup();
+        let principal = 100_0000000_i128;
+        let loss = 10_0000000_i128;
+        vault.deposit(&user, &principal, &0);
+        TokenClient::new(&env, &usdc_id).burn(&adapter_id, &loss);
+
+        let shares = vault.get_position(&user);
+        let received = vault.withdraw(&user, &shares, &0);
+
+        assert_eq!(received, principal - loss);
+        assert_eq!(TokenClient::new(&env, &musdc_id).balance(&treasury), 0);
+        assert_eq!(vault.get_total_shares(), 0);
+    }
+
+    #[test]
+    fn performance_fee_rate_and_treasury_are_constructor_fixed() {
+        let (_env, treasury, _user, _usdc, _musdc, _adapter, vault) = setup();
+
+        assert_eq!(vault.get_performance_fee_bps(), 1_000);
+        assert_eq!(vault.get_treasury(), treasury);
     }
 
     #[test]
@@ -2257,7 +2435,7 @@ mod tests {
     #[test]
     fn reinitializing_fails() {
         let (_env, admin, _user, usdc_id, musdc_id, adapter_id, vault) = setup();
-        let result = vault.try_initialize(&admin, &usdc_id, &musdc_id, &adapter_id);
+        let result = vault.try_initialize(&admin, &usdc_id, &musdc_id, &adapter_id, &admin);
         assert_eq!(result, Err(Ok(ContractError::AlreadyInitialized)));
     }
 
@@ -2272,7 +2450,7 @@ mod tests {
         let (env, admin, _user, usdc_id, musdc_id, adapter_id, vault) = setup();
         let attacker = Address::generate(&env);
 
-        let result = vault.try_initialize(&attacker, &usdc_id, &musdc_id, &adapter_id);
+        let result = vault.try_initialize(&attacker, &usdc_id, &musdc_id, &adapter_id, &attacker);
         assert_eq!(result, Err(Ok(ContractError::AlreadyInitialized)));
         assert_eq!(vault.get_admin(), admin);
     }
@@ -2557,7 +2735,7 @@ mod tests {
             .address();
         let vault_id = env.register(
             MeridianVault,
-            (&admin, &usdc, &musdc_id, &zero_share_adapter_id),
+            (&admin, &usdc, &musdc_id, &zero_share_adapter_id, &admin),
         );
         let vault = MeridianVaultClient::new(&env, &vault_id);
 
@@ -2864,7 +3042,7 @@ mod tests {
         let usdc = Address::generate(env);
         let musdc = Address::generate(env);
         let adapter = Address::generate(env);
-        let vault_id = env.register(MeridianVault, (&admin, &usdc, &musdc, &adapter));
+        let vault_id = env.register(MeridianVault, (&admin, &usdc, &musdc, &adapter, &admin));
         env.as_contract(&vault_id, || {
             env.storage().instance().remove(&ADMIN);
             env.storage().instance().remove(&USDC);
@@ -3128,8 +3306,8 @@ mod tests {
         // the cache/display correct -- it doesn't change this number.
         assert_eq!(
             usdc_out,
-            amount + yield_amount,
-            "withdrawer should receive the full live-computed value including yield"
+            amount + yield_amount - yield_amount / 10,
+            "withdrawer should receive live-computed value less the 10% gain fee"
         );
     }
 
@@ -3237,7 +3415,7 @@ mod tests {
             env.register_at(
                 &vault_id,
                 MeridianVault,
-                (&admin, &usdc_id, &musdc_id, &adapter_id),
+                (&admin, &usdc_id, &musdc_id, &adapter_id, &admin),
             );
             let vault = MeridianVaultClient::new(&env, &vault_id);
 

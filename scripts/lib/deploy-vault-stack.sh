@@ -27,6 +27,8 @@
 #                          set before it ever sources this file, so that
 #                          fallback is dead code there, not a mainnet-unsafe
 #                          convenience reintroduced through the back door.
+#   TREASURY_ADDRESS       Dedicated address that receives performance-fee
+#                          mUSDC. Constructor-fixed for this deployment.
 #   USDC_ID                USDC contract address to wire the adapter to.
 #   BLEND_POOL_ID          Blend pool contract address to wire the adapter to.
 #   VAULT_SALT             Optional. Reuse the salt printed by a previous
@@ -97,7 +99,7 @@ deploy_vault_stack() {
   local musdc_token_hash
   musdc_token_hash=$(upload "$wasm_musdc_token")
 
-  # The vault takes admin/usdc/musdc/adapter as constructor arguments (#551,
+  # The vault takes admin/usdc/musdc/adapter/treasury as constructor arguments (#551,
   # same fix #505/#550 already applied to the adapters/mUSDC), so its state
   # is set inside its own deploying transaction with no intervening ledger
   # for a front-run to land in. But blend-adapter and mUSDC's own
@@ -147,16 +149,16 @@ deploy_vault_stack() {
 
   # Deploying with the same salt used to reserve VAULT_ID above lands the
   # vault at that exact address. Its constructor sets
-  # admin/usdc/musdc/adapter in this same transaction and requires
+  # admin/usdc/musdc/adapter/treasury in this same transaction and requires
   # admin.require_auth(), which Soroban only honors here for the
   # transaction's own source account, so this must be sourced by ADMIN_KEY,
   # not DEPLOYER.
   VAULT_INITIALIZED=0
   if [ -n "$ADMIN_KEY" ]; then
-    echo "Deploying vault (admin=$ADMIN_ADDRESS, usdc=$USDC_ID, musdc=$MUSDC_ID, adapter=$BLEND_ADAPTER_ID)..."
+    echo "Deploying vault (admin=$ADMIN_ADDRESS, treasury=$TREASURY_ADDRESS, usdc=$USDC_ID, musdc=$MUSDC_ID, adapter=$BLEND_ADAPTER_ID)..."
     local actual_vault_id
     actual_vault_id=$(deploy "$vault_hash" "$vault_salt" "$ADMIN_KEY" \
-      -- --admin "$ADMIN_ADDRESS" --usdc "$USDC_ID" --musdc "$MUSDC_ID" --adapter "$BLEND_ADAPTER_ID")
+      -- --admin "$ADMIN_ADDRESS" --usdc "$USDC_ID" --musdc "$MUSDC_ID" --adapter "$BLEND_ADAPTER_ID" --treasury "$TREASURY_ADDRESS")
 
     # blend-adapter and mUSDC above were already deployed with VAULT_ID
     # baked permanently into their constructor state, and neither has an
@@ -192,7 +194,7 @@ deploy_vault_stack() {
     echo ""
     echo "  stellar contract deploy ${STELLAR_NETWORK_FLAGS[*]} --source <your-ADMIN-key-or-alias> \\"
     echo "    --wasm-hash $vault_hash --salt $vault_salt \\"
-    echo "    -- --admin $ADMIN_ADDRESS --usdc $USDC_ID --musdc $MUSDC_ID --adapter $BLEND_ADAPTER_ID"
+    echo "    -- --admin $ADMIN_ADDRESS --usdc $USDC_ID --musdc $MUSDC_ID --adapter $BLEND_ADAPTER_ID --treasury $TREASURY_ADDRESS"
     echo ""
   fi
 }

@@ -15,15 +15,15 @@ mUSDC is a **freely transferable** share token, and the vault treats it as one: 
 
 ## Interface
 
-### `__constructor(admin, usdc, musdc, adapter)`
+### `__constructor(admin, usdc, musdc, adapter, treasury)`
 
-Sets the admin, USDC contract address, mUSDC contract address, and the initial yield adapter address, inside the deploying transaction's own `CreateContract` operation. Like the adapters (see [Adapter Contracts](#adapter-contracts) below), the vault no longer follows a two-step `deploy` then `initialize` pattern: there is no intervening ledger where an attacker could land a self-authorized `initialize()` call first and become admin ([#551](https://github.com/drydocs/meridian/issues/551), same bug class as [#505](https://github.com/drydocs/meridian/issues/505), fixed for the adapters/mUSDC in [#550](https://github.com/drydocs/meridian/issues/550)).
+Sets the admin, USDC contract address, mUSDC contract address, initial yield adapter, and dedicated performance-fee treasury inside the deploying transaction's own `CreateContract` operation. Like the adapters (see [Adapter Contracts](#adapter-contracts) below), the vault no longer follows a two-step `deploy` then `initialize` pattern: there is no intervening ledger where an attacker could land a self-authorized `initialize()` call first and become admin ([#551](https://github.com/drydocs/meridian/issues/551), same bug class as [#505](https://github.com/drydocs/meridian/issues/505), fixed for the adapters/mUSDC in [#550](https://github.com/drydocs/meridian/issues/550)). The treasury has no setter; changing it requires a fresh vault deployment.
 
 Unlike the adapters/mUSDC's constructor arguments, `admin` is a human-held key, not a programmatically-derived contract address, so `__constructor` calls `admin.require_auth()` too. Soroban only honors `require_auth()` inside a constructor for the address that is the deploying transaction's own source account, so deploying with a separate `admin` requires that address itself to source and sign the deploy transaction, not just the deployer paying its fees. See "Standing up a fresh environment" in [Testnet Deployment](../operations/testnet-deployment.md) for how `deploy-testnet.sh` handles this, and for how the vault's constructor arguments get the mUSDC/adapter addresses it needs, given those two contracts' own constructors need the vault's address first.
 
-### `initialize(admin, usdc, musdc, adapter) -> Result<(), ContractError>`
+### `initialize(admin, usdc, musdc, adapter, treasury) -> Result<(), ContractError>`
 
-Retained so the ABI of vaults already deployed from earlier WASM is unchanged, and so an old vault can still be initialized by hand. Requires `admin.require_auth()`. Fails with `AlreadyInitialized` if called again. On any vault deployed from current WASM it always returns `AlreadyInitialized`, because `__constructor` has already set the admin.
+Retained as a hand-initialization path for undeployed legacy flows. Its arguments mirror the constructor, including the treasury. Requires `admin.require_auth()`. Fails with `AlreadyInitialized` if called again. On any vault deployed from current WASM it always returns `AlreadyInitialized`, because `__constructor` has already set the admin.
 
 ### `deposit(caller, amount, min_shares_out) -> Result<i128, ContractError>`
 
@@ -43,16 +43,24 @@ Stamps `Entry(caller)` with the current ledger timestamp on the caller's first d
 
 ### `withdraw(caller, shares, min_usdc_out) -> Result<i128, ContractError>`
 
-Burns `shares` mUSDC from the caller, redeems the proportional adapter position, and returns the resulting USDC. Fails with `ZeroAmount` if `shares <= 0`, `NoSharesOutstanding` if the vault has no shares outstanding at all, `InsufficientShares` if the caller doesn't hold enough mUSDC, `WithdrawalTooSmall` if the redemption rounds down to zero USDC, or `MinAmountOutNotMet` if the USDC redeemed is less than `min_usdc_out`. Pass `0` for `min_usdc_out` to disable the slippage guard.
+Burns `shares` mUSDC from the caller, redeems the proportional adapter position, and returns the resulting USDC less any performance fee. Fails with `ZeroAmount` if `shares <= 0`, `NoSharesOutstanding` if the vault has no shares outstanding at all, `InsufficientShares` if the caller doesn't hold enough mUSDC, `WithdrawalTooSmall` if the redemption rounds down to zero USDC, or `MinAmountOutNotMet` if the caller's net USDC after fees is less than `min_usdc_out`. Pass `0` for `min_usdc_out` to disable the slippage guard.
 
 The `InsufficientShares` check reads the caller's live mUSDC balance, the same balance the burn operates on, so the two can never disagree. The check is kept rather than left to the burn's own failure so callers get the typed error instead of a panic.
 
 ```
 adapter_shares_to_burn = shares * total_adapter_shares / total_shares
 usdc_out = <whatever the adapter's withdraw() returns for that many adapter shares>
+principal_out = Principal(caller) * shares / caller_shares
+gain = max(usdc_out - principal_out, 0)
+fee = gain * 1_000 / 10_000
+net_usdc_out = usdc_out - fee
 ```
 
-Reduces `Principal(caller)` proportionally to the caller's live balance, so a holder who transferred part of their position away still retires exactly the basis for the shares they burn. A full exit clears both `Entry(caller)` and `Principal(caller)`. Withdrawals are never blocked by `set_paused`. See [Authorization and safety rails](#authorization-and-safety-rails) for the full pause behavior.
+The fee is a constructor-immutable 1,000 basis points (10%) and applies only to positive gain above the proportional `Principal` cost basis. There is no deposit fee and no duration gate. Losses and principal are never charged. The fee USDC remains invested through the active adapter and the vault mints the equivalently priced mUSDC shares to the constructor-fixed treasury, so the revenue mint is fully backed. A `perf_fee` event records the caller, treasury, USDC fee, and treasury shares.
+
+After a charged withdrawal, the caller's `Principal` retires the proportional withdrawn basis and ratchets upward by the gain just taxed, making it the account's high-water mark. A full exit clears both `Entry(caller)` and `Principal(caller)`. Withdrawals are never blocked by `set_paused`. See [Authorization and safety rails](#authorization-and-safety-rails) for the full pause behavior.
+
+The single aggregate `Principal` deliberately nets deposits and losses. A deposit made after a loss is therefore fee-shielded until the account as a whole recovers above total deposited. Per-lot cost basis, deposit fees, duration-gated fees, and contract-level fee waivers are intentionally outside this deployment. Any promotional waiver must be an off-chain treasury rebate after the normal on-chain fee is charged.
 
 ### `on_transfer(from, to, amount, sender_balance_before, receiver_balance_before) -> Result<(), ContractError>`
 
@@ -266,6 +274,7 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `USDC`               | Instance     | USDC contract `Address`                                                                                                                      |
 | `MUSDC`              | Instance     | mUSDC contract `Address`                                                                                                                     |
 | `ADAPTER`            | Instance     | Active adapter contract `Address`                                                                                                            |
+| `TREASURY`           | Instance     | Constructor-fixed performance-fee recipient `Address`; no admin setter                                                                       |
 | `TOTAL_SH`           | Instance     | Total mUSDC shares outstanding (`i128`)                                                                                                      |
 | `ADPT_SH`            | Instance     | Total adapter shares outstanding. Reset to `0` on `set_adapter`; set to the new adapter's reported share count on `migrate_adapter` (`i128`) |
 | `PAUSED`             | Instance     | Deposit pause flag (`bool`)                                                                                                                  |
