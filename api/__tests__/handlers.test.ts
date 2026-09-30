@@ -229,6 +229,21 @@ beforeEach(() => {
   process.env.MERIDIAN_ALERT_WEBHOOK_URL = "https://hooks.example.com/webhook";
 });
 
+describe("GET /api/v1/positions/[publicKey]", () => {
+  it("sets an explicit Cache-Control header", async () => {
+    const res = makeRes();
+    await positionsHandler(
+      fakeReq({
+        query: { publicKey: PUBKEY },
+        method: "GET",
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["Cache-Control"]).toBe("no-store");
+  });
+});
+
 describe("POST /api/v1/tx/deposit", () => {
   it("returns 503 when the upstream rate limiter fails", async () => {
     vi.mocked(checkRateLimit).mockRejectedValueOnce(
