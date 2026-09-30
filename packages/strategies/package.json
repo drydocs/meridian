@@ -1,3 +1,4 @@
+```json
 {
   "name": "@meridian/strategies",
   "version": "0.1.0",
@@ -18,3 +19,4 @@
     "vitest": "^5.0.0"
   }
 }
+```
