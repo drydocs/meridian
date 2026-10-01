@@ -4,8 +4,16 @@
   "functions": {
     "api/v1/keepers/[action].ts": { "maxDuration": 60 }
   },
+  "redirects": [
+    {
+      "source": "/app/admin/:path*",
+      "destination": "/admin/:path*",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/app/:path*", "destination": "/app/index.html" },
+    { "source": "/admin/:path*", "destination": "/app/index.html" },
     { "source": "/docs/:path*", "destination": "/docs/:path*" }
   ],
   "headers": [
@@ -25,7 +33,7 @@
       ]
     },
     {
-      "source": "/app/:path*",
+      "source": "/:base(app|admin)/:path*",
       "headers": [
         {
           "key": "Content-Security-Policy",
