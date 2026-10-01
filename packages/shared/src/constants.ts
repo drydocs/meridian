@@ -95,14 +95,29 @@ export const CONTRACT_ADDRESSES = {
   },
 } as const;
 
-export const DEFAULT_SLIPPAGE_BPS = 50;
-
 // Hard ceiling on migrate_adapter's max_slippage_bps, mirrored from
 // packages/contracts/vault/src/storage.rs MAX_ADMIN_SLIPPAGE_BPS.
 // If you change this value, change it in that file too (and vice-versa):
 // the two are in different languages and build systems so they can't be
 // kept in sync automatically.
 export const MAX_ADMIN_SLIPPAGE_BPS = 500;
+
+/** Centralized slippage (bps). Single source of truth for issue #822. */
+export const SLIPPAGE_BPS = {
+  /** Frontend vault deposit/withdraw default (50 bps = 0.5%). */
+  FRONTEND_VAULT: 50,
+  /** DeFindex SDK / adapter floor. */
+  DEFINDEX: 10,
+  /** Migration keeper default. */
+  MIGRATION_DEFAULT: 100,
+  /** Migration keeper + vault admin ceiling (alias of MAX_ADMIN_SLIPPAGE_BPS). */
+  MIGRATION_MAX: MAX_ADMIN_SLIPPAGE_BPS,
+} as const;
+
+export const DEFAULT_SLIPPAGE_BPS = SLIPPAGE_BPS.FRONTEND_VAULT;
+export const DEFINDEX_SLIPPAGE_BPS = SLIPPAGE_BPS.DEFINDEX;
+export const MIGRATION_DEFAULT_SLIPPAGE_BPS = SLIPPAGE_BPS.MIGRATION_DEFAULT;
+export const MIGRATION_MAX_SLIPPAGE_BPS = MAX_ADMIN_SLIPPAGE_BPS;
 
 export const STELLAR_NETWORKS = {
   testnet: {

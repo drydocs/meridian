@@ -18,5 +18,6 @@ export * from "./routing";
 export * from "./time-series";
 export * from "./tx";
 export * from "./types";
+export * from "./vault-cache";
 export * from "./vaults";
 export * from "./admin-history";
