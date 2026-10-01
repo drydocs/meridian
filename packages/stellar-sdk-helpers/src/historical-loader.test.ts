@@ -429,3 +429,145 @@ describe("loadHistoricalSeries - lossless round-trip", () => {
     expect(loaded["price:A"]!.at(0)?.value.toFixedString()).toBe("0.00000001");
   });
 });
+
+describe("loadHistoricalSeries - timestamp validation", () => {
+  it("rejects a numeric timestamp that is not a safe integer", () => {
+    expectCode(
+      () => load([{ asset: "A", timestamp: 1.5, price: "1" }]),
+      "invalid-timestamp"
+    );
+    expectCode(
+      () => load([{ asset: "A", timestamp: Number.NaN, price: "1" }]),
+      "invalid-timestamp"
+    );
+    expectCode(
+      () => load([{ asset: "A", timestamp: Number.MAX_VALUE, price: "1" }]),
+      "invalid-timestamp"
+    );
+  });
+
+  it("rejects a timestamp that is neither a number nor a non-empty string", () => {
+    expectCode(
+      () => load([{ asset: "A", timestamp: null, price: "1" }]),
+      "malformed-input"
+    );
+    expectCode(
+      () => load([{ asset: "A", timestamp: true, price: "1" }]),
+      "malformed-input"
+    );
+    expectCode(
+      () => load([{ asset: "A", timestamp: "   ", price: "1" }]),
+      "malformed-input"
+    );
+  });
+
+  it("parses an epoch-millisecond string timestamp, whitespace included", () => {
+    const result = load([
+      { asset: "A", timestamp: "1710000000000", price: "1" },
+      { asset: "A", timestamp: " 1710000000001 ", price: "1" },
+    ]);
+    expect(result["price:A"]!.points.map((p) => p.timestamp)).toEqual([
+      1_710_000_000_000, 1_710_000_000_001,
+    ]);
+  });
+
+  it("rejects a numeric string timestamp outside the safe integer range", () => {
+    expectCode(
+      () => load([{ asset: "A", timestamp: "99999999999999999999", price: "1" }]),
+      "invalid-timestamp"
+    );
+  });
+
+  it("rejects rows that are not objects", () => {
+    expectCode(() => load([null]), "malformed-input");
+    expectCode(() => load(["not-a-row"]), "malformed-input");
+  });
+
+  it("rejects a row with an unrecognised kind", () => {
+    expectCode(
+      () => load([{ asset: "A", timestamp: 1, price: "1", kind: "yield" }]),
+      "malformed-input"
+    );
+  });
+});
+
+describe("loadHistoricalSeries - stream map validation", () => {
+  const mapOf = (over: Record<string, unknown>) => ({
+    streams: {
+      s: {
+        asset: "A",
+        kind: "price",
+        points: [{ timestamp: 1, value: "1" }],
+        ...over,
+      },
+    },
+  });
+
+  it("rejects an empty stream id", () => {
+    expectCode(
+      () => load({ streams: { "": { asset: "A", kind: "price", points: [] } } }),
+      "malformed-input"
+    );
+  });
+
+  it("rejects a stream that is not an object", () => {
+    expectCode(() => load({ streams: { s: null } }), "malformed-input");
+    expectCode(() => load({ streams: { s: "nope" } }), "malformed-input");
+  });
+
+  it("rejects a stream without a usable asset", () => {
+    expectCode(() => load(mapOf({ asset: "" })), "malformed-input");
+    expectCode(() => load(mapOf({ asset: 7 })), "malformed-input");
+  });
+
+  it("rejects a stream with an unrecognised kind", () => {
+    expectCode(() => load(mapOf({ kind: "yield" })), "malformed-input");
+  });
+
+  it("rejects a stream whose points are not an array", () => {
+    expectCode(() => load(mapOf({ points: "nope" })), "malformed-input");
+  });
+
+  it("drops only the malformed stream under onMalformed: 'skip'", () => {
+    const result = load(
+      {
+        streams: {
+          bad: null,
+          good: {
+            asset: "A",
+            kind: "price",
+            points: [{ timestamp: 1, value: "1" }],
+          },
+        },
+      },
+      { onMalformed: "skip" }
+    );
+    expect(Object.keys(result)).toEqual(["good"]);
+  });
+
+  it("still throws a precision error under onMalformed: 'skip'", () => {
+    expectCode(
+      () => load(mapOf({ precision: -1 }), { onMalformed: "skip" }),
+      "precision"
+    );
+  });
+
+  it("rejects points that are not objects", () => {
+    expectCode(() => load(mapOf({ points: [null] })), "malformed-input");
+    expectCode(() => load(mapOf({ points: ["nope"] })), "malformed-input");
+  });
+
+  it("rejects a point with no value", () => {
+    expectCode(
+      () => load(mapOf({ points: [{ timestamp: 1 }] })),
+      "malformed-input"
+    );
+  });
+
+  it("rethrows an unparsable point value unless skipping is enabled", () => {
+    expectCode(
+      () => load(mapOf({ points: [{ timestamp: 1, value: "oops" }] })),
+      "invalid-value"
+    );
+  });
+});
