@@ -1,5 +1,10 @@
 import { APP_NETWORK, isValidStellarAddress } from "@meridian/shared";
-import { resolvePositions } from "@meridian/stellar-sdk-helpers";
+import {
+  consoleLogger,
+  loadPositionSnapshotStore,
+  recordPositionSnapshot,
+  resolvePositions,
+} from "@meridian/stellar-sdk-helpers";
 import type { RouteResult } from "./types";
 
 export async function handleGetPositions(
@@ -13,6 +18,21 @@ export async function handleGetPositions(
 
   try {
     const positions = await resolvePositions(publicKey, APP_NETWORK);
+    // Feed the history series (#973). recordPositionSnapshot never throws,
+    // but building the store can, and neither may fail the live read.
+    try {
+      await recordPositionSnapshot(
+        loadPositionSnapshotStore(process.env, { logger: consoleLogger }),
+        publicKey,
+        APP_NETWORK.network,
+        positions,
+        consoleLogger
+      );
+    } catch (err) {
+      consoleLogger.warn("[positions] snapshot skipped", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     return { status: 200, body: { positions } };
   } catch (err) {
     return {

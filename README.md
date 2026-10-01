@@ -182,7 +182,7 @@ Non-custodial USDC deposits into the `MeridianVault` coordinator contract, live 
 
 ### Shipped: yield history and position analytics (partial)
 
-Per-position yield tracking with a cost-basis model is shipped: users already see cumulative earned alongside their current balance. Remaining: a yield history chart broken down by protocol, entry time, and cumulative earned over time. Position-level analytics that work whether funds are in Blend, DeFindex, or split across both.
+Per-position yield tracking with a cost-basis model is shipped: users already see cumulative earned alongside their current balance. Position value snapshots are now stored and served by `GET /api/v1/positions/:publicKey/history`. Remaining: a yield history chart broken down by protocol, entry time, and cumulative earned over time. Position-level analytics that work whether funds are in Blend, DeFindex, or split across both.
 
 ### Shipped: automatic yield routing (built and tested, not yet live on mainnet)
 
