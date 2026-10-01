@@ -24,6 +24,7 @@ import {
   assertSubmittable,
 } from "./tx";
 import type { StellarNetwork } from "./types";
+import { isMigrationCooldownError } from "./keeper-tx";
 import { CONTRACT_ADDRESSES, USDC_ISSUER } from "@meridian/shared";
 
 const { SUCCESS, FAILED, NOT_FOUND } = rpc.Api.GetTransactionStatus;
@@ -117,6 +118,126 @@ describe("simErrorMessage", () => {
       '   1: [Diagnostic Event] contract:CBQ..., topics:[error, Error(Contract, #13)], data:["contract call failed", mint, [GAAA..., 100000000]]\n' +
       '   2: [Failed Diagnostic Event (not emitted)] contract:CBC..., topics:[error, Error(Contract, #13)], data:["trustline entry is missing for account", GAAA...]\n';
     expect(simErrorMessage(raw)).toBe("trustline entry is missing for account");
+  });
+});
+
+// Discriminants from `ContractError` in packages/contracts/vault/src/errors.rs.
+// Every variant the vault can return, so a new or renumbered error, or a change
+// to what simErrorMessage surfaces for one, shows up as a snapshot diff.
+const VAULT_CONTRACT_ERRORS: ReadonlyArray<readonly [string, number]> = [
+  ["AlreadyInitialized", 1],
+  ["NotInitialized", 2],
+  ["DepositsPaused", 3],
+  ["ZeroAmount", 4],
+  ["DepositTooSmall", 5],
+  ["NoSharesOutstanding", 6],
+  ["InsufficientShares", 7],
+  ["WithdrawalTooSmall", 8],
+  ["Overflow", 9],
+  ["AdapterSwapUnsafe", 10],
+  ["SameAdapter", 11],
+  ["MigrationValueDrift", 12],
+  ["NoAdapterPosition", 13],
+  ["InvalidSlippageBps", 14],
+  ["MinAmountOutNotMet", 15],
+  ["NoPendingAdmin", 16],
+  ["AdapterReportedNoAssets", 17],
+  ["SlippageExceeded", 18],
+  ["MigrationNotInitialized", 19],
+  ["MigrationCooldownNotMet", 20],
+  ["MigrationStabilityDrift", 21],
+  ["MigrationSnapshotAssetsInvalid", 22],
+  ["AdapterCreditedNothing", 23],
+  ["DivisionByZero", 24],
+];
+
+// The shape of `sim.error` for a contract error: the HostError line, then the
+// diagnostic event log the RPC appends. It carries no trustline diagnostic, so
+// these exercise the contract-code path rather than the trustline one.
+function contractSimError(code: number): string {
+  return (
+    `HostError: Error(Contract, #${code})\n\n` +
+    "Event log (newest first):\n" +
+    `   0: [Diagnostic Event] contract:CBQ..., topics:[error, Error(Contract, #${code})], data:"escalating error to VM trap from failed host function call: call"\n`
+  );
+}
+
+describe("simErrorMessage snapshots", () => {
+  it("surfaces the message users see for each vault ContractError", () => {
+    const surfaced = Object.fromEntries(
+      VAULT_CONTRACT_ERRORS.map(([name, code]) => [
+        name,
+        simErrorMessage(contractSimError(code)),
+      ])
+    );
+    expect(surfaced).toMatchInlineSnapshot(`
+      {
+        "AdapterCreditedNothing": "The adapter did not credit any shares for this deposit.",
+        "AdapterReportedNoAssets": "The adapter reported no assets while shares are still outstanding.",
+        "AdapterSwapUnsafe": "HostError: Error(Contract, #10)",
+        "AlreadyInitialized": "This contract is already initialized.",
+        "DepositTooSmall": "HostError: Error(Contract, #5)",
+        "DepositsPaused": "HostError: Error(Contract, #3)",
+        "DivisionByZero": "The vault hit a divide-by-zero in adapter accounting.",
+        "InsufficientShares": "HostError: Error(Contract, #7)",
+        "InvalidSlippageBps": "HostError: Error(Contract, #14)",
+        "MigrationCooldownNotMet": "The migration cooldown has not elapsed yet.",
+        "MigrationNotInitialized": "Start a migration before calling migrate.",
+        "MigrationSnapshotAssetsInvalid": "The migration target reported an invalid asset balance.",
+        "MigrationStabilityDrift": "The migration target's value moved outside the allowed slippage.",
+        "MigrationValueDrift": "HostError: Error(Contract, #12)",
+        "MinAmountOutNotMet": "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
+        "NoAdapterPosition": "HostError: Error(Contract, #13)",
+        "NoPendingAdmin": "There is no pending admin transfer to accept.",
+        "NoSharesOutstanding": "HostError: Error(Contract, #6)",
+        "NotInitialized": "HostError: Error(Contract, #2)",
+        "Overflow": "HostError: Error(Contract, #9)",
+        "SameAdapter": "HostError: Error(Contract, #11)",
+        "SlippageExceeded": "Slippage tolerance exceeded. Adjust slippage and retry.",
+        "WithdrawalTooSmall": "HostError: Error(Contract, #8)",
+        "ZeroAmount": "HostError: Error(Contract, #4)",
+      }
+    `);
+  });
+
+  it("surfaces non-contract host errors unchanged", () => {
+    const tail =
+      "\n\nEvent log (newest first):\n   0: [Diagnostic Event] ...\n";
+    const surfaced = {
+      budget: simErrorMessage(`HostError: Error(Budget, ExceededLimit)${tail}`),
+      storage: simErrorMessage(
+        `HostError: Error(Storage, MissingValue)${tail}`
+      ),
+      auth: simErrorMessage(`HostError: Error(Auth, InvalidAction)${tail}`),
+    };
+    expect(surfaced).toMatchInlineSnapshot(`
+      {
+        "auth": "HostError: Error(Auth, InvalidAction)",
+        "budget": "HostError: Error(Budget, ExceededLimit)",
+        "storage": "HostError: Error(Storage, MissingValue)",
+      }
+    `);
+  });
+
+  // The migration keeper treats a cooldown rejection as "retry next run" rather
+  // than a failure, by matching the error it throws:
+  // `Simulation failed: ${simErrorMessage(sim.error)}` (keeper-tx.ts). Since
+  // simErrorMessage maps #20 to a sentence, the keeper recognises it through its
+  // own copy of that sentence. The keeper's test builds the error by hand, so
+  // the two copies could drift apart without it failing; this goes through the
+  // real function.
+  it("keeps the text the migration keeper matches for a cooldown rejection", () => {
+    const cooldown = simErrorMessage(contractSimError(20));
+    expect(cooldown).toBe(VAULT_CONTRACT_ERROR_MESSAGES[20]);
+    expect(
+      isMigrationCooldownError(new Error(`Simulation failed: ${cooldown}`))
+    ).toBe(true);
+
+    // A neighbouring migration error must not be read as a cooldown.
+    const notStarted = simErrorMessage(contractSimError(19));
+    expect(
+      isMigrationCooldownError(new Error(`Simulation failed: ${notStarted}`))
+    ).toBe(false);
   });
 });
 

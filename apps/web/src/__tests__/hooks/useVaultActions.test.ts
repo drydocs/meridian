@@ -99,7 +99,7 @@ vi.mock("react-i18next", () => {
 
 import { api } from "../../lib/api";
 import { wallet } from "../../lib/wallet";
-import { USDC_ISSUER, MUSDC_ISSUER } from "@meridian/shared";
+import { USDC_ISSUER, MUSDC_ISSUER, APP_NETWORK } from "@meridian/shared";
 
 const KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 // Pulled from the source of truth rather than hardcoded, so these fixtures
@@ -180,7 +180,7 @@ describe("useVaultActions — deposit", () => {
     });
     expect(wallet.sign).toHaveBeenCalledWith(
       "DEPOSIT_XDR",
-      expect.stringContaining("Test SDF")
+      APP_NETWORK.passphrase
     );
     expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
     expect(useToastStore.getState().toasts[0]).toMatchObject({

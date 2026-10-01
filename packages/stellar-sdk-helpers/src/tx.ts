@@ -286,7 +286,7 @@ export async function waitForTransaction(
 /**
  * User-facing copy for recognized vault ContractError discriminants.
  * Source of truth: packages/contracts/vault/src/errors.rs.
- * Codes 2–14 overlap adapter, mUSDC, or Stellar Asset Contract failures
+ * Codes 2 through 14 overlap adapter, mUSDC, or Stellar Asset Contract failures
  * reachable during vault operations, so leave them raw. Vault withdrawal
  * slippage uses #15 MinAmountOutNotMet; deposit slippage uses #18.
  */

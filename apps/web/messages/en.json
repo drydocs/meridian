@@ -11,7 +11,8 @@
     "walletDisconnected": "Wallet Disconnected",
     "walletConnected": "Wallet Connected",
     "chooseWallet": "Choose a wallet",
-    "installed": "Installed"
+    "installed": "Installed",
+    "install": "Install"
   },
 
   "vaultPanel": {

@@ -6,6 +6,7 @@ pub const PEND_ADM: Symbol = symbol_short!("PEND_ADM");
 pub const USDC: Symbol = symbol_short!("USDC");
 pub const MUSDC: Symbol = symbol_short!("MUSDC");
 pub const ADAPTER: Symbol = symbol_short!("ADAPTER");
+pub const TREASURY: Symbol = symbol_short!("TREASURY");
 pub const TOTAL_SH: Symbol = symbol_short!("TOTAL_SH");
 pub const ADPT_SH: Symbol = symbol_short!("ADPT_SH");
 pub const PAUSED: Symbol = symbol_short!("PAUSED");
@@ -37,6 +38,9 @@ pub const MIN_LEDGER_GAP: u32 = 17_280;
 /// key could authorize moving the entire vault position with zero loss
 /// protection. 500 bps (5%) is a starting point, not a value with any
 /// special significance; tune to the product's actual risk tolerance.
+/// If you change this value, change it in packages/shared/src/constants.ts
+/// MAX_ADMIN_SLIPPAGE_BPS too (and vice-versa): the two can't be kept in
+/// sync automatically across languages.
 pub const MAX_ADMIN_SLIPPAGE_BPS: u32 = 500;
 
 // Virtual shares/assets offset (OpenZeppelin ERC-4626 mitigation against the

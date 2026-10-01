@@ -4,11 +4,8 @@ import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
-import {
-  getWalletMeta,
-  hasAcceptedRiskDisclosure,
-  setRiskDisclosureAccepted,
-} from "../../lib/wallet";
+import { useRiskDisclosure } from "../../hooks/useRiskDisclosure";
+import { getWalletMeta, hasAcceptedRiskDisclosure } from "../../lib/wallet";
 import { PositionSummary } from "./PositionSummary";
 import { DepositTab } from "./DepositTab";
 import { WithdrawTab } from "./WithdrawTab";
@@ -47,12 +44,12 @@ export function VaultPanel() {
 
   const [tab, setTab] = useState<Tab>("deposit");
   const [amount, setAmount] = useState("");
-  // Separate from useWalletConnect's showRiskDisclosure: that one only ever
-  // fires from the connect button, so a wallet already connected elsewhere
-  // (e.g. via AdminLogin, which skips the disclosure) would otherwise reach
-  // this deposit button with no way to ever see or accept it.
-  const [showDepositRiskDisclosure, setShowDepositRiskDisclosure] =
-    useState(false);
+  // Deposit-time gate. useWalletConnect's gate only fires from the connect
+  // button, so a wallet already connected elsewhere (e.g. via AdminLogin,
+  // which skips the disclosure) would otherwise reach this deposit button
+  // with no way to ever see or accept it. Both gates now share the same
+  // useRiskDisclosure hook (#814) rather than duplicating its state/logic.
+  const depositRiskDisclosure = useRiskDisclosure();
 
   function onAmountKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     const allowed = [
@@ -86,17 +83,21 @@ export function VaultPanel() {
 
   async function handleDeposit() {
     if (!amount || !bestVault) return;
-    if (!hasAcceptedRiskDisclosure()) {
-      setShowDepositRiskDisclosure(true);
-      return;
-    }
+    // Runs the deposit now if already accepted, otherwise once the user
+    // accepts the disclosure modal below (#814).
+    await depositRiskDisclosure.requireAcceptance(() =>
+      executeDeposit(bestVault)
+    );
+  }
+
+  async function executeDeposit(vault: NonNullable<typeof bestVault>) {
     // Only a position held in bestVault has a share price for this deposit.
     // A first-time depositor has none. There is no reliable price to derive
     // a floor from, so the deposit goes through with no slippage protection
     // (min_shares_out omitted, which the contract treats as "0") rather than
     // guessing a floor that could revert a legitimate deposit with
     // SlippageExceeded.
-    const bestVaultPosition = positions.find((p) => p.vaultId === bestVault.id);
+    const bestVaultPosition = positions.find((p) => p.vaultId === vault.id);
     const numAmount = parseFloat(amount);
     const minSharesOut =
       bestVaultPosition &&
@@ -111,8 +112,8 @@ export function VaultPanel() {
         : undefined;
     const ok = await deposit(
       amount,
-      bestVault.id,
-      bestVault.asset,
+      vault.id,
+      vault.asset,
       minSharesOut,
       hasAcceptedRiskDisclosure()
     );
@@ -329,14 +330,10 @@ export function VaultPanel() {
             onSubmit={handleWithdraw}
           />
         )}
-        {showDepositRiskDisclosure && (
+        {depositRiskDisclosure.show && (
           <RiskDisclosureModal
-            onAccept={() => {
-              setRiskDisclosureAccepted();
-              setShowDepositRiskDisclosure(false);
-              void handleDeposit();
-            }}
-            onCancel={() => setShowDepositRiskDisclosure(false)}
+            onAccept={() => void depositRiskDisclosure.accept()}
+            onCancel={depositRiskDisclosure.cancel}
           />
         )}
       </div>
