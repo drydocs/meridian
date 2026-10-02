@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { FixedPoint, TimeSeries, type TimeSeriesEntry } from "./time-series";
+import {
+  FixedPoint,
+  TimeSeries,
+  type FixedPoint as FixedPointValue,
+  type TimeSeriesEntry,
+  type TimeSeriesOptions,
+} from "./time-series";
 
 /** Scale-0 point helper for the integer-arithmetic cases below. */
 function point(timestampMs: number, value: bigint): TimeSeriesEntry {
@@ -384,5 +390,190 @@ describe("TimeSeries immutability", () => {
     expect(resampled.size).toBe(0);
     expect(resampled.intervalMs).toBe(500);
     expect(resampled.scale).toBe(2);
+  });
+});
+
+describe("FixedPoint guard branches", () => {
+  it("rejects values that are not FixedPoint objects", () => {
+    expect(() =>
+      FixedPoint.rescale(null as unknown as FixedPointValue, 1)
+    ).toThrow(TypeError);
+    expect(() =>
+      FixedPoint.add(
+        undefined as unknown as FixedPointValue,
+        FixedPoint.from(1n, 0)
+      )
+    ).toThrow(TypeError);
+  });
+
+  it("rejects a mantissa that is not a bigint", () => {
+    const badMantissa = { mantissa: 1, scale: 0 } as unknown as FixedPointValue;
+    expect(() => FixedPoint.rescale(badMantissa, 1)).toThrow(TypeError);
+  });
+
+  it("rejects a scale that is not a number", () => {
+    const badScale = { mantissa: 1n, scale: "0" } as unknown as FixedPointValue;
+    expect(() => FixedPoint.rescale(badScale, 1)).toThrow(TypeError);
+  });
+
+  it("rejects a non-bigint whole number", () => {
+    expect(() => FixedPoint.fromBigInt(1 as unknown as bigint, 2)).toThrow(
+      TypeError
+    );
+  });
+
+  it("rejects a non-string decimal", () => {
+    expect(() => FixedPoint.fromString(1.25 as unknown as string, 2)).toThrow(
+      TypeError
+    );
+  });
+
+  it("rejects a divisor that is not a safe integer", () => {
+    expect(() => FixedPoint.divideByInt(FixedPoint.from(1n, 0), 1.5)).toThrow(
+      RangeError
+    );
+  });
+
+  it("rejects subtraction and comparison across scales", () => {
+    expect(() =>
+      FixedPoint.subtract(FixedPoint.from(1n, 2), FixedPoint.from(1n, 3))
+    ).toThrow(TypeError);
+    expect(() =>
+      FixedPoint.compare(FixedPoint.from(1n, 2), FixedPoint.from(1n, 3))
+    ).toThrow(TypeError);
+  });
+
+  it("renders a scale-0 value as a plain integer", () => {
+    expect(FixedPoint.toString(FixedPoint.from(-42n, 0))).toBe("-42");
+    expect(FixedPoint.toString(FixedPoint.from(0n, 0))).toBe("0");
+  });
+
+  it("rounds both signs by the requested mode", () => {
+    // 5 / 2 = 2.5: floor keeps the integer part for a positive numerator.
+    expect(
+      FixedPoint.divideByInt(FixedPoint.from(5n, 0), 2, "floor").mantissa
+    ).toBe(2n);
+    // -5 / 2 rounds half away from zero to -3 and floors to -3.
+    expect(FixedPoint.divideByInt(FixedPoint.from(-5n, 0), 2).mantissa).toBe(
+      -3n
+    );
+    expect(
+      FixedPoint.divideByInt(FixedPoint.from(-5n, 0), 2, "floor").mantissa
+    ).toBe(-3n);
+    // A remainder below half a unit is dropped instead of rounded up.
+    expect(FixedPoint.divideByInt(FixedPoint.from(1n, 0), 4).mantissa).toBe(0n);
+    expect(FixedPoint.divideByInt(FixedPoint.from(-1n, 0), 4).mantissa).toBe(
+      0n
+    );
+  });
+});
+
+describe("TimeSeries validation guards", () => {
+  it("requires an options object", () => {
+    expect(() =>
+      TimeSeries.from([], null as unknown as TimeSeriesOptions)
+    ).toThrow(TypeError);
+  });
+
+  it("requires an array of entries", () => {
+    expect(() =>
+      TimeSeries.from("nope" as unknown as TimeSeriesEntry[], {
+        intervalMs: 1_000,
+      })
+    ).toThrow(TypeError);
+  });
+
+  it("rejects a null entry", () => {
+    expect(() =>
+      TimeSeries.from([null as unknown as TimeSeriesEntry], {
+        intervalMs: 1_000,
+      })
+    ).toThrow(TypeError);
+  });
+
+  it("rejects a value that is not a FixedPoint", () => {
+    expect(() =>
+      TimeSeries.from(
+        [{ timestampMs: 0, value: null as unknown as FixedPointValue }],
+        { intervalMs: 1_000 }
+      )
+    ).toThrow(TypeError);
+  });
+
+  it("rejects a negative or fractional timestamp", () => {
+    const negative = point(-1, 1n);
+    const fractional = point(1.5, 1n);
+    expect(() =>
+      TimeSeries.from([negative], { intervalMs: 1_000, scale: 0 })
+    ).toThrow(RangeError);
+    expect(() =>
+      TimeSeries.from([fractional], { intervalMs: 1_000, scale: 0 })
+    ).toThrow(RangeError);
+  });
+
+  it("validates timestamps passed to atOrBefore", () => {
+    const series = TimeSeries.from([point(0, 1n)], {
+      intervalMs: 1_000,
+      scale: 0,
+    });
+    expect(() => series.atOrBefore(-1)).toThrow(RangeError);
+  });
+
+  it("validates the resample target interval", () => {
+    const series = TimeSeries.from([point(0, 1n)], {
+      intervalMs: 1_000,
+      scale: 0,
+    });
+    expect(() => series.resample(0)).toThrow(RangeError);
+    expect(() => series.resample(-1_000)).toThrow(RangeError);
+  });
+});
+
+describe("TimeSeries equality", () => {
+  const base = TimeSeries.from([point(0, 1n), point(1_000, 2n)], {
+    intervalMs: 1_000,
+    scale: 0,
+  });
+
+  it("is false against a non-TimeSeries value", () => {
+    expect(base.equals(null as unknown as TimeSeries)).toBe(false);
+    expect(base.equals({} as unknown as TimeSeries)).toBe(false);
+  });
+
+  it("is false when the interval or scale differs", () => {
+    const otherInterval = TimeSeries.from([point(0, 1n), point(1_000, 2n)], {
+      intervalMs: 500,
+      scale: 0,
+    });
+    const otherScale = TimeSeries.from(
+      [
+        { timestampMs: 0, value: FixedPoint.from(1n, 2) },
+        { timestampMs: 1_000, value: FixedPoint.from(2n, 2) },
+      ],
+      { intervalMs: 1_000, scale: 2 }
+    );
+    expect(base.equals(otherInterval)).toBe(false);
+    expect(base.equals(otherScale)).toBe(false);
+  });
+
+  it("is false when the point count differs", () => {
+    const longer = TimeSeries.from(
+      [point(0, 1n), point(1_000, 2n), point(2_000, 3n)],
+      { intervalMs: 1_000, scale: 0 }
+    );
+    expect(base.equals(longer)).toBe(false);
+  });
+
+  it("is false when a timestamp or mantissa differs", () => {
+    const otherTimestamp = TimeSeries.from([point(0, 1n), point(1_500, 2n)], {
+      intervalMs: 1_000,
+      scale: 0,
+    });
+    const otherMantissa = TimeSeries.from([point(0, 1n), point(1_000, 9n)], {
+      intervalMs: 1_000,
+      scale: 0,
+    });
+    expect(base.equals(otherTimestamp)).toBe(false);
+    expect(base.equals(otherMantissa)).toBe(false);
   });
 });
