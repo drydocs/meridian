@@ -473,7 +473,8 @@ describe("loadHistoricalSeries - timestamp validation", () => {
 
   it("rejects a numeric string timestamp outside the safe integer range", () => {
     expectCode(
-      () => load([{ asset: "A", timestamp: "99999999999999999999", price: "1" }]),
+      () =>
+        load([{ asset: "A", timestamp: "99999999999999999999", price: "1" }]),
       "invalid-timestamp"
     );
   });
@@ -505,7 +506,8 @@ describe("loadHistoricalSeries - stream map validation", () => {
 
   it("rejects an empty stream id", () => {
     expectCode(
-      () => load({ streams: { "": { asset: "A", kind: "price", points: [] } } }),
+      () =>
+        load({ streams: { "": { asset: "A", kind: "price", points: [] } } }),
       "malformed-input"
     );
   });
