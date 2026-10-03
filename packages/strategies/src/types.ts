@@ -37,6 +37,29 @@ export class FixedPointDecimal {
     return `${sign}${whole}.${decimal}`;
   }
 
+  add(other: FixedPointDecimal): FixedPointDecimal {
+    return new FixedPointDecimal(this.#stroops + other.#stroops);
+  }
+
+  sub(other: FixedPointDecimal): FixedPointDecimal {
+    return new FixedPointDecimal(this.#stroops - other.#stroops);
+  }
+
+  // Multiplies two fixed-point values. e.g. 100 * 0.003 = 0.3
+  mul(other: FixedPointDecimal): FixedPointDecimal {
+    return new FixedPointDecimal(
+      (this.#stroops * other.#stroops) / STROOPS_PER_UNIT
+    );
+  }
+
+  // Divides this by other. Panics on division by zero.
+  div(other: FixedPointDecimal): FixedPointDecimal {
+    if (other.#stroops === 0n) throw new RangeError("division by zero");
+    return new FixedPointDecimal(
+      (this.#stroops * STROOPS_PER_UNIT) / other.#stroops
+    );
+  }
+
   equals(other: FixedPointDecimal): boolean {
     return this.#stroops === other.#stroops;
   }
