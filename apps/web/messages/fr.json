@@ -52,6 +52,7 @@
     "withdrew": "Retiré",
     "deposited": "Déposé",
     "syncDelayed": "Mise à jour de votre solde en cours...",
+    "vaultStateUnavailable": "Impossible de lire le prix actuel du coffre. Veuillez réessayer.",
     "fundingWallet": "Financement du portefeuille testnet avec des USDC de test Blend...",
     "walletFunded": "Portefeuille testnet financé",
     "faucetFailed": "Échec du financement du portefeuille testnet"

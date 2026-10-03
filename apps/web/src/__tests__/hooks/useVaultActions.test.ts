@@ -6,7 +6,7 @@ import { useToastStore } from "../../store/toast";
 
 const invalidateQueries = vi.fn();
 const setQueryData = vi.fn();
-const getQueryData = vi.fn(() => undefined);
+const getQueryData = vi.fn<(key: unknown[]) => unknown>(() => undefined);
 vi.mock("@tanstack/react-query", async () => {
   const { useEffect, useRef, useState } = await import("react");
 
@@ -97,6 +97,7 @@ vi.mock("react-i18next", () => {
     "vaultActions.withdrew": "Withdrew",
     "vaultActions.depositFailed": "Deposit failed",
     "vaultActions.withdrawalFailed": "Withdrawal failed",
+    "vaultActions.vaultStateUnavailable": "Vault state unavailable",
   };
 
   return {
@@ -148,7 +149,8 @@ beforeEach(() => {
   useToastStore.setState({ toasts: [] });
   invalidateQueries.mockClear();
   setQueryData.mockClear();
-  getQueryData.mockClear();
+  getQueryData.mockReset();
+  getQueryData.mockImplementation(() => undefined);
   vi.clearAllMocks();
   // Stub fetch so both the proactive trustline check and hasBlendUsdcBalance
   // see USDC + mUSDC trustlines and a positive USDC balance, skipping the
@@ -267,7 +269,7 @@ describe("useVaultActions — withdraw", () => {
       walletAddress: KEY,
       vaultId: "blend-usdc-fixed",
       shares: "5",
-      min_usdc_out: "9.9500000",
+      min_usdc_out: "8.9550000",
     });
     expect(wallet.sign).toHaveBeenCalled();
     expect(useToastStore.getState().toasts[0]).toMatchObject({
@@ -352,12 +354,13 @@ describe("useVaultActions — fresh vault state slippage", () => {
 
     expect(ok).toBe(true);
     expect(api.getVaultState).toHaveBeenCalled();
-    // 10 * (100/50) * 0.995 = 19.9
+    // 10 * (100/50) = 20 gross. No cached position, so the whole payout is
+    // priced as gain: 20 - 10% fee = 18, then the 0.5% haircut -> 17.91.
     expect(api.buildWithdraw).toHaveBeenCalledWith({
       walletAddress: KEY,
       vaultId: "blend-usdc-fixed",
       shares: "10",
-      min_usdc_out: "19.9000000",
+      min_usdc_out: "17.9100000",
     });
   });
 
@@ -383,12 +386,84 @@ describe("useVaultActions — fresh vault state slippage", () => {
     });
   });
 
-  it("omits the floor when vault state fetch fails", async () => {
+  it("prices min_usdc_out net of the performance fee using the position basis", async () => {
+    // deposited is the position's current value and earned the yield above its
+    // cost basis, so the basis is 40 - 6 = 34 over the position's 20 shares.
+    getQueryData.mockImplementation((key: unknown[]) =>
+      key[0] === "positions"
+        ? [
+            {
+              vaultId: "blend-usdc-fixed",
+              shares: 20,
+              deposited: 40,
+              earned: 6,
+              entryTime: 0,
+            },
+          ]
+        : undefined
+    );
+    const { result } = renderHook(() => useVaultActions());
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.withdraw("10", "blend-usdc-fixed", "USDC");
+    });
+
+    expect(ok).toBe(true);
+    // 20 gross, 34 * 10/20 = 17 basis, 3 gain, 0.3 fee, 19.7 * 0.995 = 19.6015.
+    expect(api.buildWithdraw).toHaveBeenCalledWith({
+      walletAddress: KEY,
+      vaultId: "blend-usdc-fixed",
+      shares: "10",
+      min_usdc_out: "19.6015000",
+    });
+  });
+
+  it("falls back to the cached vault state when the fresh read fails", async () => {
+    vi.mocked(api.getVaultState).mockRejectedValueOnce(
+      new Error("rate limited")
+    );
+    getQueryData.mockImplementation((key: unknown[]) =>
+      key[0] === "vault-state"
+        ? {
+            protocol: "blend",
+            adapterId: "adapter",
+            totalShares: 50,
+            totalAssets: 100,
+            paused: false,
+          }
+        : undefined
+    );
+    const { result } = renderHook(() => useVaultActions());
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.deposit(
+        "25",
+        "blend-usdc-fixed",
+        "USDC",
+        undefined,
+        true
+      );
+    });
+
+    expect(ok).toBe(true);
+    expect(api.buildDeposit).toHaveBeenCalledWith({
+      walletAddress: KEY,
+      vaultId: "blend-usdc-fixed",
+      amount: "25",
+      min_shares_out: "12.4375000",
+      riskAcknowledged: true,
+    });
+  });
+
+  it("refuses to submit unprotected when no vault state is available at all", async () => {
     vi.mocked(api.getVaultState).mockRejectedValueOnce(new Error("rpc down"));
     const { result } = renderHook(() => useVaultActions());
 
+    let ok: boolean | undefined;
     await act(async () => {
-      await result.current.deposit(
+      ok = await result.current.deposit(
         "10",
         "blend-usdc-fixed",
         "USDC",
@@ -397,12 +472,11 @@ describe("useVaultActions — fresh vault state slippage", () => {
       );
     });
 
-    expect(api.buildDeposit).toHaveBeenCalledWith({
-      walletAddress: KEY,
-      vaultId: "blend-usdc-fixed",
-      amount: "10",
-      min_shares_out: undefined,
-      riskAcknowledged: true,
+    expect(ok).toBe(false);
+    expect(api.buildDeposit).not.toHaveBeenCalled();
+    expect(useToastStore.getState().toasts[0]).toMatchObject({
+      kind: "error",
+      message: "Vault state unavailable",
     });
   });
 });

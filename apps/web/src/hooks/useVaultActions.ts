@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { APP_NETWORK } from "@meridian/shared";
 import { useWalletStore } from "../store/wallet";
-import { api, type ApiPosition } from "../lib/api";
+import { api, type ApiPosition, type VaultState } from "../lib/api";
 import { useToastStore } from "../store/toast";
 import { useSignAndSubmit } from "./useSignAndSubmit";
 import { useTrustlines } from "./useTrustlines";
@@ -14,6 +14,35 @@ import {
   computeMinUsdcOut,
   fetchFreshVaultState,
 } from "./useVaultState";
+
+/**
+ * Live vault totals for pricing a slippage floor, falling back to the cached
+ * read when the fresh one fails. Returns undefined when neither is available,
+ * which callers must treat as "no floor can be priced" rather than submitting
+ * an unprotected transaction.
+ */
+async function resolveVaultState(
+  queryClient: QueryClient
+): Promise<VaultState | undefined> {
+  try {
+    const fresh = await fetchFreshVaultState();
+    queryClient.setQueryData(["vault-state"], fresh);
+    return fresh;
+  } catch (err) {
+    console.warn("[vault-actions] fresh vault state read failed", err);
+  }
+  return queryClient.getQueryData<VaultState>(["vault-state"]);
+}
+
+/**
+ * The position's on-chain cost basis, which the vault needs to work out the
+ * performance fee. `deposited` is the position's current value and `earned`
+ * the yield above that basis, so the basis is their difference.
+ */
+function estimatePrincipal(position: ApiPosition | undefined): number {
+  if (!position) return 0;
+  return Math.max(0, position.deposited - position.earned);
+}
 
 export function useVaultActions() {
   const { t } = useTranslation();
@@ -39,6 +68,25 @@ export function useVaultActions() {
     if (!publicKey || !passphrase) return false;
     setIsDepositing(true);
     try {
+      // Price the floor before anything that costs a signature, so a vault
+      // state outage fails the deposit outright instead of leaving it to
+      // submit unprotected. Prefer an explicit floor (tests / callers), then
+      // live vault totals rather than the cached position share price, which
+      // lags yield accrual and understates the floor.
+      let resolvedMinSharesOut = minSharesOut;
+      if (resolvedMinSharesOut === undefined) {
+        const state = await resolveVaultState(queryClient);
+        if (!state) {
+          push("error", t("vaultActions.vaultStateUnavailable"));
+          return false;
+        }
+        resolvedMinSharesOut = computeMinSharesOut(
+          parseFloat(amount),
+          state.totalAssets,
+          state.totalShares
+        );
+      }
+
       // Establish any missing trustline(s) first, silently, before the user
       // has any reason to expect more than one signature — same one-click,
       // two-signature shape as the faucet funding step below.
@@ -55,25 +103,6 @@ export function useVaultActions() {
         if (!hasFunds) {
           const ok = await fundFromBlendFaucet(publicKey, network);
           if (!ok) return false;
-        }
-      }
-
-      // Prefer an explicit floor (tests / callers), otherwise price from live
-      // vault totals so stale position.deposited/shares cannot understate the
-      // share price after yield accrual and trigger SlippageExceeded.
-      let resolvedMinSharesOut = minSharesOut;
-      if (resolvedMinSharesOut === undefined) {
-        try {
-          const state = await fetchFreshVaultState();
-          resolvedMinSharesOut = computeMinSharesOut(
-            parseFloat(amount),
-            state.totalAssets,
-            state.totalShares
-          );
-        } catch {
-          // If vault state is unavailable, omit the floor rather than guess
-          // from a stale position cache (contract treats omitted as 0).
-          resolvedMinSharesOut = undefined;
         }
       }
 
@@ -122,18 +151,24 @@ export function useVaultActions() {
       const sharesBefore = matchedBefore?.shares ?? Infinity;
       const withdrawnShares = parseFloat(shares);
 
+      // Price the floor from live vault totals, net of the performance fee the
+      // vault charges before it enforces the floor. Failing to price one must
+      // not submit the withdrawal unprotected, since bounding the cost of a
+      // ratio shift is the whole point of the floor.
       let resolvedMinUsdcOut = minUsdcOut;
       if (resolvedMinUsdcOut === undefined) {
-        try {
-          const state = await fetchFreshVaultState();
-          resolvedMinUsdcOut = computeMinUsdcOut(
-            parseFloat(shares),
-            state.totalAssets,
-            state.totalShares
-          );
-        } catch {
-          resolvedMinUsdcOut = undefined;
+        const state = await resolveVaultState(queryClient);
+        if (!state) {
+          push("error", t("vaultActions.vaultStateUnavailable"));
+          return false;
         }
+        resolvedMinUsdcOut = computeMinUsdcOut({
+          shares: parseFloat(shares),
+          totalAssets: state.totalAssets,
+          totalShares: state.totalShares,
+          principal: estimatePrincipal(matchedBefore),
+          positionShares: matchedBefore?.shares ?? 0,
+        });
       }
 
       const { xdr } = await api.buildWithdraw({
