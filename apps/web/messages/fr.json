@@ -97,7 +97,24 @@
     "subtitle": "Journal chronologique des appels d'administration du coffre",
     "error": "Échec du chargement de l'historique admin",
     "empty": "Aucune action admin enregistrée pour l'instant",
-    "viewTx": "Voir tx"
+    "viewTx": "Voir tx",
+    "actions": {
+      "setAdmin": "Définir l'admin",
+      "paused": "En pause",
+      "adapter": "Adaptateur",
+      "migrate": "Migration",
+      "transferAdmin": "Transférer l'admin",
+      "acceptAdmin": "Accepter l'admin"
+    },
+    "time": {
+      "justNow": "À l'instant",
+      "minutesAgo_one": "il y a {{count}} minute",
+      "minutesAgo_other": "il y a {{count}} minutes",
+      "hoursAgo_one": "il y a {{count}} heure",
+      "hoursAgo_other": "il y a {{count}} heures",
+      "daysAgo_one": "il y a {{count}} jour",
+      "daysAgo_other": "il y a {{count}} jours"
+    }
   },
 
   "errorBoundary": {

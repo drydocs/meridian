@@ -97,7 +97,24 @@
     "subtitle": "Chronological log of vault administration calls",
     "error": "Failed to load admin history",
     "empty": "No admin actions recorded yet",
-    "viewTx": "View tx"
+    "viewTx": "View tx",
+    "actions": {
+      "setAdmin": "Set Admin",
+      "paused": "Paused",
+      "adapter": "Adapter",
+      "migrate": "Migrate",
+      "transferAdmin": "Transfer Admin",
+      "acceptAdmin": "Accept Admin"
+    },
+    "time": {
+      "justNow": "Just now",
+      "minutesAgo_one": "{{count}} minute ago",
+      "minutesAgo_other": "{{count}} minutes ago",
+      "hoursAgo_one": "{{count}} hour ago",
+      "hoursAgo_other": "{{count}} hours ago",
+      "daysAgo_one": "{{count}} day ago",
+      "daysAgo_other": "{{count}} days ago"
+    }
   },
 
   "errorBoundary": {

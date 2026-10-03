@@ -1,29 +1,30 @@
 import { useAdminHistory } from "../../hooks/useAdminHistory";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
-const ACTION_BADGE: Record<string, { label: string; className: string }> = {
+const ACTION_BADGE: Record<string, { labelKey: string; className: string }> = {
   set_admin: {
-    label: "Set Admin",
+    labelKey: "adminHistory.actions.setAdmin",
     className: "bg-blue-500/15 text-blue-400 border-blue-500/30",
   },
   set_paused: {
-    label: "Paused",
+    labelKey: "adminHistory.actions.paused",
     className: "bg-red-500/15 text-red-400 border-red-500/30",
   },
   set_adapter: {
-    label: "Adapter",
+    labelKey: "adminHistory.actions.adapter",
     className: "bg-amber-500/15 text-amber-400 border-amber-500/30",
   },
   migrate_adapter: {
-    label: "Migrate",
+    labelKey: "adminHistory.actions.migrate",
     className: "bg-purple-500/15 text-purple-400 border-purple-500/30",
   },
   transfer_admin: {
-    label: "Transfer Admin",
+    labelKey: "adminHistory.actions.transferAdmin",
     className: "bg-blue-500/15 text-blue-400 border-blue-500/30",
   },
   accept_admin: {
-    label: "Accept Admin",
+    labelKey: "adminHistory.actions.acceptAdmin",
     className: "bg-blue-500/15 text-blue-400 border-blue-500/30",
   },
 };
@@ -33,18 +34,18 @@ const EXPLORER_BASE: Record<string, string> = {
   mainnet: "https://stellar.expert/explorer/public/tx",
 };
 
-function formatTimestamp(iso: string): string {
+function formatTimestamp(iso: string, t: TFunction, locale: string): string {
   const date = new Date(iso);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffMins < 1) return t("adminHistory.time.justNow");
+  if (diffMins < 60) return t("adminHistory.time.minutesAgo", { count: diffMins });
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffHours < 24) return t("adminHistory.time.hoursAgo", { count: diffHours });
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
+  if (diffDays < 7) return t("adminHistory.time.daysAgo", { count: diffDays });
+  return date.toLocaleDateString(locale);
 }
 
 interface AdminActionHistoryProps {
@@ -58,7 +59,7 @@ export function AdminActionHistory({
   network,
   isAdmin,
 }: AdminActionHistoryProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data, isLoading, isError } = useAdminHistory(
     isAdmin ? vaultId : null
   );
@@ -108,9 +109,14 @@ export function AdminActionHistory({
         ) : (
           <div className="space-y-2">
             {actions.map((action) => {
-              const badge = ACTION_BADGE[action.type] ?? {
-                label: action.type,
-                className: "bg-gray-500/15 text-gray-400 border-gray-500/30",
+              const known = ACTION_BADGE[action.type];
+              // Unknown action types show the raw type; it is data from the
+              // contract, not UI copy.
+              const badge = {
+                label: known ? t(known.labelKey) : action.type,
+                className:
+                  known?.className ??
+                  "bg-gray-500/15 text-gray-400 border-gray-500/30",
               };
               const explorerUrl =
                 EXPLORER_BASE[network] + "/" + action.transactionHash;
@@ -136,7 +142,7 @@ export function AdminActionHistory({
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="text-xs text-gray-500">
-                      {formatTimestamp(action.timestamp)}
+                      {formatTimestamp(action.timestamp, t, i18n.language)}
                     </p>
                     <a
                       href={explorerUrl}
