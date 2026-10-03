@@ -2,7 +2,21 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2020", "DOM"],
-    "types": ["node"]
+    "types": ["node"],
+    // Resolve @meridian/* to live workspace source instead of the emitted
+    // packages/*/dist/*.d.ts declarations. @vercel/node runs its own tsc over
+    // api/** during the serverless function build, and Vercel restores
+    // packages/*/dist from the previous deployment's build cache, so that
+    // check could read stale declarations that predate current exports and
+    // fail with TS2305 "no exported member" even though the exports exist in
+    // source. Pointing at src makes the function type-check independent of
+    // dist freshness. Runtime bundling is unaffected: it still resolves each
+    // package's `main` (dist/index.js), which build-vercel.sh emits fresh.
+    "paths": {
+      "@meridian/shared": ["../packages/shared/src"],
+      "@meridian/api-core": ["../packages/api-core/src"],
+      "@meridian/stellar-sdk-helpers": ["../packages/stellar-sdk-helpers/src"]
+    }
   },
   "include": ["**/*.ts"]
 }

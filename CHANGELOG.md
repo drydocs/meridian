@@ -47,6 +47,20 @@ s-maxage=60, stale-while-revalidate=300` so the aggregated vault list is served
   serving the last good payload through a transient DeFiLlama outage instead of
   failing the dashboard.
 
+### Fixed
+
+- **Vercel production deploys: resolve `@meridian/*` from source in the
+  serverless function type-check.** `@vercel/node` runs its own `tsc` over
+  `api/**` during the function build, and Vercel restores `packages/*/dist`
+  from the previous deployment's build cache. That check resolved
+  `@meridian/shared`, `@meridian/api-core`, and `@meridian/stellar-sdk-helpers`
+  through the cached, stale `.d.ts` declarations and failed with `TS2305: no
+  exported member` for exports that exist in source, blocking production
+  deploys while CI stayed green. `api/tsconfig.json` now maps `@meridian/*` to
+  live workspace `src`, so the function type-check no longer depends on `dist`
+  freshness. Runtime bundling is unchanged: it still resolves each package's
+  `main` (`dist/index.js`), which `build-vercel.sh` emits fresh.
+
 ### CI
 
 - Re-enabled the Soroban contract job (`cargo test` + wasm release build) now that
