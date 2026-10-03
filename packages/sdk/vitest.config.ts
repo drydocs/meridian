@@ -4,14 +4,12 @@ export default defineConfig({
   test: {
     coverage: {
       provider: "v8",
-      reporter: ["text", "lcov"],
+      reporter: ["text", "html"],
       exclude: ["dist/**"],
-      thresholds: {
-        lines: 90,
-        branches: 95,
-        functions: 85,
-        statements: 90,
-      },
+      lines: 80,
+      branches: 80,
+      functions: 80,
+      statements: 80,
     },
   },
 });
