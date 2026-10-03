@@ -116,4 +116,82 @@ describe("DepositTab", () => {
 
     expect(onAmountChange).toHaveBeenCalledWith("42");
   });
+
+  describe("inline validation", () => {
+    const error = () => screen.queryByTestId("deposit-amount-error");
+
+    it("shows no message on the untouched, empty form", () => {
+      renderDepositTab({ amount: "" });
+      expect(error()).toBeNull();
+    });
+
+    it("shows a required message once the field is touched and cleared", () => {
+      const { rerender } = renderDepositTab({ amount: "5" });
+      fireEvent.change(screen.getByPlaceholderText("0.00"), {
+        target: { value: "" },
+      });
+      rerender(
+        <DepositTab
+          amount=""
+          onAmountChange={onAmountChange}
+          onAmountKeyDown={onAmountKeyDown}
+          bestVault={VAULT}
+          position={undefined}
+          hasPosition={false}
+          isDepositing={false}
+          onSubmit={onSubmit}
+        />
+      );
+      expect(error()?.textContent).toBe("vaultPanel.validation.required");
+    });
+
+    it("shows a non-positive message for zero and negative amounts", () => {
+      const { unmount } = renderDepositTab({ amount: "0" });
+      expect(error()?.textContent).toBe("vaultPanel.validation.nonPositive");
+      unmount();
+      renderDepositTab({ amount: "-3" });
+      expect(error()?.textContent).toBe("vaultPanel.validation.nonPositive");
+    });
+
+    it("shows an invalid message for a non-numeric amount", () => {
+      renderDepositTab({ amount: "abc" });
+      expect(error()?.textContent).toBe("vaultPanel.validation.invalid");
+      expect(screen.getByTestId("vault-deposit-submit")).toHaveProperty(
+        "disabled",
+        true
+      );
+    });
+
+    it("shows a distinct message when the amount exceeds the available balance", () => {
+      renderDepositTab({ amount: "150", availableBalance: 100 });
+      expect(error()?.textContent).toBe("vaultPanel.validation.exceedsBalance");
+      expect(screen.getByTestId("vault-deposit-submit")).toHaveProperty(
+        "disabled",
+        true
+      );
+    });
+
+    it("accepts an amount equal to the available balance", () => {
+      renderDepositTab({ amount: "100", availableBalance: 100 });
+      expect(error()).toBeNull();
+      expect(screen.getByTestId("vault-deposit-submit")).toHaveProperty(
+        "disabled",
+        false
+      );
+    });
+
+    it("does not check the balance when none is provided", () => {
+      renderDepositTab({ amount: "1000000" });
+      expect(error()).toBeNull();
+    });
+
+    it("links the input to the message for assistive tech", () => {
+      renderDepositTab({ amount: "0" });
+      const input = screen.getByPlaceholderText("0.00");
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      expect(input.getAttribute("aria-describedby")).toBe(
+        "deposit-amount-error"
+      );
+    });
+  });
 });

@@ -31,7 +31,13 @@
     "max": "Max",
     "position": "Aucune position dans ce coffre.",
     "waiting": "En attente de signature...",
-    "positionsError": "Impossible de charger votre position. Les dépôts et retraits fonctionnent toujours."
+    "positionsError": "Impossible de charger votre position. Les dépôts et retraits fonctionnent toujours.",
+    "validation": {
+      "required": "Saisissez un montant à déposer.",
+      "invalid": "Saisissez un nombre valide.",
+      "nonPositive": "Le montant doit être supérieur à zéro.",
+      "exceedsBalance": "Le montant dépasse votre solde disponible."
+    }
   },
 
   "riskDisclosure": {

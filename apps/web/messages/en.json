@@ -31,7 +31,13 @@
     "max": "Max",
     "position": "No position in this vault.",
     "waiting": "Waiting for signature...",
-    "positionsError": "Couldn't load your position. Deposits and withdrawals still work."
+    "positionsError": "Couldn't load your position. Deposits and withdrawals still work.",
+    "validation": {
+      "required": "Enter an amount to deposit.",
+      "invalid": "Enter a valid number.",
+      "nonPositive": "Amount must be greater than zero.",
+      "exceedsBalance": "Amount exceeds your available balance."
+    }
   },
 
   "riskDisclosure": {

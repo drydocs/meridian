@@ -1,7 +1,27 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AmountInput } from "../ui/AmountInput";
 import type { ApiPosition, ApiVault } from "../../lib/api";
 import { formatUsd } from "../../lib/format";
+
+type DepositAmountError =
+  "required" | "invalid" | "nonPositive" | "exceedsBalance";
+
+// Returns null when the amount is submittable. `availableBalance` is optional:
+// the balance check only runs when the caller knows the spendable balance.
+function validateDepositAmount(
+  amount: string,
+  availableBalance?: number
+): DepositAmountError | null {
+  if (amount.trim() === "") return "required";
+  const value = Number(amount);
+  if (Number.isNaN(value) || !Number.isFinite(value)) return "invalid";
+  if (value <= 0) return "nonPositive";
+  if (availableBalance !== undefined && value > availableBalance) {
+    return "exceedsBalance";
+  }
+  return null;
+}
 
 interface DepositTabProps {
   amount: string;
@@ -12,6 +32,7 @@ interface DepositTabProps {
   hasPosition: boolean;
   isDepositing: boolean;
   onSubmit: () => void;
+  availableBalance?: number;
 }
 
 export function DepositTab({
@@ -23,8 +44,14 @@ export function DepositTab({
   hasPosition,
   isDepositing,
   onSubmit,
+  availableBalance,
 }: DepositTabProps) {
   const { t, i18n } = useTranslation();
+  // An empty field is only reported once the user has interacted with it, so
+  // the form doesn't open with an error showing.
+  const [touched, setTouched] = useState(false);
+  const error = validateDepositAmount(amount, availableBalance);
+  const showError = error !== null && (touched || amount !== "");
 
   return (
     <div className="space-y-4">
@@ -43,20 +70,29 @@ export function DepositTab({
         <AmountInput
           currency="USDC"
           value={amount}
-          onChange={onAmountChange}
+          onChange={(v) => {
+            setTouched(true);
+            onAmountChange(v);
+          }}
           onKeyDown={onAmountKeyDown}
+          invalid={showError}
+          describedBy={showError ? "deposit-amount-error" : undefined}
         />
+        {showError && (
+          <p
+            id="deposit-amount-error"
+            data-testid="deposit-amount-error"
+            role="alert"
+            className="mt-2 text-xs text-red-400"
+          >
+            {t(`vaultPanel.validation.${error}`)}
+          </p>
+        )}
       </div>
       <button
         data-testid="vault-deposit-submit"
         onClick={onSubmit}
-        disabled={
-          !amount ||
-          !bestVault ||
-          isDepositing ||
-          parseFloat(amount) <= 0 ||
-          Number.isNaN(parseFloat(amount))
-        }
+        disabled={error !== null || !bestVault || isDepositing}
         className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3.5 transition-all duration-150 disabled:cursor-not-allowed"
       >
         {isDepositing ? t("vaultPanel.waiting") : t("vaultPanel.deposit")}
