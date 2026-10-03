@@ -1124,6 +1124,27 @@ describe("GET /api/v1/keepers/health", () => {
 });
 
 describe("GET /api/v1/admin/vault-state", () => {
+  it("returns 503 when the upstream rate limiter fails", async () => {
+    vi.mocked(checkRateLimit).mockRejectedValueOnce(
+      new Error("Upstash timeout")
+    );
+
+    const res = makeRes();
+    await adminHandler(
+      fakeReq({
+        query: { resource: "vault-state" },
+        method: "GET",
+        headers: {},
+      }),
+      res
+    );
+
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({
+      error: "Rate limiter unavailable; refusing to run",
+    });
+  });
+
   it("is public — no cron bearer token required", async () => {
     const res = makeRes();
     await adminHandler(
