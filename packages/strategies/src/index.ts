@@ -10,3 +10,5 @@ export const STRATEGY_ENGINE: StrategyEngine = {
 
 export * from "./types";
 export * from "./feeds";
+export * from "./backtest";
+export * from "./scenarios";
