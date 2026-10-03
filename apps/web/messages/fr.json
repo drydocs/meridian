@@ -27,6 +27,7 @@
     "earned": "Gains",
     "connectUSDC": "Connectez votre portefeuille pour déposer des USDC et commencer à générer du rendement automatiquement.",
     "amount": "Montant",
+    "amountAriaLabel": "Montant en {{currency}}",
     "balance": "Solde",
     "max": "Max",
     "position": "Aucune position dans ce coffre.",

@@ -27,6 +27,7 @@
     "earned": "Earned",
     "connectUSDC": "Connect your wallet to deposit USDC and start earning yield automatically.",
     "amount": "Amount",
+    "amountAriaLabel": "Amount in {{currency}}",
     "balance": "Balance",
     "max": "Max",
     "position": "No position in this vault.",

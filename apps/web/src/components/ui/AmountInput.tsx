@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 interface AmountInputProps {
   currency: string;
   value: string;
@@ -11,6 +13,7 @@ export function AmountInput({
   onChange,
   onKeyDown,
 }: AmountInputProps) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center gap-3 rounded-xl border border-gray-700 bg-gray-900/70 px-4 py-3.5 focus-within:border-gray-500 transition-colors duration-150">
       {/* Accessible name for screen readers — ties the input to its currency denomination */}
@@ -19,7 +22,7 @@ export function AmountInput({
         min="0"
         step="any"
         placeholder="0.00"
-        aria-label={`Amount in ${currency}`}
+        aria-label={t("vaultPanel.amountAriaLabel", { currency })}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
