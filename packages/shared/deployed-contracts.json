@@ -1,0 +1,21 @@
+{
+  "note": "Machine-readable record of the on-chain MeridianVault deployments that verify:contracts checks against. Meridian's vault is immutable (no update_current_contract_wasm), so the bytecode at a recorded address never changes. Editing a vault address here declares a redeployment and forces a source-build-and-chain verification in CI; leaving an address unchanged lets the check pass without a rebuild. The toolchain block pins the stellar-cli version used on that build path so a rebuild reproduces the recorded bytecode.",
+  "toolchain": {
+    "stellarCli": "28.0.0",
+    "target": "wasm32v1-none"
+  },
+  "contracts": {
+    "testnet": {
+      "vault": {
+        "address": "CAIQBVLBIUWQGE6DQUHDMZ2QWI7QP6KTCN7GP2BIZ6JZC4ES47JO4SSM",
+        "wasmHash": "5378f8b59421aea057285208a071494264f4eda6e435ed5f37672dba87cba967"
+      }
+    },
+    "mainnet": {
+      "vault": {
+        "address": "CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ",
+        "wasmHash": "5378f8b59421aea057285208a071494264f4eda6e435ed5f37672dba87cba967"
+      }
+    }
+  }
+}

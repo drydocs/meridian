@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useWalletStore } from "../../store/wallet";
+import { APP_NETWORK } from "@meridian/shared";
 
 vi.mock("../../lib/wallet", () => ({
   wallet: {
@@ -15,7 +16,9 @@ beforeEach(() => {
   useWalletStore.setState({
     publicKey: null,
     connected: false,
-    network: "testnet",
+    // Use APP_NETWORK.network so the reset matches the store's actual default
+    // and doesn't mask regressions if the build network changes (#851).
+    network: APP_NETWORK.network,
   });
   vi.clearAllMocks();
 });
