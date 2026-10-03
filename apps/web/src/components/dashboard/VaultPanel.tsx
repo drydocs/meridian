@@ -7,6 +7,7 @@ import { useWalletConnect } from "../../hooks/useWalletConnect";
 import { useRiskDisclosure } from "../../hooks/useRiskDisclosure";
 import { getWalletMeta, hasAcceptedRiskDisclosure } from "../../lib/wallet";
 import { PositionSummary } from "./PositionSummary";
+import { YieldHistoryChart } from "./YieldHistoryChart";
 import { DepositTab } from "./DepositTab";
 import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
@@ -233,6 +234,11 @@ export function VaultPanel() {
       {/* Position summary */}
       {connected && hasPosition && position && (
         <PositionSummary position={position} />
+      )}
+
+      {/* Yield history: position value over time, by protocol */}
+      {connected && hasPosition && position && (
+        <YieldHistoryChart publicKey={publicKey} />
       )}
 
       {/* Position load error — deposit/withdraw stay usable, only the

@@ -34,6 +34,18 @@
     "positionsError": "Couldn't load your position. Deposits and withdrawals still work."
   },
 
+  "yieldHistory": {
+    "title": "Yield history",
+    "range7": "7D",
+    "range30": "30D",
+    "range90": "90D",
+    "rangeLabel": "Time range",
+    "earned": "Earned so far",
+    "loadError": "Couldn't load your yield history.",
+    "empty": "No history yet. Your position value is recorded over time, so the chart fills in after a few snapshots.",
+    "chartLabel": "Position value over time, by protocol"
+  },
+
   "riskDisclosure": {
     "title": "Before you continue",
     "description": "Meridian is a non-custodial smart-contract product, not a bank. Using it, including connecting a wallet or making a deposit, means accepting the risks below.",

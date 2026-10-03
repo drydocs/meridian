@@ -34,6 +34,18 @@
     "positionsError": "Impossible de charger votre position. Les dépôts et retraits fonctionnent toujours."
   },
 
+  "yieldHistory": {
+    "title": "Historique du rendement",
+    "range7": "7 j",
+    "range30": "30 j",
+    "range90": "90 j",
+    "rangeLabel": "Période",
+    "earned": "Gains cumulés",
+    "loadError": "Impossible de charger l'historique de votre rendement.",
+    "empty": "Pas encore d'historique. La valeur de votre position est enregistrée au fil du temps ; le graphique se remplira après quelques relevés.",
+    "chartLabel": "Valeur de la position dans le temps, par protocole"
+  },
+
   "riskDisclosure": {
     "title": "Avant de continuer",
     "description": "Meridian est un produit non-custodial basé sur des contrats intelligents, pas une banque. Son utilisation, y compris la connexion d'un portefeuille ou la réalisation d'un dépôt, implique d'accepter les risques ci-dessous.",
