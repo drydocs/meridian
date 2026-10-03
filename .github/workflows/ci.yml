@@ -43,6 +43,7 @@ jobs:
               - "packages/shared/**"
               - "packages/stellar-sdk-helpers/**"
               - "packages/api-core/**"
+              - "packages/strategies/**"
               - "!**/*.md"
             e2e:
               - *workspace
