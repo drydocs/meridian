@@ -46,6 +46,53 @@ export class FixedPointDecimal {
     if (this.#stroops > other.#stroops) return 1;
     return 0;
   }
+
+  add(other: FixedPointDecimal): FixedPointDecimal {
+    return new FixedPointDecimal(this.#stroops + other.#stroops);
+  }
+
+  subtract(other: FixedPointDecimal): FixedPointDecimal {
+    return new FixedPointDecimal(this.#stroops - other.#stroops);
+  }
+
+  /**
+   * Multiply two FixedPointDecimal values.
+   * Because each value carries one STROOPS_PER_UNIT factor, the raw product
+   * has two factors and must be divided by STROOPS_PER_UNIT once to stay in
+   * the same unit.  Integer division truncates toward zero (Banker's rounding
+   * is not needed here; truncation is consistent with Stellar protocol math).
+   */
+  multiply(other: FixedPointDecimal): FixedPointDecimal {
+    return new FixedPointDecimal(
+      (this.#stroops * other.#stroops) / STROOPS_PER_UNIT
+    );
+  }
+
+  /**
+   * Divide this value by another.
+   * Scale the numerator up by STROOPS_PER_UNIT before dividing so the result
+   * stays in the same fixed-point unit.  Throws on division by zero.
+   */
+  divide(other: FixedPointDecimal): FixedPointDecimal {
+    if (other.#stroops === 0n) {
+      throw new Error("FixedPointDecimal: division by zero");
+    }
+    return new FixedPointDecimal(
+      (this.#stroops * STROOPS_PER_UNIT) / other.#stroops
+    );
+  }
+
+  isZero(): boolean {
+    return this.#stroops === 0n;
+  }
+
+  isPositive(): boolean {
+    return this.#stroops > 0n;
+  }
+
+  isNegative(): boolean {
+    return this.#stroops < 0n;
+  }
 }
 
 export type AssetSymbol = SupportedStablecoin;
