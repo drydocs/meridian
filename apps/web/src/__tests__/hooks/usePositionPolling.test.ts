@@ -176,4 +176,86 @@ describe("usePositionPolling", () => {
 
     expect(api.getPositions).not.toHaveBeenCalled();
   });
+
+  it("keeps polling a deposit until the live share count rises above the baseline", async () => {
+    vi.useFakeTimers();
+    const positions: Array<{ vaultId: string; shares: number }> = [
+      { vaultId: "blend-usdc-fixed", shares: 100 },
+    ];
+    vi.mocked(api.getPositions).mockImplementation(async () => ({
+      positions: positions as never,
+    }));
+
+    const { result } = renderHook(() => usePositionPolling());
+
+    act(() => {
+      result.current.startPolling("blend-usdc-fixed", 100, "increase");
+    });
+
+    // First tick after the 3s activation delay: shares are unchanged, so the
+    // deposit has not landed yet and polling must continue.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    const callsAfterNoMove = vi.mocked(api.getPositions).mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(vi.mocked(api.getPositions).mock.calls.length).toBeGreaterThan(
+      callsAfterNoMove
+    );
+
+    // Deposit reflected on-chain: shares exceed the pre-deposit baseline.
+    positions[0].shares = 110;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    const callsAfterSettle = vi.mocked(api.getPositions).mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(vi.mocked(api.getPositions).mock.calls.length).toBe(
+      callsAfterSettle
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("settles a deposit with no cached baseline once a positive position appears", async () => {
+    vi.useFakeTimers();
+    const positions: Array<{ vaultId: string; shares: number }> = [];
+    vi.mocked(api.getPositions).mockImplementation(async () => ({
+      positions: positions as never,
+    }));
+
+    const { result } = renderHook(() => usePositionPolling());
+
+    act(() => {
+      // Infinity mirrors a wallet with no cached position before the deposit.
+      result.current.startPolling("blend-usdc-fixed", Infinity, "increase");
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    const callsWithNoPosition = vi.mocked(api.getPositions).mock.calls.length;
+
+    positions.push({ vaultId: "blend-usdc-fixed", shares: 10 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    const callsAfterSettle = vi.mocked(api.getPositions).mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(callsAfterSettle).toBeGreaterThan(callsWithNoPosition);
+    expect(vi.mocked(api.getPositions).mock.calls.length).toBe(
+      callsAfterSettle
+    );
+
+    vi.useRealTimers();
+  });
 });
