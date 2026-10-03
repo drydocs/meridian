@@ -10,8 +10,9 @@
     "coverage": "vitest run --coverage --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@meridian/shared": "workspace:*"
+"dependencies": {
+    "@meridian/shared": "workspace:*",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "5.0.1",
