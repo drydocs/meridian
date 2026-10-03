@@ -242,7 +242,12 @@ export async function getAdminActionHistory(
  * ──────────────────────────────────────────────────────────────────────── */
 
 export type RpcAdminActionType =
-  "paused" | "transfer" | "accept" | "adapter" | "migrate";
+  | "paused"
+  | "transfer"
+  | "accept"
+  | "adapter"
+  | "migrate"
+  | "mig_begin";
 
 export interface RpcAdminAction {
   /** The kind of admin action recorded on-chain. */
@@ -259,7 +264,8 @@ export type RpcAdminActionPayload =
   | { paused: boolean }
   | { newAdmin: string }
   | { newAdapter: string }
-  | { oldAdapter: string; newAdapter: string };
+  | { oldAdapter: string; newAdapter: string }
+  | { newAdapter: string; earliestLedger: number };
 
 export interface RpcAdminHistoryOptions {
   /** First ledger to scan. Defaults to 0 (genesis). Ignored when `cursor` is set. */
@@ -374,6 +380,22 @@ function parseAdminEvent(event: rpc.Api.EventResponse): RpcAdminAction | null {
       if (!oldAdapter || !newAdapter) return null;
       return { ...base, payload: { oldAdapter, newAdapter } };
     }
+    case "mig_begin": {
+      // The value is a two-element vec: (new_adapter, earliest_ledger).
+      if (value.switch().name !== "scvVec") return null;
+      const items = value.vec();
+      if (!items || items.length < 2) return null;
+      const newAdapter = parseScValAddress(items[0]!);
+      const earliestLedgerVal = items[1]!;
+      let earliestLedger: number | null = null;
+      if (earliestLedgerVal.switch().name === "scvU32") {
+        earliestLedger = earliestLedgerVal.u32();
+      } else if (earliestLedgerVal.switch().name === "scvU64") {
+        earliestLedger = Number(earliestLedgerVal.u64().toString());
+      }
+      if (!newAdapter || earliestLedger === null) return null;
+      return { ...base, payload: { newAdapter, earliestLedger } };
+    }
   }
 }
 
@@ -393,6 +415,7 @@ function parseTopicAction(
     case "accept":
     case "adapter":
     case "migrate":
+    case "mig_begin":
       return symbol;
     default:
       return null;
