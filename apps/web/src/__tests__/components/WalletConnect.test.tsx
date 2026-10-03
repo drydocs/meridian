@@ -197,6 +197,128 @@ describe("WalletConnect — picker", () => {
   });
 });
 
+describe("WalletConnect — picker accessibility", () => {
+  it("exposes aria-haspopup and a toggling aria-expanded on the toggle", () => {
+    render(<WalletConnect />);
+    const toggle = screen.getByTestId("wallet-picker-toggle");
+
+    expect(toggle.getAttribute("aria-haspopup")).toBe("menu");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("gives the menu role=menu and every wallet option role=menuitem", () => {
+    render(<WalletConnect />);
+    fireEvent.click(screen.getByTestId("wallet-picker-toggle"));
+
+    expect(screen.getByRole("menu")).toBeDefined();
+    const items = screen.getAllByRole("menuitem");
+    expect(items.map((i) => i.getAttribute("data-testid"))).toEqual([
+      "wallet-picker-option-freighter",
+      "wallet-picker-option-lobstr",
+    ]);
+  });
+
+  it("moves focus to the first option when the menu opens", () => {
+    render(<WalletConnect />);
+    fireEvent.click(screen.getByTestId("wallet-picker-toggle"));
+
+    expect(document.activeElement).toBe(
+      screen.getByTestId("wallet-picker-option-freighter")
+    );
+  });
+
+  it("opens with ArrowDown on the toggle (first option) and ArrowUp (last option)", () => {
+    const { unmount } = render(<WalletConnect />);
+    fireEvent.keyDown(screen.getByTestId("wallet-picker-toggle"), {
+      key: "ArrowDown",
+    });
+    expect(document.activeElement).toBe(
+      screen.getByTestId("wallet-picker-option-freighter")
+    );
+    unmount();
+
+    render(<WalletConnect />);
+    fireEvent.keyDown(screen.getByTestId("wallet-picker-toggle"), {
+      key: "ArrowUp",
+    });
+    expect(document.activeElement).toBe(
+      screen.getByTestId("wallet-picker-option-lobstr")
+    );
+  });
+
+  it("moves between options with ArrowDown/ArrowUp, wrapping at the ends", () => {
+    render(<WalletConnect />);
+    fireEvent.click(screen.getByTestId("wallet-picker-toggle"));
+    const first = screen.getByTestId("wallet-picker-option-freighter");
+    const last = screen.getByTestId("wallet-picker-option-lobstr");
+
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(last);
+
+    fireEvent.keyDown(last, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(first);
+
+    fireEvent.keyDown(first, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(last);
+  });
+
+  it("jumps to the first and last option with Home and End", () => {
+    render(<WalletConnect />);
+    fireEvent.click(screen.getByTestId("wallet-picker-toggle"));
+    const first = screen.getByTestId("wallet-picker-option-freighter");
+    const last = screen.getByTestId("wallet-picker-option-lobstr");
+
+    fireEvent.keyDown(first, { key: "End" });
+    expect(document.activeElement).toBe(last);
+
+    fireEvent.keyDown(last, { key: "Home" });
+    expect(document.activeElement).toBe(first);
+  });
+
+  it("closes on Escape from an option and returns focus to the toggle", () => {
+    render(<WalletConnect />);
+    const toggle = screen.getByTestId("wallet-picker-toggle");
+    fireEvent.click(toggle);
+
+    fireEvent.keyDown(screen.getByTestId("wallet-picker-option-freighter"), {
+      key: "Escape",
+    });
+
+    expect(screen.queryByTestId("wallet-picker-menu")).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("closes on Escape while focus is still on the toggle", () => {
+    render(<WalletConnect />);
+    const toggle = screen.getByTestId("wallet-picker-toggle");
+    fireEvent.click(toggle);
+    toggle.focus();
+
+    fireEvent.keyDown(toggle, { key: "Escape" });
+
+    expect(screen.queryByTestId("wallet-picker-menu")).toBeNull();
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("closes the menu when Tab moves focus out of it", () => {
+    render(<WalletConnect />);
+    fireEvent.click(screen.getByTestId("wallet-picker-toggle"));
+
+    fireEvent.keyDown(screen.getByTestId("wallet-picker-option-freighter"), {
+      key: "Tab",
+    });
+
+    expect(screen.queryByTestId("wallet-picker-menu")).toBeNull();
+  });
+});
+
 describe("WalletConnect — risk disclosure gate (#720)", () => {
   it("renders the modal and wires it to the hook's accept/cancel when the hook says to show it", () => {
     mockConnect({ showRiskDisclosure: true });
