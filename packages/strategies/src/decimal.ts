@@ -4,9 +4,16 @@ export const DEFAULT_DECIMAL_SCALE = 7; // Stellar stroop standard (10^7)
 
 function getScaleFactor(scale: number): bigint {
   if (scale < 0 || !Number.isInteger(scale)) {
-    throw new RangeError(`Scale must be a non-negative integer, received: ${scale}`);
+    throw new RangeError(
+      `Scale must be a non-negative integer, received: ${scale}`
+    );
   }
   return 10n ** BigInt(scale);
+}
+
+function fractionalDigitCount(value: string): number {
+  const match = /^[+-]?\d+(?:\.(\d+))?$/.exec(value.trim());
+  return match?.[1]?.length ?? 0;
 }
 
 function divideWithRounding(
@@ -25,7 +32,9 @@ function divideWithRounding(
     return quotient;
   }
 
-  const isPositiveResult = (numerator > 0n && denominator > 0n) || (numerator < 0n && denominator < 0n);
+  const isPositiveResult =
+    (numerator > 0n && denominator > 0n) ||
+    (numerator < 0n && denominator < 0n);
   const sign = isPositiveResult ? 1n : -1n;
   const absRem = remainder < 0n ? -remainder : remainder;
   const absDen = denominator < 0n ? -denominator : denominator;
@@ -55,19 +64,40 @@ function divideWithRounding(
   }
 }
 
+/**
+ * Fixed-point decimal over `bigint`, representing `raw / 10^scale`.
+ *
+ * Rounding contract:
+ * - An operation aligns both operands to the wider of the two scales, so no
+ *   operand is rounded before the operation runs. The result carries that
+ *   wider scale.
+ * - `add` and `sub` are exact. `mul` and `div` round once, at the result scale,
+ *   with the supplied `RoundingMode` (default `half-up`).
+ * - Comparisons compare aligned raws exactly, so `eq`/`gt`/`lt` are symmetric
+ *   across scales.
+ * - `toStroops()` rescales to scale 7 and rounds `half-up`, so a value held at
+ *   a finer scale loses precision on conversion.
+ * - A `bigint` operand is raw units at the receiver's scale. A `string` operand
+ *   is a decimal literal, taken at its exact value.
+ */
 export class Decimal {
   readonly raw: bigint;
   readonly scale: number;
 
   constructor(raw: bigint, scale: number = DEFAULT_DECIMAL_SCALE) {
     if (scale < 0 || !Number.isInteger(scale)) {
-      throw new RangeError(`Scale must be a non-negative integer, received: ${scale}`);
+      throw new RangeError(
+        `Scale must be a non-negative integer, received: ${scale}`
+      );
     }
     this.raw = raw;
     this.scale = scale;
   }
 
-  static fromBigInt(units: bigint, scale: number = DEFAULT_DECIMAL_SCALE): Decimal {
+  static fromBigInt(
+    units: bigint,
+    scale: number = DEFAULT_DECIMAL_SCALE
+  ): Decimal {
     return new Decimal(units, scale);
   }
 
@@ -83,7 +113,10 @@ export class Decimal {
     return new Decimal(getScaleFactor(scale), scale);
   }
 
-  static fromString(str: string, scale: number = DEFAULT_DECIMAL_SCALE): Decimal {
+  static fromString(
+    str: string,
+    scale: number = DEFAULT_DECIMAL_SCALE
+  ): Decimal {
     const trimmed = str.trim();
     if (!trimmed) {
       throw new TypeError("Cannot parse empty string as Decimal");
@@ -123,50 +156,70 @@ export class Decimal {
     return new Decimal(isNegative ? -raw : raw, scale);
   }
 
-  private static toDecimal(other: Decimal | bigint | string, targetScale: number): Decimal {
-    if (other instanceof Decimal) {
-      if (other.scale === targetScale) {
-        return other;
-      }
-      return other.rescale(targetScale);
+  private static align(
+    left: Decimal,
+    right: Decimal | bigint | string
+  ): { leftRaw: bigint; rightRaw: bigint; scale: number } {
+    let rightRaw: bigint;
+    let rightScale: number;
+
+    if (right instanceof Decimal) {
+      rightRaw = right.raw;
+      rightScale = right.scale;
+    } else if (typeof right === "bigint") {
+      rightRaw = right;
+      rightScale = left.scale;
+    } else if (typeof right === "string") {
+      rightScale = fractionalDigitCount(right);
+      rightRaw = Decimal.fromString(right, rightScale).raw;
+    } else {
+      throw new TypeError("Unsupported operand type for Decimal");
     }
-    if (typeof other === "bigint") {
-      // Treats raw bigint as units at targetScale
-      return new Decimal(other, targetScale);
+
+    const scale = Math.max(left.scale, rightScale);
+    const leftRaw = left.rescale(scale).raw;
+
+    if (rightScale < scale) {
+      rightRaw *= 10n ** BigInt(scale - rightScale);
     }
-    if (typeof other === "string") {
-      return Decimal.fromString(other, targetScale);
-    }
-    throw new TypeError("Unsupported operand type for Decimal");
+
+    return { leftRaw, rightRaw, scale };
   }
 
   add(other: Decimal | bigint | string): Decimal {
-    const b = Decimal.toDecimal(other, this.scale);
-    return new Decimal(this.raw + b.raw, this.scale);
+    const { leftRaw, rightRaw, scale } = Decimal.align(this, other);
+    return new Decimal(leftRaw + rightRaw, scale);
   }
 
   sub(other: Decimal | bigint | string): Decimal {
-    const b = Decimal.toDecimal(other, this.scale);
-    return new Decimal(this.raw - b.raw, this.scale);
+    const { leftRaw, rightRaw, scale } = Decimal.align(this, other);
+    return new Decimal(leftRaw - rightRaw, scale);
   }
 
-  mul(other: Decimal | bigint | string, rounding: RoundingMode = "half-up"): Decimal {
-    const b = Decimal.toDecimal(other, this.scale);
-    const scaleFactor = getScaleFactor(this.scale);
-    const numerator = this.raw * b.raw;
-    const resultRaw = divideWithRounding(numerator, scaleFactor, rounding);
-    return new Decimal(resultRaw, this.scale);
+  mul(
+    other: Decimal | bigint | string,
+    rounding: RoundingMode = "half-up"
+  ): Decimal {
+    const { leftRaw, rightRaw, scale } = Decimal.align(this, other);
+    const resultRaw = divideWithRounding(
+      leftRaw * rightRaw,
+      getScaleFactor(scale),
+      rounding
+    );
+    return new Decimal(resultRaw, scale);
   }
 
-  div(other: Decimal | bigint | string, rounding: RoundingMode = "half-up"): Decimal {
-    const b = Decimal.toDecimal(other, this.scale);
-    if (b.raw === 0n) {
-      throw new RangeError("Division by zero");
-    }
-    const scaleFactor = getScaleFactor(this.scale);
-    const numerator = this.raw * scaleFactor;
-    const resultRaw = divideWithRounding(numerator, b.raw, rounding);
-    return new Decimal(resultRaw, this.scale);
+  div(
+    other: Decimal | bigint | string,
+    rounding: RoundingMode = "half-up"
+  ): Decimal {
+    const { leftRaw, rightRaw, scale } = Decimal.align(this, other);
+    const resultRaw = divideWithRounding(
+      leftRaw * getScaleFactor(scale),
+      rightRaw,
+      rounding
+    );
+    return new Decimal(resultRaw, scale);
   }
 
   abs(): Decimal {
@@ -183,7 +236,7 @@ export class Decimal {
     }
     if (newScale > this.scale) {
       const diff = newScale - this.scale;
-      return new Decimal(this.raw * (10n ** BigInt(diff)), newScale);
+      return new Decimal(this.raw * 10n ** BigInt(diff), newScale);
     }
     const diff = this.scale - newScale;
     const divisor = 10n ** BigInt(diff);
@@ -192,28 +245,28 @@ export class Decimal {
   }
 
   eq(other: Decimal | bigint | string): boolean {
-    const b = Decimal.toDecimal(other, this.scale);
-    return this.raw === b.raw;
+    const { leftRaw, rightRaw } = Decimal.align(this, other);
+    return leftRaw === rightRaw;
   }
 
   gt(other: Decimal | bigint | string): boolean {
-    const b = Decimal.toDecimal(other, this.scale);
-    return this.raw > b.raw;
+    const { leftRaw, rightRaw } = Decimal.align(this, other);
+    return leftRaw > rightRaw;
   }
 
   gte(other: Decimal | bigint | string): boolean {
-    const b = Decimal.toDecimal(other, this.scale);
-    return this.raw >= b.raw;
+    const { leftRaw, rightRaw } = Decimal.align(this, other);
+    return leftRaw >= rightRaw;
   }
 
   lt(other: Decimal | bigint | string): boolean {
-    const b = Decimal.toDecimal(other, this.scale);
-    return this.raw < b.raw;
+    const { leftRaw, rightRaw } = Decimal.align(this, other);
+    return leftRaw < rightRaw;
   }
 
   lte(other: Decimal | bigint | string): boolean {
-    const b = Decimal.toDecimal(other, this.scale);
-    return this.raw <= b.raw;
+    const { leftRaw, rightRaw } = Decimal.align(this, other);
+    return leftRaw <= rightRaw;
   }
 
   isZero(): boolean {
@@ -249,14 +302,21 @@ export class Decimal {
       return isNeg ? `-${intPart}` : intPart;
     }
 
-    const fracPart = (absRaw % scaleFactor).toString().padStart(this.scale, "0");
+    const fracPart = (absRaw % scaleFactor)
+      .toString()
+      .padStart(this.scale, "0");
     const res = `${intPart}.${fracPart}`;
     return isNeg ? `-${res}` : res;
   }
 
-  toFixed(decimalPlaces: number = this.scale, rounding: RoundingMode = "half-up"): string {
+  toFixed(
+    decimalPlaces: number = this.scale,
+    rounding: RoundingMode = "half-up"
+  ): string {
     if (decimalPlaces < 0 || !Number.isInteger(decimalPlaces)) {
-      throw new RangeError(`Decimal places must be a non-negative integer, received: ${decimalPlaces}`);
+      throw new RangeError(
+        `Decimal places must be a non-negative integer, received: ${decimalPlaces}`
+      );
     }
     return this.rescale(decimalPlaces, rounding).toString();
   }
