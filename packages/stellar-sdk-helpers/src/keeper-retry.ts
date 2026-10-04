@@ -79,6 +79,26 @@ export interface RetryConfig {
   deadlineAt?: number;
 }
 
+export interface RetryOptions {
+  maxAttempts?: number;
+  baseDelayMs?: number;
+  deadlineAt?: number;
+  logger?: KeeperLogger;
+  context?: Record<string, unknown>;
+  sleepFn?: (ms: number) => Promise<void>;
+  isTransient?: (err: unknown) => boolean;
+  logPrefix?: string;
+}
+
+export const DEFAULT_RETRY_OPTIONS: Required<
+  Pick<RetryOptions, "maxAttempts" | "baseDelayMs" | "sleepFn" | "isTransient">
+> = {
+  maxAttempts: 3,
+  baseDelayMs: 200,
+  sleepFn: sleep,
+  isTransient: () => true,
+};
+
 // Common shape for a failed keeper operation, shared across every scheduled
 // keeper (accrual, migration) so callers and API responses have one
 // consistent structure to report against.
@@ -96,12 +116,22 @@ export interface KeeperFailure {
   error: string;
 }
 
-export class KeeperRetryError extends Error {
+export class KeeperError extends Error {
+  readonly cause: unknown;
+
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = "KeeperError";
+    this.cause = cause;
+  }
+}
+
+export class KeeperRetryError extends KeeperError {
   readonly attempts: number;
   readonly transient: boolean;
 
   constructor(err: unknown, attempts: number, transient: boolean) {
-    super(errorMessage(err));
+    super(errorMessage(err), err);
     this.name = "KeeperRetryError";
     this.attempts = attempts;
     this.transient = transient;
@@ -122,13 +152,19 @@ export function retryOutcome(
   return { attempts: 1, transient: isTransient(err) };
 }
 
-// Retries `fn` up to config.maxAttempts times with exponential backoff,
-// classifying each failure via the caller-supplied `isTransient` predicate.
-// A non-transient failure stops retrying immediately. When config.deadlineAt
-// is set, a retry that would sleep past the deadline stops instead of
-// sleeping into a doomed attempt, so a keeper bounded by a hard execution
-// ceiling (e.g. Vercel's maxDuration) can return a clean partial result
-// instead of being killed mid-retry.
+// Retries `fn` up to options.maxAttempts times with exponential backoff,
+// classifying each failure via options.isTransient (default: all errors
+// transient). A non-transient failure stops retrying immediately. When
+// options.deadlineAt is set, a retry that would sleep past the deadline
+// stops instead of sleeping into a doomed attempt, so a keeper bounded by
+// a hard execution ceiling (e.g. Vercel's maxDuration) can return a clean
+// partial result instead of being killed mid-retry.
+//
+// Attempts are 0-indexed: the first call to `fn` receives attempt=0, the
+// first retry receives attempt=1, and so on. This matches the indexing
+// convention used by keeperFeeForAttempt so callers can forward the
+// attempt number straight into fee escalation without an off-by-one
+// adjustment.
 //
 // A thin, keeper-specific wrapper over the shared withRetry (@meridian/shared):
 // the core retry/backoff loop lives in one place, this only adds what's
@@ -137,39 +173,39 @@ export function retryOutcome(
 // KeeperRetryError so retryOutcome() can recover it downstream).
 export async function withKeeperRetry<T>(
   fn: (attempt: number) => Promise<T>,
-  config: RetryConfig,
-  logger: KeeperLogger,
-  context: Record<string, unknown>,
-  sleepFn: (ms: number) => Promise<void>,
-  isTransient: (err: unknown) => boolean,
-  logPrefix: string
+  options: RetryOptions = {}
 ): Promise<{ value: T; attempts: number }> {
+  const {
+    maxAttempts,
+    baseDelayMs,
+    deadlineAt,
+    logger = consoleLogger,
+    context = {},
+    sleepFn,
+    isTransient,
+    logPrefix,
+  } = { ...DEFAULT_RETRY_OPTIONS, ...options };
+
+  const actualSleepFn = sleepFn ?? DEFAULT_RETRY_OPTIONS.sleepFn;
+  const actualIsTransient = isTransient ?? DEFAULT_RETRY_OPTIONS.isTransient;
+  const prefix = logPrefix ? `[${logPrefix}] ` : "";
+
   let attempts = 0;
-  // Cached only alongside the exact error it was computed for, checked by
-  // reference below, so reusing it can never go stale the way a bare
-  // boolean flag once did: if the final thrown error is one shouldRetry
-  // never saw (e.g. maxAttempts was exhausted, which withRetry doesn't call
-  // shouldRetry for), the identity check fails below and isTransient(err) is
-  // simply recomputed fresh instead of reusing a classification for a
-  // different error.
   let lastClassifiedErr: unknown;
   let lastClassifiedTransient = false;
 
-  // Folds the deadline check into shouldRetry (rather than a separate
-  // control point in withRetry) so withRetry itself stays deadline-agnostic;
-  // this is the one place that decides "no, don't retry" for a reason other
-  // than the error itself, and logs why.
   const shouldRetry = (err: unknown, attempt: number): boolean => {
     lastClassifiedErr = err;
-    lastClassifiedTransient = isTransient(err);
+    lastClassifiedTransient = actualIsTransient(err);
     if (!lastClassifiedTransient) return false;
-    if (config.deadlineAt !== undefined) {
-      const delayMs = config.baseDelayMs * 2 ** attempt;
-      if (Date.now() + delayMs >= config.deadlineAt) {
-        logger.warn(
-          `[${logPrefix}] stopping retries; run deadline approaching`,
-          { ...context, attempt: attempt + 1, delayMs }
-        );
+    if (deadlineAt !== undefined) {
+      const delayMs = baseDelayMs * 2 ** attempt;
+      if (Date.now() + delayMs >= deadlineAt) {
+        logger.warn(`${prefix}stopping retries; run deadline approaching`, {
+          ...context,
+          attempt: attempt + 1,
+          delayMs,
+        });
         return false;
       }
     }
@@ -178,17 +214,17 @@ export async function withKeeperRetry<T>(
 
   try {
     const value = await withRetry(
-      async (attempt) => {
+      async (attempt: number) => {
         attempts = attempt + 1;
-        return fn(attempts);
+        return fn(attempt);
       },
-      config.maxAttempts,
-      config.baseDelayMs,
+      maxAttempts,
+      baseDelayMs,
       shouldRetry,
       {
-        sleepFn,
-        onRetry: (attempt, delayMs, err) => {
-          logger.warn(`[${logPrefix}] transient failure; retrying`, {
+        sleepFn: actualSleepFn,
+        onRetry: (attempt: number, delayMs: number, err: unknown) => {
+          logger.warn(`${prefix}transient failure; retrying`, {
             ...context,
             attempt: attempt + 1,
             nextAttempt: attempt + 2,
@@ -201,7 +237,9 @@ export async function withKeeperRetry<T>(
     return { value, attempts };
   } catch (err) {
     const transient =
-      err === lastClassifiedErr ? lastClassifiedTransient : isTransient(err);
+      err === lastClassifiedErr
+        ? lastClassifiedTransient
+        : actualIsTransient(err);
     throw new KeeperRetryError(err, attempts || 1, transient);
   }
 }
