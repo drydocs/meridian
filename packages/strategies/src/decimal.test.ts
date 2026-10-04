@@ -100,6 +100,7 @@ describe("Decimal fixed-point money math", () => {
       const a = Decimal.fromString("12.3456789");
       expect(a.neg().toString()).toBe("-12.3456789");
       expect(a.neg().abs().toString()).toBe("12.3456789");
+      expect(a.abs().toString()).toBe("12.3456789");
       expect(a.isPositive()).toBe(true);
       expect(a.neg().isNegative()).toBe(true);
     });
@@ -133,6 +134,24 @@ describe("Decimal fixed-point money math", () => {
       expect(d1_5.rescale(0, "half-even").raw).toBe(2n);
       expect(d2_5.rescale(0, "half-even").raw).toBe(2n);
       expect(d3_5.rescale(0, "half-even").raw).toBe(4n);
+
+      // Non-tie cases round to the nearest integer in both directions
+      expect(Decimal.fromBigInt(17n, 1).rescale(0, "half-even").raw).toBe(2n);
+      expect(Decimal.fromBigInt(12n, 1).rescale(0, "half-even").raw).toBe(1n);
+      expect(Decimal.fromBigInt(-17n, 1).rescale(0, "half-even").raw).toBe(-2n);
+
+      // Ties on a negative quotient round toward the even neighbour
+      expect(Decimal.fromBigInt(-15n, 1).rescale(0, "half-even").raw).toBe(-2n);
+      expect(Decimal.fromBigInt(-25n, 1).rescale(0, "half-even").raw).toBe(-2n);
+    });
+
+    it("handles a negative divisor", () => {
+      const one = Decimal.fromBigInt(10n, 1); // 1.0
+      const negativeThree = Decimal.fromBigInt(-30n, 1); // -3.0
+
+      expect(one.div(negativeThree).toString()).toBe("-0.3");
+      expect(one.div(negativeThree, "floor").toString()).toBe("-0.4");
+      expect(one.div(Decimal.fromBigInt(-20n, 1)).toString()).toBe("-0.5");
     });
   });
 
@@ -156,8 +175,12 @@ describe("Decimal fixed-point money math", () => {
     it("(a + b) - b === a holds across random values", () => {
       // Test 100 random combinations
       for (let i = 0; i < 100; i++) {
-        const rawA = BigInt(Math.floor(Math.random() * 1000000000000) - 500000000000);
-        const rawB = BigInt(Math.floor(Math.random() * 1000000000000) - 500000000000);
+        const rawA = BigInt(
+          Math.floor(Math.random() * 1000000000000) - 500000000000
+        );
+        const rawB = BigInt(
+          Math.floor(Math.random() * 1000000000000) - 500000000000
+        );
 
         const a = Decimal.fromBigInt(rawA);
         const b = Decimal.fromBigInt(rawB);
@@ -166,6 +189,181 @@ describe("Decimal fixed-point money math", () => {
         expect(result.raw).toBe(a.raw);
         expect(result.eq(a)).toBe(true);
       }
+    });
+
+    it("(a + b) - b === a holds when the operands have different scales", () => {
+      for (let i = 0; i < 100; i++) {
+        const rawA = BigInt(Math.floor(Math.random() * 1_000_000));
+        const rawB = BigInt(Math.floor(Math.random() * 1_000_000));
+        const scaleA = Math.floor(Math.random() * 10);
+        const scaleB = Math.floor(Math.random() * 10);
+
+        const a = Decimal.fromBigInt(rawA, scaleA);
+        const b = Decimal.fromBigInt(rawB, scaleB);
+
+        expect(a.add(b).sub(b).eq(a)).toBe(true);
+        expect(a.add(b).sub(a).eq(b)).toBe(true);
+      }
+    });
+  });
+
+  describe("Mixed-scale operands", () => {
+    it("aligns to the wider scale instead of rounding an operand down", () => {
+      const ten = Decimal.fromBigInt(10n, 0); // 10
+      const oneAndAHalf = Decimal.fromBigInt(15n, 1); // 1.5
+
+      expect(ten.add(oneAndAHalf).toString()).toBe("11.5");
+      expect(ten.sub(oneAndAHalf).toString()).toBe("8.5");
+      expect(ten.mul(oneAndAHalf).toString()).toBe("15.0");
+      expect(ten.div(oneAndAHalf).toString()).toBe("6.7");
+    });
+
+    it("divides by a non-zero operand finer than the receiver scale", () => {
+      const one = Decimal.fromBigInt(1n, 0); // 1
+      const fourTenths = Decimal.fromBigInt(4n, 1); // 0.4
+      expect(one.div(fourTenths).toString()).toBe("2.5");
+
+      const tiny = Decimal.fromBigInt(1n, 8); // 1e-8
+      expect(one.div(tiny).toString()).toBe("100000000.00000000");
+    });
+
+    it("keeps addition exact when the receiver has the narrower scale", () => {
+      const sum = Decimal.fromBigInt(201n, 0).add(Decimal.fromBigInt(-195n, 1));
+      expect(sum.toString()).toBe("181.5");
+
+      const tiny = Decimal.fromBigInt(1n, 8); // 1e-8
+      expect(Decimal.zero().add(tiny).toString()).toBe("0.00000001");
+    });
+
+    it("compares across scales symmetrically", () => {
+      const tiny = Decimal.fromBigInt(1n, 8); // 1e-8
+      const zero = Decimal.zero(); // 0 at scale 7
+
+      expect(zero.eq(tiny)).toBe(false);
+      expect(tiny.eq(zero)).toBe(false);
+      expect(tiny.gt(zero)).toBe(true);
+      expect(zero.lt(tiny)).toBe(true);
+      expect(zero.gte(tiny)).toBe(false);
+      expect(zero.lte(tiny)).toBe(true);
+    });
+
+    it("orders values that would collapse onto the same coarser scale", () => {
+      const a = Decimal.fromBigInt(15n, 8); // 1.5e-7
+      const b = Decimal.fromBigInt(1n, 7); // 1e-7
+
+      expect(a.gt(b)).toBe(true);
+      expect(b.gt(a)).toBe(false);
+      expect(b.lt(a)).toBe(true);
+      expect(a.eq(b)).toBe(false);
+    });
+
+    it("treats a bigint operand as units at the receiver scale", () => {
+      expect(Decimal.fromStroops(10_000_000n).add(1n).toString()).toBe(
+        "1.0000001"
+      );
+      expect(Decimal.fromBigInt(10n, 0).add(5n).toString()).toBe("15");
+    });
+
+    it("takes a string operand at its exact value", () => {
+      const whole = Decimal.fromBigInt(10n, 0);
+      expect(whole.add("1.5").toString()).toBe("11.5");
+      expect(whole.mul("1.5").toString()).toBe("15.0");
+      expect(whole.div("1.5").toString()).toBe("6.7");
+    });
+
+    it("rejects a number operand", () => {
+      const d = Decimal.one();
+      expect(() => d.add(1 as unknown as bigint)).toThrow(TypeError);
+      expect(() => d.eq(1 as unknown as bigint)).toThrow(TypeError);
+    });
+
+    it("rejects a malformed string operand", () => {
+      const d = Decimal.one();
+      expect(() => d.add("abc")).toThrow(TypeError);
+      expect(() => d.add("1.2.3")).toThrow(TypeError);
+    });
+  });
+
+  describe("String parsing edges", () => {
+    it("rounds excess fractional digits half-up", () => {
+      expect(Decimal.fromString("1.23456784").raw).toBe(12345678n);
+      expect(Decimal.fromString("1.23456785").raw).toBe(12345679n);
+      expect(Decimal.fromString("1.99999999").toString()).toBe("2.0000000");
+    });
+
+    it("accepts a leading sign and surrounding whitespace", () => {
+      expect(Decimal.fromString("  +1.5  ").raw).toBe(15000000n);
+      expect(Decimal.fromString("-0.5").raw).toBe(-5000000n);
+    });
+
+    it("parses at a non-default scale", () => {
+      expect(Decimal.fromString("42", 0).toString()).toBe("42");
+      expect(Decimal.fromString("1.25", 2).raw).toBe(125n);
+      expect(Decimal.fromString("1.25", 4).raw).toBe(12500n);
+    });
+  });
+
+  describe("Rescaling", () => {
+    it("widens without loss and returns the same instance at an equal scale", () => {
+      const d = Decimal.fromString("1.5");
+      const wider = d.rescale(9);
+      expect(wider.raw).toBe(1_500_000_000n);
+      expect(wider.toString()).toBe("1.500000000");
+      expect(d.rescale(7)).toBe(d);
+    });
+
+    it("narrows with the requested rounding mode", () => {
+      const d = Decimal.fromBigInt(15n, 1); // 1.5
+      expect(d.rescale(0, "trunc").raw).toBe(1n);
+      expect(d.rescale(0, "ceil").raw).toBe(2n);
+      expect(d.rescale(0, "half-up").raw).toBe(2n);
+
+      const negative = Decimal.fromBigInt(-15n, 1); // -1.5
+      expect(negative.rescale(0, "floor").raw).toBe(-2n);
+      expect(negative.rescale(0, "trunc").raw).toBe(-1n);
+    });
+  });
+
+  describe("Stroop conversion from a finer scale", () => {
+    it("rounds half-up when narrowing to scale 7", () => {
+      expect(Decimal.fromBigInt(4n, 8).toStroops()).toBe(0n);
+      expect(Decimal.fromBigInt(5n, 8).toStroops()).toBe(1n);
+      expect(Decimal.fromBigInt(1n, 8).rescale(7, "ceil").raw).toBe(1n);
+    });
+
+    it("widens a coarser scale exactly", () => {
+      expect(Decimal.fromBigInt(1n, 0).toStroops()).toBe(10_000_000n);
+    });
+  });
+
+  describe("Formatting", () => {
+    it("renders scale-0 values without a fractional part", () => {
+      expect(Decimal.fromBigInt(42n, 0).toString()).toBe("42");
+      expect(Decimal.fromBigInt(-42n, 0).toString()).toBe("-42");
+      expect(Decimal.zero(0).toString()).toBe("0");
+    });
+
+    it("pads the fractional part to the full scale", () => {
+      expect(Decimal.fromBigInt(1n, 3).toString()).toBe("0.001");
+      expect(Decimal.fromBigInt(-1n, 3).toString()).toBe("-0.001");
+      expect(Decimal.zero().toString()).toBe("0.0000000");
+    });
+
+    it("formats with toFixed", () => {
+      expect(Decimal.fromString("1.5").toFixed(2)).toBe("1.50");
+      expect(Decimal.fromString("1.005").toFixed(2)).toBe("1.01");
+      expect(Decimal.fromString("1.5").toFixed(0)).toBe("2");
+      expect(Decimal.fromString("1.5").toFixed(0, "trunc")).toBe("1");
+      expect(() => Decimal.one().toFixed(-1)).toThrow(RangeError);
+    });
+  });
+
+  describe("Scale validation", () => {
+    it("rejects a negative or fractional scale", () => {
+      expect(() => Decimal.fromBigInt(1n, -1)).toThrow(RangeError);
+      expect(() => Decimal.fromBigInt(1n, 1.5)).toThrow(RangeError);
+      expect(() => Decimal.one(-1)).toThrow(RangeError);
+      expect(() => Decimal.one().rescale(-1)).toThrow(RangeError);
     });
   });
 });
