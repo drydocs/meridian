@@ -15,7 +15,11 @@
 // budget); see accrual-keeper.ts.
 
 import { Address, nativeToScVal } from "@stellar/stellar-sdk";
-import { APP_NETWORK } from "@meridian/shared";
+import {
+  APP_NETWORK,
+  MAX_ADMIN_SLIPPAGE_BPS,
+  MIGRATION_DEFAULT_SLIPPAGE_BPS,
+} from "@meridian/shared";
 import { KNOWN_POOLS, type KnownPoolMeta } from "./known-pools";
 import { getRpcServer } from "./internal";
 import { simulateView } from "./tx";
@@ -73,12 +77,11 @@ const FUNCTION_BUDGET_MS = 50_000;
 // fraction of the vault's position to a rounding error, a stale rate read,
 // or a misbehaving adapter. 100 bps (1%) is a deliberately tight default;
 // operators can widen it via config, but the loader rejects anything above
-// the contract's own hard ceiling (MAX_ADMIN_SLIPPAGE_BPS in
-// packages/contracts/vault/src/lib.rs, #557): a value the contract itself
-// would reject with InvalidSlippageBps is caught at config time instead of
-// permanently breaking every subsequent migrate_adapter submission.
-const DEFAULT_MAX_SLIPPAGE_BPS = 100;
-const MAX_ALLOWED_SLIPPAGE_BPS = 500;
+// the contract's own hard ceiling (MAX_ADMIN_SLIPPAGE_BPS, #557): a value
+// the contract itself would reject with InvalidSlippageBps is caught at
+// config time instead of permanently breaking every subsequent
+// migrate_adapter submission.
+const DEFAULT_MAX_SLIPPAGE_BPS = MIGRATION_DEFAULT_SLIPPAGE_BPS;
 
 // A minimum improvement floor avoids churning between two protocols whose
 // rates are within noise of each other: migrate_adapter costs a real
@@ -324,9 +327,9 @@ export function loadMigrationKeeperConfig(
     DEFAULT_MAX_SLIPPAGE_BPS,
     "MERIDIAN_MIGRATION_MAX_SLIPPAGE_BPS"
   );
-  if (maxSlippageBps > MAX_ALLOWED_SLIPPAGE_BPS) {
+  if (maxSlippageBps > MAX_ADMIN_SLIPPAGE_BPS) {
     throw new Error(
-      `MERIDIAN_MIGRATION_MAX_SLIPPAGE_BPS must be at most ${MAX_ALLOWED_SLIPPAGE_BPS} (the contract's own MAX_ADMIN_SLIPPAGE_BPS ceiling; anything above it would make every migrate_adapter submission fail on-chain with InvalidSlippageBps)`
+      `MERIDIAN_MIGRATION_MAX_SLIPPAGE_BPS must be at most ${MAX_ADMIN_SLIPPAGE_BPS} (the contract's own MAX_ADMIN_SLIPPAGE_BPS ceiling; anything above it would make every migrate_adapter submission fail on-chain with InvalidSlippageBps)`
     );
   }
 
@@ -480,12 +483,14 @@ export async function discoverMigrationVaults(
             ...(meta.assetId !== undefined && { assetId: meta.assetId }),
           };
         },
-        retryConfig,
-        logger,
-        { vaultId: meta.id, vaultContractId, stage: "discover" },
-        sleepFn,
-        isTransientKeeperError,
-        "migration-keeper"
+        {
+          ...retryConfig,
+          logger,
+          context: { vaultId: meta.id, vaultContractId, stage: "discover" },
+          sleepFn,
+          isTransient: isTransientKeeperError,
+          logPrefix: "migration-keeper",
+        }
       );
     })
   );
@@ -603,17 +608,17 @@ async function findBestCandidate(
         maxAttempts: config.maxAttempts,
         baseDelayMs: config.baseDelayMs,
         deadlineAt,
-      },
-      logger,
-      {
-        vaultId: vault.vaultId,
-        adapterId: vault.currentAdapterId,
-        protocol: vault.currentProtocol,
-        stage: "evaluate",
-      },
-      sleepFn,
-      isTransientKeeperError,
-      "migration-keeper"
+        logger,
+        context: {
+          vaultId: vault.vaultId,
+          adapterId: vault.currentAdapterId,
+          protocol: vault.currentProtocol,
+          stage: "evaluate",
+        },
+        sleepFn,
+        isTransient: isTransientKeeperError,
+        logPrefix: "migration-keeper",
+      }
     );
     currentRate = result.value;
   } catch (err) {
@@ -653,12 +658,17 @@ async function findBestCandidate(
         maxAttempts: config.maxAttempts,
         baseDelayMs: config.baseDelayMs,
         deadlineAt,
-      },
-      logger,
-      { vaultId: vault.vaultId, adapterId, protocol, stage: "evaluate" },
-      sleepFn,
-      isTransientKeeperError,
-      "migration-keeper"
+        logger,
+        context: {
+          vaultId: vault.vaultId,
+          adapterId,
+          protocol,
+          stage: "evaluate",
+        },
+        sleepFn,
+        isTransient: isTransientKeeperError,
+        logPrefix: "migration-keeper",
+      }
     );
 
   const settled = await Promise.allSettled(
@@ -1152,17 +1162,17 @@ export async function runMigrationKeeper(
             maxAttempts: config.maxAttempts,
             baseDelayMs: config.baseDelayMs,
             deadlineAt,
-          },
-          logger,
-          {
-            vaultId: vault.vaultId,
-            adapterId: best.adapterId,
-            protocol: best.protocol,
-            stage: "begin_migration",
-          },
-          sleepFn,
-          isTransientKeeperError,
-          "migration-keeper"
+            logger,
+            context: {
+              vaultId: vault.vaultId,
+              adapterId: best.adapterId,
+              protocol: best.protocol,
+              stage: "begin_migration",
+            },
+            sleepFn,
+            isTransient: isTransientKeeperError,
+            logPrefix: "migration-keeper",
+          }
         );
         logger.info(
           "[migration-keeper] begin_migration submitted; migrate_adapter deferred to a later run once the ledger-gap cooldown elapses",
@@ -1229,17 +1239,17 @@ export async function runMigrationKeeper(
           maxAttempts: config.maxAttempts,
           baseDelayMs: config.baseDelayMs,
           deadlineAt,
-        },
-        logger,
-        {
-          vaultId: vault.vaultId,
-          fromAdapterId: vault.currentAdapterId,
-          toAdapterId: best.adapterId,
-          toProtocol: best.protocol,
-        },
-        sleepFn,
-        isTransientKeeperError,
-        "migration-keeper"
+          logger,
+          context: {
+            vaultId: vault.vaultId,
+            fromAdapterId: vault.currentAdapterId,
+            toAdapterId: best.adapterId,
+            toProtocol: best.protocol,
+          },
+          sleepFn,
+          isTransient: isTransientKeeperError,
+          logPrefix: "migration-keeper",
+        }
       );
       migrations.push({
         vaultId: vault.vaultId,

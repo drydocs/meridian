@@ -1,0 +1,40 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #0b0f19;
+  color: #f8fafc;
+}
+
+.shell {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 6rem 1.5rem;
+}
+
+.shell__eyebrow {
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.shell__title {
+  margin: 0.5rem 0 1rem;
+  font-size: 2rem;
+}
+
+.shell__body {
+  margin: 0 0 2rem;
+  color: #cbd5e1;
+}
+
+.shell__engine {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #64748b;
+}

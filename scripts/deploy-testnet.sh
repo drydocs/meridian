@@ -51,10 +51,14 @@ BLEND_POOL_ID="${BLEND_POOL_ID:-CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4K
 
 DEPLOYER_ADDRESS=$(stellar keys address "$DEPLOYER")
 ADMIN_ADDRESS="${ADMIN:-$DEPLOYER_ADDRESS}"
+TREASURY_ADDRESS="${TREASURY:-$ADMIN_ADDRESS}"
 if [ -z "$ADMIN" ]; then
   echo "WARNING: ADMIN not set, defaulting vault admin to the deployer's own address."
   echo "The deployer key will then also be the permanent admin key. Set ADMIN"
   echo "explicitly to a separate, durable key to avoid this."
+fi
+if [ -z "${TREASURY:-}" ]; then
+  echo "WARNING: TREASURY not set, defaulting fee treasury to ADMIN_ADDRESS for testnet."
 fi
 # Whenever ADMIN_ADDRESS and DEPLOYER_ADDRESS are the same identity, DEPLOYER's
 # own signature already satisfies the vault constructor's admin.require_auth(),

@@ -532,6 +532,112 @@ describe("getRpcAdminHistory", () => {
     });
   });
 
+  it("parses a mig_begin event with target adapter and earliest ledger", async () => {
+    vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
+      events: [
+        adminEvent(
+          "mig_begin",
+          xdr.ScVal.scvVec([
+            Address.fromString(NEW_ADAPTER).toScVal(),
+            xdr.ScVal.scvU32(17380),
+          ])
+        ),
+      ],
+      latestLedger: 100,
+    } as never);
+
+    const { actions } = await getRpcAdminHistory(network.rpcUrl, VAULT_ID);
+
+    expect(actions[0]).toMatchObject({
+      action: "mig_begin",
+      payload: { newAdapter: NEW_ADAPTER, earliestLedger: 17380 },
+    });
+  });
+
+  it("parses a mig_begin event whose earliest ledger is encoded as a u64", async () => {
+    vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
+      events: [
+        adminEvent(
+          "mig_begin",
+          xdr.ScVal.scvVec([
+            Address.fromString(NEW_ADAPTER).toScVal(),
+            xdr.ScVal.scvU64(xdr.Uint64.fromString("17380")),
+          ])
+        ),
+      ],
+      latestLedger: 100,
+    } as never);
+
+    const { actions } = await getRpcAdminHistory(network.rpcUrl, VAULT_ID);
+
+    expect(actions[0]).toMatchObject({
+      action: "mig_begin",
+      payload: { newAdapter: NEW_ADAPTER, earliestLedger: 17380 },
+    });
+  });
+
+  it("skips a mig_begin event whose value is not a vec", async () => {
+    vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
+      events: [adminEvent("mig_begin", xdr.ScVal.scvBool(true))],
+      latestLedger: 100,
+    } as never);
+
+    const { actions } = await getRpcAdminHistory(network.rpcUrl, VAULT_ID);
+
+    expect(actions).toHaveLength(0);
+  });
+
+  it("skips a mig_begin event with fewer than two vec items", async () => {
+    vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
+      events: [
+        adminEvent(
+          "mig_begin",
+          xdr.ScVal.scvVec([Address.fromString(NEW_ADAPTER).toScVal()])
+        ),
+      ],
+      latestLedger: 100,
+    } as never);
+
+    const { actions } = await getRpcAdminHistory(network.rpcUrl, VAULT_ID);
+
+    expect(actions).toHaveLength(0);
+  });
+
+  it("skips a mig_begin event whose adapter cannot be parsed", async () => {
+    vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
+      events: [
+        adminEvent(
+          "mig_begin",
+          xdr.ScVal.scvVec([xdr.ScVal.scvBool(true), xdr.ScVal.scvU32(17380)])
+        ),
+      ],
+      latestLedger: 100,
+    } as never);
+
+    const { actions } = await getRpcAdminHistory(network.rpcUrl, VAULT_ID);
+
+    expect(actions).toHaveLength(0);
+  });
+
+  it("skips a mig_begin event whose ledger is neither a u32 nor a u64", async () => {
+    vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
+      events: [
+        adminEvent(
+          "mig_begin",
+          xdr.ScVal.scvVec([
+            Address.fromString(NEW_ADAPTER).toScVal(),
+            xdr.ScVal.scvBool(true),
+          ])
+        ),
+      ],
+      latestLedger: 100,
+    } as never);
+
+    const { actions } = await getRpcAdminHistory(network.rpcUrl, VAULT_ID);
+
+    expect(actions).toHaveLength(0);
+  });
+
   it("skips events with an unrecognised action symbol", async () => {
     vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
       events: [adminEvent("unknown_action", xdr.ScVal.scvBool(true))],

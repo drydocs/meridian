@@ -30,11 +30,16 @@ test.describe("deposit", () => {
     await page.getByPlaceholder("0.00").fill("10");
     await page.getByTestId("vault-deposit-submit").click();
 
-    // Real Soroban simulation and/or a real sign-decline round trip, so a
-    // generous timeout. Either path ends in an error toast, the app never
+    // Real trustline pre-flight, real Soroban simulation, and/or a real
+    // sign-decline round trip, so a generous timeout. Every path ends in an
+    // error toast -- the API's 400 when the wallet holds no USDC trustline and
+    // the app could not establish one, a simulation failure when the build
+    // does reach RPC, or the wallet's own decline -- and the app never
     // silently swallows a failure here.
     await expect(
-      page.getByText(/User declined access|Simulation failed/)
+      page.getByText(
+        /User declined access|Simulation failed|Missing USDC trustline/
+      )
     ).toBeVisible({ timeout: 25_000 });
 
     const signed = await getSignedXdrs(page);

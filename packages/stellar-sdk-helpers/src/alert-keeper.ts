@@ -54,6 +54,7 @@ const ALERTABLE_ACTIONS: ReadonlySet<RpcAdminActionType> = new Set([
   "transfer",
   "adapter",
   "migrate",
+  "mig_begin",
 ]);
 
 export interface AlertKeeperConfig {
@@ -179,6 +180,13 @@ export function formatAlertMessage(
         newAdapter: string;
       };
       return `[meridian] ${vaultId}: migrated adapter from ${shortAddr(oldAdapter)} to ${shortAddr(newAdapter)} at ${at}`;
+    }
+    case "mig_begin": {
+      const { newAdapter, earliestLedger } = action.payload as {
+        newAdapter: string;
+        earliestLedger: number;
+      };
+      return `[meridian] ${vaultId}: migration cooldown started for ${shortAddr(newAdapter)} at ${at} (earliest completion ledger ${earliestLedger})`;
     }
   }
 }
