@@ -2,8 +2,13 @@ name: Verify Contract Addresses
 
 # Guards against a specific supply-chain risk: a PR can submit clean,
 # reviewable contract source while pointing a contract address at different,
-# unreviewed bytecode the contributor deployed themselves. Only triggers on
-# PRs touching the files where deployed vault addresses are recorded.
+# unreviewed bytecode the contributor deployed themselves.
+#
+# The vault is immutable on-chain, so an unchanged address always holds the
+# same reviewed bytecode. A fast planning step decides whether this PR actually
+# changes a recorded address; only then does it install the Soroban toolchain,
+# rebuild from source, and compare against the chain. PRs that touch these
+# files without moving an address pass without the slow build.
 #
 # This check is required (blocking) per #389's acceptance criteria.
 # Branch protection must list "Verify On-Chain Bytecode" as a required status.
@@ -11,6 +16,7 @@ on:
   pull_request:
     paths:
       - "packages/shared/src/constants.ts"
+      - "packages/shared/deployed-contracts.json"
       - "packages/stellar-sdk-helpers/src/known-pools.ts"
   workflow_dispatch: {}
 
@@ -31,37 +37,49 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The planning step diffs this PR against its base commit to decide
+          # whether a recorded address changed, so it needs full history.
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6.1.0
       - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32v1-none
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: packages/contracts
-      - name: Resolve latest Stellar CLI version
-        # Cache key below is pinned to this version, not to time or branch, so
-        # a new stellar-cli release always forces a fresh install and rebuild
-        # on the next run. This is what actually catches toolchain drift, not
-        # skipping the cache entirely; a cache hit for an unchanged version
-        # restores the exact same bytes a from-scratch build would produce.
+      - name: Plan verification
+        # Decides pass / fail / build from the deploy record, CONTRACT_ADDRESSES,
+        # and what this PR changed. Fails fast here on any address disagreement,
+        # before any toolchain is installed. Sets needs_build for the steps
+        # below.
+        id: plan
+        env:
+          VERIFY_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: pnpm verify:contracts -- --plan
+      - name: Read pinned Stellar CLI version
+        # The build path must reproduce the recorded bytecode, so it pins the
+        # exact stellar-cli version the deploy record names rather than
+        # resolving whatever is latest. Compiling identical source with a
+        # different CLI version yields a different wasm hash.
+        if: steps.plan.outputs.needs_build == 'true'
         id: stellar-cli-version
         run: |
-          # crates.io's API rejects requests with no User-Agent (403), which
-          # silently empties VERSION inside this command substitution rather
-          # than failing the step - the check below turns that into a loud
-          # failure instead of a permanently-broken cache key.
-          VERSION=$(curl -sSf -H "User-Agent: meridian-ci (github.com/drydocs/meridian)" https://crates.io/api/v1/crates/stellar-cli | jq -r '.crate.max_stable_version')
+          VERSION=$(jq -r '.toolchain.stellarCli' packages/shared/deployed-contracts.json)
           if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
-            echo "::error::Failed to resolve stellar-cli version from crates.io"
+            echo "::error::Failed to read toolchain.stellarCli from deployed-contracts.json"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.plan.outputs.needs_build == 'true'
+        with:
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+        if: steps.plan.outputs.needs_build == 'true'
+        with:
+          workspaces: packages/contracts
       - name: Cache Stellar CLI binary
+        if: steps.plan.outputs.needs_build == 'true'
         id: cache-stellar-cli
         uses: actions/cache@v6
         with:
@@ -71,12 +89,16 @@ jobs:
         # stellar-cli pulls in libdbus-sys and hidapi (hardware wallet
         # support) transitively, which need the dbus-1 and libudev system
         # libraries at build time; not preinstalled on ubuntu-latest runners.
-        if: steps.cache-stellar-cli.outputs.cache-hit != 'true'
+        if: steps.plan.outputs.needs_build == 'true' && steps.cache-stellar-cli.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev libudev-dev pkg-config
       - name: Install Stellar CLI
-        if: steps.cache-stellar-cli.outputs.cache-hit != 'true'
-        run: cargo install --locked stellar-cli
+        if: steps.plan.outputs.needs_build == 'true' && steps.cache-stellar-cli.outputs.cache-hit != 'true'
+        run: cargo install --locked stellar-cli --version "${{ steps.stellar-cli-version.outputs.version }}"
       - name: Verify contract addresses match on-chain bytecode
-        # The script retries transient Soroban RPC failures internally
-        # (3 attempts, 3 s apart). Exit code is non-zero on any mismatch.
-        run: pnpm verify:contracts
+        # Only runs when the plan found a changed address. The script retries
+        # transient Soroban RPC failures internally (3 attempts, 3 s apart).
+        # Exit code is non-zero on any mismatch.
+        if: steps.plan.outputs.needs_build == 'true'
+        env:
+          VERIFY_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: pnpm verify:contracts -- --verify

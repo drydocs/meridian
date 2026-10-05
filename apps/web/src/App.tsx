@@ -8,6 +8,7 @@ import { useWalletStore } from "./store/wallet";
 import { useTranslation } from "react-i18next";
 import { AdminLogin } from "./pages/AdminLogin";
 import { StatusPage } from "./pages/StatusPage";
+import { NotFound } from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
@@ -15,18 +16,30 @@ const queryClient = new QueryClient();
 // pages, and pulling in react-router for a couple of static path splits
 // would be a heavier change than the admin dashboard itself (#615) needs.
 //
-// The app is served under /app/* (see the root vercel.json rewrite,
-// "/app/:path*" -> "/app/index.html"), so both the admin and status routes
-// live at /app/admin and /app/status — that existing rewrite already covers
-// them, no routing config change needed. A bare /admin or /status (no /app
-// prefix) is not covered by any rewrite and never reaches the SPA in
-// production.
+// The public dashboard and status page stay under /app/*, which the existing
+// Vercel rewrite serves from /app/index.html. Admin is canonical at /admin;
+// the legacy /app/admin path is also recognized if Vercel's redirect is not
+// applied before the SPA loads.
 function isAdminRoute(): boolean {
-  return window.location.pathname.startsWith("/app/admin");
+  const pathname = window.location.pathname;
+  return (
+    pathname === "/admin" ||
+    pathname.startsWith("/admin/") ||
+    pathname === "/app/admin" ||
+    pathname.startsWith("/app/admin/")
+  );
 }
 
 function isStatusRoute(): boolean {
   return window.location.pathname.startsWith("/app/status");
+}
+
+// The SPA is served under /app/; only the dashboard root is a real page there.
+// Anything else (an unknown /app/* path or any other unmatched route) renders
+// the 404 page instead of silently falling back to the dashboard.
+function isDashboardRoute(): boolean {
+  const pathname = window.location.pathname;
+  return pathname === "/app" || pathname === "/app/";
 }
 
 function Dashboard() {
@@ -109,8 +122,10 @@ export default function App() {
     <AdminLogin />
   ) : isStatusRoute() ? (
     <StatusPage />
-  ) : (
+  ) : isDashboardRoute() ? (
     <Dashboard />
+  ) : (
+    <NotFound />
   );
 
   return (

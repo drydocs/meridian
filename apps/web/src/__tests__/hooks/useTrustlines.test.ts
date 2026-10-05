@@ -6,7 +6,7 @@ import {
 } from "../../hooks/useTrustlines";
 import { useWalletStore } from "../../store/wallet";
 import { useToastStore } from "../../store/toast";
-import { USDC_ISSUER, MUSDC_ISSUER } from "@meridian/shared";
+import { USDC_ISSUER, MUSDC_ISSUER, APP_NETWORK } from "@meridian/shared";
 
 const KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 // Pulled from the source of truth rather than hardcoded, so these fixtures
@@ -140,7 +140,7 @@ describe("useTrustlines", () => {
     expect(api.addTrustline).toHaveBeenCalledWith(KEY);
     expect(wallet.sign).toHaveBeenCalledWith(
       "TRUSTLINE_XDR",
-      expect.stringContaining("Test SDF")
+      APP_NETWORK.passphrase
     );
     expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
     expect(useToastStore.getState().toasts).toContainEqual(

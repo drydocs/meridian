@@ -59,6 +59,7 @@ meridian/
 ├── packages/
 │   ├── api-core/             # Framework-agnostic route handlers shared by both servers
 │   ├── stellar-sdk-helpers/  # Blend & DeFindex client wrappers
+│   ├── sdk/                  # @meridian/sdk: public TypeScript SDK (ESM + CJS)
 │   ├── shared/               # Zod schemas, constants, pure utils
 │   └── contracts/            # Soroban smart contracts (Rust): vault, blend-adapter, defindex-adapter, adapter-common, musdc-token
 └── scripts/          # deploy-testnet.sh / deploy-mainnet.sh (fresh stack), redeploy-blend-adapter.sh (swap adapter on a live vault)

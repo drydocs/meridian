@@ -5,19 +5,28 @@ import { positionsRoute } from "../routes/positions.js";
 import { txRoute } from "../routes/tx.js";
 import { vaultsRoute } from "../routes/vaults.js";
 
-vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
-  ContractSimulationError: (
-    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
-  ).ContractSimulationError,
-  resolvePositions: vi.fn(),
-  buildDepositTx: vi.fn(),
-  buildWithdrawTx: vi.fn(),
-  buildAddTrustlineTx: vi.fn(),
-  submitTx: vi.fn(),
-  fetchAllVaults: vi.fn(),
-  selectBestVault: vi.fn(),
-  isVaultCacheWarm: vi.fn(() => false),
-}));
+vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
+  // Keep the real error classes: api-core narrows on `instanceof`, so a
+  // stubbed class would stop behaving like the error it maps to an HTTP status.
+  const actual =
+    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>();
+  return {
+    ContractSimulationError: actual.ContractSimulationError,
+    MissingTrustlineError: actual.MissingTrustlineError,
+    resolvePositions: vi.fn(),
+    buildDepositTx: vi.fn(),
+    buildWithdrawTx: vi.fn(),
+    buildAddTrustlineTx: vi.fn(),
+    submitTx: vi.fn(),
+    fetchAllVaults: vi.fn(),
+    selectBestVault: vi.fn(),
+    isVaultCacheWarm: vi.fn(() => false),
+    // api-core now calls this on the deposit/withdraw build path. Without a
+    // stub it resolved to `undefined` and threw, turning five route cases into
+    // 500s instead of their expected statuses.
+    assertRequiredTrustlines: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 import {
   resolvePositions,

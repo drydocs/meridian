@@ -6,6 +6,7 @@ pub const PEND_ADM: Symbol = symbol_short!("PEND_ADM");
 pub const USDC: Symbol = symbol_short!("USDC");
 pub const MUSDC: Symbol = symbol_short!("MUSDC");
 pub const ADAPTER: Symbol = symbol_short!("ADAPTER");
+pub const TREASURY: Symbol = symbol_short!("TREASURY");
 pub const TOTAL_SH: Symbol = symbol_short!("TOTAL_SH");
 pub const ADPT_SH: Symbol = symbol_short!("ADPT_SH");
 pub const PAUSED: Symbol = symbol_short!("PAUSED");

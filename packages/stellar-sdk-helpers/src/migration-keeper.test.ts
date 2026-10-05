@@ -625,7 +625,7 @@ describe("runMigrationKeeper", () => {
     expect(submitMigration).toHaveBeenCalledWith(
       DISCOVERED_VAULT,
       "CDEFINDEXADAPTER",
-      1,
+      0,
       expect.objectContaining({
         onSigned: expect.any(Function),
         onResolved: expect.any(Function),
