@@ -3,6 +3,8 @@ interface AmountInputProps {
   value: string;
   onChange: (v: string) => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  invalid?: boolean;
+  describedBy?: string;
 }
 
 export function AmountInput({
@@ -10,9 +12,17 @@ export function AmountInput({
   value,
   onChange,
   onKeyDown,
+  invalid = false,
+  describedBy,
 }: AmountInputProps) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-gray-700 bg-gray-900/70 px-4 py-3.5 focus-within:border-gray-500 transition-colors duration-150">
+    <div
+      className={`flex items-center gap-3 rounded-xl border bg-gray-900/70 px-4 py-3.5 transition-colors duration-150 ${
+        invalid
+          ? "border-red-800/70 focus-within:border-red-600"
+          : "border-gray-700 focus-within:border-gray-500"
+      }`}
+    >
       {/* Accessible name for screen readers — ties the input to its currency denomination */}
       <input
         type="number"
@@ -20,6 +30,8 @@ export function AmountInput({
         step="any"
         placeholder="0.00"
         aria-label={`Amount in ${currency}`}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}

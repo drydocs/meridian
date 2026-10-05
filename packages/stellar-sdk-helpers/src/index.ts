@@ -18,6 +18,10 @@ export * from "./routing";
 export * from "./time-series";
 export * from "./tx";
 export * from "./types";
+// `keeper-state` owns the concrete `SubmissionLease` class while `./types`
+// declares a structural counterpart with the same name. Re-exporting it
+// explicitly here keeps the two wildcard exports from colliding (TS2308).
+export { SubmissionLease } from "./keeper-state";
 export * from "./vault-cache";
 export * from "./vaults";
 export * from "./admin-history";
