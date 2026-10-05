@@ -83,17 +83,17 @@ describe("BuyAndHoldStrategy through the full lifecycle", () => {
       }
     }
     expect(allOrders).toHaveLength(1);
-    expect(allOrders[0]?.size.toString()).toBe("500");
+    expect(allOrders[0]?.size.toString()).toBe("497.5");
     expect(
       portfolio.totalValue(ctx(portfolio, 2, "3").market.prices).toString()
-    ).toBe("1500");
+    ).toBe("1497.5");
 
     const closeCtx = ctx(portfolio, 2, "3");
     const closing = run.close(closeCtx);
     expect(closing).toHaveLength(1);
-    expect(closing[0]?.size.toString()).toBe("-500");
+    expect(closing[0]?.size.toString()).toBe("-497.5");
     portfolio.fill(closing[0]!, closeCtx.market.prices.get(USDC)!);
-    expect(portfolio.cash.toString()).toBe("1500");
+    expect(portfolio.cash.toString()).toBe("1497.5");
     expect(run.phase).toBe("closed");
   });
 
@@ -106,6 +106,38 @@ describe("BuyAndHoldStrategy through the full lifecycle", () => {
     strategy.rebalance(c);
     expect(portfolio.cash.toString()).toBe("1000");
     expect(portfolio.positions()).toHaveLength(0);
+  });
+
+  it("sizes the entry so a fill above the mark still settles", () => {
+    const portfolio = new FakePortfolio(D("1000"));
+    const strategy = new BuyAndHoldStrategy();
+    strategy.init({ startingCapital: D("1000"), config: { asset: USDC } });
+    const c = ctx(portfolio, 0, "2");
+    strategy.step(c);
+    const order = strategy.rebalance(c)[0];
+    expect(order).toBeDefined();
+
+    // The runner charges a 0.1 percent fee on top of the mark.
+    const notional =
+      (order!.size.toStroops() * c.market.prices.get(USDC)!.toStroops()) /
+      10_000_000n;
+    expect((notional * 10_010n) / 10_000n).toBeLessThanOrEqual(
+      portfolio.cash.toStroops()
+    );
+  });
+
+  it("keeps trying when the first mark rounds the order to zero", () => {
+    const portfolio = new FakePortfolio(D("0.0001"));
+    const run = new StrategyLifecycle(new BuyAndHoldStrategy());
+    run.init({ startingCapital: D("0.0001"), config: { asset: USDC } });
+
+    const tooHigh = ctx(portfolio, 0, "100000");
+    run.step(tooHigh);
+    expect(run.rebalance(tooHigh)).toHaveLength(0);
+
+    const normal = ctx(portfolio, 1, "2");
+    run.step(normal);
+    expect(run.rebalance(normal)).toHaveLength(1);
   });
 });
 

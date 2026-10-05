@@ -154,8 +154,15 @@ export interface BuyAndHoldConfig {
 }
 
 /**
- * Reference strategy: spends all starting capital on one asset at the first
- * rebalance, holds, and sells everything at close.
+ * Left unspent so the entry fill can absorb fees and slippage. Sizing to the
+ * whole balance rejects the order under any fill cost above the mark.
+ */
+const ENTRY_HEADROOM_BPS = 50n;
+const BPS_DENOMINATOR = 10_000n;
+
+/**
+ * Reference strategy: buys the configured asset at the first rebalance,
+ * holds, and sells everything at close.
  */
 export class BuyAndHoldStrategy implements Strategy<BuyAndHoldConfig> {
   readonly name = "buy-and-hold";
@@ -175,9 +182,14 @@ export class BuyAndHoldStrategy implements Strategy<BuyAndHoldConfig> {
     if (this.#entered || this.#asset === null) return [];
     const price = context.market.prices.get(this.#asset);
     if (!price || price.toStroops() <= 0n) return [];
-    this.#entered = true;
-    const size = (this.#capital * STROOPS_PER_UNIT) / price.toStroops();
+    const spendable =
+      (this.#capital * (BPS_DENOMINATOR - ENTRY_HEADROOM_BPS)) /
+      BPS_DENOMINATOR;
+    const size = (spendable * STROOPS_PER_UNIT) / price.toStroops();
+    // Nothing to order below one stroop. Leave `#entered` false so a later
+    // tick can still enter instead of latching the strategy shut.
     if (size === 0n) return [];
+    this.#entered = true;
     return [
       {
         asset: this.#asset,
