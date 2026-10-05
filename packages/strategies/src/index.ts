@@ -16,3 +16,4 @@ export * from "./risk-metrics";
 export * from "./reflector-oracle-price-feed";
 export * from "./rng";
 export * from "./gbm";
+export * from "./sizing";
