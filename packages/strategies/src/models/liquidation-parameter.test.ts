@@ -1,84 +1,283 @@
 import { describe, it, expect } from "vitest";
-import { LiquidationParameterModel, FIXED_POINT_SCALE } from "./liquidation-parameter";
+import { Decimal } from "../decimal";
+import { LiquidationParameterModel } from "./liquidation-parameter";
+
+/** Collateral with an 80% max loan-to-value, an 85% liquidation threshold and a 5% penalty. */
+const usdc = new LiquidationParameterModel(
+  Decimal.fromString("0.80"),
+  Decimal.fromString("0.85"),
+  Decimal.fromString("0.05")
+);
 
 describe("LiquidationParameterModel", () => {
-  const maxLtv = (8000n * FIXED_POINT_SCALE) / 10000n; // 80%
-  const threshold = (8500n * FIXED_POINT_SCALE) / 10000n; // 85%
-  const penalty = (500n * FIXED_POINT_SCALE) / 10000n; // 5%
+  describe("constructor", () => {
+    it("stores the per-asset parameters", () => {
+      expect(usdc.maxLoanToValue.eq(Decimal.fromString("0.80"))).toBe(true);
+      expect(usdc.liquidationThreshold.eq(Decimal.fromString("0.85"))).toBe(
+        true
+      );
+      expect(usdc.liquidationPenalty.eq(Decimal.fromString("0.05"))).toBe(true);
+    });
 
-  it("should initialize correctly", () => {
-    const model = new LiquidationParameterModel(maxLtv, threshold, penalty);
-    expect(model.maxLoanToValue).toBe(maxLtv);
-    expect(model.liquidationThreshold).toBe(threshold);
-    expect(model.liquidationPenalty).toBe(penalty);
+    it("rejects a liquidation threshold below the max loan-to-value", () => {
+      expect(
+        () =>
+          new LiquidationParameterModel(
+            Decimal.fromString("0.85"),
+            Decimal.fromString("0.80"),
+            Decimal.fromString("0.05")
+          )
+      ).toThrow(RangeError);
+    });
+
+    it("rejects a negative max loan-to-value", () => {
+      expect(
+        () =>
+          new LiquidationParameterModel(
+            Decimal.fromString("-0.01"),
+            Decimal.fromString("0.85"),
+            Decimal.fromString("0.05")
+          )
+      ).toThrow(RangeError);
+    });
+
+    it("rejects a negative liquidation threshold", () => {
+      expect(
+        () =>
+          new LiquidationParameterModel(
+            Decimal.fromString("0.80"),
+            Decimal.fromString("-0.85"),
+            Decimal.fromString("0.05")
+          )
+      ).toThrow(RangeError);
+    });
+
+    it("rejects a negative liquidation penalty", () => {
+      expect(
+        () =>
+          new LiquidationParameterModel(
+            Decimal.fromString("0.80"),
+            Decimal.fromString("0.85"),
+            Decimal.fromString("-0.05")
+          )
+      ).toThrow(RangeError);
+    });
+
+    it("rejects a zero liquidation threshold", () => {
+      expect(
+        () =>
+          new LiquidationParameterModel(
+            Decimal.fromString("0"),
+            Decimal.fromString("0"),
+            Decimal.fromString("0.05")
+          )
+      ).toThrow(RangeError);
+    });
   });
 
-  it("should reject a threshold below max loan-to-value", () => {
-    expect(() => new LiquidationParameterModel(threshold, maxLtv, penalty)).toThrow();
+  describe("computeHealthFactor", () => {
+    it("derives the factor from collateral value, threshold and debt", () => {
+      // 100 collateral at an 85% threshold discounts to 85, against 50 of debt.
+      const healthFactor = usdc.computeHealthFactor(
+        Decimal.fromString("100"),
+        Decimal.fromString("50")
+      );
+      expect(healthFactor?.eq(Decimal.fromString("1.7"))).toBe(true);
+    });
+
+    it("matches a worked lending example at a different threshold", () => {
+      const eth = new LiquidationParameterModel(
+        Decimal.fromString("0.75"),
+        Decimal.fromString("0.825"),
+        Decimal.fromString("0.10")
+      );
+      // 1.5 ETH at $2000 is $3000 of collateral, discounted to $2475 against $1500 of debt.
+      const healthFactor = eth.computeHealthFactor(
+        Decimal.fromString("3000"),
+        Decimal.fromString("1500")
+      );
+      expect(healthFactor?.eq(Decimal.fromString("1.65"))).toBe(true);
+    });
+
+    it("reports exactly 1.0 at the liquidation boundary", () => {
+      const healthFactor = usdc.computeHealthFactor(
+        Decimal.fromString("100"),
+        Decimal.fromString("85")
+      );
+      expect(healthFactor?.eq(Decimal.fromString("1"))).toBe(true);
+    });
+
+    it("returns undefined when there is no debt", () => {
+      expect(
+        usdc.computeHealthFactor(
+          Decimal.fromString("100"),
+          Decimal.fromString("0")
+        )
+      ).toBeUndefined();
+    });
+
+    it("handles operands held at different scales", () => {
+      const coarse = new LiquidationParameterModel(
+        Decimal.fromString("0.8000", 4),
+        Decimal.fromString("0.8500", 4),
+        Decimal.fromString("0.0500", 4)
+      );
+      const healthFactor = coarse.computeHealthFactor(
+        Decimal.fromString("100"),
+        Decimal.fromString("50")
+      );
+      expect(healthFactor?.eq(Decimal.fromString("1.7"))).toBe(true);
+    });
+
+    it("rejects a negative collateral value", () => {
+      expect(() =>
+        usdc.computeHealthFactor(
+          Decimal.fromString("-100"),
+          Decimal.fromString("50")
+        )
+      ).toThrow(RangeError);
+    });
+
+    it("rejects negative debt", () => {
+      expect(() =>
+        usdc.computeHealthFactor(
+          Decimal.fromString("100"),
+          Decimal.fromString("-50")
+        )
+      ).toThrow(RangeError);
+    });
   });
 
-  describe("health factor", () => {
-    const model = new LiquidationParameterModel(maxLtv, threshold, penalty);
-
-    it("computes health factor correctly", () => {
-      // Collateral = 100, Debt = 50, Threshold = 85%
-      // HF = (100 * 0.85) / 50 = 1.7
-      const collateral = 100n * FIXED_POINT_SCALE;
-      const debt = 50n * FIXED_POINT_SCALE;
-      const hf = model.computeHealthFactor(collateral, debt);
-      expect(hf).toBe((17000n * FIXED_POINT_SCALE) / 10000n);
+  describe("computeLiquidationPrice", () => {
+    it("returns the price at which the health factor reaches 1.0", () => {
+      // 85 of debt against 100 units of collateral at an 85% threshold.
+      const price = usdc.computeLiquidationPrice(
+        Decimal.fromString("100"),
+        Decimal.fromString("85")
+      );
+      expect(price?.eq(Decimal.fromString("1"))).toBe(true);
     });
 
-    it("returns a safe sentinel for zero debt (infinite health factor)", () => {
-      const hf = model.computeHealthFactor(100n * FIXED_POINT_SCALE, 0n);
-      expect(hf).toBe((2n ** 256n) - 1n);
+    it("derives a price below 1.0 for a less leveraged position", () => {
+      // 50 / (100 * 0.85) = 0.588235294..., rounded half-up at scale 7.
+      const price = usdc.computeLiquidationPrice(
+        Decimal.fromString("100"),
+        Decimal.fromString("50")
+      );
+      expect(price?.eq(Decimal.fromString("0.5882353"))).toBe(true);
+    });
+
+    it("matches a worked lending example at a different threshold", () => {
+      const eth = new LiquidationParameterModel(
+        Decimal.fromString("0.75"),
+        Decimal.fromString("0.825"),
+        Decimal.fromString("0.10")
+      );
+      // 1500 / (1.5 * 0.825) = 1500 / 1.2375 = 1212.1212121...
+      const price = eth.computeLiquidationPrice(
+        Decimal.fromString("1.5"),
+        Decimal.fromString("1500")
+      );
+      expect(price?.eq(Decimal.fromString("1212.1212121"))).toBe(true);
+    });
+
+    it("returns undefined when there is no collateral", () => {
+      expect(
+        usdc.computeLiquidationPrice(
+          Decimal.fromString("0"),
+          Decimal.fromString("85")
+        )
+      ).toBeUndefined();
+    });
+
+    it("returns undefined when there is no debt", () => {
+      expect(
+        usdc.computeLiquidationPrice(
+          Decimal.fromString("100"),
+          Decimal.fromString("0")
+        )
+      ).toBeUndefined();
+    });
+
+    it("returns undefined when the discounted collateral rounds to zero", () => {
+      const dust = new LiquidationParameterModel(
+        Decimal.fromString("0.0000001"),
+        Decimal.fromString("0.0000001"),
+        Decimal.fromString("0")
+      );
+      expect(
+        dust.computeLiquidationPrice(
+          Decimal.fromString("0.0000001"),
+          Decimal.fromString("1")
+        )
+      ).toBeUndefined();
+    });
+
+    it("rejects a negative collateral amount", () => {
+      expect(() =>
+        usdc.computeLiquidationPrice(
+          Decimal.fromString("-100"),
+          Decimal.fromString("85")
+        )
+      ).toThrow(RangeError);
+    });
+
+    it("rejects negative debt", () => {
+      expect(() =>
+        usdc.computeLiquidationPrice(
+          Decimal.fromString("100"),
+          Decimal.fromString("-85")
+        )
+      ).toThrow(RangeError);
     });
   });
 
-  describe("liquidation price", () => {
-    const model = new LiquidationParameterModel(maxLtv, threshold, penalty);
-
-    it("computes liquidation price correctly", () => {
-      // Debt = 85, Collateral = 100, Threshold = 85%
-      // Liquidation Price = 85 / (100 * 0.85) = 1.0
-      const collateral = 100n * FIXED_POINT_SCALE;
-      const debt = 85n * FIXED_POINT_SCALE;
-      const price = model.computeLiquidationPrice(collateral, debt);
-      expect(price).toBe(1n * FIXED_POINT_SCALE);
-
-      // Debt = 50, Collateral = 100, Threshold = 85%
-      // Liquidation Price = 50 / (100 * 0.85) = 50 / 85 = 0.588235294117647058
-      const debt2 = 50n * FIXED_POINT_SCALE;
-      const price2 = model.computeLiquidationPrice(collateral, debt2);
-      expect(price2).toBe((50n * FIXED_POINT_SCALE) / 85n);
+  describe("isLiquidatable", () => {
+    it("treats a position sitting exactly at the boundary as safe", () => {
+      const collateral = Decimal.fromString("100");
+      const debt = Decimal.fromString("85");
+      expect(usdc.isLiquidatable(collateral, debt)).toBe(false);
     });
 
-    it("returns 0 if collateral is 0", () => {
-      expect(model.computeLiquidationPrice(0n, 100n)).toBe(0n);
-    });
-  });
-
-  describe("boundary behavior", () => {
-    const model = new LiquidationParameterModel(maxLtv, threshold, penalty);
-
-    it("is not liquidatable when health factor is exactly 1.0", () => {
-      // Collateral = 100, Debt = 85, Threshold = 85%
-      // HF = 1.0
-      const collateral = 100n * FIXED_POINT_SCALE;
-      const debt = 85n * FIXED_POINT_SCALE;
-      
-      const hf = model.computeHealthFactor(collateral, debt);
-      expect(hf).toBe(FIXED_POINT_SCALE); // exactly 1.0
-      expect(model.isLiquidatable(collateral, debt)).toBe(false);
+    it("treats a position just below the boundary as liquidatable", () => {
+      // 85 / 85.00001 is below 1.0 once rounded to scale 7.
+      const liquidatable = usdc.isLiquidatable(
+        Decimal.fromString("100"),
+        Decimal.fromString("85.00001")
+      );
+      expect(liquidatable).toBe(true);
     });
 
-    it("is liquidatable when health factor is slightly below 1.0", () => {
-      const collateral = 100n * FIXED_POINT_SCALE;
-      const debt = 85n * FIXED_POINT_SCALE + 1n; // Debt is slightly higher
-      
-      const hf = model.computeHealthFactor(collateral, debt);
-      expect(hf).toBeLessThan(FIXED_POINT_SCALE);
-      expect(model.isLiquidatable(collateral, debt)).toBe(true);
+    it("never liquidates a position carrying no debt", () => {
+      expect(
+        usdc.isLiquidatable(Decimal.fromString("100"), Decimal.fromString("0"))
+      ).toBe(false);
+    });
+
+    it("liquidates a position left with debt but no collateral", () => {
+      expect(
+        usdc.isLiquidatable(Decimal.fromString("0"), Decimal.fromString("100"))
+      ).toBe(true);
+    });
+
+    it("agrees with the liquidation price it derives", () => {
+      const collateral = Decimal.fromString("100");
+      const debt = Decimal.fromString("85");
+      const price = usdc.computeLiquidationPrice(collateral, debt);
+      expect(price?.eq(Decimal.fromString("1"))).toBe(true);
+
+      // Value the collateral at the derived price, then below it. The step is
+      // 0.00001 rather than a stroop because the health factor of this position
+      // is collateralValue / 100, so a stroop of collateral moves it by 1e-9 and
+      // would round away at scale 7.
+      const collateralAtPrice = collateral.mul(price ?? Decimal.zero());
+      expect(usdc.isLiquidatable(collateralAtPrice, debt)).toBe(false);
+      expect(
+        usdc.isLiquidatable(
+          collateralAtPrice.sub(Decimal.fromString("0.00001")),
+          debt
+        )
+      ).toBe(true);
     });
   });
 });
