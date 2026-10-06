@@ -2,6 +2,21 @@
 
 Strategy engine and simulation library for Meridian.
 
+## Simulation boundary
+
+The engine runs simulations. It may read market data over RPC, and it may not
+sign or submit a transaction, so an unlaunched strategy cannot reach real funds.
+
+`assertSimulationOnly` and `guardStrategyAction` throw
+`StrategyIsolationViolationError` before any signing or submission call.
+`guard.test.ts` also scans the package's own sources and fails the suite if a
+signing or submission API, a deployed contract address, or the
+`CONTRACT_ADDRESSES` table appears in them.
+
+Live execution stays off unless `MERIDIAN_STRATEGIES_LIVE_EXECUTION` is exactly
+`true`. That variable is the single place a launch flips the boundary, and any
+other value leaves the engine in simulation mode.
+
 ## Fixed-point math
 
 Monetary values use `Decimal`, a fixed-point type backed by `bigint` that stores

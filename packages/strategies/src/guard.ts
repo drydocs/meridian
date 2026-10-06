@@ -1,82 +1,41 @@
 /**
- * Unlaunched Strategies Boundary & Isolation Guard
+ * The engine runs simulations. It may read market data over RPC, and it may not
+ * sign or submit, so an unlaunched strategy cannot reach real funds.
  *
- * The strategies package is strictly simulation-first. Strategies and backtests
- * run in memory against mock or read-only historical market data and must NEVER
- * touch real vault contracts, live networks (mainnet), signers, or submit real transactions.
- *
- * Feature Flag:
- * - Default: OFF (`false`) in every configuration including CI.
- * - Enforces that unlaunched strategies cannot reach signing or on-chain submit pathways.
+ * The flag that would lift that boundary is a build-time property rather than a
+ * runtime switch. It is read from `MERIDIAN_STRATEGIES_LIVE_EXECUTION`, and any
+ * value other than the exact string "true" leaves the engine in simulation
+ * mode, so a missing, empty or misspelled value fails closed. There is no
+ * setter: the single place a launch flips this is that variable in the
+ * deployment that runs strategies.
  */
 
-export const STELLAR_MAINNET_PASSPHRASE = "Public Global Stellar Network ; September 2015";
-export const STELLAR_TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
+export const LIVE_EXECUTION_ENV_VAR = "MERIDIAN_STRATEGIES_LIVE_EXECUTION";
 
 export class StrategyIsolationViolationError extends Error {
   constructor(message: string) {
-    super(`[Strategy Isolation Violation] ${message}`);
+    super(message);
     this.name = "StrategyIsolationViolationError";
   }
 }
 
-export class StrategyExecutionGuard {
-  private static liveExecutionFlag = false;
-
-  /**
-   * Check if live execution / on-chain submission is enabled. Default is false.
-   */
-  static isLiveExecutionEnabled(): boolean {
-    return this.liveExecutionFlag;
-  }
-
-  /**
-   * Set execution flag explicitly.
-   */
-  static setLiveExecution(enabled: boolean): void {
-    this.liveExecutionFlag = enabled;
-  }
-
-  /**
-   * Enforces that live transaction signing/submission cannot proceed when unlaunched.
-   * Throws StrategyIsolationViolationError immediately before any network I/O or signing occurs.
-   */
-  static assertSimulationOnly(operationName: string): void {
-    if (!this.isLiveExecutionEnabled()) {
-      throw new StrategyIsolationViolationError(
-        `Blocked attempt to execute '${operationName}'. Strategies are in simulation-first mode and live execution is unlaunched.`
-      );
-    }
-  }
-
-  /**
-   * Enforces that network endpoints must not target live Mainnet while unlaunched.
-   */
-  static assertAllowedNetwork(networkPassphrase?: string): void {
-    if (!networkPassphrase) return;
-    if (networkPassphrase === STELLAR_MAINNET_PASSPHRASE && !this.isLiveExecutionEnabled()) {
-      throw new StrategyIsolationViolationError(
-        "Strategies engine cannot connect to Stellar Mainnet while unlaunched."
-      );
-    }
-  }
-
-  /**
-   * Reset guard to safe default (used for test isolation).
-   */
-  static reset(): void {
-    this.liveExecutionFlag = false;
-  }
+export function isLiveExecutionEnabled(): boolean {
+  return process.env[LIVE_EXECUTION_ENV_VAR] === "true";
 }
 
-/**
- * Guarded action wrapper for strategy execution.
- * Any attempt to invoke real transaction signing/submission without explicit live flag throws immediately.
- */
+export function assertSimulationOnly(operationName: string): void {
+  if (isLiveExecutionEnabled()) {
+    return;
+  }
+  throw new StrategyIsolationViolationError(
+    `Blocked "${operationName}". The strategies engine is unlaunched and may not sign or submit a transaction. Set ${LIVE_EXECUTION_ENV_VAR}=true to lift the boundary.`
+  );
+}
+
 export async function guardStrategyAction<T>(
   actionName: string,
-  fn: () => Promise<T> | T
+  action: () => Promise<T> | T
 ): Promise<T> {
-  StrategyExecutionGuard.assertSimulationOnly(actionName);
-  return await fn();
+  assertSimulationOnly(actionName);
+  return await action();
 }
