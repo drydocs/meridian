@@ -1,21 +1,14 @@
 // Historical price and rate ingestion (#865).
 //
-// Turns recorded market data into the shared {@link TimeSeries} structure a
-// backtest replays, with no live network dependency and no floating-point
-// step. Every value is parsed into the package's single fixed-point decimal,
-// {@link Decimal} (a bigint `raw` plus a decimal `scale`), and the ordered,
-// immutable series itself is the `TimeSeries` from `./time-series` (#866):
-// this module adds no time-series or decimal primitive of its own, only the
-// documented input parsing, the ordering/duplicate policy, and the stream
-// bookkeeping around it. Because a loaded series is a `TimeSeries`, it also
-// inherits `atOrBefore` lookup and `resample` for free.
+// Turns recorded market data into the {@link TimeSeries} a backtest replays,
+// with no live network dependency and no floating-point step. Values are
+// `Decimal` (#856), so a loaded series feeds the simulation harness directly.
 //
-// ── Documented input format ────────────────────────────────────────────────
+// Input format. Two JSON shapes are accepted:
 //
-// Two equivalent JSON shapes are accepted by {@link loadHistoricalSeries}:
-//
-// 1. Row form — an array of rows (or `{ rows: [...] }`). Each row names an
-//    `asset`, an observation `timestamp`, and at least one of `price` / `rate`:
+// 1. Row form, an array of rows or `{ rows: [...] }`. Each row names an
+//    `asset`, an observation `timestamp`, and at least one of `price` or
+//    `rate`:
 //
 //      [
 //        { "asset": "USDC", "timestamp": 1710000000000, "price": "0.9999" },
@@ -23,51 +16,47 @@
 //        { "asset": "blend:USDC", "timestamp": 1710000000000, "rate": "0.0525" }
 //      ]
 //
-//    A row with both `price` and `rate` contributes one point to each stream.
-//    An explicit `kind: "price" | "rate"` selects exactly one field and ignores
-//    the other (and is an error when that field is missing).
+//    A row with both fields contributes one point to each stream. An explicit
+//    `kind` selects exactly one field, ignores the other, and is an error when
+//    that field is missing.
 //
-// 2. Multi-stream map form — `{ streams: { [streamId]: { asset, kind,
-//    precision?, points: [{ timestamp, value }] } } }`. The map key becomes the
-//    series id, which allows several streams over the same asset (e.g. two
-//    protocols' rates) to be kept distinct.
+// 2. Multi-stream map form, `{ streams: { [id]: { asset, kind, points } } }`,
+//    where a stream may also override `scale` or `intervalMs`. The map key
+//    becomes the stream id, which keeps several streams over one asset (two
+//    protocols' rates, for instance) distinct.
 //
-// `timestamp` is a non-negative epoch-millisecond integer, or an ISO-8601
-// string parsed with `Date.parse`. `price` / `rate` / `value` are decimal
-// strings (preferred, exact) or JSON numbers; a value with more decimal places
-// than the configured precision is rejected rather than rounded, which is what
-// makes the loader's round-trip guarantee possible.
+// `timestamp` is epoch milliseconds as a non-negative integer, or an ISO-8601
+// string parsed with `Date.parse`. Values are decimal strings (preferred,
+// exact) or JSON numbers. Significant digits beyond the configured scale are
+// rejected rather than rounded, which is what makes the round trip exact.
 //
-// ── Documented ordering and duplicate rule ─────────────────────────────────
+// Ordering. Within a stream, timestamps must be strictly increasing.
+// `onOutOfOrder` governs a timestamp before its predecessor, defaulting to
+// `"reject"` and accepting `"sort"`. `onDuplicate` governs an equal timestamp,
+// defaulting to `"reject"` and accepting `"first"` or `"last"`.
 //
-// Within each stream, timestamps must be strictly increasing.
-//   * Out-of-order (a timestamp strictly before the previous one) is governed
-//     by `onOutOfOrder`: `"reject"` (default) throws a HistoricalLoadError with
-//     code `"out-of-order"`; `"sort"` stably sorts the stream ascending first.
-//   * Duplicate (a timestamp equal to the previous one) is governed by
-//     `onDuplicate`: `"reject"` (default) throws with code `"duplicate"`;
-//     `"first"` keeps the first observation; `"last"` keeps the last one.
-//
-// These rules are enforced by the loader, so every returned series is
-// guaranteed ordered and duplicate-free, exactly the invariant `TimeSeries.from`
-// requires.
+// Cadence. `intervalMs` is required because `TimeSeries` carries a nominal
+// recording cadence and resampling depends on it being truthful. Every gap
+// between consecutive samples must be a whole number of intervals, so real gaps
+// are allowed but a finer or irregular grid than the one declared is rejected
+// instead of being mislabelled later.
 
-import { Decimal } from "./decimal";
+import { Decimal, DEFAULT_DECIMAL_SCALE } from "./decimal";
 import { TimeSeries, type TimeSeriesEntry } from "./time-series";
 
-/** Default decimal places; matches the 7-decimal stroop scale used elsewhere. */
-export const DEFAULT_HISTORICAL_PRECISION = 7;
+/** Default decimal places; the stroop scale used across the repo. */
+export const DEFAULT_HISTORICAL_SCALE = DEFAULT_DECIMAL_SCALE;
 
 /**
- * Largest supported number of decimal places for a loaded value. Bounded so a
- * hostile input cannot materialise an unbounded bigint.
+ * Largest supported scale. `Decimal` itself has no cap, but every scale costs
+ * a `10 ** scale` bigint, so an unbounded value would hang on materialisation.
  */
-export const MAX_HISTORICAL_PRECISION = 30;
+export const MAX_HISTORICAL_SCALE = 30;
+
+export type HistoricalValue = string | number;
 
 /** A price feed or an interest-rate stream. */
 export type StreamKind = "price" | "rate";
-
-export type HistoricalValue = string | number;
 
 /** One observation in row form. */
 export interface HistoricalRow {
@@ -91,8 +80,10 @@ export interface HistoricalStreamPoint {
 export interface HistoricalStream {
   asset: string;
   kind: StreamKind;
-  /** Per-stream precision override; defaults to the loader's precision. */
-  precision?: number;
+  /** Per-stream scale override; defaults to the loader's scale. */
+  scale?: number;
+  /** Per-stream cadence override; defaults to the loader's intervalMs. */
+  intervalMs?: number;
   points: readonly HistoricalStreamPoint[];
 }
 
@@ -112,8 +103,10 @@ export type DuplicatePolicy = "reject" | "first" | "last";
 export type MalformedPolicy = "reject" | "skip";
 
 export interface LoadHistoricalOptions {
+  /** Nominal recording cadence in milliseconds, shared by every stream. */
+  intervalMs: number;
   /** Decimal places for every loaded value. Default 7. */
-  precision?: number;
+  scale?: number;
   /** How to handle out-of-order timestamps. Default `"reject"`. */
   onOutOfOrder?: OutOfOrderPolicy;
   /** How to handle duplicate timestamps. Default `"reject"`. */
@@ -122,27 +115,12 @@ export interface LoadHistoricalOptions {
   onMalformed?: MalformedPolicy;
 }
 
-/**
- * One loaded stream: the identity the loader resolved, plus the shared immutable
- * {@link TimeSeries} (#866) holding the parsed values. The series is the
- * package's single time-series representation, so it feeds a backtest directly
- * (`atOrBefore`, `resample`, ordered `points`) with no further transformation.
- */
-export interface LoadedSeries {
-  /** Stream id: `"<kind>:<asset>"` for row-sourced streams, the map key otherwise. */
-  readonly id: string;
-  /** Asset id for price streams, or pool/protocol id for rate streams. */
-  readonly asset: string;
-  readonly kind: StreamKind;
-  /** The shared immutable series; every value is a {@link Decimal} at its scale. */
-  readonly series: TimeSeries;
-}
-
 export type HistoricalLoadErrorCode =
   | "malformed-input"
   | "invalid-timestamp"
   | "invalid-value"
-  | "precision"
+  | "scale"
+  | "interval"
   | "out-of-order"
   | "duplicate";
 
@@ -167,8 +145,18 @@ export class HistoricalLoadError extends Error {
   }
 }
 
+/** One loaded stream: its identity, and the series a backtest replays. */
+export interface LoadedStream {
+  /** `"<kind>:<asset>"` for row-sourced streams, the map key for the map form. */
+  readonly id: string;
+  readonly asset: string;
+  readonly kind: StreamKind;
+  readonly series: TimeSeries;
+}
+
 interface NormalizedOptions {
-  precision: number;
+  scale: number;
+  intervalMs: number;
   onOutOfOrder: OutOfOrderPolicy;
   onDuplicate: DuplicatePolicy;
   onMalformed: MalformedPolicy;
@@ -185,12 +173,13 @@ interface Bucket {
   id: string;
   asset: string;
   kind: StreamKind;
-  precision: number;
+  scale: number;
+  intervalMs: number;
   points: RawPoint[];
 }
 
-// Parse failures that `onMalformed: "skip"` may drop; ordering and duplicate
-// violations are structural errors and always throw.
+// Parse failures that `onMalformed: "skip"` may drop; ordering, duplicate, and
+// cadence violations are structural errors and always throw.
 const SKIPPABLE: ReadonlySet<HistoricalLoadErrorCode> = new Set([
   "malformed-input",
   "invalid-timestamp",
@@ -199,9 +188,65 @@ const SKIPPABLE: ReadonlySet<HistoricalLoadErrorCode> = new Set([
 
 const DECIMAL_PATTERN = /^([+-]?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/;
 
-// Guard against a hostile or accidental exponent like `1e1000000`, which would
+// Bounds a hostile or accidental exponent like `1e1000000`, which would
 // otherwise try to materialise an enormous bigint.
 const MAX_DECIMAL_EXPONENT = 1_000;
+
+const POW10: bigint[] = [1n];
+
+function powerOfTen(exponent: number): bigint {
+  if (exponent < 0) {
+    throw new RangeError(`powerOfTen: negative exponent ${exponent}`);
+  }
+  for (let i = POW10.length; i <= exponent; i++) {
+    POW10.push(POW10[i - 1]! * 10n);
+  }
+  return POW10[exponent]!;
+}
+
+/**
+ * Parses a decimal literal into a `Decimal` at exactly `scale` decimal places.
+ *
+ * Strings and numbers are read as decimal literals (a number via its shortest
+ * round-trip representation), and scientific notation is expanded exactly, so
+ * every digit the source carries survives the trip. A value needing more than
+ * `scale` decimal places is rejected rather than rounded, which is what makes
+ * the loader's round-trip guarantee possible; trailing zeros beyond `scale` are
+ * still exact and therefore accepted (e.g. `"1.230000000"` at scale 7).
+ */
+function parseDecimal(raw: string, scale: number): Decimal {
+  const text = raw.trim();
+  const match = DECIMAL_PATTERN.exec(text);
+  if (!match) {
+    throw new Error(`not a valid decimal: "${raw}"`);
+  }
+  const negative = match[1] === "-";
+  const whole = match[2]!;
+  const fraction = match[3] ?? "";
+  const exponent = match[4] === undefined ? 0 : Number(match[4]);
+  if (
+    !Number.isSafeInteger(exponent) ||
+    Math.abs(exponent) > MAX_DECIMAL_EXPONENT
+  ) {
+    throw new Error(`decimal exponent out of range: "${raw}"`);
+  }
+
+  // value = sign * (whole.fraction) * 10^exponent
+  //       = sign * digits * 10^(exponent - fraction.length)
+  const digits = BigInt(`${whole}${fraction}`);
+  const shift = exponent - fraction.length + scale;
+  let scaled: bigint;
+  if (shift >= 0) {
+    scaled = digits * powerOfTen(shift);
+  } else {
+    const divisor = powerOfTen(-shift);
+    if (digits % divisor !== 0n) {
+      throw new Error(`"${raw}" has more than ${scale} decimal place(s)`);
+    }
+    scaled = digits / divisor;
+  }
+  return new Decimal(negative ? -scaled : scaled, scale);
+}
 
 function isStreamMap(input: unknown): input is HistoricalStreamMapInput {
   return (
@@ -221,88 +266,67 @@ function isRowInput(input: unknown): input is HistoricalRowInput {
   );
 }
 
-function assertPrecision(precision: number): void {
-  if (
-    !Number.isInteger(precision) ||
-    precision < 0 ||
-    precision > MAX_HISTORICAL_PRECISION
-  ) {
-    throw new RangeError(
-      `precision must be an integer between 0 and ${MAX_HISTORICAL_PRECISION}, received ${precision}`
+function resolveScale(value: number | undefined): number {
+  const scale = value ?? DEFAULT_HISTORICAL_SCALE;
+  if (!Number.isInteger(scale) || scale < 0 || scale > MAX_HISTORICAL_SCALE) {
+    throw new HistoricalLoadError(
+      "scale",
+      `scale must be an integer between 0 and ${MAX_HISTORICAL_SCALE}, received ${scale}`
     );
   }
+  return scale;
 }
 
-function resolvePrecision(value: number | undefined): number {
-  const precision = value ?? DEFAULT_HISTORICAL_PRECISION;
-  try {
-    assertPrecision(precision);
-  } catch (err) {
+function resolveInterval(value: number | undefined): number {
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
     throw new HistoricalLoadError(
-      "precision",
-      err instanceof Error ? err.message : String(err)
+      "interval",
+      `intervalMs must be a positive safe integer, received ${value}`
     );
   }
-  return precision;
+  return value as number;
 }
 
 function normalizeOptions(options: LoadHistoricalOptions): NormalizedOptions {
+  if (options === null || typeof options !== "object") {
+    throw new HistoricalLoadError(
+      "interval",
+      "options with intervalMs are required"
+    );
+  }
   return {
-    precision: resolvePrecision(options.precision),
+    intervalMs: resolveInterval(options.intervalMs),
+    scale: resolveScale(options.scale),
     onOutOfOrder: options.onOutOfOrder ?? "reject",
     onDuplicate: options.onDuplicate ?? "reject",
     onMalformed: options.onMalformed ?? "reject",
   };
 }
 
-/**
- * Parses a decimal literal into the shared {@link Decimal} at `scale` places,
- * exactly. Unlike `Decimal.fromString`, a value carrying more than `scale`
- * significant decimal places is rejected rather than rounded: the loader's
- * lossless round-trip depends on it. Scientific notation is accepted, so
- * `"1.5e-3"` and `"1e-8"` parse like their plain forms.
- */
-function parseDecimalExact(raw: string, scale: number): Decimal {
-  const match = DECIMAL_PATTERN.exec(raw.trim());
-  if (!match) {
-    throw new Error(`invalid decimal value: "${raw}"`);
-  }
-  const sign = match[1] === "-" ? -1n : 1n;
-  const whole = match[2]!;
-  const fraction = match[3] ?? "";
-  const exponent = match[4] === undefined ? 0 : Number(match[4]);
-  if (
-    !Number.isSafeInteger(exponent) ||
-    Math.abs(exponent) > MAX_DECIMAL_EXPONENT
-  ) {
-    throw new Error(`decimal exponent out of range: "${raw}"`);
-  }
-
-  const digits = BigInt(`${whole}${fraction}`);
-  // value = digits * 10 ** (exponent - fraction.length), scaled to `scale`.
-  const power = exponent - fraction.length + scale;
-  let scaled: bigint;
-  if (power >= 0) {
-    scaled = digits * 10n ** BigInt(power);
-  } else {
-    const divisor = 10n ** BigInt(-power);
-    if (digits % divisor !== 0n) {
-      throw new Error(`"${raw}" has more than ${scale} decimal place(s)`);
-    }
-    scaled = digits / divisor;
-  }
-  return new Decimal(sign * scaled, scale);
-}
-
 function parseTimestamp(
   raw: number | string,
   details: { stream?: string; index?: number }
 ): number {
+  const parsed = readTimestamp(raw, details);
+  if (parsed < 0) {
+    throw new HistoricalLoadError(
+      "invalid-timestamp",
+      `timestamp ${parsed} is negative; epoch milliseconds must be non-negative`,
+      details
+    );
+  }
+  return parsed;
+}
+
+function readTimestamp(
+  raw: number | string,
+  details: { stream?: string; index?: number }
+): number {
   if (typeof raw === "number") {
-    if (!Number.isSafeInteger(raw) || raw < 0) {
+    if (!Number.isSafeInteger(raw)) {
       throw new HistoricalLoadError(
         "invalid-timestamp",
-        `timestamp must be a non-negative integer number of epoch milliseconds, received ${raw}`,
+        `timestamp must be an integer number of epoch milliseconds, received ${raw}`,
         details
       );
     }
@@ -318,17 +342,17 @@ function parseTimestamp(
   const text = raw.trim();
   if (/^[+-]?\d+$/.test(text)) {
     const parsed = Number(text);
-    if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    if (!Number.isSafeInteger(parsed)) {
       throw new HistoricalLoadError(
         "invalid-timestamp",
-        `timestamp "${raw}" is outside the safe non-negative integer range`,
+        `timestamp "${raw}" is outside the safe integer range`,
         details
       );
     }
     return parsed;
   }
   const parsed = Date.parse(text);
-  if (!Number.isInteger(parsed) || parsed < 0) {
+  if (!Number.isInteger(parsed)) {
     throw new HistoricalLoadError(
       "invalid-timestamp",
       `timestamp "${raw}" is not a valid ISO-8601 date`,
@@ -340,14 +364,11 @@ function parseTimestamp(
 
 function parseValue(
   raw: HistoricalValue,
-  precision: number,
+  scale: number,
   details: { stream?: string; index?: number }
 ): Decimal {
   try {
-    return parseDecimalExact(
-      typeof raw === "number" ? String(raw) : raw,
-      precision
-    );
+    return parseDecimal(String(raw), scale);
   } catch (err) {
     throw new HistoricalLoadError(
       "invalid-value",
@@ -365,16 +386,21 @@ function hasValue(value: unknown): value is HistoricalValue {
   return typeof value === "string" || typeof value === "number";
 }
 
+function isSkippable(err: unknown): boolean {
+  return err instanceof HistoricalLoadError && SKIPPABLE.has(err.code);
+}
+
 function bucketFor(
   buckets: Map<string, Bucket>,
   id: string,
   asset: string,
   kind: StreamKind,
-  precision: number
+  scale: number,
+  intervalMs: number
 ): Bucket {
   let bucket = buckets.get(id);
   if (!bucket) {
-    bucket = { id, asset, kind, precision, points: [] };
+    bucket = { id, asset, kind, scale, intervalMs, points: [] };
     buckets.set(id, bucket);
   }
   return bucket;
@@ -403,7 +429,7 @@ function collectRow(
   const asset = row.asset;
   const timestamp = parseTimestamp(row.timestamp, { stream: asset, index });
 
-  let kinds: StreamKind[];
+  const contributions: Array<{ kind: StreamKind; raw: HistoricalValue }> = [];
   if (row.kind !== undefined) {
     if (!isStreamKind(row.kind)) {
       throw new HistoricalLoadError(
@@ -420,12 +446,15 @@ function collectRow(
         { stream: asset, index }
       );
     }
-    kinds = [row.kind];
+    contributions.push({ kind: row.kind, raw: value });
   } else {
-    kinds = [];
-    if (hasValue(row.price)) kinds.push("price");
-    if (hasValue(row.rate)) kinds.push("rate");
-    if (kinds.length === 0) {
+    if (hasValue(row.price)) {
+      contributions.push({ kind: "price", raw: row.price });
+    }
+    if (hasValue(row.rate)) {
+      contributions.push({ kind: "rate", raw: row.rate });
+    }
+    if (contributions.length === 0) {
       throw new HistoricalLoadError(
         "malformed-input",
         `row ${index} must provide at least one of "price" or "rate"`,
@@ -436,28 +465,22 @@ function collectRow(
 
   // Parse every value this row contributes before touching a bucket, so a row
   // that fails on its second field doesn't leave a partial point behind.
-  const parsed: Array<{ kind: StreamKind; id: string; value: Decimal }> = [];
-  for (const kind of kinds) {
-    const raw = kind === "price" ? row.price : row.rate;
-    if (!hasValue(raw)) {
-      // Only reachable when no explicit kind narrows the fields; the other
-      // field must have been present for `kinds` to include this one.
-      continue;
-    }
+  const parsed = contributions.map(({ kind, raw }) => {
     const id = `${kind}:${asset}`;
-    parsed.push({
+    return {
       kind,
       id,
-      value: parseValue(raw, options.precision, { stream: id, index }),
-    });
-  }
+      value: parseValue(raw, options.scale, { stream: id, index }),
+    };
+  });
   for (const point of parsed) {
     bucketFor(
       buckets,
       point.id,
       asset,
       point.kind,
-      options.precision
+      options.scale,
+      options.intervalMs
     ).points.push({
       timestamp,
       value: point.value,
@@ -475,11 +498,7 @@ function collectRows(
     try {
       collectRow(rows[index]!, index, options, buckets);
     } catch (err) {
-      if (
-        options.onMalformed === "skip" &&
-        err instanceof HistoricalLoadError &&
-        SKIPPABLE.has(err.code)
-      ) {
+      if (options.onMalformed === "skip" && isSkippable(err)) {
         continue;
       }
       throw err;
@@ -534,14 +553,11 @@ function collectStreams(
         id,
         stream.asset,
         stream.kind,
-        resolvePrecision(stream.precision ?? options.precision)
+        resolveScale(stream.scale ?? options.scale),
+        resolveInterval(stream.intervalMs ?? options.intervalMs)
       );
     } catch (err) {
-      if (
-        options.onMalformed === "skip" &&
-        err instanceof HistoricalLoadError &&
-        SKIPPABLE.has(err.code)
-      ) {
+      if (options.onMalformed === "skip" && isSkippable(err)) {
         continue;
       }
       throw err;
@@ -572,18 +588,14 @@ function collectStreams(
         }
         bucket.points.push({
           timestamp,
-          value: parseValue(point.value, bucket.precision, {
+          value: parseValue(point.value, bucket.scale, {
             stream: id,
             index,
           }),
           source: index,
         });
       } catch (err) {
-        if (
-          options.onMalformed === "skip" &&
-          err instanceof HistoricalLoadError &&
-          SKIPPABLE.has(err.code)
-        ) {
+        if (options.onMalformed === "skip" && isSkippable(err)) {
           continue;
         }
         throw err;
@@ -592,43 +604,30 @@ function collectStreams(
   }
 }
 
-function gcd(a: number, b: number): number {
-  let left = a;
-  let right = b;
-  while (right !== 0) {
-    const rest = left % right;
-    left = right;
-    right = rest;
-  }
-  return left;
-}
-
 /**
- * Infers a nominal recording cadence for the shared series: the greatest common
- * divisor of the gaps between consecutive timestamps, i.e. the largest interval
- * onto which every sample falls. A stream with fewer than two points has no
- * observable cadence and reports 1ms. Resampling the loaded series back to this
- * interval is a no-op whenever the samples are already epoch-aligned.
+ * Throws unless the kept timestamps sit on the declared cadence. A gap of
+ * several intervals means missing samples, which is legitimate; a gap that is
+ * not a whole number of intervals means the declared cadence is wrong.
  */
-function inferIntervalMs(entries: readonly TimeSeriesEntry[]): number {
-  const first = entries[0];
-  const second = entries[1];
-  if (first === undefined || second === undefined) {
-    return 1;
+function assertCadence(bucket: Bucket, kept: readonly RawPoint[]): void {
+  for (let i = 1; i < kept.length; i++) {
+    const previous = kept[i - 1]!;
+    const point = kept[i]!;
+    const gap = point.timestamp - previous.timestamp;
+    if (gap % bucket.intervalMs !== 0) {
+      throw new HistoricalLoadError(
+        "interval",
+        `stream "${bucket.id}" has a ${gap}ms gap between ${previous.timestamp} and ${point.timestamp} (source ${point.source}), which is not a multiple of the declared intervalMs ${bucket.intervalMs}`,
+        { stream: bucket.id, index: point.source }
+      );
+    }
   }
-  let interval = second.timestampMs - first.timestampMs;
-  for (let i = 2; i < entries.length; i++) {
-    const previous = entries[i - 1]!;
-    const current = entries[i]!;
-    interval = gcd(interval, current.timestampMs - previous.timestampMs);
-  }
-  return interval;
 }
 
 function finalizeBucket(
   bucket: Bucket,
   options: NormalizedOptions
-): LoadedSeries {
+): LoadedStream {
   const ordered =
     options.onOutOfOrder === "sort"
       ? [...bucket.points].sort((a, b) => a.timestamp - b.timestamp)
@@ -664,19 +663,26 @@ function finalizeBucket(
     kept.push(point);
   }
 
+  assertCadence(bucket, kept);
+
   const entries: TimeSeriesEntry[] = kept.map((point) => ({
     timestampMs: point.timestamp,
     value: point.value,
   }));
-  const series = TimeSeries.from(entries, {
-    intervalMs: inferIntervalMs(entries),
-    scale: bucket.precision,
-  });
-  return { id: bucket.id, asset: bucket.asset, kind: bucket.kind, series };
+
+  return {
+    id: bucket.id,
+    asset: bucket.asset,
+    kind: bucket.kind,
+    series: TimeSeries.from(entries, {
+      intervalMs: bucket.intervalMs,
+      scale: bucket.scale,
+    }),
+  };
 }
 
 /**
- * Loads historical price/rate data into the shared `TimeSeries` structure.
+ * Loads historical price/rate data into time series.
  *
  * Multiple assets and rate streams are loaded in one pass; the returned record
  * is keyed by stream id (`"<kind>:<asset>"` for row-sourced streams, the map
@@ -685,8 +691,8 @@ function finalizeBucket(
  */
 export function loadHistoricalSeries(
   input: HistoricalInput,
-  options: LoadHistoricalOptions = {}
-): Record<string, LoadedSeries> {
+  options: LoadHistoricalOptions
+): Record<string, LoadedStream> {
   const normalized = normalizeOptions(options);
   const buckets = new Map<string, Bucket>();
 
@@ -703,26 +709,26 @@ export function loadHistoricalSeries(
     );
   }
 
-  const series: Record<string, LoadedSeries> = {};
+  const loaded: Record<string, LoadedStream> = {};
   for (const bucket of buckets.values()) {
-    series[bucket.id] = finalizeBucket(bucket, normalized);
+    loaded[bucket.id] = finalizeBucket(bucket, normalized);
   }
-  return series;
+  return loaded;
 }
 
 /**
- * Serialises a loaded stream back into row form at its fixed precision. Feeding
- * the result back through {@link loadHistoricalSeries} at the same precision
- * reproduces every value exactly (see historical-loader.test.ts).
+ * Serialises a loaded stream back into row form at full scale. Feeding the
+ * result back through {@link loadHistoricalSeries} with the same scale and
+ * interval reproduces every value exactly (see historical-loader.test.ts).
  */
-export function seriesToRows(loaded: LoadedSeries): HistoricalRow[] {
-  return loaded.series.points.map((point) => {
+export function seriesToRows(stream: LoadedStream): HistoricalRow[] {
+  return stream.series.points.map((point) => {
     const row: HistoricalRow = {
-      asset: loaded.asset,
+      asset: stream.asset,
       timestamp: point.timestampMs,
-      kind: loaded.kind,
+      kind: stream.kind,
     };
-    if (loaded.kind === "price") {
+    if (stream.kind === "price") {
       row.price = point.value.toString();
     } else {
       row.rate = point.value.toString();
