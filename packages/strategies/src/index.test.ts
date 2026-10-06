@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  STRATEGY_ENGINE,
+  type StrategyEngine,
   FixedPointDecimal,
   StaticPriceFeed,
   BacktestPriceFeed,
@@ -11,6 +13,22 @@ import {
   isUnknownAssetError,
   isTimestampOutOfRangeError,
 } from "./index";
+
+describe("@meridian/strategies package", () => {
+  it("exports STRATEGY_ENGINE with valid metadata", () => {
+    expect(STRATEGY_ENGINE).toBeDefined();
+    expect(STRATEGY_ENGINE.name).toBe("meridian-strategies");
+    expect(STRATEGY_ENGINE.version).toBe("0.1.0");
+  });
+
+  it("satisfies StrategyEngine interface", () => {
+    const customEngine: StrategyEngine = {
+      name: "custom",
+      version: "1.0.0",
+    };
+    expect(customEngine.name).toBe("custom");
+  });
+});
 
 const USDC: AssetSymbol = "USDC";
 const EURC: AssetSymbol = "EURC";
@@ -223,6 +241,33 @@ describe("BacktestPriceFeed", () => {
     });
     const price = unsortedFeed.getSpotPrice(USDC, BASE_TIMESTAMP + 3600_000);
     expect(price.toString()).toBe("1.0001");
+  });
+});
+
+describe("BacktestPriceFeed.getAvailableRange", () => {
+  it("returns the first and last timestamp of an asset's series", () => {
+    const feed = BacktestPriceFeed.create({
+      USDC: [
+        { timestamp: BASE_TIMESTAMP + 7200_000, price: "1.0002000" },
+        { timestamp: BASE_TIMESTAMP, price: "1.0000000" },
+      ],
+      EURC: [],
+    });
+
+    expect(feed.getAvailableRange(USDC)).toEqual({
+      min: BASE_TIMESTAMP,
+      max: BASE_TIMESTAMP + 7200_000,
+    });
+  });
+
+  it("returns null for an asset with no data points", () => {
+    const feed = BacktestPriceFeed.create({ USDC: [], EURC: [] });
+    expect(feed.getAvailableRange(USDC)).toBeNull();
+  });
+
+  it("returns null for an asset that is not registered", () => {
+    const feed = new BacktestPriceFeed(new Map([[USDC, []]]));
+    expect(feed.getAvailableRange(EURC)).toBeNull();
   });
 });
 
