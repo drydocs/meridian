@@ -1,9 +1,18 @@
-import { Address, Contract, nativeToScVal, rpc as SorobanRpc, xdr } from "@stellar/stellar-sdk";
 import {
-  prepareSorobanTx,
-  simulateView,
-} from "@meridian/stellar-sdk-helpers";
-import type { VaultConfig, Position, Transaction, AdapterInfo } from "./types.js";
+  Address,
+  Contract,
+  nativeToScVal,
+  rpc as SorobanRpc,
+  xdr,
+} from "@stellar/stellar-sdk";
+import { MAX_ADMIN_SLIPPAGE_BPS } from "@meridian/shared";
+import { prepareSorobanTx, simulateView } from "@meridian/stellar-sdk-helpers";
+import type {
+  VaultConfig,
+  Position,
+  Transaction,
+  AdapterInfo,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Internal helpers (private to this module)
@@ -11,10 +20,6 @@ import type { VaultConfig, Position, Transaction, AdapterInfo } from "./types.js
 
 function i128(value: bigint): xdr.ScVal {
   return nativeToScVal(value, { type: "i128" });
-}
-
-function u64(value: number): xdr.ScVal {
-  return nativeToScVal(BigInt(value), { type: "u64" });
 }
 
 function u32(value: number): xdr.ScVal {
@@ -38,30 +43,41 @@ function bigIntFrom(value: unknown): bigint {
 // ERC-4626 inflation-attack protection
 // ---------------------------------------------------------------------------
 
+/** Direction a share/asset conversion rounds in. */
+export type Rounding = "down" | "up";
+
 /**
  * Virtual share/asset offset that protects the first depositor against the
- * ERC-4626 inflation attack.  The vault contract enforces this same offset
- * on-chain; mirroring it here keeps the SDK's pure conversion math in sync
- * and makes it directly testable.
+ * ERC-4626 inflation attack. The vault contract prices every deposit against
+ * `total_assets + OFFSET` over `total_shares + OFFSET`
+ * (`packages/contracts/vault/src/storage.rs`); mirroring the same value here
+ * keeps the SDK's pure conversion math in sync with what the contract
+ * actually mints.
  *
- * With an offset of 1 on both sides:
+ * With an offset of 1_000 on both sides:
  *
- *   shares = assets * (totalSupply + 1) / (totalAssets + 1)
- *   assets = shares * (totalAssets + 1) / (totalSupply + 1)
+ *   shares = assets * (totalSupply + 1_000) / (totalAssets + 1_000)
+ *   assets = shares * (totalAssets + 1_000) / (totalSupply + 1_000)
  *
- * A first depositor minting against an empty vault (totalSupply=0,
- * totalAssets=0) always gets exactly `assets` shares because the virtual
- * denominator equals the virtual numerator.  An attacker who inflates the
- * exchange rate by donating directly to the vault cannot skew the first
- * legitimate depositor's share count to zero, because both sides of the
- * ratio shift together.
+ * The virtual liquidity belongs to no one. An attacker who donates assets
+ * directly to the adapter to inflate the share price recovers roughly
+ * 1/1_000 of the donation, which makes the skim unprofitable, while an honest
+ * first depositor against an empty vault still receives exactly `assets`
+ * shares because the virtual denominator equals the virtual numerator. For
+ * every other depositor the offset is negligible: 1_000 stroops is 0.0001
+ * USDC.
  */
-export const VIRTUAL_OFFSET = 1n;
+export const VIRTUAL_OFFSET = 1_000n;
 
 /**
  * Convert an asset amount to shares using ERC-4626 virtual-offset math.
- * Rounds *down* (floor division), matching the deposit direction in the
- * on-chain contract.
+ * Defaults to rounding *down*, matching the contract's deposit direction: a
+ * depositor is never credited more shares than their assets bought.
+ *
+ * Pass `"up"` when the share amount is being burned to release a requested
+ * amount of assets. Rounding down there would release slightly less than the
+ * requested USDC, so withdrawal sizing rounds up to the smallest share count
+ * whose payout covers the request.
  *
  *   virtualSupply = totalSupply + VIRTUAL_OFFSET
  *   virtualAssets = totalAssets + VIRTUAL_OFFSET
@@ -70,17 +86,22 @@ export const VIRTUAL_OFFSET = 1n;
 export function convertAssetsToShares(
   assets: bigint,
   totalAssets: bigint,
-  totalSupply: bigint
+  totalSupply: bigint,
+  rounding: Rounding = "down"
 ): bigint {
   const virtualAssets = totalAssets + VIRTUAL_OFFSET;
   const virtualSupply = totalSupply + VIRTUAL_OFFSET;
-  return (assets * virtualSupply) / virtualAssets;
+  const numerator = assets * virtualSupply;
+  if (rounding === "up") {
+    return (numerator + virtualAssets - 1n) / virtualAssets;
+  }
+  return numerator / virtualAssets;
 }
 
 /**
  * Convert a share amount to assets using ERC-4626 virtual-offset math.
- * Rounds *down* (floor division), matching the withdraw direction in the
- * on-chain contract.
+ * Rounds *down* (floor division), matching the contract's withdrawal payout
+ * and ERC-4626's `previewRedeem`.
  *
  *   assets = shares * virtualAssets / virtualSupply
  */
@@ -102,10 +123,10 @@ export function convertSharesToAssets(
  * Abstract base class for MeridianVault coordinator contracts.
  *
  * Subclasses supply the `caller` property (a Stellar G-address) to identify
- * which account builds the transactions, then inherit:
+ * which account signs the built transaction, then inherit:
  *
- *  - State-changing methods: `deposit`, `withdraw`, `pause`, `unpause`,
- *    `setAdapter`, `migrateAdapter` — each returns `Promise<Transaction>`,
+ *  - State-changing methods: `deposit`, `withdraw`, `setPaused`, `setAdapter`,
+ *    `beginMigration`, `migrateAdapter`. Each returns `Promise<Transaction>`,
  *    an unsigned Soroban XDR that must be signed and submitted by the caller.
  *
  *  - Position queries: `getPosition`, `getPrincipal`.
@@ -113,7 +134,12 @@ export function convertSharesToAssets(
  *  - ERC-4626 view methods: `totalAssets`, `totalSupply`, `convertToShares`,
  *    `convertToAssets`, `maxDeposit`, `maxMint`, `maxWithdraw`, `maxRedeem`.
  *
- *  - Adapter/pause state: `isPaused`, `getAdapterInfo`.
+ *  - Adapter and pause state: `isPaused`, `getAdapterInfo`.
+ *
+ * Every method builds the contract's own entry point with the same arguments,
+ * so an on-chain rejection surfaces as a simulation error from
+ * `prepareSorobanTx` rather than as a difference between the SDK's model and
+ * the deployed contract.
  *
  * All asset/share values are in stroops (1 USDC = 10 000 000 stroops).
  *
@@ -175,15 +201,17 @@ export abstract class VaultBase {
   // -------------------------------------------------------------------------
 
   /**
-   * Deposit `assets` USDC into the vault on behalf of `receiver`.
+   * Deposit `assets` USDC into the vault for the `receiver` account.
    *
-   * Builds a `deposit(receiver, assets, 0)` contract call. The third
-   * argument is `min_shares_out`; passing 0 disables slippage protection.
-   * Callers that need a minimum-shares guarantee should call
-   * `convertToShares` first and construct the operation directly.
+   * Builds a `deposit(receiver, assets, 0)` contract call. The contract pulls
+   * USDC from `receiver` and mints the shares to `receiver` in the same call,
+   * so that address is the depositor and must be the one authorising the
+   * transaction. The third argument is `min_shares_out`; passing 0 disables
+   * slippage protection. Callers that need a minimum-shares guarantee should
+   * call `convertToShares` first and construct the operation directly.
    *
    * @param assets   Amount in stroops (1 USDC = 10 000 000)
-   * @param receiver Stellar G-address to credit with mUSDC shares
+   * @param receiver Stellar G-address credited with mUSDC shares
    */
   async deposit(assets: bigint, receiver: string): Promise<Transaction> {
     if (assets <= 0n) throw new Error("assets must be positive");
@@ -199,55 +227,68 @@ export abstract class VaultBase {
 
   /**
    * Withdraw USDC equivalent to `assets` from the vault, burning the
-   * corresponding shares from `owner` and sending USDC to `owner`.
+   * corresponding shares from `owner`.
    *
-   * The MeridianVault coordinator uses a single address as both the share
-   * source and the USDC destination. Converts `assets` to shares via
-   * `convertToShares` (using current vault state), then builds a
-   * `withdraw(owner, shares, 0)` call. Passing 0 as `min_usdc_out` disables
-   * slippage protection.
+   * MeridianVault has no separate payout address: `withdraw` authorises
+   * `owner` and pays USDC to that same account, so `receiver` must equal
+   * `owner` and a mismatch is rejected rather than silently ignored.
+   *
+   * The share amount is rounded up, so the payout covers `assets` rather than
+   * falling a stroop short of it. Passing 0 as `min_usdc_out` disables the
+   * contract's slippage floor; callers that want one should build the
+   * operation directly with the value they are willing to accept.
    *
    * @param assets   USDC amount in stroops to redeem
-   * @param receiver Stellar G-address to receive USDC (must equal owner on MeridianVault)
+   * @param receiver Stellar G-address to receive USDC (must equal owner)
    * @param owner    Stellar G-address whose mUSDC shares are burned
    */
   async withdraw(
     assets: bigint,
-    _receiver: string,
+    receiver: string,
     owner: string
   ): Promise<Transaction> {
     if (assets <= 0n) throw new Error("assets must be positive");
-    const shares = await this.convertToShares(assets);
+    if (receiver !== owner) {
+      throw new Error(
+        "receiver must equal owner: MeridianVault pays USDC to the account that authorises the withdrawal"
+      );
+    }
+    const [totalAssets, totalSupply] = await Promise.all([
+      this.totalAssets(),
+      this.totalSupply(),
+    ]);
+    const shares = convertAssetsToShares(
+      assets,
+      totalAssets,
+      totalSupply,
+      "up"
+    );
+    return this.prepare(
+      this.contract().call("withdraw", addrScVal(owner), i128(shares), i128(0n))
+    );
+  }
+
+  /**
+   * Pause or resume the vault. Only callable by the vault admin.
+   *
+   * While paused the contract rejects new deposits. Withdrawals stay open, so
+   * a pause can never trap funds already in the vault.
+   *
+   * @param paused `true` to pause deposits, `false` to resume them
+   */
+  async setPaused(paused: boolean): Promise<Transaction> {
     return this.prepare(
       this.contract().call(
-        "withdraw",
-        addrScVal(owner),
-        i128(shares),
-        i128(0n)
+        "set_paused",
+        nativeToScVal(paused, { type: "bool" })
       )
     );
   }
 
   /**
-   * Pause the vault, blocking all deposits and withdrawals.
-   * Only callable by the vault admin.
-   */
-  async pause(): Promise<Transaction> {
-    return this.prepare(this.contract().call("pause"));
-  }
-
-  /**
-   * Unpause the vault, re-enabling deposits and withdrawals.
-   * Only callable by the vault admin.
-   */
-  async unpause(): Promise<Transaction> {
-    return this.prepare(this.contract().call("unpause"));
-  }
-
-  /**
    * Replace the vault's active adapter with `newAdapter` immediately,
-   * without moving funds.  To atomically transfer funds, use
-   * `migrateAdapter` instead.
+   * without moving funds. To move the funds across as well, use
+   * `beginMigration` followed by `migrateAdapter`.
    * Only callable by the vault admin.
    *
    * @param newAdapter Bech32 C-address of the replacement adapter contract
@@ -259,30 +300,46 @@ export abstract class VaultBase {
   }
 
   /**
-   * Begin or complete an atomic adapter migration.
+   * Record a valuation snapshot of the current adapter and start the cooldown
+   * that `migrateAdapter` requires. Only callable by the vault admin.
    *
-   * The on-chain `migrate_adapter` entry-point is gated by a ~1-day
-   * timelock and a slippage bound.  Call this once to initiate; call it
-   * again after the timelock has elapsed to execute the fund transfer.
+   * The contract enforces a minimum ledger gap of 17 280 ledgers (roughly one
+   * day) between this call and the migration, giving depositors a window to
+   * exit before the vault's funds move to a new adapter.
    *
-   * @param newAdapter  Bech32 C-address of the target adapter
-   * @param deadline    Unix timestamp (seconds) by which migration must finish
-   * @param slippageBps Maximum tolerated value loss in basis points (0–10000)
+   * @param newAdapter Bech32 C-address of the adapter being migrated to
+   */
+  async beginMigration(newAdapter: string): Promise<Transaction> {
+    return this.prepare(
+      this.contract().call("begin_migration", addrScVal(newAdapter))
+    );
+  }
+
+  /**
+   * Move the vault's funds from the active adapter to `newAdapter`.
+   * Only callable by the vault admin, and only after `beginMigration` has
+   * recorded a snapshot for the same `newAdapter` and the cooldown has
+   * elapsed. Calling it earlier fails with `MigrationNotInitialized` or
+   * `MigrationCooldownNotMet`.
+   *
+   * @param newAdapter     Bech32 C-address of the target adapter
+   * @param maxSlippageBps Maximum tolerated value loss in basis points,
+   *                       capped by the contract at 500
    */
   async migrateAdapter(
     newAdapter: string,
-    deadline: number,
-    slippageBps: number
+    maxSlippageBps: number
   ): Promise<Transaction> {
-    if (deadline <= 0) throw new Error("deadline must be a positive timestamp");
-    if (slippageBps < 0 || slippageBps > 10_000)
-      throw new Error("slippageBps must be between 0 and 10000");
+    if (maxSlippageBps < 0 || maxSlippageBps > MAX_ADMIN_SLIPPAGE_BPS) {
+      throw new Error(
+        `maxSlippageBps must be between 0 and ${MAX_ADMIN_SLIPPAGE_BPS}`
+      );
+    }
     return this.prepare(
       this.contract().call(
         "migrate_adapter",
         addrScVal(newAdapter),
-        u64(deadline),
-        u32(slippageBps)
+        u32(maxSlippageBps)
       )
     );
   }
@@ -308,7 +365,13 @@ export abstract class VaultBase {
     const contractId = this.contractId;
 
     const sharesRaw = bigIntFrom(
-      await simulateView(server, contractId, passphrase, "get_position", callerScVal)
+      await simulateView(
+        server,
+        contractId,
+        passphrase,
+        "get_position",
+        callerScVal
+      )
     );
     if (sharesRaw <= 0n) return null;
 
@@ -316,8 +379,20 @@ export abstract class VaultBase {
       await Promise.all([
         simulateView(server, contractId, passphrase, "get_total_assets"),
         simulateView(server, contractId, passphrase, "get_total_shares"),
-        simulateView(server, contractId, passphrase, "get_principal", callerScVal),
-        simulateView(server, contractId, passphrase, "get_entry_time", callerScVal),
+        simulateView(
+          server,
+          contractId,
+          passphrase,
+          "get_principal",
+          callerScVal
+        ),
+        simulateView(
+          server,
+          contractId,
+          passphrase,
+          "get_entry_time",
+          callerScVal
+        ),
       ]);
 
     const totalAssets = bigIntFrom(totalAssetsRaw);
@@ -325,8 +400,11 @@ export abstract class VaultBase {
     const principal = bigIntFrom(principalRaw);
     const entryTime = bigIntFrom(entryTimeRaw);
 
-    const deposited =
-      totalShares > 0n ? (sharesRaw * totalAssets) / totalShares : 0n;
+    const deposited = convertSharesToAssets(
+      sharesRaw,
+      totalAssets,
+      totalShares
+    );
 
     const hasBasis = principal > 0n;
     const earned =
@@ -374,33 +452,39 @@ export abstract class VaultBase {
   }
 
   /**
-   * Convert an asset amount to the equivalent shares at the current
-   * exchange rate, including ERC-4626 virtual-offset inflation protection.
-   * ERC-4626 `convertToShares(uint256 assets)`.
+   * Convert an asset amount to the equivalent shares at the current exchange
+   * rate, including ERC-4626 virtual-offset inflation protection.
+   * ERC-4626 `convertToShares(uint256 assets)`, so it rounds down.
    *
    * @param assets Amount in stroops to convert
    */
   async convertToShares(assets: bigint): Promise<bigint> {
-    const [ta, ts] = await Promise.all([this.totalAssets(), this.totalSupply()]);
+    const [ta, ts] = await Promise.all([
+      this.totalAssets(),
+      this.totalSupply(),
+    ]);
     return convertAssetsToShares(assets, ta, ts);
   }
 
   /**
-   * Convert a share amount to the equivalent assets at the current
-   * exchange rate, including ERC-4626 virtual-offset inflation protection.
+   * Convert a share amount to the equivalent assets at the current exchange
+   * rate, including ERC-4626 virtual-offset inflation protection.
    * ERC-4626 `convertToAssets(uint256 shares)`.
    *
    * @param shares Share amount in stroops to convert
    */
   async convertToAssets(shares: bigint): Promise<bigint> {
-    const [ta, ts] = await Promise.all([this.totalAssets(), this.totalSupply()]);
+    const [ta, ts] = await Promise.all([
+      this.totalAssets(),
+      this.totalSupply(),
+    ]);
     return convertSharesToAssets(shares, ta, ts);
   }
 
   /**
    * Maximum USDC that `receiver` may deposit in a single transaction.
-   * Returns a large sentinel when unpaused, 0n when paused.
-   * ERC-4626 `maxDeposit(address)`.
+   * Returns a large sentinel while deposits are open, 0n once the vault is
+   * paused. ERC-4626 `maxDeposit(address)`.
    */
   async maxDeposit(_receiver: string): Promise<bigint> {
     return (await this.isPaused()) ? 0n : BigInt("999999999999999999999999999");
@@ -418,27 +502,27 @@ export abstract class VaultBase {
   }
 
   /**
-   * Maximum USDC that `owner` may withdraw in a single transaction.
-   * Returns the full redemption value of their position, or 0n when paused.
+   * Maximum USDC that `owner` may withdraw in a single transaction: the full
+   * redemption value of their position. A pause does not restrict this, since
+   * the contract leaves withdrawals open while paused.
    * ERC-4626 `maxWithdraw(address)`.
    *
    * @param owner Stellar G-address to check
    */
   async maxWithdraw(owner: string): Promise<bigint> {
-    if (await this.isPaused()) return 0n;
     const pos = await this.getPosition(owner);
     return pos?.deposited ?? 0n;
   }
 
   /**
-   * Maximum shares that `owner` may redeem in a single transaction.
-   * Returns their full share balance, or 0n when paused.
+   * Maximum shares that `owner` may redeem in a single transaction: their full
+   * share balance. A pause does not restrict this, since the contract leaves
+   * withdrawals open while paused.
    * ERC-4626 `maxRedeem(address)`.
    *
    * @param owner Stellar G-address to check
    */
   async maxRedeem(owner: string): Promise<bigint> {
-    if (await this.isPaused()) return 0n;
     const pos = await this.getPosition(owner);
     return pos?.shares ?? 0n;
   }
@@ -448,8 +532,8 @@ export abstract class VaultBase {
   // -------------------------------------------------------------------------
 
   /**
-   * Returns `true` when the vault is paused (deposits and withdrawals
-   * are blocked).
+   * Returns `true` while the vault is paused. A paused vault rejects deposits
+   * and leaves withdrawals open.
    */
   async isPaused(): Promise<boolean> {
     return Boolean(await this.view("is_paused"));

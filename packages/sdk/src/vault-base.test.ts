@@ -7,7 +7,8 @@ import { Address, nativeToScVal } from "@stellar/stellar-sdk";
 // mocking both is sufficient to isolate all tests from the Stellar network.
 // ---------------------------------------------------------------------------
 vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>();
+  const actual =
+    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>();
   return {
     ...actual,
     prepareSorobanTx: vi.fn(),
@@ -34,14 +35,15 @@ const TESTNET: VaultConfig["network"] = {
   passphrase: "Test SDF Network ; September 2015",
 };
 
-const CONTRACT_ID =
-  "CAIQBVLBIUWQGE6DQUHDMZ2QWI7QP6KTCN7GP2BIZ6JZC4ES47JO4SSM";
+const CONTRACT_ID = "CAIQBVLBIUWQGE6DQUHDMZ2QWI7QP6KTCN7GP2BIZ6JZC4ES47JO4SSM";
 
-const WALLET =
-  "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+const WALLET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
-const ADAPTER_ID =
-  "CBNKERYAG7VZNBH2V3TF5JBXLD3MXLVQW5GG4AO445EUDCPKP4D2DDP2";
+// A second valid G-address, used to prove receiver/owner mismatches are
+// rejected rather than silently redirected.
+const OTHER_WALLET = "GDVEU3DD4KOFECV66VIHWEZOYX4ZKR3WV27L464SIIPOU2IUI3JCZA57";
+
+const ADAPTER_ID = "CBNKERYAG7VZNBH2V3TF5JBXLD3MXLVQW5GG4AO445EUDCPKP4D2DDP2";
 
 const STUB_TX: Transaction = { xdr: "UNSIGNED_XDR", fee: "150" };
 
@@ -100,28 +102,47 @@ function mockViewCalls(returns: Record<string, unknown>): void {
 
 describe("convertAssetsToShares", () => {
   it("empty vault: 1 asset → 1 share (offset cancels)", () => {
-    // virtualAssets = 0 + 1 = 1, virtualSupply = 0 + 1 = 1
-    // shares = assets * 1 / 1 = assets
+    // virtualAssets = 0 + 1_000, virtualSupply = 0 + 1_000
+    // shares = assets * 1_000 / 1_000 = assets
     expect(convertAssetsToShares(1_000_000n, 0n, 0n)).toBe(1_000_000n);
   });
 
   it("established vault: proportional conversion", () => {
     // totalAssets = 10 USDC, totalSupply = 10 shares → 1:1
-    // shares = 5_000_000 * 10_000_001 / 10_000_001 = 5_000_000
-    expect(
-      convertAssetsToShares(5_000_000n, 10_000_000n, 10_000_000n)
-    ).toBe(5_000_000n);
+    // shares = 5_000_000 * 10_001_000 / 10_001_000 = 5_000_000
+    expect(convertAssetsToShares(5_000_000n, 10_000_000n, 10_000_000n)).toBe(
+      5_000_000n
+    );
   });
 
-  it("inflated vault: attacker donated assets — formula stays defined", () => {
+  it("inflated vault: attacker cannot round the next depositor down to zero", () => {
     // Attacker donated 10 USDC (100_000_000 stroops) directly; no real shares yet.
-    // shares = 1_000_000 * 1 / (100_000_000 + 1) = 0 (floor)
+    // shares = 1_000_000 * 1_000 / (100_000_000 + 1_000) = 9 (floor)
     const ta = 100_000_000n;
     const ts = 0n;
-    const shares = convertAssetsToShares(1_000_000n, ta, ts);
-    expect(shares).toBe(0n); // value is lost — the virtual offset of 1 is intentionally minimal
-    // Verify no division-by-zero or exception is thrown regardless of input size
-    expect(convertAssetsToShares(100_000_000n, ta, ts)).toBeGreaterThanOrEqual(0n);
+    expect(convertAssetsToShares(1_000_000n, ta, ts)).toBe(9n);
+    // The donation buys the attacker almost nothing back: the virtual shares
+    // absorb all but ~1/1_000 of it.
+    expect(convertAssetsToShares(100_000_000n, ta, ts)).toBe(999n);
+    expect(convertAssetsToShares(100_000_000n, ta, ts)).toBeLessThan(
+      1_000_000n
+    );
+  });
+
+  it("rounds up when asked, so a redeemed payout covers the requested assets", () => {
+    // ta = 10 USDC, ts = 9_999_999 shares: price is just above 1, so an exact
+    // 5_000_000 USDC withdrawal does not land on a whole share.
+    const ta = 10_000_000n;
+    const ts = 9_999_999n;
+    const down = convertAssetsToShares(5_000_000n, ta, ts, "down");
+    const up = convertAssetsToShares(5_000_000n, ta, ts, "up");
+    expect(down).toBe(4_999_999n);
+    expect(up).toBe(5_000_000n);
+    // Burning the floored share count leaves the withdrawal short of its target.
+    expect(convertSharesToAssets(down, ta, ts)).toBeLessThan(5_000_000n);
+    expect(convertSharesToAssets(up, ta, ts)).toBeGreaterThanOrEqual(
+      5_000_000n
+    );
   });
 
   it("round-trips: convertAssetsToShares then convertSharesToAssets ≈ original", () => {
@@ -130,9 +151,10 @@ describe("convertAssetsToShares", () => {
     const assets = 10_000_000n;
     const shares = convertAssetsToShares(assets, ta, ts);
     const backToAssets = convertSharesToAssets(shares, ta, ts);
-    // Floor-division means backToAssets ≤ assets, within 1 stroop
+    // Both legs floor against the offset-inflated denominators, so the round
+    // trip can lose up to a stroop per leg.
     expect(backToAssets).toBeLessThanOrEqual(assets);
-    expect(assets - backToAssets).toBeLessThanOrEqual(1n);
+    expect(assets - backToAssets).toBeLessThanOrEqual(2n);
   });
 });
 
@@ -143,19 +165,16 @@ describe("convertSharesToAssets", () => {
 
   it("2x appreciation: 1 share → ~2 assets", () => {
     // totalAssets = 20 USDC, totalSupply = 10 shares → 2:1
-    // assets = 10_000_000 * (20_000_000+1) / (10_000_000+1) ≈ 19_999_999
-    const result = convertSharesToAssets(
-      10_000_000n,
-      20_000_000n,
-      10_000_000n
+    // assets = 10_000_000 * (20_000_000 + 1_000) / (10_000_000 + 1_000)
+    expect(convertSharesToAssets(10_000_000n, 20_000_000n, 10_000_000n)).toBe(
+      19_999_000n
     );
-    expect(result).toBe(19_999_999n);
   });
 });
 
 describe("VIRTUAL_OFFSET", () => {
-  it("is 1n", () => {
-    expect(VIRTUAL_OFFSET).toBe(1n);
+  it("mirrors the contract's 1_000 stroop offset", () => {
+    expect(VIRTUAL_OFFSET).toBe(1_000n);
   });
 });
 
@@ -242,9 +261,35 @@ describe("VaultBase.withdraw", () => {
     // owner, shares, min_usdc_out
     expect(args).toHaveLength(3);
     expect(Address.fromScVal(args[0]!).toString()).toBe(WALLET);
-    // At 1:1 rate: 5_000_000 * (10_000_001) / (10_000_001) = 5_000_000
+    // At 1:1 rate: 5_000_000 * (10_001_000) / (10_001_000) = 5_000_000
     expect(args[1]).toEqual(nativeToScVal(5_000_000n, { type: "i128" }));
     expect(args[2]).toEqual(nativeToScVal(0n, { type: "i128" }));
+  });
+
+  it("rounds the share amount up so the payout covers the requested assets", async () => {
+    mockViewCalls({
+      get_total_assets: 10_000_000n,
+      get_total_shares: 9_999_999n,
+    });
+    const vault = makeVault();
+    await vault.withdraw(5_000_000n, WALLET, WALLET);
+    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    const shares = op
+      .body()
+      .invokeHostFunctionOp()
+      .hostFunction()
+      .invokeContract()
+      .args()[1]!;
+    // Flooring would burn 4_999_999 shares, which redeems 4_999_999 USDC.
+    expect(shares).toEqual(nativeToScVal(5_000_000n, { type: "i128" }));
+  });
+
+  it("throws when receiver differs from owner", async () => {
+    const vault = makeVault();
+    await expect(
+      vault.withdraw(5_000_000n, OTHER_WALLET, WALLET)
+    ).rejects.toThrow("receiver must equal owner");
+    expect(prepareSorobanTx).not.toHaveBeenCalled();
   });
 
   it("throws for non-positive assets", async () => {
@@ -256,27 +301,43 @@ describe("VaultBase.withdraw", () => {
 });
 
 // ---------------------------------------------------------------------------
-// VaultBase: pause / unpause
+// VaultBase: setPaused
 // ---------------------------------------------------------------------------
 
-describe("VaultBase.pause", () => {
+describe("VaultBase.setPaused", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(prepareSorobanTx).mockResolvedValue(STUB_TX);
   });
 
-  it("builds a pause transaction", async () => {
+  it("builds a set_paused transaction carrying true", async () => {
     const vault = makeVault();
-    const result = await vault.pause();
+    const result = await vault.setPaused(true);
     expect(result).toEqual(STUB_TX);
     expect(prepareSorobanTx).toHaveBeenCalledTimes(1);
+    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    const args = op
+      .body()
+      .invokeHostFunctionOp()
+      .hostFunction()
+      .invokeContract()
+      .args();
+    expect(args).toHaveLength(1);
+    expect(args[0]).toEqual(nativeToScVal(true, { type: "bool" }));
   });
 
-  it("builds an unpause transaction", async () => {
+  it("builds a set_paused transaction carrying false", async () => {
     const vault = makeVault();
-    const result = await vault.unpause();
+    const result = await vault.setPaused(false);
     expect(result).toEqual(STUB_TX);
-    expect(prepareSorobanTx).toHaveBeenCalledTimes(1);
+    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    const args = op
+      .body()
+      .invokeHostFunctionOp()
+      .hostFunction()
+      .invokeContract()
+      .args();
+    expect(args[0]).toEqual(nativeToScVal(false, { type: "bool" }));
   });
 });
 
@@ -308,8 +369,31 @@ describe("VaultBase.setAdapter", () => {
 });
 
 // ---------------------------------------------------------------------------
-// VaultBase: migrateAdapter
+// VaultBase: beginMigration / migrateAdapter
 // ---------------------------------------------------------------------------
+
+describe("VaultBase.beginMigration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(prepareSorobanTx).mockResolvedValue(STUB_TX);
+  });
+
+  it("builds a begin_migration transaction for the target adapter", async () => {
+    const vault = makeVault();
+    const result = await vault.beginMigration(ADAPTER_ID);
+    expect(result).toEqual(STUB_TX);
+    expect(prepareSorobanTx).toHaveBeenCalledTimes(1);
+    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    const args = op
+      .body()
+      .invokeHostFunctionOp()
+      .hostFunction()
+      .invokeContract()
+      .args();
+    expect(args).toHaveLength(1);
+    expect(Address.fromScVal(args[0]!).toString()).toBe(ADAPTER_ID);
+  });
+});
 
 describe("VaultBase.migrateAdapter", () => {
   beforeEach(() => {
@@ -319,16 +403,14 @@ describe("VaultBase.migrateAdapter", () => {
 
   it("builds a migrate_adapter transaction", async () => {
     const vault = makeVault();
-    const deadline = Math.floor(Date.now() / 1000) + 86400;
-    const result = await vault.migrateAdapter(ADAPTER_ID, deadline, 50);
+    const result = await vault.migrateAdapter(ADAPTER_ID, 50);
     expect(result).toEqual(STUB_TX);
     expect(prepareSorobanTx).toHaveBeenCalledTimes(1);
   });
 
-  it("passes newAdapter, deadline, and slippageBps to the contract", async () => {
+  it("passes newAdapter and maxSlippageBps to the contract", async () => {
     const vault = makeVault();
-    const deadline = 1_800_000_000;
-    await vault.migrateAdapter(ADAPTER_ID, deadline, 100);
+    await vault.migrateAdapter(ADAPTER_ID, 100);
     const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
     const args = op
       .body()
@@ -336,44 +418,32 @@ describe("VaultBase.migrateAdapter", () => {
       .hostFunction()
       .invokeContract()
       .args();
-    expect(args).toHaveLength(3);
+    // new_adapter, max_slippage_bps: the contract has no deadline argument,
+    // the cooldown is enforced by begin_migration's ledger gap instead.
+    expect(args).toHaveLength(2);
     expect(Address.fromScVal(args[0]!).toString()).toBe(ADAPTER_ID);
-    expect(args[1]).toEqual(nativeToScVal(BigInt(deadline), { type: "u64" }));
-    expect(args[2]).toEqual(nativeToScVal(100, { type: "u32" }));
+    expect(args[1]).toEqual(nativeToScVal(100, { type: "u32" }));
   });
 
-  it("throws for non-positive deadline", async () => {
+  it("throws when maxSlippageBps is out of range", async () => {
     const vault = makeVault();
-    await expect(vault.migrateAdapter(ADAPTER_ID, 0, 50)).rejects.toThrow(
-      "deadline must be a positive timestamp"
+    await expect(vault.migrateAdapter(ADAPTER_ID, -1)).rejects.toThrow(
+      "maxSlippageBps must be between 0 and 500"
     );
-    await expect(vault.migrateAdapter(ADAPTER_ID, -1, 50)).rejects.toThrow(
-      "deadline must be a positive timestamp"
+    await expect(vault.migrateAdapter(ADAPTER_ID, 501)).rejects.toThrow(
+      "maxSlippageBps must be between 0 and 500"
     );
+    expect(prepareSorobanTx).not.toHaveBeenCalled();
   });
 
-  it("throws when slippageBps is out of range", async () => {
+  it("accepts the contract's boundary values 0 and 500", async () => {
     const vault = makeVault();
-    const deadline = 1_800_000_000;
-    await expect(
-      vault.migrateAdapter(ADAPTER_ID, deadline, -1)
-    ).rejects.toThrow("slippageBps must be between 0 and 10000");
-    await expect(
-      vault.migrateAdapter(ADAPTER_ID, deadline, 10_001)
-    ).rejects.toThrow("slippageBps must be between 0 and 10000");
-  });
-
-  it("accepts edge slippageBps values 0 and 10000", async () => {
-    const vault = makeVault();
-    const deadline = 1_800_000_000;
-    await expect(
-      vault.migrateAdapter(ADAPTER_ID, deadline, 0)
-    ).resolves.toEqual(STUB_TX);
+    await expect(vault.migrateAdapter(ADAPTER_ID, 0)).resolves.toEqual(STUB_TX);
     vi.clearAllMocks();
     vi.mocked(prepareSorobanTx).mockResolvedValue(STUB_TX);
-    await expect(
-      vault.migrateAdapter(ADAPTER_ID, deadline, 10_000)
-    ).resolves.toEqual(STUB_TX);
+    await expect(vault.migrateAdapter(ADAPTER_ID, 500)).resolves.toEqual(
+      STUB_TX
+    );
   });
 });
 
@@ -395,10 +465,10 @@ describe("VaultBase.getPosition", () => {
 
   it("computes position from on-chain data", async () => {
     mockViewCalls({
-      get_position: 10_000_000n,   // 1 mUSDC share
+      get_position: 10_000_000n, // 1 mUSDC share
       get_total_assets: 12_000_000n, // yield accrued: now worth 12 USDC
       get_total_shares: 10_000_000n,
-      get_principal: 10_000_000n,  // deposited 10 USDC
+      get_principal: 10_000_000n, // deposited 10 USDC
       get_entry_time: 1_700_000_000n,
     });
     const vault = makeVault();
@@ -406,10 +476,10 @@ describe("VaultBase.getPosition", () => {
     expect(pos).not.toBeNull();
     expect(pos!.vaultId).toBe(CONTRACT_ID);
     expect(pos!.shares).toBe(10_000_000n);
-    // deposited = shares * totalAssets / totalShares = 10e6 * 12e6 / 10e6 = 12e6
-    expect(pos!.deposited).toBe(12_000_000n);
-    // earned = deposited - principal = 12e6 - 10e6 = 2e6
-    expect(pos!.earned).toBe(2_000_000n);
+    // deposited = shares * (totalAssets + OFFSET) / (totalShares + OFFSET)
+    expect(pos!.deposited).toBe(11_999_800n);
+    // earned = deposited - principal = 11_999_800 - 10_000_000
+    expect(pos!.earned).toBe(1_999_800n);
     expect(pos!.principal).toBe(10_000_000n);
     expect(pos!.entryTime).toBe(1_700_000_000);
   });
@@ -439,7 +509,7 @@ describe("VaultBase.getPosition", () => {
     const vault = makeVault();
     const pos = await vault.getPosition(WALLET);
     expect(pos!.earned).toBe(0n);
-    expect(pos!.deposited).toBe(8_000_000n);
+    expect(pos!.deposited).toBe(8_000_199n);
   });
 });
 
@@ -460,6 +530,32 @@ describe("VaultBase.getPrincipal", () => {
     mockViewCalls({ get_principal: 0n });
     const vault = makeVault();
     expect(await vault.getPrincipal(WALLET)).toBe(0n);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VaultBase: view result coercion
+// ---------------------------------------------------------------------------
+
+describe("VaultBase view result coercion", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("treats a successful simulation with no return value as 0n", async () => {
+    // simulateView returns null when the call succeeds without a return value.
+    mockViewCalls({ get_principal: null });
+    expect(await makeVault().getPrincipal(WALLET)).toBe(0n);
+  });
+
+  it("accepts a numeric view result", async () => {
+    mockViewCalls({ get_principal: 42 });
+    expect(await makeVault().getPrincipal(WALLET)).toBe(42n);
+  });
+
+  it("fails loudly on a view result it cannot interpret", async () => {
+    mockViewCalls({ get_principal: "24" });
+    await expect(makeVault().getPrincipal(WALLET)).rejects.toThrow(
+      "bigIntFrom: unexpected type string"
+    );
   });
 });
 
@@ -488,9 +584,9 @@ describe("VaultBase ERC-4626 view methods", () => {
       get_total_shares: 10_000_000n,
     });
     const vault = makeVault();
-    // 5_000_000 * (10_000_001) / (20_000_001) = 2_500_000 (floor)
+    // 5_000_000 * (10_000_000 + 1_000) / (20_000_000 + 1_000) (floor)
     const shares = await vault.convertToShares(5_000_000n);
-    expect(shares).toBe(2_500_000n);
+    expect(shares).toBe(2_500_124n);
   });
 
   it("convertToAssets uses current vault state", async () => {
@@ -499,9 +595,9 @@ describe("VaultBase ERC-4626 view methods", () => {
       get_total_shares: 10_000_000n,
     });
     const vault = makeVault();
-    // 5_000_000 * (20_000_001) / (10_000_001) = 9_999_999 (floor)
+    // 5_000_000 * (20_000_000 + 1_000) / (10_000_000 + 1_000) (floor)
     const assets = await vault.convertToAssets(5_000_000n);
-    expect(assets).toBe(9_999_999n);
+    expect(assets).toBe(9_999_500n);
   });
 
   describe("pause-aware ERC-4626 limits", () => {
@@ -533,34 +629,36 @@ describe("VaultBase ERC-4626 view methods", () => {
       expect(await vault.maxMint(WALLET)).toBeGreaterThan(0n);
     });
 
-    it("maxWithdraw returns 0n when paused", async () => {
-      mockViewCalls({ is_paused: true });
-      const vault = makeVault();
-      expect(await vault.maxWithdraw(WALLET)).toBe(0n);
-    });
-
-    it("maxWithdraw returns deposited value when unpaused and has position", async () => {
+    it("maxWithdraw ignores the pause flag, because withdrawals stay open", async () => {
       vi.mocked(simulateView).mockImplementation(
         (_server, _contractId, _passphrase, method) => {
           switch (method) {
-            case "is_paused":     return Promise.resolve(false);
-            case "get_position":  return Promise.resolve(10_000_000n);
-            case "get_total_assets": return Promise.resolve(10_000_000n);
-            case "get_total_shares": return Promise.resolve(10_000_000n);
-            case "get_principal": return Promise.resolve(10_000_000n);
-            case "get_entry_time": return Promise.resolve(0n);
-            default: throw new Error(`Unexpected method: ${method}`);
+            case "is_paused":
+              return Promise.resolve(true);
+            case "get_position":
+              return Promise.resolve(10_000_000n);
+            case "get_total_assets":
+              return Promise.resolve(10_000_000n);
+            case "get_total_shares":
+              return Promise.resolve(10_000_000n);
+            case "get_principal":
+              return Promise.resolve(10_000_000n);
+            case "get_entry_time":
+              return Promise.resolve(0n);
+            default:
+              throw new Error(`Unexpected method: ${method}`);
           }
         }
       );
       const vault = makeVault();
       expect(await vault.maxWithdraw(WALLET)).toBe(10_000_000n);
+      const methods = vi.mocked(simulateView).mock.calls.map((call) => call[3]);
+      expect(methods).not.toContain("is_paused");
     });
 
     it("maxWithdraw returns 0n when account has no position", async () => {
       vi.mocked(simulateView).mockImplementation(
         (_server, _contractId, _passphrase, method) => {
-          if (method === "is_paused") return Promise.resolve(false);
           if (method === "get_position") return Promise.resolve(0n);
           throw new Error(`Unexpected method: ${method}`);
         }
@@ -569,28 +667,31 @@ describe("VaultBase ERC-4626 view methods", () => {
       expect(await vault.maxWithdraw(WALLET)).toBe(0n);
     });
 
-    it("maxRedeem returns 0n when paused", async () => {
-      mockViewCalls({ is_paused: true });
-      const vault = makeVault();
-      expect(await vault.maxRedeem(WALLET)).toBe(0n);
-    });
-
-    it("maxRedeem returns share balance when unpaused", async () => {
+    it("maxRedeem ignores the pause flag, because withdrawals stay open", async () => {
       vi.mocked(simulateView).mockImplementation(
         (_server, _contractId, _passphrase, method) => {
           switch (method) {
-            case "is_paused":     return Promise.resolve(false);
-            case "get_position":  return Promise.resolve(7_000_000n);
-            case "get_total_assets": return Promise.resolve(7_000_000n);
-            case "get_total_shares": return Promise.resolve(7_000_000n);
-            case "get_principal": return Promise.resolve(7_000_000n);
-            case "get_entry_time": return Promise.resolve(0n);
-            default: throw new Error(`Unexpected method: ${method}`);
+            case "is_paused":
+              return Promise.resolve(true);
+            case "get_position":
+              return Promise.resolve(7_000_000n);
+            case "get_total_assets":
+              return Promise.resolve(7_000_000n);
+            case "get_total_shares":
+              return Promise.resolve(7_000_000n);
+            case "get_principal":
+              return Promise.resolve(7_000_000n);
+            case "get_entry_time":
+              return Promise.resolve(0n);
+            default:
+              throw new Error(`Unexpected method: ${method}`);
           }
         }
       );
       const vault = makeVault();
       expect(await vault.maxRedeem(WALLET)).toBe(7_000_000n);
+      const methods = vi.mocked(simulateView).mock.calls.map((call) => call[3]);
+      expect(methods).not.toContain("is_paused");
     });
   });
 });
@@ -625,7 +726,8 @@ describe("VaultBase.getAdapterInfo", () => {
       (_server, contractId, _passphrase, method) => {
         if (contractId === CONTRACT_ID) {
           if (method === "get_adapter") return Promise.resolve(ADAPTER_ID);
-          if (method === "get_total_assets") return Promise.resolve(55_000_000n);
+          if (method === "get_total_assets")
+            return Promise.resolve(55_000_000n);
         }
         if (contractId === ADAPTER_ID && method === "get_protocol")
           return Promise.resolve("blend");
@@ -666,8 +768,8 @@ describe("ERC-4626 inflation protection – deposit/withdraw math", () => {
       200_000_000n,
       100_000_000n
     );
+    expect(shares).toBe(50_000_249n);
     expect(shares).toBeLessThan(100_000_000n);
-    expect(shares).toBeGreaterThan(49_000_000n);
   });
 
   it("withdrawal math: share burn gives proportional assets back", () => {
@@ -677,8 +779,6 @@ describe("ERC-4626 inflation protection – deposit/withdraw math", () => {
       150_000_000n,
       100_000_000n
     );
-    // ≈ 74_999_999 (floor)
-    expect(assets).toBeGreaterThan(70_000_000n);
-    expect(assets).toBeLessThanOrEqual(75_000_000n);
+    expect(assets).toBe(74_999_750n);
   });
 });
