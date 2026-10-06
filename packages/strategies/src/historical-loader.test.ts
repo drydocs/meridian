@@ -1,19 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { FixedPoint, MAX_FIXED_PRECISION, TimeSeries } from "./time-series";
+import { Decimal } from "./decimal";
+import { TimeSeries } from "./time-series";
 import {
   DEFAULT_HISTORICAL_PRECISION,
+  MAX_HISTORICAL_PRECISION,
   HistoricalLoadError,
   loadHistoricalSeries,
   seriesToRows,
   type HistoricalInput,
   type HistoricalLoadErrorCode,
+  type LoadedSeries,
   type LoadHistoricalOptions,
 } from "./historical-loader";
 
 function load(
   input: unknown,
   options: LoadHistoricalOptions = {}
-): Record<string, TimeSeries> {
+): Record<string, LoadedSeries> {
   return loadHistoricalSeries(input as HistoricalInput, options);
 }
 
@@ -28,100 +31,6 @@ function expectCode(fn: () => unknown, code: HistoricalLoadErrorCode): void {
   expect((thrown as HistoricalLoadError).code).toBe(code);
 }
 
-describe("FixedPoint", () => {
-  it("parses a decimal string exactly and trims in toString", () => {
-    const value = FixedPoint.from("1.2300000", 7);
-    expect(value.toBigInt()).toBe(12_300_000n);
-    expect(value.toString()).toBe("1.23");
-  });
-
-  it("formats to a fixed number of decimal places", () => {
-    expect(FixedPoint.from("1.23", 7).toFixedString()).toBe("1.2300000");
-    expect(FixedPoint.from("2", 7).toFixedString()).toBe("2.0000000");
-    expect(FixedPoint.from(0.1, 7).toFixedString()).toBe("0.1000000");
-  });
-
-  it("handles scientific notation", () => {
-    expect(FixedPoint.from("1.5e-3", 7).toFixedString()).toBe("0.0015000");
-    expect(FixedPoint.from("1.5e3", 2).toFixedString()).toBe("1500.00");
-  });
-
-  it("accepts trailing zeros beyond the precision but rejects real overflow", () => {
-    expect(FixedPoint.from("1.230000000", 7).toString()).toBe("1.23");
-    expect(() => FixedPoint.from("0.00000001", 7)).toThrow(/decimal place/);
-  });
-
-  it("handles negatives and zero", () => {
-    expect(FixedPoint.from("-0.5", 7).toFixedString()).toBe("-0.5000000");
-    expect(FixedPoint.from("0", 7).isZero).toBe(true);
-    expect(FixedPoint.from("0", 7).toString()).toBe("0");
-  });
-
-  it("does exact arithmetic on matching precisions", () => {
-    const a = FixedPoint.from("1.5", 7);
-    const b = FixedPoint.from("0.25", 7);
-    expect(a.add(b).toFixedString()).toBe("1.7500000");
-    expect(a.sub(b).toFixedString()).toBe("1.2500000");
-    expect(a.compare(b)).toBe(1);
-    expect(b.compare(a)).toBe(-1);
-    expect(a.equals(FixedPoint.fromScaled(15_000_000n, 7))).toBe(true);
-    expect(a.negate().toFixedString()).toBe("-1.5000000");
-  });
-
-  it("refuses to combine different precisions", () => {
-    expect(() => FixedPoint.from("1", 7).add(FixedPoint.from("1", 8))).toThrow(
-      /different precision/
-    );
-  });
-
-  it("validates the precision", () => {
-    expect(() => FixedPoint.from("1", -1)).toThrow(RangeError);
-    expect(() => FixedPoint.from("1", 1.5)).toThrow(RangeError);
-    expect(() => FixedPoint.from("1", MAX_FIXED_PRECISION + 1)).toThrow(
-      RangeError
-    );
-  });
-
-  it("rejects non-decimal garbage", () => {
-    expect(() => FixedPoint.from("not-a-number", 7)).toThrow(/invalid decimal/);
-    expect(() => FixedPoint.from("", 7)).toThrow(/invalid decimal/);
-  });
-});
-
-describe("TimeSeries", () => {
-  it("exposes ordered points and lookups", () => {
-    const series = new TimeSeries("price:A", "A", "price", 2, [
-      { timestamp: 1, value: FixedPoint.from("1.00", 2) },
-      { timestamp: 2, value: FixedPoint.from("2.50", 2) },
-    ]);
-    expect(series.length).toBe(2);
-    expect(series.isEmpty).toBe(false);
-    expect(series.first?.timestamp).toBe(1);
-    expect(series.latest?.timestamp).toBe(2);
-    expect(series.at(1)?.value.toString()).toBe("2.5");
-    expect(series.valueAt(2)?.toString()).toBe("2.5");
-    expect(series.valueAt(99)).toBeUndefined();
-    expect([...series].map((p) => p.timestamp)).toEqual([1, 2]);
-  });
-
-  it("is empty by default and serialises losslessly", () => {
-    const empty = TimeSeries.empty("rate:p", "p", "rate", 3);
-    expect(empty.isEmpty).toBe(true);
-    expect(empty.first).toBeUndefined();
-
-    const series = new TimeSeries("rate:p", "p", "rate", 6, [
-      { timestamp: 10, value: FixedPoint.from("5.25", 6) },
-    ]);
-    expect(series.toJSON()).toEqual({
-      id: "rate:p",
-      asset: "p",
-      kind: "rate",
-      precision: 6,
-      points: [{ timestamp: 10, value: "5.250000" }],
-    });
-  });
-});
-
 describe("loadHistoricalSeries - parsing", () => {
   it("loads price and rate streams from rows in one pass", () => {
     const result = load([
@@ -134,11 +43,15 @@ describe("loadHistoricalSeries - parsing", () => {
       "rate:blend:USDC",
     ]);
     const usdc = result["price:USDC"]!;
+    expect(usdc.id).toBe("price:USDC");
+    expect(usdc.asset).toBe("USDC");
     expect(usdc.kind).toBe("price");
-    expect(usdc.precision).toBe(DEFAULT_HISTORICAL_PRECISION);
-    expect(usdc.points.map((p) => p.timestamp)).toEqual([1_000, 2_000]);
-    expect(usdc.at(0)?.value.toFixedString()).toBe("0.9999000");
-    expect(result["rate:blend:USDC"]!.at(0)?.value.toFixedString()).toBe(
+    expect(usdc.series.scale).toBe(DEFAULT_HISTORICAL_PRECISION);
+    expect(usdc.series.points.map((p) => p.timestampMs)).toEqual([
+      1_000, 2_000,
+    ]);
+    expect(usdc.series.points[0]!.value.toString()).toBe("0.9999000");
+    expect(result["rate:blend:USDC"]!.series.points[0]!.value.toString()).toBe(
       "0.0525000"
     );
   });
@@ -147,7 +60,9 @@ describe("loadHistoricalSeries - parsing", () => {
     const result = load([
       { asset: "USDC", timestamp: "2024-03-09T16:00:00Z", price: "1" },
     ]);
-    expect(result["price:USDC"]!.at(0)?.timestamp).toBe(1_710_000_000_000);
+    expect(result["price:USDC"]!.series.points[0]!.timestampMs).toBe(
+      1_710_000_000_000
+    );
   });
 
   it("contributes a row with both price and rate to both streams", () => {
@@ -160,7 +75,9 @@ describe("loadHistoricalSeries - parsing", () => {
       { asset: "A", timestamp: 1, kind: "rate", price: "9", rate: "2" },
     ]);
     expect(Object.keys(result)).toEqual(["rate:A"]);
-    expect(result["rate:A"]!.at(0)?.value.toString()).toBe("2");
+    expect(result["rate:A"]!.series.points[0]!.value.toString()).toBe(
+      "2.0000000"
+    );
   });
 
   it("loads the multi-stream map form and keeps stream ids distinct", () => {
@@ -180,16 +97,20 @@ describe("loadHistoricalSeries - parsing", () => {
       },
     });
     expect(Object.keys(result).sort()).toEqual(["blend-usdc", "defindex-usdc"]);
-    expect(result["blend-usdc"]!.precision).toBe(DEFAULT_HISTORICAL_PRECISION);
-    expect(result["defindex-usdc"]!.precision).toBe(2);
-    expect(result["defindex-usdc"]!.at(0)?.value.toFixedString()).toBe("7.25");
+    expect(result["blend-usdc"]!.series.scale).toBe(
+      DEFAULT_HISTORICAL_PRECISION
+    );
+    expect(result["defindex-usdc"]!.series.scale).toBe(2);
+    expect(result["defindex-usdc"]!.series.points[0]!.value.toString()).toBe(
+      "7.25"
+    );
   });
 
   it("accepts the { rows } wrapper", () => {
     const result = load({
       rows: [{ asset: "A", timestamp: 1, price: "1.5" }],
     });
-    expect(result["price:A"]!.length).toBe(1);
+    expect(result["price:A"]!.series.size).toBe(1);
   });
 
   it("supports multiple assets in one pass", () => {
@@ -203,6 +124,44 @@ describe("loadHistoricalSeries - parsing", () => {
       "price:B",
       "price:C",
     ]);
+  });
+
+  it("parses scientific notation and trailing zeros exactly", () => {
+    const result = load(
+      [
+        { asset: "A", timestamp: 1, price: "1.5e-3" },
+        { asset: "A", timestamp: 2, price: "1.230000000" },
+      ],
+      { precision: 7 }
+    );
+    expect(result["price:A"]!.series.points[0]!.value.toString()).toBe(
+      "0.0015000"
+    );
+    expect(result["price:A"]!.series.points[1]!.value.toBigInt()).toBe(
+      12_300_000n
+    );
+    expect(result["price:A"]!.series.points[1]!.value.toString()).toBe(
+      "1.2300000"
+    );
+  });
+
+  it("accepts a JSON number value and scales it exactly", () => {
+    const result = load([{ asset: "A", timestamp: 1, price: 0.1 }], {
+      precision: 7,
+    });
+    expect(result["price:A"]!.series.points[0]!.value.toBigInt()).toBe(
+      1_000_000n
+    );
+    expect(result["price:A"]!.series.points[0]!.value.toString()).toBe(
+      "0.1000000"
+    );
+  });
+
+  it("parses a negative value", () => {
+    const result = load([{ asset: "A", timestamp: 1, price: "-0.5" }]);
+    expect(result["price:A"]!.series.points[0]!.value.toString()).toBe(
+      "-0.5000000"
+    );
   });
 });
 
@@ -227,14 +186,12 @@ describe("loadHistoricalSeries - ordering and duplicates", () => {
       ],
       { onOutOfOrder: "sort" }
     );
-    expect(result["price:A"]!.points.map((p) => p.timestamp)).toEqual([
+    expect(result["price:A"]!.series.points.map((p) => p.timestampMs)).toEqual([
       1, 2, 3,
     ]);
-    expect(result["price:A"]!.points.map((p) => p.value.toString())).toEqual([
-      "1",
-      "2",
-      "3",
-    ]);
+    expect(
+      result["price:A"]!.series.points.map((p) => p.value.toString())
+    ).toEqual(["1.0000000", "2.0000000", "3.0000000"]);
   });
 
   it("rejects duplicate timestamps by default", () => {
@@ -256,8 +213,10 @@ describe("loadHistoricalSeries - ordering and duplicates", () => {
       ],
       { onDuplicate: "first" }
     );
-    expect(first["price:A"]!.length).toBe(1);
-    expect(first["price:A"]!.at(0)?.value.toString()).toBe("1");
+    expect(first["price:A"]!.series.size).toBe(1);
+    expect(first["price:A"]!.series.points[0]!.value.toString()).toBe(
+      "1.0000000"
+    );
 
     const last = load(
       [
@@ -266,8 +225,10 @@ describe("loadHistoricalSeries - ordering and duplicates", () => {
       ],
       { onDuplicate: "last" }
     );
-    expect(last["price:A"]!.length).toBe(1);
-    expect(last["price:A"]!.at(0)?.value.toString()).toBe("2");
+    expect(last["price:A"]!.series.size).toBe(1);
+    expect(last["price:A"]!.series.points[0]!.value.toString()).toBe(
+      "2.0000000"
+    );
   });
 
   it("still rejects duplicates after sorting", () => {
@@ -323,9 +284,23 @@ describe("loadHistoricalSeries - malformed input", () => {
     );
   });
 
+  it("rejects a decimal exponent outside the supported range", () => {
+    expectCode(
+      () => load([{ asset: "A", timestamp: 1, price: "1e100000" }]),
+      "invalid-value"
+    );
+  });
+
   it("rejects an invalid precision option", () => {
     expectCode(
       () => load([{ asset: "A", timestamp: 1, price: "1" }], { precision: -1 }),
+      "precision"
+    );
+    expectCode(
+      () =>
+        load([{ asset: "A", timestamp: 1, price: "1" }], {
+          precision: MAX_HISTORICAL_PRECISION + 1,
+        }),
       "precision"
     );
   });
@@ -344,7 +319,9 @@ describe("loadHistoricalSeries - malformed input", () => {
       ],
       { onMalformed: "skip" }
     );
-    expect(result["price:A"]!.points.map((p) => p.timestamp)).toEqual([1, 3]);
+    expect(result["price:A"]!.series.points.map((p) => p.timestampMs)).toEqual([
+      1, 3,
+    ]);
   });
 
   it("skips only the malformed point in the map form", () => {
@@ -364,7 +341,9 @@ describe("loadHistoricalSeries - malformed input", () => {
       },
       { onMalformed: "skip" }
     );
-    expect(result["s"]!.points.map((p) => p.timestamp)).toEqual([1, 3]);
+    expect(result["s"]!.series.points.map((p) => p.timestampMs)).toEqual([
+      1, 3,
+    ]);
   });
 
   it("loads no point from a malformed both-fields row under skip", () => {
@@ -375,8 +354,12 @@ describe("loadHistoricalSeries - malformed input", () => {
       ],
       { onMalformed: "skip" }
     );
-    expect(result["price:A"]!.points.map((p) => p.timestamp)).toEqual([2]);
-    expect(result["rate:A"]!.points.map((p) => p.timestamp)).toEqual([2]);
+    expect(result["price:A"]!.series.points.map((p) => p.timestampMs)).toEqual([
+      2,
+    ]);
+    expect(result["rate:A"]!.series.points.map((p) => p.timestampMs)).toEqual([
+      2,
+    ]);
   });
 });
 
@@ -391,18 +374,18 @@ describe("loadHistoricalSeries - lossless round-trip", () => {
     const loaded = load(rows, { precision });
 
     expect(
-      loaded["price:USDC"]!.at(0)?.value.equals(
-        FixedPoint.from("1.23456789", precision)
+      loaded["price:USDC"]!.series.points[0]!.value.eq(
+        Decimal.fromString("1.23456789", precision)
       )
     ).toBe(true);
     expect(
-      loaded["price:USDC"]!.at(1)?.value.equals(
-        FixedPoint.from("0.00000001", precision)
+      loaded["price:USDC"]!.series.points[1]!.value.eq(
+        Decimal.fromString("0.00000001", precision)
       )
     ).toBe(true);
     expect(
-      loaded["rate:pool:blend"]!.at(0)?.value.equals(
-        FixedPoint.from("5.25", precision)
+      loaded["rate:pool:blend"]!.series.points[0]!.value.eq(
+        Decimal.fromString("5.25", precision)
       )
     ).toBe(true);
 
@@ -414,10 +397,10 @@ describe("loadHistoricalSeries - lossless round-trip", () => {
     );
     for (const [id, series] of Object.entries(loaded)) {
       const again = reloaded[id]!;
-      expect(again.length).toBe(series.length);
-      series.points.forEach((point, index) => {
-        expect(again.points[index]!.timestamp).toBe(point.timestamp);
-        expect(again.points[index]!.value.equals(point.value)).toBe(true);
+      expect(again.series.size).toBe(series.series.size);
+      series.series.points.forEach((point, index) => {
+        expect(again.series.points[index]!.timestampMs).toBe(point.timestampMs);
+        expect(again.series.points[index]!.value.eq(point.value)).toBe(true);
       });
     }
   });
@@ -426,7 +409,9 @@ describe("loadHistoricalSeries - lossless round-trip", () => {
     const loaded = load([{ asset: "A", timestamp: 1, price: "1e-8" }], {
       precision: 8,
     });
-    expect(loaded["price:A"]!.at(0)?.value.toFixedString()).toBe("0.00000001");
+    expect(loaded["price:A"]!.series.points[0]!.value.toString()).toBe(
+      "0.00000001"
+    );
   });
 });
 
@@ -442,6 +427,22 @@ describe("loadHistoricalSeries - timestamp validation", () => {
     );
     expectCode(
       () => load([{ asset: "A", timestamp: Number.MAX_VALUE, price: "1" }]),
+      "invalid-timestamp"
+    );
+  });
+
+  it("rejects a negative timestamp", () => {
+    expectCode(
+      () => load([{ asset: "A", timestamp: -1, price: "1" }]),
+      "invalid-timestamp"
+    );
+    expectCode(
+      () => load([{ asset: "A", timestamp: "-5", price: "1" }]),
+      "invalid-timestamp"
+    );
+    expectCode(
+      () =>
+        load([{ asset: "A", timestamp: "1969-12-31T23:59:59Z", price: "1" }]),
       "invalid-timestamp"
     );
   });
@@ -466,7 +467,7 @@ describe("loadHistoricalSeries - timestamp validation", () => {
       { asset: "A", timestamp: "1710000000000", price: "1" },
       { asset: "A", timestamp: " 1710000000001 ", price: "1" },
     ]);
-    expect(result["price:A"]!.points.map((p) => p.timestamp)).toEqual([
+    expect(result["price:A"]!.series.points.map((p) => p.timestampMs)).toEqual([
       1_710_000_000_000, 1_710_000_000_001,
     ]);
   });
@@ -571,5 +572,88 @@ describe("loadHistoricalSeries - stream map validation", () => {
       () => load(mapOf({ points: [{ timestamp: 1, value: "oops" }] })),
       "invalid-value"
     );
+  });
+});
+
+describe("loadHistoricalSeries - shared TimeSeries (#866)", () => {
+  it("returns the shared TimeSeries holding Decimal values", () => {
+    const result = load([{ asset: "A", timestamp: 0, price: "1.5" }]);
+    const series = result["price:A"]!.series;
+    expect(series).toBeInstanceOf(TimeSeries);
+    expect(series.points[0]!.value).toBeInstanceOf(Decimal);
+    expect(series.scale).toBe(DEFAULT_HISTORICAL_PRECISION);
+  });
+
+  it("infers the nominal interval from the gcd of the sample gaps", () => {
+    const regular = load([
+      { asset: "A", timestamp: 1_000, price: "1" },
+      { asset: "A", timestamp: 2_000, price: "1" },
+      { asset: "A", timestamp: 3_000, price: "1" },
+    ]);
+    expect(regular["price:A"]!.series.intervalMs).toBe(1_000);
+
+    const mixed = load([
+      { asset: "B", timestamp: 1_000, price: "1" },
+      { asset: "B", timestamp: 1_500, price: "1" },
+      { asset: "B", timestamp: 4_000, price: "1" },
+    ]);
+    expect(mixed["price:B"]!.series.intervalMs).toBe(500);
+  });
+
+  it("uses a 1ms interval for a stream with fewer than two points", () => {
+    const single = load([{ asset: "A", timestamp: 5, price: "1" }]);
+    expect(single["price:A"]!.series.intervalMs).toBe(1);
+
+    const empty = load({
+      streams: { s: { asset: "A", kind: "price", points: [] } },
+    });
+    expect(empty["s"]!.series.intervalMs).toBe(1);
+    expect(empty["s"]!.series.size).toBe(0);
+  });
+
+  it("inherits atOrBefore lookup and resampling from the shared series", () => {
+    const series = load([
+      { asset: "A", timestamp: 1_000, price: "1" },
+      { asset: "A", timestamp: 2_000, price: "3" },
+    ])["price:A"]!.series;
+
+    expect(series.atOrBefore(999)).toBeNull();
+    expect(series.atOrBefore(1_999)!.timestampMs).toBe(1_000);
+    expect(series.atOrBefore(2_000)!.value.toString()).toBe("3.0000000");
+
+    const resampled = series.resample(2_000, { aggregation: "mean" });
+    expect(resampled.intervalMs).toBe(2_000);
+    expect(resampled.points.map((p) => p.timestampMs)).toEqual([0, 2_000]);
+    expect(resampled.points[0]!.value.toString()).toBe("1.0000000");
+    expect(resampled.points[1]!.value.toString()).toBe("3.0000000");
+  });
+
+  it("is immutable: resampling does not mutate the loaded series", () => {
+    const series = load([
+      { asset: "A", timestamp: 1_000, price: "1" },
+      { asset: "A", timestamp: 2_000, price: "3" },
+    ])["price:A"]!.series;
+
+    const before = series.points.map((p) => p.value.toString());
+    series.resample(1_000);
+    expect(series.points.map((p) => p.value.toString())).toEqual(before);
+    expect(series.size).toBe(2);
+  });
+});
+
+describe("seriesToRows", () => {
+  it("emits fixed-precision price and rate rows that reload exactly", () => {
+    const loaded = load([
+      { asset: "A", timestamp: 1, price: "1.5" },
+      { asset: "A", timestamp: 2, rate: "2.25" },
+    ]);
+    const rows = [
+      ...seriesToRows(loaded["price:A"]!),
+      ...seriesToRows(loaded["rate:A"]!),
+    ];
+    expect(rows).toEqual([
+      { asset: "A", timestamp: 1, kind: "price", price: "1.5000000" },
+      { asset: "A", timestamp: 2, kind: "rate", rate: "2.2500000" },
+    ]);
   });
 });

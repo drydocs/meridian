@@ -1,9 +1,14 @@
 // Historical price and rate ingestion (#865).
 //
-// Turns recorded market data into the {@link TimeSeries} structure a backtest
-// replays, with no live network dependency and no floating-point step. A
-// loaded series is already time-ordered and already fixed-point, so it feeds a
-// backtest directly (see `TimeSeries.points`).
+// Turns recorded market data into the shared {@link TimeSeries} structure a
+// backtest replays, with no live network dependency and no floating-point
+// step. Every value is parsed into the package's single fixed-point decimal,
+// {@link Decimal} (a bigint `raw` plus a decimal `scale`), and the ordered,
+// immutable series itself is the `TimeSeries` from `./time-series` (#866):
+// this module adds no time-series or decimal primitive of its own, only the
+// documented input parsing, the ordering/duplicate policy, and the stream
+// bookkeeping around it. Because a loaded series is a `TimeSeries`, it also
+// inherits `atOrBefore` lookup and `resample` for free.
 //
 // ── Documented input format ────────────────────────────────────────────────
 //
@@ -27,10 +32,11 @@
 //    series id, which allows several streams over the same asset (e.g. two
 //    protocols' rates) to be kept distinct.
 //
-// `timestamp` is epoch milliseconds as an integer, or an ISO-8601 string
-// parsed with `Date.parse`. `price` / `rate` / `value` are decimal strings
-// (preferred, exact) or JSON numbers; a value with more decimal places than the
-// configured precision is rejected rather than rounded.
+// `timestamp` is a non-negative epoch-millisecond integer, or an ISO-8601
+// string parsed with `Date.parse`. `price` / `rate` / `value` are decimal
+// strings (preferred, exact) or JSON numbers; a value with more decimal places
+// than the configured precision is rejected rather than rounded, which is what
+// makes the loader's round-trip guarantee possible.
 //
 // ── Documented ordering and duplicate rule ─────────────────────────────────
 //
@@ -42,18 +48,24 @@
 //     `onDuplicate`: `"reject"` (default) throws with code `"duplicate"`;
 //     `"first"` keeps the first observation; `"last"` keeps the last one.
 //
-// These rules are enforced by the loader, so every returned TimeSeries is
-// guaranteed ordered and duplicate-free.
+// These rules are enforced by the loader, so every returned series is
+// guaranteed ordered and duplicate-free, exactly the invariant `TimeSeries.from`
+// requires.
 
-import {
-  FixedPoint,
-  TimeSeries,
-  assertPrecision,
-  type StreamKind,
-} from "./time-series";
+import { Decimal } from "./decimal";
+import { TimeSeries, type TimeSeriesEntry } from "./time-series";
 
 /** Default decimal places; matches the 7-decimal stroop scale used elsewhere. */
 export const DEFAULT_HISTORICAL_PRECISION = 7;
+
+/**
+ * Largest supported number of decimal places for a loaded value. Bounded so a
+ * hostile input cannot materialise an unbounded bigint.
+ */
+export const MAX_HISTORICAL_PRECISION = 30;
+
+/** A price feed or an interest-rate stream. */
+export type StreamKind = "price" | "rate";
 
 export type HistoricalValue = string | number;
 
@@ -110,6 +122,22 @@ export interface LoadHistoricalOptions {
   onMalformed?: MalformedPolicy;
 }
 
+/**
+ * One loaded stream: the identity the loader resolved, plus the shared immutable
+ * {@link TimeSeries} (#866) holding the parsed values. The series is the
+ * package's single time-series representation, so it feeds a backtest directly
+ * (`atOrBefore`, `resample`, ordered `points`) with no further transformation.
+ */
+export interface LoadedSeries {
+  /** Stream id: `"<kind>:<asset>"` for row-sourced streams, the map key otherwise. */
+  readonly id: string;
+  /** Asset id for price streams, or pool/protocol id for rate streams. */
+  readonly asset: string;
+  readonly kind: StreamKind;
+  /** The shared immutable series; every value is a {@link Decimal} at its scale. */
+  readonly series: TimeSeries;
+}
+
 export type HistoricalLoadErrorCode =
   | "malformed-input"
   | "invalid-timestamp"
@@ -148,7 +176,7 @@ interface NormalizedOptions {
 
 interface RawPoint {
   timestamp: number;
-  value: FixedPoint;
+  value: Decimal;
   /** Index of the source row/point, for error messages. */
   source: number;
 }
@@ -169,6 +197,12 @@ const SKIPPABLE: ReadonlySet<HistoricalLoadErrorCode> = new Set([
   "invalid-value",
 ]);
 
+const DECIMAL_PATTERN = /^([+-]?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/;
+
+// Guard against a hostile or accidental exponent like `1e1000000`, which would
+// otherwise try to materialise an enormous bigint.
+const MAX_DECIMAL_EXPONENT = 1_000;
+
 function isStreamMap(input: unknown): input is HistoricalStreamMapInput {
   return (
     typeof input === "object" &&
@@ -185,6 +219,18 @@ function isRowInput(input: unknown): input is HistoricalRowInput {
     !Array.isArray(input) &&
     "rows" in input
   );
+}
+
+function assertPrecision(precision: number): void {
+  if (
+    !Number.isInteger(precision) ||
+    precision < 0 ||
+    precision > MAX_HISTORICAL_PRECISION
+  ) {
+    throw new RangeError(
+      `precision must be an integer between 0 and ${MAX_HISTORICAL_PRECISION}, received ${precision}`
+    );
+  }
 }
 
 function resolvePrecision(value: number | undefined): number {
@@ -209,15 +255,54 @@ function normalizeOptions(options: LoadHistoricalOptions): NormalizedOptions {
   };
 }
 
+/**
+ * Parses a decimal literal into the shared {@link Decimal} at `scale` places,
+ * exactly. Unlike `Decimal.fromString`, a value carrying more than `scale`
+ * significant decimal places is rejected rather than rounded: the loader's
+ * lossless round-trip depends on it. Scientific notation is accepted, so
+ * `"1.5e-3"` and `"1e-8"` parse like their plain forms.
+ */
+function parseDecimalExact(raw: string, scale: number): Decimal {
+  const match = DECIMAL_PATTERN.exec(raw.trim());
+  if (!match) {
+    throw new Error(`invalid decimal value: "${raw}"`);
+  }
+  const sign = match[1] === "-" ? -1n : 1n;
+  const whole = match[2]!;
+  const fraction = match[3] ?? "";
+  const exponent = match[4] === undefined ? 0 : Number(match[4]);
+  if (
+    !Number.isSafeInteger(exponent) ||
+    Math.abs(exponent) > MAX_DECIMAL_EXPONENT
+  ) {
+    throw new Error(`decimal exponent out of range: "${raw}"`);
+  }
+
+  const digits = BigInt(`${whole}${fraction}`);
+  // value = digits * 10 ** (exponent - fraction.length), scaled to `scale`.
+  const power = exponent - fraction.length + scale;
+  let scaled: bigint;
+  if (power >= 0) {
+    scaled = digits * 10n ** BigInt(power);
+  } else {
+    const divisor = 10n ** BigInt(-power);
+    if (digits % divisor !== 0n) {
+      throw new Error(`"${raw}" has more than ${scale} decimal place(s)`);
+    }
+    scaled = digits / divisor;
+  }
+  return new Decimal(sign * scaled, scale);
+}
+
 function parseTimestamp(
   raw: number | string,
   details: { stream?: string; index?: number }
 ): number {
   if (typeof raw === "number") {
-    if (!Number.isSafeInteger(raw)) {
+    if (!Number.isSafeInteger(raw) || raw < 0) {
       throw new HistoricalLoadError(
         "invalid-timestamp",
-        `timestamp must be an integer number of epoch milliseconds, received ${raw}`,
+        `timestamp must be a non-negative integer number of epoch milliseconds, received ${raw}`,
         details
       );
     }
@@ -233,17 +318,17 @@ function parseTimestamp(
   const text = raw.trim();
   if (/^[+-]?\d+$/.test(text)) {
     const parsed = Number(text);
-    if (!Number.isSafeInteger(parsed)) {
+    if (!Number.isSafeInteger(parsed) || parsed < 0) {
       throw new HistoricalLoadError(
         "invalid-timestamp",
-        `timestamp "${raw}" is outside the safe integer range`,
+        `timestamp "${raw}" is outside the safe non-negative integer range`,
         details
       );
     }
     return parsed;
   }
   const parsed = Date.parse(text);
-  if (!Number.isInteger(parsed)) {
+  if (!Number.isInteger(parsed) || parsed < 0) {
     throw new HistoricalLoadError(
       "invalid-timestamp",
       `timestamp "${raw}" is not a valid ISO-8601 date`,
@@ -257,9 +342,12 @@ function parseValue(
   raw: HistoricalValue,
   precision: number,
   details: { stream?: string; index?: number }
-): FixedPoint {
+): Decimal {
   try {
-    return FixedPoint.from(raw, precision);
+    return parseDecimalExact(
+      typeof raw === "number" ? String(raw) : raw,
+      precision
+    );
   } catch (err) {
     throw new HistoricalLoadError(
       "invalid-value",
@@ -348,7 +436,7 @@ function collectRow(
 
   // Parse every value this row contributes before touching a bucket, so a row
   // that fails on its second field doesn't leave a partial point behind.
-  const parsed: Array<{ kind: StreamKind; id: string; value: FixedPoint }> = [];
+  const parsed: Array<{ kind: StreamKind; id: string; value: Decimal }> = [];
   for (const kind of kinds) {
     const raw = kind === "price" ? row.price : row.rate;
     if (!hasValue(raw)) {
@@ -504,10 +592,43 @@ function collectStreams(
   }
 }
 
+function gcd(a: number, b: number): number {
+  let left = a;
+  let right = b;
+  while (right !== 0) {
+    const rest = left % right;
+    left = right;
+    right = rest;
+  }
+  return left;
+}
+
+/**
+ * Infers a nominal recording cadence for the shared series: the greatest common
+ * divisor of the gaps between consecutive timestamps, i.e. the largest interval
+ * onto which every sample falls. A stream with fewer than two points has no
+ * observable cadence and reports 1ms. Resampling the loaded series back to this
+ * interval is a no-op whenever the samples are already epoch-aligned.
+ */
+function inferIntervalMs(entries: readonly TimeSeriesEntry[]): number {
+  const first = entries[0];
+  const second = entries[1];
+  if (first === undefined || second === undefined) {
+    return 1;
+  }
+  let interval = second.timestampMs - first.timestampMs;
+  for (let i = 2; i < entries.length; i++) {
+    const previous = entries[i - 1]!;
+    const current = entries[i]!;
+    interval = gcd(interval, current.timestampMs - previous.timestampMs);
+  }
+  return interval;
+}
+
 function finalizeBucket(
   bucket: Bucket,
   options: NormalizedOptions
-): TimeSeries {
+): LoadedSeries {
   const ordered =
     options.onOutOfOrder === "sort"
       ? [...bucket.points].sort((a, b) => a.timestamp - b.timestamp)
@@ -543,17 +664,19 @@ function finalizeBucket(
     kept.push(point);
   }
 
-  return new TimeSeries(
-    bucket.id,
-    bucket.asset,
-    bucket.kind,
-    bucket.precision,
-    kept.map((point) => ({ timestamp: point.timestamp, value: point.value }))
-  );
+  const entries: TimeSeriesEntry[] = kept.map((point) => ({
+    timestampMs: point.timestamp,
+    value: point.value,
+  }));
+  const series = TimeSeries.from(entries, {
+    intervalMs: inferIntervalMs(entries),
+    scale: bucket.precision,
+  });
+  return { id: bucket.id, asset: bucket.asset, kind: bucket.kind, series };
 }
 
 /**
- * Loads historical price/rate data into time series.
+ * Loads historical price/rate data into the shared `TimeSeries` structure.
  *
  * Multiple assets and rate streams are loaded in one pass; the returned record
  * is keyed by stream id (`"<kind>:<asset>"` for row-sourced streams, the map
@@ -563,7 +686,7 @@ function finalizeBucket(
 export function loadHistoricalSeries(
   input: HistoricalInput,
   options: LoadHistoricalOptions = {}
-): Record<string, TimeSeries> {
+): Record<string, LoadedSeries> {
   const normalized = normalizeOptions(options);
   const buckets = new Map<string, Bucket>();
 
@@ -580,7 +703,7 @@ export function loadHistoricalSeries(
     );
   }
 
-  const series: Record<string, TimeSeries> = {};
+  const series: Record<string, LoadedSeries> = {};
   for (const bucket of buckets.values()) {
     series[bucket.id] = finalizeBucket(bucket, normalized);
   }
@@ -588,21 +711,21 @@ export function loadHistoricalSeries(
 }
 
 /**
- * Serialises a loaded series back into row form at full precision. Feeding the
- * result back through {@link loadHistoricalSeries} at the same precision
+ * Serialises a loaded stream back into row form at its fixed precision. Feeding
+ * the result back through {@link loadHistoricalSeries} at the same precision
  * reproduces every value exactly (see historical-loader.test.ts).
  */
-export function seriesToRows(series: TimeSeries): HistoricalRow[] {
-  return series.points.map((point) => {
+export function seriesToRows(loaded: LoadedSeries): HistoricalRow[] {
+  return loaded.series.points.map((point) => {
     const row: HistoricalRow = {
-      asset: series.asset,
-      timestamp: point.timestamp,
-      kind: series.kind,
+      asset: loaded.asset,
+      timestamp: point.timestampMs,
+      kind: loaded.kind,
     };
-    if (series.kind === "price") {
-      row.price = point.value.toFixedString();
+    if (loaded.kind === "price") {
+      row.price = point.value.toString();
     } else {
-      row.rate = point.value.toFixedString();
+      row.rate = point.value.toString();
     }
     return row;
   });
