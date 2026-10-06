@@ -297,6 +297,13 @@ importers:
   packages/contracts: {}
 
   packages/sdk:
+    dependencies:
+      '@meridian/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@meridian/stellar-sdk-helpers':
+        specifier: workspace:*
+        version: link:../stellar-sdk-helpers
     devDependencies:
       '@stellar/stellar-sdk':
         specifier: ^14.6.1
@@ -360,6 +367,9 @@ importers:
       '@stellar/stellar-sdk':
         specifier: ^14.6.1
         version: 14.6.1
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
     devDependencies:
       '@vitest/coverage-v8':
         specifier: 5.0.2
