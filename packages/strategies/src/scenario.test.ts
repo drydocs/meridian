@@ -133,6 +133,13 @@ describe("ScenarioSchema monetary fields reject floats", () => {
     expect(message).toContain("startingCapital must be greater than zero");
   });
 
+  it("rejects a zero startingCapital written with leading zeros", () => {
+    for (const startingCapital of ["00", "000", "00.0", "0.0000000"]) {
+      const message = failureTextFor({ ...VALID_INPUT, startingCapital });
+      expect(message).toContain("startingCapital must be greater than zero");
+    }
+  });
+
   it("rejects a number-valued strategy param (no floats in config)", () => {
     const message = failureTextFor({
       ...VALID_INPUT,
@@ -182,6 +189,68 @@ describe("ScenarioSchema window validation", () => {
       window: { ...VALID_INPUT.window, step: "1h" },
     });
     expect(message).toContain("window.step");
+  });
+
+  it("rejects an impossible calendar date that Date.parse would roll over", () => {
+    for (const start of [
+      "2024-02-31T00:00:00Z",
+      "2023-02-29T00:00:00Z",
+      "2024-11-31T00:00:00Z",
+    ]) {
+      const message = failureTextFor({
+        ...VALID_INPUT,
+        window: { ...VALID_INPUT.window, start },
+      });
+      expect(message).toContain("window.start must be a real calendar instant");
+    }
+  });
+
+  it("rejects an out-of-range clock time instead of throwing", () => {
+    for (const start of ["2024-01-01T25:00:00Z", "2024-13-01T00:00:00Z"]) {
+      const message = failureTextFor({
+        ...VALID_INPUT,
+        window: { ...VALID_INPUT.window, start },
+      });
+      expect(message).toContain("window.start must be a real calendar instant");
+    }
+  });
+
+  it("accepts a real leap day", () => {
+    const result = ScenarioSchema.safeParse({
+      ...VALID_INPUT,
+      window: {
+        start: "2024-02-29T00:00:00Z",
+        end: "2024-03-01T00:00:00Z",
+        step: "PT1H",
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a zero-length step duration", () => {
+    for (const step of ["P", "P0D", "P0W", "PT0S", "PT0M"]) {
+      const message = failureTextFor({
+        ...VALID_INPUT,
+        window: { ...VALID_INPUT.window, step },
+      });
+      expect(message).toContain("window.step must be a positive duration");
+    }
+  });
+
+  it("rejects a step duration with a dangling time marker", () => {
+    const message = failureTextFor({
+      ...VALID_INPUT,
+      window: { ...VALID_INPUT.window, step: "P1DT" },
+    });
+    expect(message).toContain("window.step must be an ISO-8601 duration");
+  });
+
+  it("accepts a positive step that carries a zero component", () => {
+    const result = ScenarioSchema.safeParse({
+      ...VALID_INPUT,
+      window: { ...VALID_INPUT.window, step: "P1DT0H" },
+    });
+    expect(result.success).toBe(true);
   });
 });
 

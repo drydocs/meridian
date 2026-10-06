@@ -38,15 +38,20 @@ const FIXED_POINT = /^-?\d+(?:\.\d{1,7})?$/;
 // as starting capital, use this so a leading "-" is rejected as malformed
 // rather than silently accepted.
 const NON_NEGATIVE_FIXED_POINT = /^\d+(?:\.\d{1,7})?$/;
-const ZERO = /^0(?:\.0+)?$/;
+// Any number of leading zeros is still zero: "00", "000" and "00.0" must be
+// treated the same as "0", or a zero starting capital slips through the
+// greater-than-zero check below.
+const ZERO = /^0+(?:\.0+)?$/;
 // Strict UTC instant: full date, time to the second (optional millis), "Z".
 // Rejecting offset forms ("+01:00") and partial dates keeps two scenarios that
 // describe the same window comparable as strings.
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 // ISO-8601 duration accepted for the step: weeks, days, and/or a time part
-// (P1W, P1D, PT1H, PT15M, PT1H30M, P1DT6H). The `/\d/` refine below rejects
-// the degenerate "P" / "PT" that this pattern would otherwise allow.
-const ISO_DURATION = /^P(?:\d+W|(?:\d+D)?(?:T(?:\d+H)?(?:\d+M)?(?:\d+S)?)?)$/;
+// (P1W, P1D, PT1H, PT15M, PT1H30M, P1DT6H). The lookahead after `T` rejects a
+// dangling time marker such as "P1DT", and the refine below rejects a
+// degenerate all-zero duration such as "P0D" or "PT0S".
+const ISO_DURATION =
+  /^P(?:\d+W|(?:\d+D)?(?:T(?=\d)(?:\d+H)?(?:\d+M)?(?:\d+S)?)?)$/;
 const ASSET_SYMBOL = /^[A-Z][A-Z0-9]{1,11}$/;
 
 /**
@@ -71,9 +76,23 @@ function isoInstant(field: string) {
     .regex(ISO_INSTANT, {
       message: `${field} must be an ISO-8601 UTC instant (e.g. 2024-01-01T00:00:00Z)`,
     })
-    .refine((value) => !Number.isNaN(Date.parse(value)), {
+    .refine(isRealCalendarInstant, {
       message: `${field} must be a real calendar instant`,
     });
+}
+
+/**
+ * Rejects impossible dates such as `2024-02-31` or `2023-02-29`. `Date.parse`
+ * accepts them and rolls the overflow forward into the next month, so the
+ * value can only be trusted if the parsed instant round-trips back to the
+ * input's own calendar date and clock time.
+ */
+function isRealCalendarInstant(value: string): boolean {
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return false;
+  // The ISO_INSTANT pattern guarantees the first 19 characters are
+  // YYYY-MM-DDTHH:MM:SS, and toISOString renders the same shape in UTC.
+  return new Date(parsed).toISOString().slice(0, 19) === value.slice(0, 19);
 }
 
 /** Time window and the fixed step the run advances by. */
@@ -87,9 +106,11 @@ export const ScenarioWindowSchema = z
         message:
           "window.step must be an ISO-8601 duration (e.g. PT1H, P1D, P1W)",
       })
-      .refine((value) => /\d/.test(value), {
-        message: "window.step must include a duration amount",
-      }),
+      .refine(
+        (value) =>
+          (value.match(/\d+/g) ?? []).some((amount) => /[1-9]/.test(amount)),
+        { message: "window.step must be a positive duration" }
+      ),
   })
   .strict()
   .refine((window) => Date.parse(window.end) > Date.parse(window.start), {
