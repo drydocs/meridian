@@ -1,16 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { Decimal } from "./decimal";
-import { LiquidationParameterModel } from "./liquidation";
-import { SelfRepayingLoanRunner, MarketTick } from "./scenario-runner";
+import { LiquidationParameterModel } from "./models/liquidation-parameter";
+import {
+  SelfRepayingLoanRunner,
+  MarketTick,
+  BacktestRunnerConfig,
+} from "./scenario-runner";
 
 describe("Self-Repaying Loan Scenario Backtests", () => {
-  const liquidationModel = new LiquidationParameterModel({
-    maxLoanToValue: Decimal.fromString("0.80"), // 80%
-    liquidationThreshold: Decimal.fromString("0.85"), // 85%
-    liquidationPenalty: Decimal.fromString("0.05"), // 5%
-  });
+  const liquidationModel = new LiquidationParameterModel(
+    Decimal.fromString("0.80"), // 80%
+    Decimal.fromString("0.85"), // 85%
+    Decimal.fromString("0.05") // 5%
+  );
 
-  const baseConfig = {
+  const baseConfig: BacktestRunnerConfig = {
     collateralAsset: "USDC",
     borrowAsset: "USDG",
     initialCollateralAmount: Decimal.fromString("1000.00"), // $1000 collateral
@@ -105,5 +109,105 @@ describe("Self-Repaying Loan Scenario Backtests", () => {
       }
       expect(snap.isLiquidated).toBe(false);
     }
+  });
+
+  it("Scenario 4: Collateral collapse deeper than deleverage can cover ends in liquidation", () => {
+    const runner = new SelfRepayingLoanRunner(baseConfig);
+
+    // Collateral worth $300 against $495 of debt cannot be restored to the
+    // target, so selling the whole basket still leaves the position short.
+    const ticks: MarketTick[] = [
+      {
+        timestamp: 1000,
+        collateralPrice: Decimal.fromString("0.30"),
+        yieldRate: Decimal.fromString("0.01"),
+        borrowInterestRate: Decimal.zero(),
+      },
+      {
+        timestamp: 2000,
+        collateralPrice: Decimal.fromString("0.30"),
+        yieldRate: Decimal.fromString("0.01"),
+        borrowInterestRate: Decimal.zero(),
+      },
+    ];
+
+    const report = runner.runScenario("collateral-collapse", ticks);
+
+    expect(report.wasLiquidated).toBe(true);
+    // The scenario stops on the liquidation tick rather than running to the end.
+    expect(report.snapshots).toHaveLength(1);
+    expect(report.snapshots[0]!.isLiquidated).toBe(true);
+    expect(report.snapshots[0]!.deleveragedCollateral.toString()).toBe(
+      "1000.0000000"
+    );
+    expect(report.finalCollateral.isZero()).toBe(true);
+    expect(report.finalDebt.toString()).toBe("195.0000000");
+  });
+
+  it("rejects a non-positive collateral price", () => {
+    const runner = new SelfRepayingLoanRunner(baseConfig);
+
+    expect(() =>
+      runner.runScenario("bad-price", [
+        {
+          timestamp: 1000,
+          collateralPrice: Decimal.zero(),
+          yieldRate: Decimal.fromString("0.01"),
+          borrowInterestRate: Decimal.zero(),
+        },
+      ])
+    ).toThrowError(/Collateral price must be strictly positive/);
+  });
+
+  it("rejects a negative borrow interest rate", () => {
+    const runner = new SelfRepayingLoanRunner(baseConfig);
+
+    expect(() =>
+      runner.runScenario("negative-interest", [
+        {
+          timestamp: 1000,
+          collateralPrice: Decimal.fromString("1.00"),
+          yieldRate: Decimal.fromString("0.01"),
+          borrowInterestRate: Decimal.fromString("-0.01"),
+        },
+      ])
+    ).toThrowError(/Borrow interest rate cannot be negative/);
+  });
+
+  it("rejects a deleverage threshold at or below 1.0 and a target at or below the threshold", () => {
+    expect(
+      () =>
+        new SelfRepayingLoanRunner({
+          ...baseConfig,
+          deleverageThresholdHf: Decimal.fromString("1.00"),
+        })
+    ).toThrowError(/must be greater than 1.0/);
+
+    expect(
+      () =>
+        new SelfRepayingLoanRunner({
+          ...baseConfig,
+          deleverageTargetHf: Decimal.fromString("1.20"),
+        })
+    ).toThrowError(/must be greater than the threshold/);
+  });
+
+  it("stops accruing yield once the debt is cleared", () => {
+    const runner = new SelfRepayingLoanRunner(baseConfig);
+
+    // Two ticks of yield clear the debt; the two that follow earn nothing.
+    const ticks: MarketTick[] = Array.from({ length: 4 }, (_, i) => ({
+      timestamp: 1000 + i * 3600,
+      collateralPrice: Decimal.fromString("1.00"),
+      yieldRate: Decimal.fromString("0.60"),
+      borrowInterestRate: Decimal.zero(),
+    }));
+
+    const report = runner.runScenario("yield-overshoot", ticks);
+
+    expect(report.isFullyRepaid).toBe(true);
+    expect(report.totalYieldEarned.toString()).toBe("600.0000000");
+    expect(report.totalYieldRepaid.toString()).toBe("500.0000000");
+    expect(report.snapshots).toHaveLength(4);
   });
 });

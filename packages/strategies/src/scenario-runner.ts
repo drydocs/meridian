@@ -1,7 +1,7 @@
 import { Decimal } from "./decimal";
-import { LiquidationParameterModel } from "./liquidation";
+import { LiquidationParameterModel } from "./models/liquidation-parameter";
 
-export interface SelfRepayingLoanConfig {
+export interface BacktestRunnerConfig {
   readonly collateralAsset: string;
   readonly borrowAsset: string;
   readonly initialCollateralAmount: Decimal;
@@ -55,16 +55,27 @@ export interface BacktestReport {
 }
 
 export class SelfRepayingLoanRunner {
-  readonly config: SelfRepayingLoanConfig;
+  readonly config: BacktestRunnerConfig;
   readonly deleverageThresholdHf: Decimal;
   readonly deleverageTargetHf: Decimal;
 
-  constructor(config: SelfRepayingLoanConfig) {
+  constructor(config: BacktestRunnerConfig) {
     this.config = config;
     this.deleverageThresholdHf =
       config.deleverageThresholdHf ?? Decimal.fromString("1.20");
     this.deleverageTargetHf =
       config.deleverageTargetHf ?? Decimal.fromString("1.40");
+
+    if (this.deleverageThresholdHf.lte(Decimal.one())) {
+      throw new RangeError(
+        `Deleverage threshold health factor must be greater than 1.0, got ${this.deleverageThresholdHf.toString()}`
+      );
+    }
+    if (this.deleverageTargetHf.lte(this.deleverageThresholdHf)) {
+      throw new RangeError(
+        `Deleverage target health factor (${this.deleverageTargetHf.toString()}) must be greater than the threshold (${this.deleverageThresholdHf.toString()})`
+      );
+    }
   }
 
   runScenario(scenarioName: string, ticks: MarketTick[]): BacktestReport {
@@ -80,6 +91,17 @@ export class SelfRepayingLoanRunner {
     for (let i = 0; i < ticks.length; i++) {
       const tick = ticks[i]!;
 
+      if (tick.collateralPrice.lte(Decimal.zero())) {
+        throw new RangeError(
+          `Collateral price must be strictly positive at tick ${i}, got ${tick.collateralPrice.toString()}`
+        );
+      }
+      if (tick.borrowInterestRate.isNegative()) {
+        throw new RangeError(
+          `Borrow interest rate cannot be negative at tick ${i}, got ${tick.borrowInterestRate.toString()}`
+        );
+      }
+
       // 1. Accrue borrow interest
       if (!debt.isZero()) {
         const interest = debt.mul(tick.borrowInterestRate);
@@ -88,7 +110,10 @@ export class SelfRepayingLoanRunner {
 
       // 2. Accrue yield on deployed borrowed funds / collateral
       // The borrowed funds (or collateral) generate yield in terms of debt currency
-      const currentYield = this.config.initialBorrowAmount.mul(tick.yieldRate);
+      // while the loan is open. Once the debt clears the position is closed.
+      const currentYield = debt.isZero()
+        ? Decimal.zero()
+        : this.config.initialBorrowAmount.mul(tick.yieldRate);
       totalYieldEarned = totalYieldEarned.add(currentYield);
 
       // 3. Amortize debt with accrued yield
@@ -132,19 +157,20 @@ export class SelfRepayingLoanRunner {
           .sub(collateralAmount.mul(tick.collateralPrice).mul(threshold));
         const den = targetHf.sub(threshold);
 
-        if (den.gt(Decimal.zero()) && num.gt(Decimal.zero())) {
-          let debtToRepay = num.div(den);
-          if (debtToRepay.gt(debt)) debtToRepay = debt;
+        // The sale funds the repayment, so it is bounded by the debt and by the
+        // value the collateral can raise.
+        let debtToRepay = num.div(den);
+        if (debtToRepay.gt(debt)) debtToRepay = debt;
+        const collateralValue = collateralAmount.mul(tick.collateralPrice);
+        if (debtToRepay.gt(collateralValue)) debtToRepay = collateralValue;
 
-          const collToSell = debtToRepay.div(tick.collateralPrice);
-          if (collToSell.lte(collateralAmount)) {
-            collateralAmount = collateralAmount.sub(collToSell);
-            debt = debt.sub(debtToRepay);
-            deleveragedCollateral = collToSell;
-            totalDeleveragedCollateral =
-              totalDeleveragedCollateral.add(collToSell);
-          }
-        }
+        let collToSell = debtToRepay.div(tick.collateralPrice);
+        if (collToSell.gt(collateralAmount)) collToSell = collateralAmount;
+        collateralAmount = collateralAmount.sub(collToSell);
+        debt = debt.sub(debtToRepay);
+        deleveragedCollateral = collToSell;
+        totalDeleveragedCollateral = totalDeleveragedCollateral.add(collToSell);
+
         // Recompute HF after deleveraging
         currentHf = this.config.liquidationModel.computeHealthFactor(
           collateralAmount.mul(tick.collateralPrice),
