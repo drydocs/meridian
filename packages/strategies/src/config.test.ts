@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Decimal } from "./decimal";
+import { LiquidationParameterModel } from "./models/liquidation-parameter";
 import {
   parseSelfRepayingLoanConfig,
   RawSelfRepayingLoanConfig,
@@ -7,6 +8,12 @@ import {
 } from "./config";
 
 describe("parseSelfRepayingLoanConfig", () => {
+  const liquidationModel = new LiquidationParameterModel(
+    Decimal.fromString("0.80"),
+    Decimal.fromString("0.85"),
+    Decimal.fromString("0.05")
+  );
+
   const validFixedConfig: RawSelfRepayingLoanConfig = {
     collateralAsset: "USDC",
     borrowAsset: "USDG",
@@ -144,5 +151,179 @@ describe("parseSelfRepayingLoanConfig", () => {
         },
       })
     ).toThrowError(ConfigValidationError);
+  });
+
+  it("should reject an opening loan-to-value outside the 0 to 1 range", () => {
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        openingLoanToValue: Decimal.fromString("1"),
+      })
+    ).toThrowError(/Opening loan-to-value must be between 0 and 1/);
+
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        openingLoanToValue: Decimal.fromString("-0.10"),
+      })
+    ).toThrowError(/Opening loan-to-value must be between 0 and 1/);
+  });
+
+  it("should reject a liquidation threshold outside the 0 to 1 range", () => {
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        liquidationThreshold: Decimal.fromString("1.20"),
+      })
+    ).toThrowError(ConfigValidationError);
+
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        liquidationThreshold: Decimal.fromString("-0.10"),
+      })
+    ).toThrowError(ConfigValidationError);
+  });
+
+  it("should reject a deleverage buffer outside the 0 to threshold range", () => {
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        deleverageBuffer: Decimal.fromString("-0.05"),
+      })
+    ).toThrowError(
+      /Deleverage buffer must be positive and strictly below liquidation threshold/
+    );
+
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        deleverageBuffer: Decimal.fromString("0.85"),
+      })
+    ).toThrowError(
+      /Deleverage buffer must be positive and strictly below liquidation threshold/
+    );
+  });
+
+  it("should reject a negative liquidation penalty", () => {
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        liquidationPenalty: Decimal.fromString("-0.01"),
+      })
+    ).toThrowError(ConfigValidationError);
+  });
+
+  it("should reject a missing or unknown borrow rate mode", () => {
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        borrowRate:
+          undefined as unknown as RawSelfRepayingLoanConfig["borrowRate"],
+      })
+    ).toThrowError(ConfigValidationError);
+
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        borrowRate: {
+          mode: "floating",
+          fixedRate: Decimal.fromString("0.05"),
+        } as unknown as RawSelfRepayingLoanConfig["borrowRate"],
+      })
+    ).toThrowError(ConfigValidationError);
+  });
+
+  it("should reject negative or out-of-range variable borrow rates", () => {
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validVariableConfig,
+        borrowRate: {
+          mode: "variable",
+          baseRate: Decimal.fromString("-0.01"),
+          slope1: Decimal.fromString("0.04"),
+          slope2: Decimal.fromString("0.30"),
+          optimalUtilization: Decimal.fromString("0.80"),
+        },
+      })
+    ).toThrowError(ConfigValidationError);
+
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validVariableConfig,
+        borrowRate: {
+          mode: "variable",
+          baseRate: Decimal.fromString("0.02"),
+          slope1: Decimal.fromString("0.04"),
+          slope2: Decimal.fromString("-0.01"),
+          optimalUtilization: Decimal.fromString("0.80"),
+        },
+      })
+    ).toThrowError(ConfigValidationError);
+
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validVariableConfig,
+        borrowRate: {
+          mode: "variable",
+          baseRate: Decimal.fromString("0.02"),
+          slope1: Decimal.fromString("0.04"),
+          slope2: Decimal.fromString("0.30"),
+          optimalUtilization: Decimal.fromString("1.20"),
+        },
+      })
+    ).toThrowError(ConfigValidationError);
+  });
+
+  it("should reject an empty collateral set", () => {
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        collateralSet: [],
+      })
+    ).toThrowError(ConfigValidationError);
+  });
+
+  it("should reject an unknown asset in the collateral set", () => {
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        collateralSet: [
+          {
+            asset: "DOGE",
+            amount: Decimal.fromString("100"),
+            liquidationModel,
+          },
+        ],
+      })
+    ).toThrowError(ConfigValidationError);
+  });
+
+  it("should reject a negative amount in the collateral set", () => {
+    expect(() =>
+      parseSelfRepayingLoanConfig({
+        ...validFixedConfig,
+        collateralSet: [
+          {
+            asset: "ETH",
+            amount: Decimal.fromString("-1"),
+            liquidationModel,
+          },
+        ],
+      })
+    ).toThrowError(ConfigValidationError);
+  });
+
+  it("should parse a valid collateral set", () => {
+    const config = parseSelfRepayingLoanConfig({
+      ...validFixedConfig,
+      collateralSet: [
+        { asset: "USDC", amount: Decimal.fromString("1000"), liquidationModel },
+        { asset: "ETH", amount: Decimal.fromString("0.5"), liquidationModel },
+      ],
+    });
+
+    expect(config.collateralSet).toHaveLength(2);
+    expect(config.collateralSet?.[1]?.asset).toBe("ETH");
   });
 });
