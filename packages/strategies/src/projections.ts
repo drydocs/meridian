@@ -5,8 +5,14 @@ export interface LoanProjectionInput {
   readonly deployedYieldPrincipal: Decimal;
   readonly assumedYieldRatePerPeriod: Decimal;
   readonly borrowInterestRatePerPeriod: Decimal;
-  readonly costPerPeriod?: Decimal; // Fixed operational/fee/gas cost per period
-  readonly maxPeriods?: number; // Maximum horizon to simulate (default: 1000)
+  /**
+   * Flat fee and gas cost charged each period, in the borrow asset. Derive it
+   * from the cost schedule in `costs.ts` (swap fee plus network fee). Defaults
+   * to zero.
+   */
+  readonly costPerPeriod?: Decimal;
+  /** Maximum horizon to simulate. Must be a positive integer. Defaults to 1000. */
+  readonly maxPeriods?: number;
 }
 
 export interface PeriodScheduleItem {
@@ -27,9 +33,9 @@ export interface LoanProjectionResult {
    */
   readonly isRepayable: boolean;
   /**
-   * Periods until the debt reaches zero. `undefined` when the loan never
-   * repays, or when it is repayable but repayment runs past `maxPeriods`
-   * (tell the two apart with `isRepayable`).
+   * Periods until the debt reaches zero, `0` when the opening debt is already
+   * zero. `undefined` when the loan never repays, or when it is repayable but
+   * repayment runs past `maxPeriods` (tell the two apart with `isRepayable`).
    */
   readonly timeToRepayPeriods: number | undefined;
   readonly schedule: PeriodScheduleItem[];
@@ -38,12 +44,43 @@ export interface LoanProjectionResult {
   readonly totalCostPaid: Decimal;
 }
 
+function validateInputs(
+  initialDebt: Decimal,
+  deployedYieldPrincipal: Decimal,
+  borrowInterestRate: Decimal,
+  costPerPeriod: Decimal
+): void {
+  if (!deployedYieldPrincipal.isPositive()) {
+    throw new RangeError(
+      `Deployed yield principal must be positive, got ${deployedYieldPrincipal.toString()}`
+    );
+  }
+  if (initialDebt.isNegative()) {
+    throw new RangeError(
+      `Initial debt cannot be negative, got ${initialDebt.toString()}`
+    );
+  }
+  if (borrowInterestRate.isNegative()) {
+    throw new RangeError(
+      `Borrow interest rate cannot be negative, got ${borrowInterestRate.toString()}`
+    );
+  }
+  if (costPerPeriod.isNegative()) {
+    throw new RangeError(
+      `Cost per period cannot be negative, got ${costPerPeriod.toString()}`
+    );
+  }
+}
+
 /**
  * Computes the minimum break-even yield rate (per period) required for the loan to eventually repay.
  * Break-even condition:
  * Gross Yield >= Interest Accrued on initial debt + Periodic Costs
  * Principal * YieldRate >= InitialDebt * BorrowRate + CostPerPeriod
  * YieldRate >= (InitialDebt * BorrowRate + CostPerPeriod) / Principal
+ *
+ * @throws RangeError when the deployed yield principal is not positive, or when
+ * a monetary input is negative.
  */
 export function computeBreakEvenYield(
   initialDebt: Decimal,
@@ -51,11 +88,12 @@ export function computeBreakEvenYield(
   borrowInterestRate: Decimal,
   costPerPeriod: Decimal = Decimal.zero()
 ): Decimal {
-  if (deployedYieldPrincipal.isZero()) {
-    throw new RangeError(
-      "Deployed yield principal cannot be zero when computing break-even yield"
-    );
-  }
+  validateInputs(
+    initialDebt,
+    deployedYieldPrincipal,
+    borrowInterestRate,
+    costPerPeriod
+  );
   const interestCost = initialDebt.mul(borrowInterestRate);
   const totalCost = interestCost.add(costPerPeriod);
   return totalCost.div(deployedYieldPrincipal);
@@ -63,6 +101,9 @@ export function computeBreakEvenYield(
 
 /**
  * Calculates the complete repayment schedule, time-to-repay, and break-even yield.
+ *
+ * @throws RangeError when the deployed yield principal is not positive, when a
+ * monetary input is negative, or when `maxPeriods` is not a positive integer.
  */
 export function computeLoanProjections(
   input: LoanProjectionInput
@@ -70,12 +111,31 @@ export function computeLoanProjections(
   const cost = input.costPerPeriod ?? Decimal.zero();
   const maxPeriods = input.maxPeriods ?? 1000;
 
+  if (!Number.isInteger(maxPeriods) || maxPeriods < 1) {
+    throw new RangeError(
+      `maxPeriods must be a positive integer, got ${maxPeriods}`
+    );
+  }
+
   const breakEvenYield = computeBreakEvenYield(
     input.initialDebt,
     input.deployedYieldPrincipal,
     input.borrowInterestRatePerPeriod,
     cost
   );
+
+  // Zero opening debt is already repaid, so there is nothing to schedule
+  if (input.initialDebt.isZero()) {
+    return {
+      breakEvenYieldRate: breakEvenYield,
+      isRepayable: true,
+      timeToRepayPeriods: 0,
+      schedule: [],
+      totalYieldGenerated: Decimal.zero(),
+      totalInterestPaid: Decimal.zero(),
+      totalCostPaid: Decimal.zero(),
+    };
+  }
 
   // If assumed yield is less than or equal to break-even yield, the loan will never self-repay
   const isRepayable = input.assumedYieldRatePerPeriod.gt(breakEvenYield);
@@ -88,10 +148,6 @@ export function computeLoanProjections(
   let totalCostPaid = Decimal.zero();
 
   for (let period = 1; period <= maxPeriods; period++) {
-    if (debt.isZero()) {
-      break;
-    }
-
     const debtStart = debt;
     const interestAccrued = debtStart.mul(input.borrowInterestRatePerPeriod);
     totalInterestPaid = totalInterestPaid.add(interestAccrued);
