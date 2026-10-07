@@ -385,3 +385,36 @@ describe("Error type guards", () => {
     expect(isTimestampOutOfRangeError("string")).toBe(false);
   });
 });
+
+describe("FixedPointDecimal arithmetic", () => {
+  it("add", () => {
+    const a = FixedPointDecimal.fromString("1.5");
+    const b = FixedPointDecimal.fromString("0.5");
+    expect(a.add(b).toString()).toBe("2");
+  });
+
+  it("sub", () => {
+    const a = FixedPointDecimal.fromString("1.5");
+    const b = FixedPointDecimal.fromString("0.5");
+    expect(a.sub(b).toString()).toBe("1");
+  });
+
+  it("multiplies a notional by a rate", () => {
+    // 100 * 0.003 = 0.3
+    const notional = FixedPointDecimal.fromString("100");
+    const rate = FixedPointDecimal.fromString("0.003");
+    expect(notional.mul(rate).toString()).toBe("0.3");
+  });
+
+  it("div", () => {
+    const a = FixedPointDecimal.fromString("1");
+    const b = FixedPointDecimal.fromString("4");
+    expect(a.div(b).toString()).toBe("0.25");
+  });
+
+  it("div by zero throws", () => {
+    expect(() =>
+      FixedPointDecimal.fromString("1").div(FixedPointDecimal.fromString("0"))
+    ).toThrow(RangeError);
+  });
+});

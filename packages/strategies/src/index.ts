@@ -1,4 +1,5 @@
 export * from "./decimal";
+export * from "./guard";
 
 export interface StrategyEngine {
   readonly name: string;
@@ -18,3 +19,15 @@ export * from "./rng";
 export * from "./gbm";
 export * from "./sizing";
 export * from "./backtest";
+export * from "./portfolio";
+export * from "./strategy";
+export * from "./clock";
+export * from "./funding";
+export * from "./scenario";
+export * from "./delta-neutral";
+export * from "./costs";
+export * from "./slippage-model";
+export * from "./time-series";
+export * from "./historical-loader";
+export * from "./models/liquidation-parameter";
+export * from "./multi-collateral";
