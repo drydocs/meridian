@@ -1,3 +1,4 @@
+import { DEFINDEX_SLIPPAGE_BPS } from "@meridian/shared";
 import {
   Address,
   Contract,
@@ -71,7 +72,7 @@ export async function buildDefindexDepositTx(
   config: DefindexVaultConfig,
   depositor: string,
   amount: bigint,
-  slippageBps = 10n
+  slippageBps = BigInt(DEFINDEX_SLIPPAGE_BPS)
 ): Promise<{ xdr: string; fee: string }> {
   if (amount <= 0n) throw new Error("amount must be positive");
   const minAmount = amount - (amount * slippageBps) / 10_000n;
@@ -105,7 +106,7 @@ export async function buildDefindexWithdrawTx(
   config: DefindexVaultConfig,
   withdrawer: string,
   shares: bigint,
-  slippageBps = 10n
+  slippageBps = BigInt(DEFINDEX_SLIPPAGE_BPS)
 ): Promise<{ xdr: string; fee: string }> {
   if (shares <= 0n) throw new Error("shares must be positive");
 

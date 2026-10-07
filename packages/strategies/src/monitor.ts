@@ -1,5 +1,5 @@
 import { Decimal } from "./decimal";
-import { LiquidationParameterModel } from "./liquidation";
+import { LiquidationParameterModel } from "./models/liquidation-parameter";
 
 export interface HealthFactorMonitorConfig {
   readonly liquidationModel: LiquidationParameterModel;

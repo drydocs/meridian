@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { Decimal } from "./decimal";
-import { LiquidationParameterModel } from "./liquidation";
+import { LiquidationParameterModel } from "./models/liquidation-parameter";
 import { HealthFactorMonitor, PositionState } from "./monitor";
 
 describe("HealthFactorMonitor", () => {
-  const liquidationModel = new LiquidationParameterModel({
-    maxLoanToValue: Decimal.fromString("0.80"), // 80%
-    liquidationThreshold: Decimal.fromString("0.85"), // 85%
-    liquidationPenalty: Decimal.fromString("0.05"), // 5%
-  });
+  const liquidationModel = new LiquidationParameterModel(
+    Decimal.fromString("0.80"), // 80%
+    Decimal.fromString("0.85"), // 85%
+    Decimal.fromString("0.05") // 5%
+  );
 
   const monitor = new HealthFactorMonitor({
     liquidationModel,
