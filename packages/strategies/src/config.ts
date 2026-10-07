@@ -1,5 +1,5 @@
 import { Decimal } from "./decimal";
-import { LiquidationParameterModel } from "./liquidation";
+import { LiquidationParameterModel } from "./models/liquidation-parameter";
 
 export type RateMode = "fixed" | "variable";
 
@@ -29,7 +29,7 @@ export interface RawSelfRepayingLoanConfig {
   readonly borrowAsset: string;
   readonly yieldSource: string;
   readonly openingLoanToValue: Decimal;
-  readonly deleverageBuffer: Decimal; // Buffer above threshold where deleveraging begins (e.g. 0.05 = 5%)
+  readonly deleverageBuffer: Decimal; // Safety margin below the liquidation threshold where deleveraging begins (e.g. 0.05 = 5%)
   readonly deleverageTargetLtv: Decimal; // Target LTV to restore to after deleveraging
   readonly liquidationThreshold: Decimal;
   readonly liquidationPenalty: Decimal;
