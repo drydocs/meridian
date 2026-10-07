@@ -1,5 +1,5 @@
 import { Decimal } from "./decimal";
-import { LiquidationParameterModel } from "./liquidation";
+import { LiquidationParameterModel } from "./models/liquidation-parameter";
 
 export type DeleverageOrderingPolicy =
   "highest-risk-first" | "lowest-liquidity-penalty-first" | "pro-rata";
@@ -22,6 +22,51 @@ export interface DeleverageOrder {
   readonly debtRepaidValue: Decimal;
 }
 
+function positionValue(position: CollateralPosition): Decimal {
+  return position.amount.mul(position.price);
+}
+
+function assertNonNegative(value: Decimal, name: string): void {
+  if (value.isNegative()) {
+    throw new RangeError(`${name} cannot be negative`);
+  }
+}
+
+function lowest(...values: Decimal[]): Decimal {
+  return values.reduce((low, value) => (value.lt(low) ? value : low));
+}
+
+/** Three-way comparison, so sorting does not depend on the host's locale data. */
+function compare(first: Decimal, second: Decimal): number {
+  if (first.lt(second)) return -1;
+  if (first.gt(second)) return 1;
+  return 0;
+}
+
+function compareAsset(first: string, second: string): number {
+  if (first < second) return -1;
+  if (first > second) return 1;
+  return 0;
+}
+
+function toOrder(
+  position: CollateralPosition,
+  debtRepaidValue: Decimal
+): DeleverageOrder {
+  return {
+    asset: position.asset,
+    amountToUnwind: debtRepaidValue.div(position.price),
+    debtRepaidValue,
+  };
+}
+
+/**
+ * A set of collateral positions lent against as one basket.
+ *
+ * The blended figures weight each position by its value, so a $100 position
+ * counts twice as much as a $50 one when the basket's threshold, loan-to-value
+ * or health is derived.
+ */
 export class MultiCollateralBasket {
   readonly positions: CollateralPosition[];
   readonly deleveragePolicy: DeleverageOrderingPolicy;
@@ -36,167 +81,209 @@ export class MultiCollateralBasket {
     this.deleveragePolicy = config.deleveragePolicy ?? "highest-risk-first";
   }
 
-  /**
-   * Total collateral value in quote currency = sum(amount_i * price_i)
-   */
+  /** Total collateral value, the sum of `amount * price` across the basket. */
   computeTotalCollateralValue(): Decimal {
-    let total = Decimal.zero();
-    for (const pos of this.positions) {
-      const posVal = pos.amount.mul(pos.price);
-      total = total.add(posVal);
-    }
-    return total;
+    return this.positions.reduce(
+      (total, position) => total.add(positionValue(position)),
+      Decimal.zero()
+    );
   }
 
   /**
-   * Blended liquidation threshold = sum(val_i * threshold_i) / sum(val_i)
+   * Value-weighted liquidation threshold, `sum(value * threshold) / sum(value)`.
+   *
+   * A basket holding no value returns zero. Nothing can be borrowed or
+   * maintained against it, and no other threshold describes that state.
    */
   computeBlendedLiquidationThreshold(): Decimal {
-    const totalVal = this.computeTotalCollateralValue();
-    if (totalVal.isZero()) {
+    const totalValue = this.computeTotalCollateralValue();
+    if (totalValue.isZero()) {
       return Decimal.zero();
     }
-    let weightedThresholdSum = Decimal.zero();
-    for (const pos of this.positions) {
-      const posVal = pos.amount.mul(pos.price);
-      const weighted = posVal.mul(pos.liquidationModel.liquidationThreshold);
-      weightedThresholdSum = weightedThresholdSum.add(weighted);
-    }
-    return weightedThresholdSum.div(totalVal);
+
+    const discountedValue = this.positions.reduce(
+      (total, position) =>
+        total.add(
+          positionValue(position).mul(
+            position.liquidationModel.liquidationThreshold
+          )
+        ),
+      Decimal.zero()
+    );
+
+    return discountedValue.div(totalValue);
   }
 
   /**
-   * Blended max loan-to-value = sum(val_i * maxLtv_i) / sum(val_i)
+   * Value-weighted max loan-to-value, `sum(value * maxLtv) / sum(value)`, and
+   * zero for a basket holding no value, for the same reason as the threshold.
    */
   computeBlendedMaxLoanToValue(): Decimal {
-    const totalVal = this.computeTotalCollateralValue();
-    if (totalVal.isZero()) {
+    const totalValue = this.computeTotalCollateralValue();
+    if (totalValue.isZero()) {
       return Decimal.zero();
     }
-    let weightedLtvSum = Decimal.zero();
-    for (const pos of this.positions) {
-      const posVal = pos.amount.mul(pos.price);
-      const weighted = posVal.mul(pos.liquidationModel.maxLoanToValue);
-      weightedLtvSum = weightedLtvSum.add(weighted);
-    }
-    return weightedLtvSum.div(totalVal);
+
+    const borrowableValue = this.positions.reduce(
+      (total, position) =>
+        total.add(
+          positionValue(position).mul(position.liquidationModel.maxLoanToValue)
+        ),
+      Decimal.zero()
+    );
+
+    return borrowableValue.div(totalValue);
   }
 
   /**
-   * Blended health factor across multi-collateral basket =
-   * sum(amount_i * price_i * threshold_i) / debt
-   * Returns undefined if debt is zero.
+   * Blended health factor, `sum(value * threshold) / debt`, so the basket sits
+   * at its liquidation boundary when the result is 1.0.
+   *
+   * Returns `undefined` when there is no debt, since the basket can never be
+   * liquidated and no finite factor describes it. Throws on a negative debt or
+   * price, matching `LiquidationParameterModel`.
    */
   computeHealthFactor(debt: Decimal): Decimal | undefined {
+    assertNonNegative(debt, "Debt");
+    for (const position of this.positions) {
+      assertNonNegative(
+        position.amount,
+        `Collateral amount for ${position.asset}`
+      );
+      assertNonNegative(position.price, `Price for ${position.asset}`);
+    }
+
     if (debt.isZero()) {
       return undefined;
     }
-    let totalDiscountedCollateral = Decimal.zero();
-    for (const pos of this.positions) {
-      const posVal = pos.amount.mul(pos.price);
-      const discounted = posVal.mul(pos.liquidationModel.liquidationThreshold);
-      totalDiscountedCollateral = totalDiscountedCollateral.add(discounted);
-    }
-    return totalDiscountedCollateral.div(debt);
+
+    const discountedValue = this.positions.reduce(
+      (total, position) =>
+        total.add(
+          positionValue(position).mul(
+            position.liquidationModel.liquidationThreshold
+          )
+        ),
+      Decimal.zero()
+    );
+
+    return discountedValue.div(debt);
   }
 
   /**
-   * Determine unwinding order across collateral assets according to the policy:
-   * - "highest-risk-first": Sort by lowest liquidation threshold first (i.e. highest risk / least safe collateral)
-   * - "lowest-liquidity-penalty-first": Sort by lowest liquidation penalty first (preserves value)
-   * - "pro-rata": Distribute debt repayment proportionally across positions
+   * Deterministic plan for unwinding `requiredDebtRepayment` of debt from the
+   * basket. Each order sells enough of one asset to raise `debtRepaidValue` of
+   * quote currency.
+   *
+   * - `highest-risk-first` draws on the lowest liquidation threshold first.
+   * - `lowest-liquidity-penalty-first` draws on the cheapest penalty first.
+   * - `pro-rata` spreads the repayment in proportion to position value.
+   *
+   * Positions with no amount or no price are skipped, and a request of zero or
+   * less is a no-op rather than an error. When the basket holds less than the
+   * request, the plan repays what it can and the `debtRepaidValue` values sum to
+   * less than `requiredDebtRepayment`, so the caller can read the shortfall off
+   * the plan.
    */
   computeDeleveragePlan(requiredDebtRepayment: Decimal): DeleverageOrder[] {
     if (requiredDebtRepayment.lte(Decimal.zero())) {
       return [];
     }
 
-    const orders: DeleverageOrder[] = [];
-    let remainingDebtToRepay = requiredDebtRepayment;
-
-    if (this.deleveragePolicy === "pro-rata") {
-      const totalCollateralValue = this.computeTotalCollateralValue();
-      if (totalCollateralValue.isZero()) {
-        return [];
-      }
-
-      for (const pos of this.positions) {
-        if (remainingDebtToRepay.isZero()) break;
-        const posValue = pos.amount.mul(pos.price);
-        if (posValue.isZero() || pos.price.isZero()) continue;
-
-        // Share of total value
-        const share = posValue.div(totalCollateralValue);
-        let debtToCover = requiredDebtRepayment.mul(share);
-        if (debtToCover.gt(remainingDebtToRepay)) {
-          debtToCover = remainingDebtToRepay;
-        }
-        if (debtToCover.gt(posValue)) {
-          debtToCover = posValue;
-        }
-
-        const amountToUnwind = debtToCover.div(pos.price);
-        orders.push({
-          asset: pos.asset,
-          amountToUnwind,
-          debtRepaidValue: debtToCover,
-        });
-      }
-      return orders;
+    const sellable = this.positions.filter(
+      (position) => !position.amount.isZero() && !position.price.isZero()
+    );
+    if (sellable.length === 0) {
+      return [];
     }
 
-    // Sort positions copy based on policy
-    const sortedPositions = [...this.positions].sort((a, b) => {
-      if (this.deleveragePolicy === "highest-risk-first") {
-        // Lower threshold = riskier collateral, unwind first
-        if (
-          a.liquidationModel.liquidationThreshold.lt(
-            b.liquidationModel.liquidationThreshold
-          )
-        )
-          return -1;
-        if (
-          a.liquidationModel.liquidationThreshold.gt(
-            b.liquidationModel.liquidationThreshold
-          )
-        )
-          return 1;
-        return a.asset.localeCompare(b.asset);
-      } else {
-        // "lowest-liquidity-penalty-first"
-        if (
-          a.liquidationModel.liquidationPenalty.lt(
-            b.liquidationModel.liquidationPenalty
-          )
-        )
-          return -1;
-        if (
-          a.liquidationModel.liquidationPenalty.gt(
-            b.liquidationModel.liquidationPenalty
-          )
-        )
-          return 1;
-        return a.asset.localeCompare(b.asset);
+    return this.deleveragePolicy === "pro-rata"
+      ? this.proRataPlan(sellable, requiredDebtRepayment)
+      : this.sequentialPlan(sellable, requiredDebtRepayment);
+  }
+
+  private proRataPlan(
+    sellable: CollateralPosition[],
+    requiredDebtRepayment: Decimal
+  ): DeleverageOrder[] {
+    const holdings = sellable.map((position) => ({
+      position,
+      value: positionValue(position),
+    }));
+    const totalValue = holdings.reduce(
+      (total, holding) => total.add(holding.value),
+      Decimal.zero()
+    );
+    if (totalValue.isZero()) {
+      return [];
+    }
+
+    const orders: DeleverageOrder[] = [];
+    let remaining = requiredDebtRepayment;
+
+    // Each position takes its share of the original request rather than of what
+    // is still outstanding, so the slices stay proportional with more than two
+    // positions. The last one takes the remainder, which absorbs the rounding
+    // at scale 7 instead of leaving an unallocated slice behind. A slice that
+    // rounds to nothing is dropped rather than recorded as a zero order.
+    for (const [index, holding] of holdings.entries()) {
+      const isLast = index === holdings.length - 1;
+      const debtToCover = isLast
+        ? lowest(holding.value, remaining)
+        : lowest(
+            requiredDebtRepayment.mul(holding.value).div(totalValue),
+            holding.value,
+            remaining
+          );
+
+      if (debtToCover.isZero()) {
+        continue;
       }
+
+      orders.push(toOrder(holding.position, debtToCover));
+      remaining = remaining.sub(debtToCover);
+    }
+
+    return orders;
+  }
+
+  private sequentialPlan(
+    sellable: CollateralPosition[],
+    requiredDebtRepayment: Decimal
+  ): DeleverageOrder[] {
+    const ordered = [...sellable].sort((first, second) => {
+      const byPolicy =
+        this.deleveragePolicy === "highest-risk-first"
+          ? compare(
+              first.liquidationModel.liquidationThreshold,
+              second.liquidationModel.liquidationThreshold
+            )
+          : compare(
+              first.liquidationModel.liquidationPenalty,
+              second.liquidationModel.liquidationPenalty
+            );
+
+      return byPolicy !== 0
+        ? byPolicy
+        : compareAsset(first.asset, second.asset);
     });
 
-    for (const pos of sortedPositions) {
-      if (remainingDebtToRepay.lte(Decimal.zero())) break;
-      if (pos.price.isZero() || pos.amount.isZero()) continue;
+    const orders: DeleverageOrder[] = [];
+    let remaining = requiredDebtRepayment;
 
-      const posValue = pos.amount.mul(pos.price);
-      const debtCovered = posValue.gte(remainingDebtToRepay)
-        ? remainingDebtToRepay
-        : posValue;
-      const amountToUnwind = debtCovered.div(pos.price);
+    for (const position of ordered) {
+      if (remaining.isZero()) {
+        break;
+      }
 
-      orders.push({
-        asset: pos.asset,
-        amountToUnwind,
-        debtRepaidValue: debtCovered,
-      });
+      const value = positionValue(position);
+      const debtToCover = value.gte(remaining) ? remaining : value;
+      if (debtToCover.isZero()) {
+        continue;
+      }
 
-      remainingDebtToRepay = remainingDebtToRepay.sub(debtCovered);
+      orders.push(toOrder(position, debtToCover));
+      remaining = remaining.sub(debtToCover);
     }
 
     return orders;

@@ -45,6 +45,15 @@ export default defineConfig({
         ],
       },
       {
+        text: "Strategies",
+        items: [
+          {
+            text: "Delta-Neutral Strategy",
+            link: "/strategies/delta-neutral",
+          },
+        ],
+      },
+      {
         text: "Operations",
         items: [
           { text: "Local Development", link: "/operations/local-development" },
