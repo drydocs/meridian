@@ -87,6 +87,10 @@ export class HealthFactorMonitor {
    * R = (Target HF * Debt - CollateralValue * Threshold) / (Target HF - Threshold)
    */
   evaluate(position: PositionState): DeleverageDecision {
+    if (position.collateralPrice.lte(Decimal.zero())) {
+      throw new RangeError("Collateral price must be strictly positive");
+    }
+
     const currentHf = this.computeHealthFactor(position);
 
     if (
@@ -125,9 +129,16 @@ export class HealthFactorMonitor {
       };
     }
 
+    // Bounded by the debt and by the value the collateral can raise, since the
+    // sizing derivation assumes the sale funds the repayment. Allowing either
+    // bound to be crossed independently would report debt cleared that nothing
+    // paid for.
     let requiredDebtRepay = numerator.div(denominator);
     if (requiredDebtRepay.gt(position.debt)) {
       requiredDebtRepay = position.debt;
+    }
+    if (requiredDebtRepay.gt(collateralValue)) {
+      requiredDebtRepay = collateralValue;
     }
 
     let requiredCollateralToSell = requiredDebtRepay.div(

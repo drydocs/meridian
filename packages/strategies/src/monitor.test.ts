@@ -86,4 +86,57 @@ describe("HealthFactorMonitor", () => {
     );
     expect(postDeleverageHf?.toFixed(2)).toBe("1.50");
   });
+
+  it("should reject a negative safety buffer", () => {
+    expect(
+      () =>
+        new HealthFactorMonitor({
+          liquidationModel,
+          safetyBuffer: Decimal.fromString("-0.01"),
+          targetHealthFactor: Decimal.fromString("1.50"),
+        })
+    ).toThrowError(/Safety buffer cannot be negative/);
+  });
+
+  it("should emit no deleverage for a position carrying no debt", () => {
+    const result = monitor.processTick({
+      collateralAmount: Decimal.fromString("1000.00"),
+      collateralPrice: Decimal.fromString("0.65"),
+      debt: Decimal.zero(),
+    });
+
+    expect(result.decision.shouldDeleverage).toBe(false);
+    expect(result.decision.currentHealthFactor).toBeUndefined();
+    expect(result.isLiquidatedByEngine).toBe(false);
+  });
+
+  it("should reject a non-positive collateral price", () => {
+    expect(() =>
+      monitor.processTick({
+        collateralAmount: Decimal.fromString("1000.00"),
+        collateralPrice: Decimal.zero(),
+        debt: Decimal.fromString("500.00"),
+      })
+    ).toThrowError(/Collateral price must be strictly positive/);
+  });
+
+  it("should bound the repayment by what the collateral can raise", () => {
+    // Collateral worth $6.50 against $500 of debt cannot reach the target, so
+    // the sale proceeds bound the repayment rather than clearing the debt.
+    const position: PositionState = {
+      collateralAmount: Decimal.fromString("10.00"),
+      collateralPrice: Decimal.fromString("0.65"),
+      debt: Decimal.fromString("500.00"),
+    };
+
+    const result = monitor.processTick(position);
+    expect(result.decision.shouldDeleverage).toBe(true);
+    expect(result.decision.requiredDebtRepayment.toString()).toBe("6.5000000");
+    expect(result.decision.requiredCollateralToSell.toString()).toBe(
+      "10.0000000"
+    );
+    expect(result.updatedPosition.collateralAmount.isZero()).toBe(true);
+    expect(result.updatedPosition.debt.toString()).toBe("493.5000000");
+    expect(result.isLiquidatedByEngine).toBe(true);
+  });
 });
