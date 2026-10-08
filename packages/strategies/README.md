@@ -44,6 +44,17 @@ Rounding rules:
 A `bigint` operand is raw units at the receiver's scale. A `string` operand is
 a decimal literal, taken at its exact value.
 
+## Golden scenario fixture
+
+`test-fixtures/scenario-golden.json` pins the full state and order sequence of
+one self-repaying loan run, so an unintended change to interest accrual,
+amortisation, or close behaviour fails the suite instead of passing quietly.
+
+To regenerate it after an intentional change, run
+`UPDATE_GOLDEN=true pnpm --filter @meridian/strategies test` and review the diff
+before committing. The suite refuses to regenerate under `CI`, so a stale
+fixture can never be blessed by a pipeline run.
+
 ## Installation
 
 ```bash
