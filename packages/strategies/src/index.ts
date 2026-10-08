@@ -18,6 +18,7 @@ export * from "./reflector-oracle-price-feed";
 export * from "./rng";
 export * from "./gbm";
 export * from "./sizing";
+export * from "./backtest";
 export * from "./portfolio";
 export * from "./strategy";
 export * from "./clock";

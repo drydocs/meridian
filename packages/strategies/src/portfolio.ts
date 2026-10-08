@@ -85,7 +85,10 @@ export class Portfolio {
     return FixedPointDecimal.fromStroops(this.#cash);
   }
 
-  /** Realized result from reductions and closes, before fees. */
+  /**
+   * Realized result from reductions and closes, plus any cash flowed in
+   * through {@link applyCashFlow}, before fees.
+   */
   get realized(): FixedPointDecimal {
     return FixedPointDecimal.fromStroops(this.#realized);
   }
@@ -147,6 +150,20 @@ export class Portfolio {
 
     this.#cash -= value + fee;
     this.#fees += fee;
+  }
+
+  /**
+   * Credit (positive) or debit (negative) a cash flow that is not a fill, such
+   * as the funding and interest the accrual engine returns (#877).
+   *
+   * It is recorded as realized, which is the only term of the accounting
+   * identity a cash flow can move: `totalValue` and the conserved side both
+   * shift by the same amount, so the identity keeps holding.
+   */
+  applyCashFlow(amount: FixedPointDecimal): void {
+    const stroops = amount.toStroops();
+    this.#cash += stroops;
+    this.#realized += stroops;
   }
 
   #markValue(asset: AssetSymbol, size: bigint, prices: PriceSet): bigint {
