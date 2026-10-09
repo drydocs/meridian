@@ -2,7 +2,12 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2020", "DOM"],
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@meridian/shared": ["../packages/shared/src/index.ts"],
+      "@meridian/api-core": ["../packages/api-core/src/index.ts"],
+      "@meridian/stellar-sdk-helpers": ["../packages/stellar-sdk-helpers/src/index.ts"]
+    }
   },
   "include": ["**/*.ts"]
 }
