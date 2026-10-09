@@ -142,6 +142,55 @@ export function isTimestampOutOfRangeError(
   return error instanceof TimestampOutOfRangeError;
 }
 
+export interface BacktestPricePoint {
+  timestamp: SimulationTimestamp;
+  price: FixedPointDecimal;
+}
+
+export class PriceGapError extends Error {
+  readonly timestamp: SimulationTimestamp;
+  readonly before: BacktestPricePoint;
+  readonly after: BacktestPricePoint;
+
+  constructor(
+    timestamp: SimulationTimestamp,
+    before: BacktestPricePoint,
+    after: BacktestPricePoint
+  ) {
+    const timeStr = new Date(timestamp).toISOString();
+    const beforeStr = new Date(before.timestamp).toISOString();
+    const afterStr = new Date(after.timestamp).toISOString();
+    super(
+      `Timestamp ${timeStr} falls into a gap between ${beforeStr} and ${afterStr}`
+    );
+    this.name = "PriceGapError";
+    this.timestamp = timestamp;
+    this.before = before;
+    this.after = after;
+  }
+
+  get previous(): BacktestPricePoint {
+    return this.before;
+  }
+
+  get next(): BacktestPricePoint {
+    return this.after;
+  }
+
+  get beforePoint(): BacktestPricePoint {
+    return this.before;
+  }
+
+  get afterPoint(): BacktestPricePoint {
+    return this.after;
+  }
+}
+
+export function isPriceGapError(error: unknown): error is PriceGapError {
+  return error instanceof PriceGapError;
+}
+
+
 /**
  * A periodic funding rate expressed in stroops-per-unit of notional per second.
  *

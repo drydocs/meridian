@@ -2,8 +2,20 @@ import {
   FixedPointDecimal,
   UnknownAssetError,
   TimestampOutOfRangeError,
+  PriceGapError,
 } from "./types";
-import type { AssetSymbol, PriceFeed, SimulationTimestamp } from "./types";
+import type {
+  AssetSymbol,
+  PriceFeed,
+  SimulationTimestamp,
+  BacktestPricePoint,
+} from "./types";
+
+export type { BacktestPricePoint };
+
+export interface BacktestPriceFeedOptions {
+  strict?: boolean;
+}
 
 export class StaticPriceFeed implements PriceFeed {
   readonly #prices: Map<AssetSymbol, FixedPointDecimal>;
@@ -38,20 +50,25 @@ export class StaticPriceFeed implements PriceFeed {
   }
 }
 
-export interface BacktestPricePoint {
-  timestamp: SimulationTimestamp;
-  price: FixedPointDecimal;
-}
-
 export class BacktestPriceFeed implements PriceFeed {
   readonly #data: Map<AssetSymbol, BacktestPricePoint[]>;
+  readonly #strict: boolean;
 
-  constructor(data: Map<AssetSymbol, BacktestPricePoint[]>) {
+  constructor(
+    data: Map<AssetSymbol, BacktestPricePoint[]>,
+    options?: BacktestPriceFeedOptions | boolean
+  ) {
     this.#data = new Map();
+    this.#strict =
+      typeof options === "boolean" ? options : Boolean(options?.strict);
     for (const [asset, points] of data.entries()) {
       const sorted = [...points].sort((a, b) => a.timestamp - b.timestamp);
       this.#data.set(asset, sorted);
     }
+  }
+
+  get isStrict(): boolean {
+    return this.#strict;
   }
 
   getSpotPrice(
@@ -98,6 +115,10 @@ export class BacktestPriceFeed implements PriceFeed {
       }
     }
 
+    if (this.#strict) {
+      throw new PriceGapError(timestamp, points[right]!, points[left]!);
+    }
+
     return points[right]!.price;
   }
 
@@ -108,7 +129,8 @@ export class BacktestPriceFeed implements PriceFeed {
         timestamp: SimulationTimestamp;
         price: string | FixedPointDecimal;
       }>
-    >
+    >,
+    options?: BacktestPriceFeedOptions | boolean
   ): BacktestPriceFeed {
     const map = new Map<AssetSymbol, BacktestPricePoint[]>();
     for (const [asset, points] of Object.entries(data)) {
@@ -123,7 +145,7 @@ export class BacktestPriceFeed implements PriceFeed {
         }))
       );
     }
-    return new BacktestPriceFeed(map);
+    return new BacktestPriceFeed(map, options);
   }
 
   getAvailableRange(
