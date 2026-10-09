@@ -1,5 +1,6 @@
 export * from "./decimal";
 export * from "./guard";
+export * from "./volatility";
 
 export interface StrategyEngine {
   readonly name: string;
