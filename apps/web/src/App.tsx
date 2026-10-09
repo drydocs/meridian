@@ -8,6 +8,7 @@ import { useWalletStore } from "./store/wallet";
 import { useTranslation } from "react-i18next";
 import { AdminLogin } from "./pages/AdminLogin";
 import { StatusPage } from "./pages/StatusPage";
+import { NotFound } from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
@@ -31,6 +32,14 @@ function isAdminRoute(): boolean {
 
 function isStatusRoute(): boolean {
   return window.location.pathname.startsWith("/app/status");
+}
+
+// The SPA is served under /app/; only the dashboard root is a real page there.
+// Anything else (an unknown /app/* path or any other unmatched route) renders
+// the 404 page instead of silently falling back to the dashboard.
+function isDashboardRoute(): boolean {
+  const pathname = window.location.pathname;
+  return pathname === "/app" || pathname === "/app/";
 }
 
 function Dashboard() {
@@ -113,8 +122,10 @@ export default function App() {
     <AdminLogin />
   ) : isStatusRoute() ? (
     <StatusPage />
-  ) : (
+  ) : isDashboardRoute() ? (
     <Dashboard />
+  ) : (
+    <NotFound />
   );
 
   return (

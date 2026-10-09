@@ -37,6 +37,39 @@ export class FixedPointDecimal {
     return `${sign}${whole}.${decimal}`;
   }
 
+  add(other: FixedPointDecimal): FixedPointDecimal {
+    return new FixedPointDecimal(this.#stroops + other.#stroops);
+  }
+
+  sub(other: FixedPointDecimal): FixedPointDecimal {
+    return new FixedPointDecimal(this.#stroops - other.#stroops);
+  }
+
+  /**
+   * Multiplies two fixed-point values, e.g. 100 * 0.003 = 0.3.
+   *
+   * Truncates toward zero. `Decimal.mul` in this package defaults to half-up,
+   * so a result computed through this type can differ by one stroop from the
+   * same computation through `Decimal`.
+   */
+  mul(other: FixedPointDecimal): FixedPointDecimal {
+    return new FixedPointDecimal(
+      (this.#stroops * other.#stroops) / STROOPS_PER_UNIT
+    );
+  }
+
+  /**
+   * Divides this by other. Truncates toward zero, matching `mul`.
+   *
+   * @throws RangeError if other is zero.
+   */
+  div(other: FixedPointDecimal): FixedPointDecimal {
+    if (other.#stroops === 0n) throw new RangeError("division by zero");
+    return new FixedPointDecimal(
+      (this.#stroops * STROOPS_PER_UNIT) / other.#stroops
+    );
+  }
+
   equals(other: FixedPointDecimal): boolean {
     return this.#stroops === other.#stroops;
   }
@@ -107,4 +140,33 @@ export function isTimestampOutOfRangeError(
   error: unknown
 ): error is TimestampOutOfRangeError {
   return error instanceof TimestampOutOfRangeError;
+}
+
+/**
+ * A periodic funding rate expressed in stroops-per-unit of notional per second.
+ *
+ * Sign convention:
+ *   positive rate → longs pay shorts (short leg *receives* funding)
+ *   negative rate → shorts pay longs (short leg *pays* funding)
+ *
+ * Stored as a FixedPointDecimal so arithmetic stays in integer stroops with
+ * no floating-point rounding.  The rate itself is dimensionless (rate per
+ * second); callers supply elapsed seconds as a bigint to keep the full
+ * precision path integer-only end-to-end.
+ */
+export interface FundingRate {
+  /** The per-second rate as a FixedPointDecimal (can be negative). */
+  readonly ratePerSecond: FixedPointDecimal;
+}
+
+/**
+ * The short leg a funding accrual is computed against. Named to avoid
+ * colliding with the portfolio's own `Position`.
+ *
+ * `notional` is the absolute size of the position in the base asset,
+ * expressed as a FixedPointDecimal (always ≥ 0).  The sign of any accrued
+ * funding is determined by the FundingRate, not by this field.
+ */
+export interface FundingPosition {
+  readonly notional: FixedPointDecimal;
 }
