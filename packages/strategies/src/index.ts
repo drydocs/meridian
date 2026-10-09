@@ -41,3 +41,4 @@ export * from "./accrual";
 export * from "./liquidation";
 export * from "./correlated-paths";
 export * from "./regime-scenarios";
+export * from "./rebalance";

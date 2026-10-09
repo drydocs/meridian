@@ -6,6 +6,8 @@ import type {
   SimulationTimestamp,
 } from "./types";
 import { accrueFunding, computeBasis } from "./funding";
+import { computeRebalanceOrder, shouldRebalance } from "./rebalance";
+import type { RebalanceState } from "./rebalance";
 import { sizePosition } from "./sizing";
 import { LifecycleOrderError } from "./strategy";
 import type {
@@ -30,6 +32,7 @@ const BPS_DENOMINATOR = 10_000n;
 const MILLIS_PER_SECOND = 1000;
 
 const ZERO = FixedPointDecimal.fromStroops(0n);
+const ONE = FixedPointDecimal.fromStroops(STROOPS_PER_UNIT);
 
 function fpAdd(a: FixedPointDecimal, b: FixedPointDecimal): FixedPointDecimal {
   return FixedPointDecimal.fromStroops(a.toStroops() + b.toStroops());
@@ -55,11 +58,6 @@ function fpDiv(a: FixedPointDecimal, b: FixedPointDecimal): FixedPointDecimal {
   return FixedPointDecimal.fromStroops(
     (a.toStroops() * STROOPS_PER_UNIT) / divisor
   );
-}
-
-function fpAbs(a: FixedPointDecimal): FixedPointDecimal {
-  const stroops = a.toStroops();
-  return FixedPointDecimal.fromStroops(stroops < 0n ? -stroops : stroops);
 }
 
 /** -1, 0 or 1. */
@@ -474,7 +472,9 @@ export class DeltaNeutralStrategy implements Strategy<DeltaNeutralConfig> {
     const price = this.#spotPrice(context.market.timestamp);
 
     if (!this.#entered) return this.#enter(context, price);
-    if (fpAbs(this.#netDeltaNotional).compareTo(this.#band()) <= 0) return [];
+
+    const state = this.#rebalanceState(this.#netDeltaNotional);
+    if (!shouldRebalance(state, this.#band())) return [];
 
     // Restore neutrality: the short hedge must equal the spot leg's current
     // quote value, so the residual base exposure goes back to zero. The hedge
@@ -482,7 +482,10 @@ export class DeltaNeutralStrategy implements Strategy<DeltaNeutralConfig> {
     // produces no order. Returning one for the same adjustment would count the
     // rebalance twice.
     const targetHedge = fpMul(this.#spotQuantity, price);
-    const delta = fpSub(targetHedge, this.#venueOf().shortNotional);
+    const delta = computeRebalanceOrder(
+      this.#rebalanceState(fpSub(targetHedge, this.#venueOf().shortNotional)),
+      ZERO
+    );
     if (!fpIsZero(delta)) {
       this.#venueOf().adjustShort(
         delta,
@@ -586,8 +589,13 @@ export class DeltaNeutralStrategy implements Strategy<DeltaNeutralConfig> {
     ];
   }
 
+  /** The rebalance band as a fraction of equity: `rebalanceBandBps / 10_000`. */
   #band(): FixedPointDecimal {
-    return fpFromBps(this.equity, this.#requireConfig().rebalanceBandBps);
+    return fpFromBps(ONE, this.#requireConfig().rebalanceBandBps);
+  }
+
+  #rebalanceState(netDelta: FixedPointDecimal): RebalanceState {
+    return { netDelta, notional: this.equity };
   }
 
   #markLastObservationRebalanced(): void {
