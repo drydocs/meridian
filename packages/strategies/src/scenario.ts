@@ -101,9 +101,13 @@ const ONE_WEEK_MS = 604_800_000;
 const DURATION_PATTERN =
   /^P(?:(\d+)W|(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?)$/;
 
-/** `2023-11-14T22:13:20.000Z` renders as `2023-11-14T22:13:20Z`. */
+/**
+ * `2023-11-14T22:13:20.000Z` renders as `2023-11-14T22:13:20Z`. Sub-second
+ * instants are legal here and a clock preserves them, so only an all-zero
+ * millisecond field is dropped, since truncating a real one moves the instant.
+ */
 export function toIsoInstant(epochMs: number): string {
-  return new Date(epochMs).toISOString().replace(/\.\d{3}Z$/, "Z");
+  return new Date(epochMs).toISOString().replace(/\.000Z$/, "Z");
 }
 
 /**

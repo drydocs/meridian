@@ -111,6 +111,20 @@ function makeReport(start = T0, end = T1, finalTs = T1): RunReport {
   };
 }
 
+// A continuation of `base`, built through the warm-start entry point so every
+// merge invariant holds before a test overrides the field it is about.
+function continueFrom(
+  base: RunReport,
+  end: SimulationTimestamp,
+  overrides: Partial<Scenario> = {}
+): RunReport {
+  const ctx = buildWarmStartContext(base, { newEndTimestamp: end });
+  return {
+    ...makeReport(Date.parse(ctx.scenario.window.start), end, end),
+    scenario: { ...ctx.scenario, ...overrides },
+  };
+}
+
 // ─── Round-trip fidelity ──────────────────────────────────────────────────────
 
 describe("serializeReport / deserializeReport", () => {
@@ -231,6 +245,18 @@ describe("serializeReport / deserializeReport", () => {
     }
   });
 
+  it("rejects a stroop value that is not a string, rather than reading a rounded number", () => {
+    // `RegExp.test` coerces, and `JSON.parse` has already rounded a number
+    // beyond 2^53, so without the type check this stored value would be read
+    // as a real position one stroop off.
+    const json = reportToJSON(makeReport()).replace(
+      '"1543200000"',
+      "9007199254740993"
+    );
+
+    expect(() => reportFromJSON(json)).toThrow(TypeError);
+  });
+
   it("rejects a scenario the engine would refuse, rather than carrying it", () => {
     const wire = serializeReport(makeReport());
     const corrupted = {
@@ -335,13 +361,12 @@ describe("buildWarmStartContext", () => {
     const base = makeReport(T0, T1, T1);
     const ctx = buildWarmStartContext(base, { newEndTimestamp: T2 });
 
-    expect(ctx.startingState.timestamp).toBe(base.finalState.timestamp);
-    expect(ctx.startingState.totalValue.toStroops()).toBe(
-      base.finalState.totalValue.toStroops()
-    );
-    expect(ctx.startingState.holdings[USDC]!.toStroops()).toBe(
-      base.finalState.holdings[USDC]!.toStroops()
-    );
+    // Asserted from the fixture's own values, since comparing the context back
+    // to the base would hold even if the context aliased the report.
+    expect(ctx.startingState.timestamp).toBe(T1);
+    expect(ctx.startingState.totalValue.toStroops()).toBe(1_543_200_000n);
+    expect(ctx.startingState.holdings[USDC]!.toStroops()).toBe(1_005_000_000n);
+    expect(ctx.startingState.holdings[EURC]!.toStroops()).toBe(502_500_000n);
   });
 
   it("scenario window starts at finalState.timestamp and ends at newEndTimestamp", () => {
@@ -350,6 +375,15 @@ describe("buildWarmStartContext", () => {
 
     expect(Date.parse(ctx.scenario.window.start)).toBe(T1);
     expect(Date.parse(ctx.scenario.window.end)).toBe(T2);
+  });
+
+  it("takes the continuation start from the final state, not the base window end", () => {
+    // A report may hold its state at a checkpoint before its window end, so the
+    // two instants are apart here and the start has to come from the state.
+    const base = makeReport(T0, T2, T1);
+    const ctx = buildWarmStartContext(base, { newEndTimestamp: T2 });
+
+    expect(Date.parse(ctx.scenario.window.start)).toBe(T1);
   });
 
   it("inherits the base scenario's step, assets, source, strategy and seed", () => {
@@ -367,9 +401,29 @@ describe("buildWarmStartContext", () => {
     const base = makeReport();
     const ctx = buildWarmStartContext(base, { newEndTimestamp: T2 });
 
-    expect(ctx.scenario.startingCapital).toBe(
-      base.finalState.totalValue.toString()
-    );
+    expect(
+      FixedPointDecimal.fromString(ctx.scenario.startingCapital).toStroops()
+    ).toBe(base.finalState.totalValue.toStroops());
+  });
+
+  it("keeps a sub-second final timestamp in the continuation window", () => {
+    // The clock holds milliseconds, so a window may start mid-second, and an
+    // end offset by the same amount is what divides it evenly. Rounding the
+    // start to the whole second would move it off the state it continues.
+    const offset = T1 + 500;
+    const base: RunReport = {
+      ...makeReport(T0, T1, T1),
+      finalState: makePortfolioState(
+        offset,
+        "100.5000000",
+        "50.2500000",
+        "154.3200000"
+      ),
+    };
+
+    const ctx = buildWarmStartContext(base, { newEndTimestamp: T2 + 500 });
+
+    expect(Date.parse(ctx.scenario.window.start)).toBe(offset);
   });
 
   it("throws RangeError if newEndTimestamp is not strictly after finalState", () => {
@@ -537,18 +591,15 @@ describe("warm-start equivalence", () => {
     // Drawdowns in this report are non-negative magnitudes, so the deeper one
     // is the larger value. Asserted from both orderings so that always
     // favouring the base or always favouring the continuation cannot pass.
-    const withDrawdown = (
-      drawdown: string,
-      start: SimulationTimestamp,
-      end: SimulationTimestamp
-    ) => ({
-      ...makeReport(start, end, end),
+    const drawdownOf = (report: RunReport, drawdown: string): RunReport => ({
+      ...report,
       riskMetrics: makeRiskMetrics(drawdown, "0", "0"),
     });
 
-    const shallowBase = withDrawdown("0.0200000", T0, T1);
-    const deepBase = withDrawdown("0.3000000", T0, T1);
-    const continuation = withDrawdown("0.1000000", T1, T2);
+    const base = makeReport(T0, T1, T1);
+    const shallowBase = drawdownOf(base, "0.0200000");
+    const deepBase = drawdownOf(base, "0.3000000");
+    const continuation = drawdownOf(continueFrom(base, T2), "0.1000000");
 
     expect(
       mergeReports(shallowBase, continuation, {
@@ -565,28 +616,74 @@ describe("warm-start equivalence", () => {
 
   it("mergeReports throws RangeError when continuation start != base final timestamp", () => {
     const base = makeReport(T0, T1, T1);
-    // Window starts at T0 rather than at the base's final timestamp.
-    const badContinuation = makeReport(T0, T2, T2);
+    const ctx = buildWarmStartContext(base, { newEndTimestamp: T2 });
+    // The window starts at T0 rather than at the base's final timestamp. The
+    // capital is the base's, so only the start is wrong.
+    const badContinuation: RunReport = {
+      ...makeReport(T1, T2, T2),
+      scenario: {
+        ...ctx.scenario,
+        window: { ...ctx.scenario.window, start: toIsoInstant(T0) },
+      },
+    };
 
     expect(() =>
       mergeReports(base, badContinuation, { newEndTimestamp: T2 })
     ).toThrow(RangeError);
   });
 
+  it("mergeReports throws RangeError when the continuation started from another capital", () => {
+    const base = makeReport(T0, T1, T1);
+
+    expect(() =>
+      mergeReports(base, continueFrom(base, T2, { startingCapital: "100" }), {
+        newEndTimestamp: T2,
+      })
+    ).toThrow(RangeError);
+  });
+
+  it("mergeReports throws RangeError when the continuation's state predates its window end", () => {
+    const base = makeReport(T0, T1, T1);
+    // The window reaches T2, but the state is from T1, so the merged report
+    // would claim coverage it holds no final state for.
+    const truncated: RunReport = {
+      ...continueFrom(base, T2),
+      finalState: makePortfolioState(
+        T1,
+        "100.5000000",
+        "50.2500000",
+        "154.3200000"
+      ),
+    };
+
+    expect(() =>
+      mergeReports(base, truncated, { newEndTimestamp: T2 })
+    ).toThrow(RangeError);
+  });
+
+  it("mergeReports sums event counts when mergeEventCounts is omitted", () => {
+    // The documented default, so omitting the option cannot silently drop the
+    // base's counts from a report that spans its window.
+    const base = makeReport(T0, T1, T1);
+    const continuation = continueFrom(base, T2);
+
+    const merged = mergeReports(base, continuation, { newEndTimestamp: T2 });
+
+    expect(merged.eventCounts.rebalances).toBe(
+      base.eventCounts.rebalances + continuation.eventCounts.rebalances
+    );
+  });
+
   it("mergeReports compares window instants, not their string spelling", () => {
     // The schema accepts both `...T00:00:00Z` and `...T00:00:00.000Z` for the
     // same moment, so a stricter continuation must still merge.
     const base = makeReport(T0, T1, T1);
-    const millisContinuation: RunReport = {
-      ...makeReport(T1, T2, T2),
-      scenario: {
-        ...makeScenario(T1, T2),
-        window: {
-          ...makeScenario(T1, T2).window,
-          start: new Date(T1).toISOString(),
-        },
+    const millisContinuation = continueFrom(base, T2, {
+      window: {
+        ...makeScenario(T1, T2).window,
+        start: new Date(T1).toISOString(),
       },
-    };
+    });
 
     expect(() =>
       mergeReports(base, millisContinuation, { newEndTimestamp: T2 })
@@ -611,10 +708,30 @@ describe("warm-start equivalence", () => {
     ).toThrow(RangeError);
   });
 
+  it("mergeReports accepts a continuation that starts mid-second", () => {
+    // An end offset by the same amount is what makes such a window a whole
+    // number of steps, so this is the shape a real mid-second run takes.
+    const offset = T1 + 500;
+    const end = T2 + 500;
+    const base: RunReport = {
+      ...makeReport(T0, T1, T1),
+      finalState: makePortfolioState(
+        offset,
+        "100.5000000",
+        "50.2500000",
+        "154.3200000"
+      ),
+    };
+
+    expect(() =>
+      mergeReports(base, continueFrom(base, end), { newEndTimestamp: end })
+    ).not.toThrow();
+  });
+
   it("mergeReports throws RangeError when the engine version changed mid-run", () => {
     const base = makeReport(T0, T1, T1);
     const continuation: RunReport = {
-      ...makeReport(T1, T2, T2),
+      ...continueFrom(base, T2),
       engineVersion: "0.2.0",
     };
 
@@ -627,7 +744,8 @@ describe("warm-start equivalence", () => {
   // without a test failing. The two `strategy.params` rows cover a differing
   // value and a differing key count. The two `assets` rows cover a shorter set
   // and a reordered one of equal length, since asset order is part of the
-  // scenario.
+  // scenario. Each row names the field in the message, so a row cannot pass on
+  // an earlier guard instead of the one it is about.
   const CONFIG_MISMATCHES: Array<[string, Partial<Scenario>]> = [
     ["seed", { seed: "another-seed" }],
     ["source.price", { source: { price: "defillama", rate: "blend" } }],
@@ -680,29 +798,22 @@ describe("warm-start equivalence", () => {
     "mergeReports throws RangeError when %s changed mid-run",
     (_field, overrides) => {
       const base = makeReport(T0, T1, T1);
-      const continuation: RunReport = {
-        ...makeReport(T1, T2, T2),
-        scenario: { ...makeScenario(T1, T2), ...overrides },
-      };
+      const continuation = continueFrom(base, T2, overrides);
 
       expect(() =>
         mergeReports(base, continuation, { newEndTimestamp: T2 })
-      ).toThrow(RangeError);
+      ).toThrow(new RegExp(_field.replace(/[.]/g, "\\.")));
     }
   );
 
   it("mergeReports treats a reordered params block as the same config", () => {
     const base = makeReport(T0, T1, T1);
-    const reordered: RunReport = {
-      ...makeReport(T1, T2, T2),
-      scenario: {
-        ...makeScenario(T1, T2),
-        strategy: {
-          ...makeScenario(T1, T2).strategy,
-          params: { neutralityBandBps: "50", targetLeverage: "2" },
-        },
+    const reordered = continueFrom(base, T2, {
+      strategy: {
+        ...makeScenario(T1, T2).strategy,
+        params: { neutralityBandBps: "50", targetLeverage: "2" },
       },
-    };
+    });
 
     expect(() =>
       mergeReports(base, reordered, { newEndTimestamp: T2 })
@@ -711,17 +822,18 @@ describe("warm-start equivalence", () => {
 
   it("mergeReports throws RangeError when the step changed mid-run", () => {
     const base = makeReport(T0, T1, T1);
+    const ctx = buildWarmStartContext(base, { newEndTimestamp: T2 });
     const continuation: RunReport = {
-      ...makeReport(T1, T2, T2),
+      ...continueFrom(base, T2),
       scenario: {
-        ...makeScenario(T1, T2),
-        window: { ...makeScenario(T1, T2).window, step: "PT12H" },
+        ...ctx.scenario,
+        window: { ...ctx.scenario.window, step: "PT12H" },
       },
     };
 
     expect(() =>
       mergeReports(base, continuation, { newEndTimestamp: T2 })
-    ).toThrow(RangeError);
+    ).toThrow(/window\.step/);
   });
 
   it("warm-start preserves holdings of all assets, not just USDC", () => {
@@ -729,10 +841,10 @@ describe("warm-start equivalence", () => {
     const firstReport = simulateRun(initialState, makeScenario(T0, T1));
     const ctx = buildWarmStartContext(firstReport, { newEndTimestamp: T2 });
 
-    // EURC holdings must be carried into the continuation unchanged
-    expect(ctx.startingState.holdings[EURC]!.toStroops()).toBe(
-      firstReport.finalState.holdings[EURC]!.toStroops()
-    );
+    // EURC holdings must be carried into the continuation unchanged, asserted
+    // as a value rather than as the same object the report holds.
+    expect(ctx.startingState.holdings[EURC]!.toStroops()).toBe(1_000_000_000n);
+    expect(ctx.startingState.holdings[USDC]!.toStroops()).toBe(2_000_010_000n);
   });
 });
 
@@ -743,23 +855,34 @@ describe("report completeness", () => {
     const report = makeReport();
     const wire = serializeReport(report);
 
-    expect(wire.scenario.window.start).toBeDefined();
-    expect(wire.scenario.window.end).toBeDefined();
-    expect(wire.scenario.window.step).toBeDefined();
-    expect(wire.scenario.assets.length).toBeGreaterThan(0);
-    expect(wire.scenario.source).toBeDefined();
-    expect(wire.scenario.startingCapital).toBeDefined();
-    expect(wire.scenario.strategy).toBeDefined();
-    expect(wire.scenario.seed).toBeDefined();
-    expect(wire.engineVersion).toBeDefined();
+    // Every field against a value, since a presence check would pass even if
+    // the serializer wrote one field from another.
+    expect(wire.scenario.schemaVersion).toBe(SCENARIO_SCHEMA_VERSION);
+    expect(wire.scenario.window).toEqual({
+      start: toIsoInstant(T0),
+      end: toIsoInstant(T1),
+      step: STEP,
+    });
+    expect(wire.scenario.assets).toEqual([USDC, EURC]);
+    expect(wire.scenario.source).toEqual({ price: "horizon", rate: "blend" });
+    expect(wire.scenario.startingCapital).toBe("150");
+    expect(wire.scenario.strategy).toEqual({
+      id: "delta-neutral",
+      version: "1",
+      params: { targetLeverage: "2", neutralityBandBps: "50" },
+    });
+    expect(wire.scenario.seed).toBe("report-tests");
+    expect(wire.engineVersion).toBe(ENGINE_VERSION);
   });
 
   it("report version matches REPORT_FORMAT_VERSION constant", () => {
+    // Pinned to the literal, so bumping the constant without a deliberate
+    // change to the wire format cannot pass unnoticed.
     const report = makeReport();
-    expect(report.version).toBe(REPORT_FORMAT_VERSION);
+    expect(report.version).toBe(1);
 
     const wire = serializeReport(report);
-    expect(wire.version).toBe(REPORT_FORMAT_VERSION);
+    expect(wire.version).toBe(1);
   });
 
   it("holds all four event-count categories", () => {

@@ -93,8 +93,10 @@ function serializeFixed(v: FixedPointDecimal): string {
 
 function deserializeFixed(s: string): FixedPointDecimal {
   // `BigInt("")` is 0n and `BigInt("0x10")` is 16n, so a corrupted report would
-  // otherwise read as a real position instead of failing.
-  if (!/^-?\d+$/.test(s)) {
+  // otherwise read as a real position instead of failing. A JSON number is
+  // rejected too: `RegExp.test` coerces, and `JSON.parse` has already rounded
+  // the value, so it would be read one stroop off with no error.
+  if (typeof s !== "string" || !/^-?\d+$/.test(s)) {
     throw new TypeError(
       `Invalid stroop value in run report: ${JSON.stringify(s)}`
     );
@@ -216,9 +218,9 @@ export interface WarmStartOptions {
 }
 
 export interface MergeOptions extends WarmStartOptions {
-  // If supplied, event counts from the continuation are merged (summed) with
-  // the base report's counts. If omitted, the returned report's eventCounts
-  // are those of the continuation segment alone.
+  // Whether to sum the two reports' event counts. Defaults to true, since the
+  // merged report spans both windows. Set false to keep the continuation's
+  // counts alone.
   mergeEventCounts?: boolean;
 }
 
@@ -331,12 +333,37 @@ export function mergeReports(
         `match base final timestamp (${base.finalState.timestamp})`
     );
   }
+  // The value-side counterpart of that check. The merged report carries the
+  // base's scenario, so a continuation that started from a different capital
+  // would leave the report's stated capital contradicting its own final state.
+  if (
+    FixedPointDecimal.fromString(
+      continuation.scenario.startingCapital
+    ).toStroops() !== base.finalState.totalValue.toStroops()
+  ) {
+    throw new RangeError(
+      `Continuation starting capital (${continuation.scenario.startingCapital}) ` +
+        `does not match base final value (${base.finalState.totalValue.toString()})`
+    );
+  }
   if (
     Date.parse(continuation.scenario.window.end) !== options.newEndTimestamp
   ) {
     throw new RangeError(
       `Continuation end (${continuation.scenario.window.end}) does not ` +
         `match the requested new end timestamp (${options.newEndTimestamp})`
+    );
+  }
+  // The merged report takes the continuation's final state as its own, so a
+  // state from earlier than the continuation's own window end would leave the
+  // merged report claiming coverage it holds no state for.
+  if (
+    continuation.finalState.timestamp !==
+    Date.parse(continuation.scenario.window.end)
+  ) {
+    throw new RangeError(
+      `Continuation final state is from ${continuation.finalState.timestamp}, ` +
+        `but its window ends at ${continuation.scenario.window.end}`
     );
   }
   if (continuation.engineVersion !== base.engineVersion) {
