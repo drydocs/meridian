@@ -15,9 +15,9 @@ import {
 import type {
   RunReport,
   RunScenario,
-  RiskMetrics,
+  ReportRiskMetrics,
   EventCounts,
-  PortfolioState,
+  ReportPortfolioState,
 } from "./report";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ function makeRiskMetrics(
   maxDrawdown: string,
   sharpeProxy: string,
   volatility: string
-): RiskMetrics {
+): ReportRiskMetrics {
   return {
     maxDrawdown: FixedPointDecimal.fromString(maxDrawdown),
     sharpeProxy: FixedPointDecimal.fromString(sharpeProxy),
@@ -68,7 +68,7 @@ function makePortfolioState(
   usdcAmt: string,
   eurcAmt: string,
   totalValue: string
-): PortfolioState {
+): ReportPortfolioState {
   return {
     timestamp,
     holdings: {
@@ -79,17 +79,18 @@ function makePortfolioState(
   };
 }
 
-function makeReport(
-  start = T0,
-  end = T1,
-  finalTs = T1
-): RunReport {
+function makeReport(start = T0, end = T1, finalTs = T1): RunReport {
   return {
     version: REPORT_FORMAT_VERSION,
     scenario: makeScenario(start, end),
     riskMetrics: makeRiskMetrics("0.0500000", "0.0120000", "0.0080000"),
     eventCounts: makeEventCounts(),
-    finalState: makePortfolioState(finalTs, "100.5000000", "50.2500000", "154.3200000"),
+    finalState: makePortfolioState(
+      finalTs,
+      "100.5000000",
+      "50.2500000",
+      "154.3200000"
+    ),
   };
 }
 
@@ -103,10 +104,14 @@ describe("serializeReport / deserializeReport", () => {
     expect(restored.version).toBe(original.version);
 
     // Scenario fields
-    expect(restored.scenario.startTimestamp).toBe(original.scenario.startTimestamp);
+    expect(restored.scenario.startTimestamp).toBe(
+      original.scenario.startTimestamp
+    );
     expect(restored.scenario.endTimestamp).toBe(original.scenario.endTimestamp);
     expect(restored.scenario.assets).toEqual(original.scenario.assets);
-    expect(restored.scenario.engineVersion).toBe(original.scenario.engineVersion);
+    expect(restored.scenario.engineVersion).toBe(
+      original.scenario.engineVersion
+    );
 
     // Risk metrics – compare at stroop level so no float drift can occur
     expect(restored.riskMetrics.maxDrawdown.toStroops()).toBe(
@@ -157,8 +162,12 @@ describe("serializeReport / deserializeReport", () => {
     };
 
     const restored = deserializeReport(serializeReport(report));
-    expect(restored.finalState.holdings[USDC]!.toStroops()).toBe(10_000_000_000_000n);
-    expect(restored.finalState.totalValue.toStroops()).toBe(10_000_000_000_000n);
+    expect(restored.finalState.holdings[USDC]!.toStroops()).toBe(
+      10_000_000_000_000n
+    );
+    expect(restored.finalState.totalValue.toStroops()).toBe(
+      10_000_000_000_000n
+    );
   });
 
   it("serialized holdings are stroop strings, not decimal strings", () => {
@@ -177,6 +186,22 @@ describe("serializeReport / deserializeReport", () => {
     expect(wire.scenario.assets).toEqual(["USDC", "EURC"]);
     const restored = deserializeReport(wire);
     expect(restored.scenario.assets).toEqual(["USDC", "EURC"]);
+  });
+
+  it("rejects a malformed stroop value instead of reading it as a number", () => {
+    // `BigInt("")` is 0n and `BigInt("0x10")` is 16n, so an unvalidated
+    // deserializer would turn a corrupted report into a real position.
+    for (const malformed of ["", " ", "0x10", "+5", "1.5", "12abc"]) {
+      const wire = serializeReport(makeReport());
+      const corrupted = {
+        ...wire,
+        finalState: {
+          ...wire.finalState,
+          holdings: { ...wire.finalState.holdings, USDC: malformed },
+        },
+      };
+      expect(() => deserializeReport(corrupted)).toThrow(TypeError);
+    }
   });
 });
 
@@ -217,7 +242,9 @@ describe("version checking", () => {
   it("throws UnknownReportVersionError for a future version", () => {
     const wire = serializeReport(makeReport());
     const futurewire = { ...wire, version: 99 };
-    expect(() => deserializeReport(futurewire)).toThrow(UnknownReportVersionError);
+    expect(() => deserializeReport(futurewire)).toThrow(
+      UnknownReportVersionError
+    );
   });
 
   it("throws UnknownReportVersionError for version 0", () => {
@@ -297,9 +324,9 @@ describe("buildWarmStartContext", () => {
 
   it("throws RangeError if newEndTimestamp is not strictly after finalState", () => {
     const base = makeReport(T0, T1, T1);
-    expect(() =>
-      buildWarmStartContext(base, { newEndTimestamp: T1 })
-    ).toThrow(RangeError);
+    expect(() => buildWarmStartContext(base, { newEndTimestamp: T1 })).toThrow(
+      RangeError
+    );
     expect(() =>
       buildWarmStartContext(base, { newEndTimestamp: T1 - 1 })
     ).toThrow(RangeError);
@@ -311,7 +338,7 @@ describe("buildWarmStartContext", () => {
 // Run it in one shot and via warm-start, then verify the outputs match.
 
 function simulateRun(
-  startState: PortfolioState,
+  startState: ReportPortfolioState,
   scenario: RunScenario
 ): RunReport {
   // Simple toy strategy: each day adds 0.0010000 USDC per step, no EURC change.
@@ -359,7 +386,7 @@ describe("warm-start equivalence", () => {
   const T3 = T2 + 86_400_000; // +3 days from T0
 
   it("a warm-started continuation produces the same final state as an uninterrupted run", () => {
-    const initialState: PortfolioState = makePortfolioState(
+    const initialState: ReportPortfolioState = makePortfolioState(
       T0,
       "100",
       "50",
@@ -428,6 +455,36 @@ describe("warm-start equivalence", () => {
     );
   });
 
+  it("mergeReports keeps the deeper of the two drawdowns", () => {
+    // Drawdowns in this report are non-negative magnitudes, so the deeper one
+    // is the larger value. Asserted from both orderings so that always
+    // favouring the base or always favouring the continuation cannot pass.
+    const withDrawdown = (
+      drawdown: string,
+      start: SimulationTimestamp,
+      end: SimulationTimestamp
+    ) => ({
+      ...makeReport(start, end, end),
+      riskMetrics: makeRiskMetrics(drawdown, "0", "0"),
+    });
+
+    const shallowBase = withDrawdown("0.0200000", T0, T1);
+    const deepBase = withDrawdown("0.3000000", T0, T1);
+    const continuation = withDrawdown("0.1000000", T1, T2);
+
+    expect(
+      mergeReports(shallowBase, continuation, {
+        newEndTimestamp: T2,
+      }).riskMetrics.maxDrawdown.toStroops()
+    ).toBe(1_000_000n);
+
+    expect(
+      mergeReports(deepBase, continuation, {
+        newEndTimestamp: T2,
+      }).riskMetrics.maxDrawdown.toStroops()
+    ).toBe(3_000_000n);
+  });
+
   it("mergeReports throws RangeError when continuation start != base final timestamp", () => {
     const base = makeReport(T0, T1, T1);
     const badContinuation: RunReport = {
@@ -437,6 +494,46 @@ describe("warm-start equivalence", () => {
 
     expect(() =>
       mergeReports(base, badContinuation, { newEndTimestamp: T2 })
+    ).toThrow(RangeError);
+  });
+
+  it("mergeReports throws RangeError when the continuation ends before the requested end", () => {
+    const firstReport = simulateRun(
+      makePortfolioState(T0, "100", "50", "150"),
+      makeScenario(T0, T1)
+    );
+    const ctx = buildWarmStartContext(firstReport, { newEndTimestamp: T2 });
+    const shortContinuation = simulateRun(ctx.startingState, {
+      ...ctx.scenario,
+      endTimestamp: T1 + 1,
+    });
+
+    expect(() =>
+      mergeReports(firstReport, shortContinuation, { newEndTimestamp: T2 })
+    ).toThrow(RangeError);
+  });
+
+  it("mergeReports throws RangeError when the engine version changed mid-run", () => {
+    const base = makeReport(T0, T1, T1);
+    const continuation: RunReport = {
+      ...makeReport(T1, T2, T2),
+      scenario: { ...makeScenario(T1, T2), engineVersion: "0.2.0" },
+    };
+
+    expect(() =>
+      mergeReports(base, continuation, { newEndTimestamp: T2 })
+    ).toThrow(RangeError);
+  });
+
+  it("mergeReports throws RangeError when the asset set changed mid-run", () => {
+    const base = makeReport(T0, T1, T1);
+    const continuation: RunReport = {
+      ...makeReport(T1, T2, T2),
+      scenario: { ...makeScenario(T1, T2), assets: [USDC] },
+    };
+
+    expect(() =>
+      mergeReports(base, continuation, { newEndTimestamp: T2 })
     ).toThrow(RangeError);
   });
 
@@ -474,10 +571,25 @@ describe("report completeness", () => {
   });
 
   it("holds all four event-count categories", () => {
-    const report = makeReport();
-    expect(report.eventCounts).toHaveProperty("rebalances");
-    expect(report.eventCounts).toHaveProperty("deposits");
-    expect(report.eventCounts).toHaveProperty("withdrawals");
-    expect(report.eventCounts).toHaveProperty("priceFeedMisses");
+    // Asserted through the round trip, since reading the fixture back would
+    // pass even if the serializer dropped a category.
+    const restored = deserializeReport(
+      serializeReport({
+        ...makeReport(),
+        eventCounts: makeEventCounts({
+          rebalances: 3,
+          deposits: 1,
+          withdrawals: 2,
+          priceFeedMisses: 4,
+        }),
+      })
+    );
+
+    expect(restored.eventCounts).toEqual({
+      rebalances: 3,
+      deposits: 1,
+      withdrawals: 2,
+      priceFeedMisses: 4,
+    });
   });
 });

@@ -14,7 +14,7 @@ export interface RunScenario {
 }
 
 // Risk metrics summarising the run.
-export interface RiskMetrics {
+export interface ReportRiskMetrics {
   // Maximum drawdown from peak portfolio value as a FixedPointDecimal ratio
   // (0 = no drawdown, 1 = total loss). Always non-negative.
   readonly maxDrawdown: FixedPointDecimal;
@@ -36,7 +36,7 @@ export interface EventCounts {
 
 // The portfolio state at the end (or at the checkpoint) of the run.
 // Holdings are per asset expressed as FixedPointDecimal amounts.
-export interface PortfolioState {
+export interface ReportPortfolioState {
   readonly timestamp: SimulationTimestamp;
   readonly holdings: Readonly<Record<AssetSymbol, FixedPointDecimal>>;
   // Total portfolio value denominated in the reference asset (USDC).
@@ -48,9 +48,9 @@ export interface PortfolioState {
 export interface RunReport {
   readonly version: ReportFormatVersion;
   readonly scenario: RunScenario;
-  readonly riskMetrics: RiskMetrics;
+  readonly riskMetrics: ReportRiskMetrics;
   readonly eventCounts: EventCounts;
-  readonly finalState: PortfolioState;
+  readonly finalState: ReportPortfolioState;
 }
 
 // ─── Wire format ─────────────────────────────────────────────────────────────
@@ -90,6 +90,13 @@ function serializeFixed(v: FixedPointDecimal): string {
 }
 
 function deserializeFixed(s: string): FixedPointDecimal {
+  // `BigInt("")` is 0n and `BigInt("0x10")` is 16n, so a corrupted report would
+  // otherwise read as a real position instead of failing.
+  if (!/^-?\d+$/.test(s)) {
+    throw new TypeError(
+      `Invalid stroop value in run report: ${JSON.stringify(s)}`
+    );
+  }
   return FixedPointDecimal.fromStroops(BigInt(s));
 }
 
@@ -190,10 +197,15 @@ export function reportFromJSON(json: string): RunReport {
 
 // ─── Warm-start ──────────────────────────────────────────────────────────────
 
-// Options that control how a warm-started run merges with its saved report.
+// Options for the warm-start entry points.
 export interface WarmStartOptions {
-  // The end of the new window.  Must be strictly after report.finalState.timestamp.
+  // The end of the new window. Building a context requires it to be strictly
+  // after the base report's final timestamp; merging one back requires it to
+  // equal the continuation's end timestamp.
   newEndTimestamp: SimulationTimestamp;
+}
+
+export interface MergeOptions extends WarmStartOptions {
   // If supplied, event counts from the continuation are merged (summed) with
   // the base report's counts. If omitted, the returned report's eventCounts
   // are those of the continuation segment alone.
@@ -204,7 +216,7 @@ export interface WarmStartOptions {
 // exactly where the saved report left off.
 export interface WarmStartContext {
   // The portfolio state the continuation run should use as its starting point.
-  readonly startingState: PortfolioState;
+  readonly startingState: ReportPortfolioState;
   // The scenario for the continuation window.
   readonly scenario: RunScenario;
 }
@@ -233,17 +245,45 @@ export function buildWarmStartContext(
   };
 }
 
+// Asset order is part of the scenario, so a reordered set is a different one.
+function sameAssets(
+  a: readonly AssetSymbol[],
+  b: readonly AssetSymbol[]
+): boolean {
+  return a.length === b.length && a.every((asset, index) => asset === b[index]);
+}
+
 // Merge a continuation RunReport back into the base report to produce a single
 // unified report spanning the full window.
 export function mergeReports(
   base: RunReport,
   continuation: RunReport,
-  options: WarmStartOptions
+  options: MergeOptions
 ): RunReport {
   if (continuation.scenario.startTimestamp !== base.finalState.timestamp) {
     throw new RangeError(
       `Continuation start (${continuation.scenario.startTimestamp}) does not ` +
         `match base final timestamp (${base.finalState.timestamp})`
+    );
+  }
+  if (continuation.scenario.endTimestamp !== options.newEndTimestamp) {
+    throw new RangeError(
+      `Continuation end (${continuation.scenario.endTimestamp}) does not ` +
+        `match the requested new end timestamp (${options.newEndTimestamp})`
+    );
+  }
+  // The merged report can only carry one engine version and one asset set, so
+  // a continuation that disagrees would be attributed to the base's values.
+  if (continuation.scenario.engineVersion !== base.scenario.engineVersion) {
+    throw new RangeError(
+      `Continuation engine version (${continuation.scenario.engineVersion}) ` +
+        `does not match base engine version (${base.scenario.engineVersion})`
+    );
+  }
+  if (!sameAssets(continuation.scenario.assets, base.scenario.assets)) {
+    throw new RangeError(
+      `Continuation assets (${continuation.scenario.assets.join(", ")}) do ` +
+        `not match base assets (${base.scenario.assets.join(", ")})`
     );
   }
 
