@@ -16,8 +16,18 @@ const getKeeperHealth = vi.mocked(api.getKeeperHealth);
 
 const HEALTH = {
   keepers: [
-    { id: "accrual" as const, intervalMs: 60_000, lastSuccessMs: 1_700_000_000_000, healthy: true },
-    { id: "migration" as const, intervalMs: 300_000, lastSuccessMs: null, healthy: false },
+    {
+      id: "accrual" as const,
+      intervalMs: 60_000,
+      lastSuccessMs: 1_700_000_000_000,
+      healthy: true,
+    },
+    {
+      id: "migration" as const,
+      intervalMs: 300_000,
+      lastSuccessMs: null,
+      healthy: false,
+    },
   ],
   checkedAt: "2026-09-30T12:00:00.000Z",
 };
@@ -73,7 +83,9 @@ describe("useKeeperHealth", () => {
   });
 
   it("recovers when the retry succeeds", async () => {
-    getKeeperHealth.mockRejectedValueOnce(new Error("blip")).mockResolvedValueOnce(HEALTH);
+    getKeeperHealth
+      .mockRejectedValueOnce(new Error("blip"))
+      .mockResolvedValueOnce(HEALTH);
     const { result } = setup();
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
