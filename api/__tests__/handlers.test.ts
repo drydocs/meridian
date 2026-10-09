@@ -175,6 +175,19 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     // stub it resolved to `undefined` and threw, turning the tx cases into 500s
     // instead of their expected statuses.
     assertRequiredTrustlines: vi.fn().mockResolvedValue(undefined),
+    loadPositionSnapshotStore: vi.fn(() => ({})),
+    recordPositionSnapshot: vi.fn(async () => true),
+    getPositionHistory: vi.fn(async () => []),
+    HISTORY_DEFAULT_DAYS: 30,
+    HISTORY_MAX_DAYS: 90,
+    runPositionSnapshotKeeper: vi.fn(async () => ({
+      network: "testnet",
+      tracked: 2,
+      processed: 2,
+      recorded: 2,
+      skipped: 0,
+      failures: [],
+    })),
   };
 });
 
@@ -182,6 +195,7 @@ import txHandler from "../v1/tx/[action]";
 import vaultsHandler from "../v1/vaults/index";
 import positionsHandler from "../v1/positions/[publicKey]";
 import keepersHandler from "../v1/keepers/[action]";
+import positionHistoryHandler from "../v1/positions/[publicKey]/history";
 import adminHandler from "../v1/admin/[resource]";
 import {
   checkRateLimit,
@@ -200,6 +214,8 @@ import {
   runAlertKeeper,
   assertRequiredTrustlines,
   MissingTrustlineError,
+  getPositionHistory,
+  runPositionSnapshotKeeper,
 } from "@meridian/stellar-sdk-helpers";
 
 // A 56-char Stellar public key shape (only the length is validated).
@@ -655,6 +671,127 @@ describe("GET /api/v1/positions/:publicKey", () => {
     );
     expect(res.statusCode).toBe(503);
     expect(res.body).toEqual({ error: "Failed to read positions" });
+  });
+});
+
+describe("GET /api/v1/positions/:publicKey/history", () => {
+  it("rejects a malformed public key with 400", async () => {
+    const res = makeRes();
+    await positionHistoryHandler(
+      fakeReq({ method: "GET", query: { publicKey: "too-short" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(getPositionHistory).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-GET methods with 405", async () => {
+    const res = makeRes();
+    await positionHistoryHandler(
+      fakeReq({ method: "POST", query: { publicKey: PUBKEY } }),
+      res
+    );
+    expect(res.statusCode).toBe(405);
+    expect(res.headers["Allow"]).toBe("GET");
+  });
+
+  it("returns the stored snapshots, uncached", async () => {
+    const snapshot = {
+      timestamp: 1_000,
+      totalValue: 10,
+      totalEarned: 1,
+      vaults: [
+        {
+          vaultId: "blend-usdc-fixed",
+          protocol: "blend",
+          value: 10,
+          earned: 1,
+        },
+      ],
+    };
+    vi.mocked(getPositionHistory).mockResolvedValueOnce([snapshot]);
+    const res = makeRes();
+    await positionHistoryHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY, days: "7" } }),
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      publicKey: PUBKEY,
+      days: 7,
+      snapshots: [snapshot],
+    });
+    expect(res.headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("rejects an invalid days value with 400", async () => {
+    const res = makeRes();
+    await positionHistoryHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY, days: "abc" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("returns 503 when the store read fails", async () => {
+    vi.mocked(getPositionHistory).mockRejectedValueOnce(
+      new Error("redis down")
+    );
+    const res = makeRes();
+    await positionHistoryHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY } }),
+      res
+    );
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({ error: "Failed to read position history" });
+  });
+});
+
+describe("GET /api/v1/keepers/snapshot", () => {
+  it("rejects requests without the cron bearer token", async () => {
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({ query: { action: "snapshot" }, method: "POST", headers: {} }),
+      res
+    );
+    expect(res.statusCode).toBe(401);
+    expect(runPositionSnapshotKeeper).not.toHaveBeenCalled();
+  });
+
+  it("runs the snapshot keeper for authorized cron calls", async () => {
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "snapshot" },
+        method: "POST",
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ tracked: 2, recorded: 2 });
+    expect(runPositionSnapshotKeeper).toHaveBeenCalledOnce();
+  });
+
+  it("returns 500 when a user's snapshot fails so the cron run is observable", async () => {
+    vi.mocked(runPositionSnapshotKeeper).mockResolvedValueOnce({
+      network: "testnet",
+      tracked: 1,
+      processed: 1,
+      recorded: 0,
+      skipped: 0,
+      failures: [{ publicKey: PUBKEY, error: "rpc down" }],
+    });
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "snapshot" },
+        method: "POST",
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(500);
   });
 });
 

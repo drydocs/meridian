@@ -64,6 +64,40 @@ Returns the user's on-chain position.
 
 Reads position data directly from the vault contract via `simulateTransaction`. Returns an empty array if the wallet holds no shares.
 
+### `GET /api/v1/positions/:publicKey/history`
+
+Returns the stored position-value time series for a wallet, oldest first ([#973](https://github.com/drydocs/meridian/issues/973)). Soroban retains no queryable historical state, so history exists only from the moment snapshots started being captured.
+
+**Query:** `days` (optional positive integer, default `30`, capped at the `90`-day retention window). Anything else returns `400`.
+
+**Response**
+
+```json
+{
+  "publicKey": "G...",
+  "days": 30,
+  "snapshots": [
+    {
+      "timestamp": 1716729600000,
+      "totalValue": 102.34,
+      "totalEarned": 2.34,
+      "vaults": [
+        {
+          "vaultId": "blend-usdc-variable",
+          "protocol": "blend",
+          "value": 102.34,
+          "earned": 2.34
+        }
+      ]
+    }
+  ]
+}
+```
+
+`value` is the current worth of the holding and `earned` is cumulative yield (the same figures `GET /positions/:publicKey` reports as `deposited` and `earned`). An empty `snapshots` array means no history has been captured yet, not an error; `503` means the store could not be read.
+
+**How snapshots are captured.** A snapshot is written (at most one per user per 30 minutes) whenever `GET /positions/:publicKey` succeeds, which also registers the wallet as tracked. `POST /api/v1/keepers/snapshot` (cron-authenticated, hourly via `.github/workflows/keepers.yml`) then snapshots up to 200 tracked wallets per run so history keeps accruing between visits. The last 90 days (2160 snapshots) are kept per wallet. Storage is the same Upstash Redis as the keepers (`UPSTASH_REDIS_REST_URL`/`_TOKEN`); without it the store is per-process and history does not persist. An event indexer was not chosen because it cannot reconstruct yield accrual between deposits and withdrawals.
+
 ### `POST /api/v1/tx/deposit`
 
 Builds an unsigned Soroban deposit transaction.

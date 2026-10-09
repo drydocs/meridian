@@ -38,3 +38,9 @@ jobs:
         run: |
           curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/rebalance" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+
+      - name: Trigger position snapshot keeper
+        if: github.event.schedule == '0 * * * *' || github.event_name == 'workflow_dispatch'
+        run: |
+          curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/snapshot" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
