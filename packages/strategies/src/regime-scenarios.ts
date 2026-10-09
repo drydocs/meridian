@@ -4,7 +4,12 @@ import { SimulationClock } from "./clock";
 import type { DeltaNeutralConfig } from "./delta-neutral";
 import { BacktestPriceFeed } from "./feeds";
 import { generateGbmPath } from "./gbm";
-import { parseScenario } from "./scenario";
+import {
+  durationToMilliseconds,
+  millisecondsToDuration,
+  parseScenario,
+  toIsoInstant,
+} from "./scenario";
 import type { Scenario } from "./scenario";
 import { FixedPointDecimal } from "./types";
 import type { AssetSymbol, FundingRate, PriceFeed } from "./types";
@@ -22,9 +27,6 @@ import type { AssetSymbol, FundingRate, PriceFeed } from "./types";
  * selects a data origin and has no synthetic option. These scenarios read from
  * no source, their prices come from {@link scenarioPriceFeed}.
  */
-
-const ONE_MINUTE_MS = 60_000;
-const ONE_WEEK_MS = 604_800_000;
 
 /** The market regimes #932 covers. */
 export const MARKET_REGIMES = ["trending", "ranging", "high-funding"] as const;
@@ -102,61 +104,6 @@ export interface RegimeScenarioOptions {
   readonly market?: Partial<RegimeParameters>;
 }
 
-/** `2023-11-14T22:13:20.000Z` renders as `2023-11-14T22:13:20Z`. */
-function isoInstant(epochMs: number): string {
-  return new Date(epochMs).toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-const DURATION_PATTERN =
-  /^P(?:(\d+)W|(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?)$/;
-
-/**
- * The ISO-8601 duration for a whole number of milliseconds, using the largest
- * unit that divides it exactly. Keeps `window.step` and the clock's `stepMs`
- * describing the same interval when a caller overrides the step.
- */
-export function millisecondsToDuration(ms: number): string {
-  if (!Number.isSafeInteger(ms) || ms <= 0) {
-    throw new Error(`step must be a positive whole number of milliseconds`);
-  }
-  if (ms % ONE_WEEK_MS === 0) return `P${ms / ONE_WEEK_MS}W`;
-  if (ms % 86_400_000 === 0) return `P${ms / 86_400_000}D`;
-  if (ms % 1_000 !== 0) {
-    throw new Error(
-      `step must be a whole number of seconds, received: ${ms} ms`
-    );
-  }
-  let duration = "PT";
-  if (ms >= 3_600_000) duration += `${Math.floor(ms / 3_600_000)}H`;
-  if (ms % 3_600_000 >= ONE_MINUTE_MS) {
-    duration += `${Math.floor((ms % 3_600_000) / ONE_MINUTE_MS)}M`;
-  }
-  if (ms % ONE_MINUTE_MS >= 1_000) {
-    duration += `${Math.floor((ms % ONE_MINUTE_MS) / 1_000)}S`;
-  }
-  return duration;
-}
-
-/**
- * Milliseconds for an ISO-8601 duration in the subset the scenario schema
- * accepts (`P1W`, `P1D`, `PT1H`, `PT15M`, `P1DT6H`). Weeks are exclusive of
- * the day/time part, matching the schema's own pattern.
- */
-export function durationToMilliseconds(duration: string): number {
-  const match = DURATION_PATTERN.exec(duration);
-  if (match === null) {
-    throw new Error(`unsupported ISO-8601 duration: ${duration}`);
-  }
-  const [, weeks, days, hours, minutes, seconds] = match;
-  return (
-    Number(weeks ?? 0) * ONE_WEEK_MS +
-    Number(days ?? 0) * 86_400_000 +
-    Number(hours ?? 0) * 3_600_000 +
-    Number(minutes ?? 0) * ONE_MINUTE_MS +
-    Number(seconds ?? 0) * 1_000
-  );
-}
-
 /**
  * Deterministic 64-bit seed for a scenario's string seed (FNV-1a). The schema
  * requires a non-empty string, and the path generator takes a `bigint`, so the
@@ -187,8 +134,8 @@ export function buildRegimeScenario(
 
   return parseScenario({
     window: {
-      start: isoInstant(startMs),
-      end: isoInstant(startMs + steps * stepMs),
+      start: toIsoInstant(startMs),
+      end: toIsoInstant(startMs + steps * stepMs),
       step: millisecondsToDuration(stepMs),
     },
     assets: [options.asset ?? DEFAULT_REGIME_ASSET],
