@@ -13,7 +13,14 @@ const HISTORY_CACHE_CONTROL = "public, s-maxage=30, stale-while-revalidate=120";
 // just reshaped for the admin dashboard), so they share one auth model.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
-  if (!(await checkRateLimit(req, res))) return;
+  try {
+    if (!(await checkRateLimit(req, res))) return;
+  } catch (err) {
+    console.error("[admin] rate limit check failed:", err);
+    return res
+      .status(503)
+      .json({ error: "Rate limiter unavailable; refusing to run" });
+  }
 
   const { resource } = req.query;
 

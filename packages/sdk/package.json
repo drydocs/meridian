@@ -28,17 +28,22 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage --reporter=html --reporter=text",
     "coverage": "vitest run --coverage --passWithNoTests",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@meridian/shared": "workspace:*",
+    "@meridian/stellar-sdk-helpers": "workspace:*"
   },
   "peerDependencies": {
     "@stellar/stellar-sdk": "^14.6.1"
   },
   "devDependencies": {
     "@stellar/stellar-sdk": "^14.6.1",
-    "@vitest/coverage-v8": "5.0.1",
+    "@vitest/coverage-v8": "5.0.2",
     "tsup": "^8.5.0",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.2"
   }
 }

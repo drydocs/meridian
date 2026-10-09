@@ -7,12 +7,12 @@ import { useWalletConnect } from "../../hooks/useWalletConnect";
 import { useRiskDisclosure } from "../../hooks/useRiskDisclosure";
 import { getWalletMeta, hasAcceptedRiskDisclosure } from "../../lib/wallet";
 import { PositionSummary } from "./PositionSummary";
+import { YieldHistoryChart } from "./YieldHistoryChart";
 import { DepositTab } from "./DepositTab";
 import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
-import { DEFAULT_SLIPPAGE_BPS } from "@meridian/shared";
 
 function formatTvl(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -79,8 +79,6 @@ export function VaultPanel() {
   const hasPosition =
     position && Number.isFinite(position.deposited) && position.deposited > 0;
 
-  const slippageFactor = 1 - DEFAULT_SLIPPAGE_BPS / 10000;
-
   async function handleDeposit() {
     if (!amount || !bestVault) return;
     // Runs the deposit now if already accepted, otherwise once the user
@@ -91,30 +89,15 @@ export function VaultPanel() {
   }
 
   async function executeDeposit(vault: NonNullable<typeof bestVault>) {
-    // Only a position held in bestVault has a share price for this deposit.
-    // A first-time depositor has none. There is no reliable price to derive
-    // a floor from, so the deposit goes through with no slippage protection
-    // (min_shares_out omitted, which the contract treats as "0") rather than
-    // guessing a floor that could revert a legitimate deposit with
-    // SlippageExceeded.
-    const bestVaultPosition = positions.find((p) => p.vaultId === vault.id);
-    const numAmount = parseFloat(amount);
-    const minSharesOut =
-      bestVaultPosition &&
-      bestVaultPosition.shares > 0 &&
-      bestVaultPosition.deposited > 0
-        ? Math.max(
-            0,
-            ((numAmount * bestVaultPosition.shares) /
-              bestVaultPosition.deposited) *
-              slippageFactor
-          ).toFixed(7)
-        : undefined;
+    // Slippage floors are computed in useVaultActions from a fresh on-chain
+    // vault state read at tx-build time. Do not derive them from cached
+    // position.deposited / position.shares — that share price can lag yield
+    // accrual and cause unnecessary SlippageExceeded reverts.
     const ok = await deposit(
       amount,
       vault.id,
       vault.asset,
-      minSharesOut,
+      undefined,
       hasAcceptedRiskDisclosure()
     );
     if (ok) setAmount("");
@@ -124,18 +107,7 @@ export function VaultPanel() {
     if (!amount || !bestVault || !position) return;
     if (position.vaultId !== bestVault.id) return;
     if (parseFloat(amount) > position.shares) return;
-    const numShares = parseFloat(amount);
-    const expectedUsdc =
-      position.shares > 0
-        ? (numShares * position.deposited) / position.shares
-        : numShares;
-    const minUsdcOut = Math.max(0, expectedUsdc * slippageFactor).toFixed(7);
-    const ok = await withdraw(
-      amount,
-      bestVault.id,
-      bestVault.asset,
-      minUsdcOut
-    );
+    const ok = await withdraw(amount, bestVault.id, bestVault.asset, undefined);
     if (ok) setAmount("");
   }
 
@@ -233,6 +205,11 @@ export function VaultPanel() {
       {/* Position summary */}
       {connected && hasPosition && position && (
         <PositionSummary position={position} />
+      )}
+
+      {/* Yield history: position value over time, by protocol */}
+      {connected && hasPosition && position && (
+        <YieldHistoryChart publicKey={publicKey} />
       )}
 
       {/* Position load error — deposit/withdraw stay usable, only the
