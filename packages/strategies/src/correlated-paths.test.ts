@@ -151,11 +151,29 @@ describe("generateCorrelatedPaths", () => {
     expect(() => generateCorrelatedPaths({ ...base, steps: -1 })).toThrow(
       InvalidPathConfigError
     );
+    expect(() => generateCorrelatedPaths({ ...base, steps: 2.5 })).toThrow(
+      InvalidPathConfigError
+    );
     expect(() => generateCorrelatedPaths({ ...base, dt: D("0") })).toThrow(
       InvalidPathConfigError
     );
     expect(() =>
       generateCorrelatedPaths({ ...base, assets: [], correlation: [] })
+    ).toThrow(InvalidPathConfigError);
+    expect(() =>
+      generateCorrelatedPaths({
+        ...base,
+        assets: [specs[0] as AssetPathSpec, specs[0] as AssetPathSpec],
+      })
+    ).toThrow(InvalidPathConfigError);
+    expect(() =>
+      generateCorrelatedPaths({
+        ...base,
+        assets: [
+          { ...(specs[0] as AssetPathSpec), initialPrice: D("0") },
+          specs[1] as AssetPathSpec,
+        ],
+      })
     ).toThrow(InvalidPathConfigError);
     expect(() =>
       generateCorrelatedPaths({
