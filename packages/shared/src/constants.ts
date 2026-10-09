@@ -102,6 +102,11 @@ export const CONTRACT_ADDRESSES = {
 // kept in sync automatically.
 export const MAX_ADMIN_SLIPPAGE_BPS = 500;
 
+// Withdrawal performance fee, mirrored from PERFORMANCE_FEE_BPS in
+// packages/contracts/vault/src/lib.rs. Compiled into the vault WASM, so
+// changing this value here does not change what the deployed vault charges.
+export const VAULT_PERFORMANCE_FEE_BPS = 1_000;
+
 /** Centralized slippage (bps). Single source of truth for issue #822. */
 export const SLIPPAGE_BPS = {
   /** Frontend vault deposit/withdraw default (50 bps = 0.5%). */

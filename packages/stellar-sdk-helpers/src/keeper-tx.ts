@@ -44,21 +44,34 @@ export const KEEPER_BASE_FEE_STROOPS = 10_000;
 // bid billions of stroops with nothing to stop it. 0.1 XLM is already a
 // very high inclusion fee for Stellar; real congestion is not expected to
 // require bidding anywhere near this.
-const KEEPER_MAX_FEE_STROOPS = 1_000_000;
+export const KEEPER_MAX_FEE_STROOPS = 1_000_000;
 
-// Doubles per retry attempt (attempt 1 -> 1x, 2 -> 2x, 3 -> 4x, ...), capped
-// at KEEPER_MAX_FEE_STROOPS, so a `txInsufficientFee` rejection (now
-// classified transient, see isTransientKeeperError below) has an actual
-// chance of clearing on retry instead of failing identically every time
-// with the same losing bid. `attempt` is 1-indexed to match
-// withKeeperRetry's own callback (keeper-retry.ts converts withRetry's
-// 0-indexed attempt to a 1-indexed one before calling the caller's
-// callback), not 0-indexed. Exported for direct unit testing rather than
-// exercising it only through the full build/sign/submit pipeline in
-// submitKeeperOperation.
-export function keeperFeeForAttempt(attempt: number): string {
-  const fee = KEEPER_BASE_FEE_STROOPS * 2 ** (attempt - 1);
-  return String(Math.min(fee, KEEPER_MAX_FEE_STROOPS));
+export interface FeeEscalationConfig {
+  maxFee: number;
+  multiplier: number;
+}
+
+export const DEFAULT_FEE_ESCALATION: FeeEscalationConfig = {
+  maxFee: KEEPER_MAX_FEE_STROOPS,
+  multiplier: 2,
+};
+
+// Doubles per retry attempt (attempt 0 -> 1x, 1 -> 2x, 2 -> 4x, ...), capped
+// at config.maxFee, so a `txInsufficientFee` rejection (classified
+// transient, see isTransientKeeperError below) has an actual chance of
+// clearing on retry instead of failing identically every time with the
+// same losing bid. `attempt` is 0-indexed so the first submission uses
+// exactly `baseFee`, the first retry `baseFee * multiplier`, and so on.
+// Exported for direct unit testing rather than exercising it only through
+// the full build/sign/submit pipeline in submitKeeperOperation.
+export function keeperFeeForAttempt(
+  attempt: number,
+  baseFee: number,
+  config: Partial<FeeEscalationConfig> = {}
+): number {
+  const { maxFee, multiplier } = { ...DEFAULT_FEE_ESCALATION, ...config };
+  const fee = baseFee * multiplier ** attempt;
+  return Math.min(fee, maxFee);
 }
 
 // A real rpc.Server satisfies this directly (no cast needed); a narrower
@@ -315,7 +328,7 @@ export async function submitKeeperOperation(
   server: KeeperRpcServer,
   priorHash?: string,
   hooks?: KeeperSubmissionHooks,
-  attempt = 1
+  attempt = 0
 ): Promise<{ hash: string; ledger: number }> {
   if (priorHash) {
     try {
@@ -341,7 +354,7 @@ export async function submitKeeperOperation(
   );
   const contract = new Contract(contractId);
   const tx = new TransactionBuilder(source, {
-    fee: keeperFeeForAttempt(attempt),
+    fee: String(keeperFeeForAttempt(attempt, KEEPER_BASE_FEE_STROOPS)),
     networkPassphrase: config.network.passphrase,
   })
     .addOperation(contract.call(method, ...args))

@@ -1,0 +1,210 @@
+[
+  {
+    "step": 0,
+    "type": "open",
+    "state": {
+      "collateralAmount": "10000.0000000",
+      "collateralPrice": "0.2000000",
+      "debtAmount": "1000.0000000",
+      "yieldDeployedPrincipal": "1000.0000000",
+      "totalYieldAmortized": "0.0000000",
+      "totalInterestAccrued": "0.0000000",
+      "currentLtv": "0.5000000",
+      "healthFactor": "1.5000000",
+      "isOpen": true,
+      "isClosed": false
+    },
+    "orders": [
+      {
+        "type": "supply_collateral",
+        "asset": "XLM",
+        "amount": "10000.0000000"
+      },
+      {
+        "type": "borrow",
+        "asset": "USDC",
+        "amount": "1000.0000000"
+      },
+      {
+        "type": "deploy_yield",
+        "asset": "USDC",
+        "amount": "1000.0000000",
+        "target": "blend-pool"
+      }
+    ]
+  },
+  {
+    "step": 1,
+    "type": "amortize",
+    "state": {
+      "collateralAmount": "10000.0000000",
+      "collateralPrice": "0.2000000",
+      "debtAmount": "860.0000000",
+      "yieldDeployedPrincipal": "1000.0000000",
+      "totalYieldAmortized": "150.0000000",
+      "totalInterestAccrued": "10.0000000",
+      "currentLtv": "0.4300000",
+      "healthFactor": "1.7441860",
+      "isOpen": true,
+      "isClosed": false
+    },
+    "orders": [
+      {
+        "type": "harvest_yield",
+        "asset": "USDC",
+        "amount": "150.0000000",
+        "target": "blend-pool"
+      },
+      {
+        "type": "repay_debt",
+        "asset": "USDC",
+        "amount": "150.0000000"
+      }
+    ]
+  },
+  {
+    "step": 2,
+    "type": "amortize",
+    "state": {
+      "collateralAmount": "10000.0000000",
+      "collateralPrice": "0.2100000",
+      "debtAmount": "668.6000000",
+      "yieldDeployedPrincipal": "1000.0000000",
+      "totalYieldAmortized": "350.0000000",
+      "totalInterestAccrued": "18.6000000",
+      "currentLtv": "0.3183810",
+      "healthFactor": "2.3556686",
+      "isOpen": true,
+      "isClosed": false
+    },
+    "orders": [
+      {
+        "type": "harvest_yield",
+        "asset": "USDC",
+        "amount": "200.0000000",
+        "target": "blend-pool"
+      },
+      {
+        "type": "repay_debt",
+        "asset": "USDC",
+        "amount": "200.0000000"
+      }
+    ]
+  },
+  {
+    "step": 3,
+    "type": "amortize",
+    "state": {
+      "collateralAmount": "10000.0000000",
+      "collateralPrice": "0.2200000",
+      "debtAmount": "425.2860000",
+      "yieldDeployedPrincipal": "1000.0000000",
+      "totalYieldAmortized": "600.0000000",
+      "totalInterestAccrued": "25.2860000",
+      "currentLtv": "0.1933118",
+      "healthFactor": "3.8797421",
+      "isOpen": true,
+      "isClosed": false
+    },
+    "orders": [
+      {
+        "type": "harvest_yield",
+        "asset": "USDC",
+        "amount": "250.0000000",
+        "target": "blend-pool"
+      },
+      {
+        "type": "repay_debt",
+        "asset": "USDC",
+        "amount": "250.0000000"
+      }
+    ]
+  },
+  {
+    "step": 4,
+    "type": "amortize",
+    "state": {
+      "collateralAmount": "10000.0000000",
+      "collateralPrice": "0.2200000",
+      "debtAmount": "127.4124300",
+      "yieldDeployedPrincipal": "1000.0000000",
+      "totalYieldAmortized": "900.0000000",
+      "totalInterestAccrued": "27.4124300",
+      "currentLtv": "0.0579147",
+      "healthFactor": "12.9500709",
+      "isOpen": true,
+      "isClosed": false
+    },
+    "orders": [
+      {
+        "type": "harvest_yield",
+        "asset": "USDC",
+        "amount": "300.0000000",
+        "target": "blend-pool"
+      },
+      {
+        "type": "repay_debt",
+        "asset": "USDC",
+        "amount": "300.0000000"
+      }
+    ]
+  },
+  {
+    "step": 5,
+    "type": "amortize",
+    "state": {
+      "collateralAmount": "10000.0000000",
+      "collateralPrice": "0.2500000",
+      "debtAmount": "0.0000000",
+      "yieldDeployedPrincipal": "1000.0000000",
+      "totalYieldAmortized": "1027.4124300",
+      "totalInterestAccrued": "27.4124300",
+      "currentLtv": "0.0000000",
+      "healthFactor": null,
+      "isOpen": true,
+      "isClosed": false
+    },
+    "orders": [
+      {
+        "type": "harvest_yield",
+        "asset": "USDC",
+        "amount": "127.4124300",
+        "target": "blend-pool"
+      },
+      {
+        "type": "repay_debt",
+        "asset": "USDC",
+        "amount": "127.4124300"
+      }
+    ]
+  },
+  {
+    "step": 6,
+    "type": "close",
+    "state": {
+      "collateralAmount": "0.0000000",
+      "collateralPrice": "0.2500000",
+      "debtAmount": "0.0000000",
+      "yieldDeployedPrincipal": "0.0000000",
+      "totalYieldAmortized": "1027.4124300",
+      "totalInterestAccrued": "27.4124300",
+      "currentLtv": "0.0000000",
+      "healthFactor": null,
+      "isOpen": false,
+      "isClosed": true
+    },
+    "orders": [
+      {
+        "type": "withdraw_yield",
+        "asset": "USDC",
+        "amount": "1000.0000000",
+        "target": "blend-pool"
+      },
+      {
+        "type": "withdraw_collateral",
+        "asset": "XLM",
+        "amount": "10000.0000000"
+      }
+    ]
+  }
+]

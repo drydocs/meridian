@@ -31,7 +31,25 @@
     "max": "Max",
     "position": "Aucune position dans ce coffre.",
     "waiting": "En attente de signature...",
-    "positionsError": "Impossible de charger votre position. Les dépôts et retraits fonctionnent toujours."
+    "positionsError": "Impossible de charger votre position. Les dépôts et retraits fonctionnent toujours.",
+    "validation": {
+      "required": "Saisissez un montant à déposer.",
+      "invalid": "Saisissez un nombre valide.",
+      "nonPositive": "Le montant doit être supérieur à zéro.",
+      "exceedsBalance": "Le montant dépasse votre solde disponible."
+    }
+  },
+
+  "yieldHistory": {
+    "title": "Historique du rendement",
+    "range7": "7 j",
+    "range30": "30 j",
+    "range90": "90 j",
+    "rangeLabel": "Période",
+    "earned": "Gains cumulés",
+    "loadError": "Impossible de charger l'historique de votre rendement.",
+    "empty": "Pas encore d'historique. La valeur de votre position est enregistrée au fil du temps ; le graphique se remplira après quelques relevés.",
+    "chartLabel": "Valeur de la position dans le temps, par protocole"
   },
 
   "riskDisclosure": {
@@ -52,6 +70,7 @@
     "withdrew": "Retiré",
     "deposited": "Déposé",
     "syncDelayed": "Mise à jour de votre solde en cours...",
+    "vaultStateUnavailable": "Impossible de lire le prix actuel du coffre. Veuillez réessayer.",
     "fundingWallet": "Financement du portefeuille testnet avec des USDC de test Blend...",
     "walletFunded": "Portefeuille testnet financé",
     "faucetFailed": "Échec du financement du portefeuille testnet"

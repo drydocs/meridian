@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  STRATEGY_ENGINE,
+  type StrategyEngine,
   FixedPointDecimal,
   StaticPriceFeed,
   BacktestPriceFeed,
@@ -11,6 +13,22 @@ import {
   isUnknownAssetError,
   isTimestampOutOfRangeError,
 } from "./index";
+
+describe("@meridian/strategies package", () => {
+  it("exports STRATEGY_ENGINE with valid metadata", () => {
+    expect(STRATEGY_ENGINE).toBeDefined();
+    expect(STRATEGY_ENGINE.name).toBe("meridian-strategies");
+    expect(STRATEGY_ENGINE.version).toBe("0.1.0");
+  });
+
+  it("satisfies StrategyEngine interface", () => {
+    const customEngine: StrategyEngine = {
+      name: "custom",
+      version: "1.0.0",
+    };
+    expect(customEngine.name).toBe("custom");
+  });
+});
 
 const USDC: AssetSymbol = "USDC";
 const EURC: AssetSymbol = "EURC";
@@ -226,6 +244,33 @@ describe("BacktestPriceFeed", () => {
   });
 });
 
+describe("BacktestPriceFeed.getAvailableRange", () => {
+  it("returns the first and last timestamp of an asset's series", () => {
+    const feed = BacktestPriceFeed.create({
+      USDC: [
+        { timestamp: BASE_TIMESTAMP + 7200_000, price: "1.0002000" },
+        { timestamp: BASE_TIMESTAMP, price: "1.0000000" },
+      ],
+      EURC: [],
+    });
+
+    expect(feed.getAvailableRange(USDC)).toEqual({
+      min: BASE_TIMESTAMP,
+      max: BASE_TIMESTAMP + 7200_000,
+    });
+  });
+
+  it("returns null for an asset with no data points", () => {
+    const feed = BacktestPriceFeed.create({ USDC: [], EURC: [] });
+    expect(feed.getAvailableRange(USDC)).toBeNull();
+  });
+
+  it("returns null for an asset that is not registered", () => {
+    const feed = new BacktestPriceFeed(new Map([[USDC, []]]));
+    expect(feed.getAvailableRange(EURC)).toBeNull();
+  });
+});
+
 describe("PriceFeed contract tests - multiple implementations", () => {
   function runBaseContractTests(feed: PriceFeed, name: string) {
     describe(`${name} base contract`, () => {
@@ -338,5 +383,38 @@ describe("Error type guards", () => {
     expect(isTimestampOutOfRangeError(err)).toBe(true);
     expect(isTimestampOutOfRangeError(new Error())).toBe(false);
     expect(isTimestampOutOfRangeError("string")).toBe(false);
+  });
+});
+
+describe("FixedPointDecimal arithmetic", () => {
+  it("add", () => {
+    const a = FixedPointDecimal.fromString("1.5");
+    const b = FixedPointDecimal.fromString("0.5");
+    expect(a.add(b).toString()).toBe("2");
+  });
+
+  it("sub", () => {
+    const a = FixedPointDecimal.fromString("1.5");
+    const b = FixedPointDecimal.fromString("0.5");
+    expect(a.sub(b).toString()).toBe("1");
+  });
+
+  it("multiplies a notional by a rate", () => {
+    // 100 * 0.003 = 0.3
+    const notional = FixedPointDecimal.fromString("100");
+    const rate = FixedPointDecimal.fromString("0.003");
+    expect(notional.mul(rate).toString()).toBe("0.3");
+  });
+
+  it("div", () => {
+    const a = FixedPointDecimal.fromString("1");
+    const b = FixedPointDecimal.fromString("4");
+    expect(a.div(b).toString()).toBe("0.25");
+  });
+
+  it("div by zero throws", () => {
+    expect(() =>
+      FixedPointDecimal.fromString("1").div(FixedPointDecimal.fromString("0"))
+    ).toThrow(RangeError);
   });
 });
