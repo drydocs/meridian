@@ -18,8 +18,20 @@ const KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 const OTHER_KEY = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
 
 const POSITIONS = [
-  { vaultId: "meridian-usdc", shares: 100, deposited: 100, earned: 1.5, entryTime: 1_700_000_000 },
-  { vaultId: "blend-usdc", shares: 40, deposited: 42, earned: 0.25, entryTime: 1_700_100_000 },
+  {
+    vaultId: "meridian-usdc",
+    shares: 100,
+    deposited: 100,
+    earned: 1.5,
+    entryTime: 1_700_000_000,
+  },
+  {
+    vaultId: "blend-usdc",
+    shares: 40,
+    deposited: 42,
+    earned: 0.25,
+    entryTime: 1_700_100_000,
+  },
 ];
 
 function setup(publicKey: string | null) {
@@ -29,10 +41,13 @@ function setup(publicKey: string | null) {
   });
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
-  const utils = renderHook(({ key }: { key: string | null }) => usePositions(key), {
-    wrapper,
-    initialProps: { key: publicKey },
-  });
+  const utils = renderHook(
+    ({ key }: { key: string | null }) => usePositions(key),
+    {
+      wrapper,
+      initialProps: { key: publicKey },
+    }
+  );
   return { client, ...utils };
 }
 
@@ -93,7 +108,9 @@ describe("usePositions", () => {
   });
 
   it("keys the cache by public key and refetches when the wallet changes", async () => {
-    getPositions.mockResolvedValueOnce({ positions: POSITIONS }).mockResolvedValueOnce({ positions: [] });
+    getPositions
+      .mockResolvedValueOnce({ positions: POSITIONS })
+      .mockResolvedValueOnce({ positions: [] });
     const { result, rerender, client } = setup(KEY);
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
