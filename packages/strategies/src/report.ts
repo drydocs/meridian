@@ -1,17 +1,14 @@
+import {
+  durationToMilliseconds,
+  parseScenario,
+  toIsoInstant,
+} from "./scenario";
+import type { Scenario } from "./scenario";
 import type { AssetSymbol, SimulationTimestamp } from "./types";
 import { FixedPointDecimal } from "./types";
 
 export const REPORT_FORMAT_VERSION = 1 as const;
 export type ReportFormatVersion = typeof REPORT_FORMAT_VERSION;
-
-// The scenario that was run: what window, which assets, and what the strategy
-// engine version was at the time.
-export interface RunScenario {
-  readonly startTimestamp: SimulationTimestamp;
-  readonly endTimestamp: SimulationTimestamp;
-  readonly assets: readonly AssetSymbol[];
-  readonly engineVersion: string;
-}
 
 // Risk metrics summarising the run.
 export interface ReportRiskMetrics {
@@ -43,11 +40,19 @@ export interface ReportPortfolioState {
   readonly totalValue: FixedPointDecimal;
 }
 
-// A complete, self-contained run report. Carries everything required to
-// reproduce or resume the run.
+// A complete, self-contained run report.
+//
+// `scenario` is the validated input the run was produced from, so a run whose
+// outcome is fixed by the scenario alone can be reproduced from the report. A
+// run that draws from the seeded generators cannot: `XorShift64` keeps its
+// state internally and no RNG state is stored here, so resuming such a run
+// restarts the stream instead of continuing it.
 export interface RunReport {
   readonly version: ReportFormatVersion;
-  readonly scenario: RunScenario;
+  readonly scenario: Scenario;
+  // The engine that produced the run. Distinct from `scenario.strategy.version`,
+  // which versions the strategy config rather than the code that ran it.
+  readonly engineVersion: string;
   readonly riskMetrics: ReportRiskMetrics;
   readonly eventCounts: EventCounts;
   readonly finalState: ReportPortfolioState;
@@ -56,7 +61,8 @@ export interface RunReport {
 // ─── Wire format ─────────────────────────────────────────────────────────────
 // All FixedPointDecimal values are serialised as the raw bigint stroop count
 // expressed as a decimal string (e.g. "10000001"). This is lossless and safe
-// across JSON serialisers that would truncate large numbers.
+// across JSON serialisers that would truncate large numbers. The scenario needs
+// no conversion, since every value it carries is already a string or a number.
 
 interface SerializedRiskMetrics {
   maxDrawdown: string;
@@ -72,12 +78,8 @@ interface SerializedPortfolioState {
 
 export interface SerializedRunReport {
   version: number;
-  scenario: {
-    startTimestamp: SimulationTimestamp;
-    endTimestamp: SimulationTimestamp;
-    assets: string[];
-    engineVersion: string;
-  };
+  scenario: Scenario;
+  engineVersion: string;
   riskMetrics: SerializedRiskMetrics;
   eventCounts: EventCounts;
   finalState: SerializedPortfolioState;
@@ -100,6 +102,20 @@ function deserializeFixed(s: string): FixedPointDecimal {
   return FixedPointDecimal.fromStroops(BigInt(s));
 }
 
+// Copied field by field so the wire object shares no nested value with the
+// report it came from.
+function copyScenario(scenario: Scenario): Scenario {
+  return {
+    schemaVersion: scenario.schemaVersion,
+    window: { ...scenario.window },
+    assets: [...scenario.assets],
+    source: { ...scenario.source },
+    startingCapital: scenario.startingCapital,
+    strategy: { ...scenario.strategy, params: { ...scenario.strategy.params } },
+    seed: scenario.seed,
+  };
+}
+
 export function serializeReport(report: RunReport): SerializedRunReport {
   const holdings: Record<string, string> = {};
   for (const [asset, amount] of Object.entries(report.finalState.holdings)) {
@@ -108,12 +124,8 @@ export function serializeReport(report: RunReport): SerializedRunReport {
 
   return {
     version: report.version,
-    scenario: {
-      startTimestamp: report.scenario.startTimestamp,
-      endTimestamp: report.scenario.endTimestamp,
-      assets: [...report.scenario.assets],
-      engineVersion: report.scenario.engineVersion,
-    },
+    scenario: copyScenario(report.scenario),
+    engineVersion: report.engineVersion,
     riskMetrics: {
       maxDrawdown: serializeFixed(report.riskMetrics.maxDrawdown),
       sharpeProxy: serializeFixed(report.riskMetrics.sharpeProxy),
@@ -163,12 +175,10 @@ export function deserializeReport(raw: SerializedRunReport): RunReport {
 
   return {
     version: REPORT_FORMAT_VERSION,
-    scenario: {
-      startTimestamp: raw.scenario.startTimestamp,
-      endTimestamp: raw.scenario.endTimestamp,
-      assets: raw.scenario.assets as AssetSymbol[],
-      engineVersion: raw.scenario.engineVersion,
-    },
+    // Validated rather than trusted, so a corrupted report cannot hand a caller
+    // a scenario the engine would refuse at run time.
+    scenario: parseScenario(raw.scenario),
+    engineVersion: raw.engineVersion,
     riskMetrics: {
       maxDrawdown: deserializeFixed(raw.riskMetrics.maxDrawdown),
       sharpeProxy: deserializeFixed(raw.riskMetrics.sharpeProxy),
@@ -212,13 +222,12 @@ export interface MergeOptions extends WarmStartOptions {
   mergeEventCounts?: boolean;
 }
 
-// The input handed to the continuation run. Callers use this to resume from
-// exactly where the saved report left off.
+// The input handed to the continuation run.
 export interface WarmStartContext {
   // The portfolio state the continuation run should use as its starting point.
   readonly startingState: ReportPortfolioState;
-  // The scenario for the continuation window.
-  readonly scenario: RunScenario;
+  // The scenario for the continuation window, on its own a legal input to a run.
+  readonly scenario: Scenario;
 }
 
 // Build a WarmStartContext from a saved report and the desired new end time.
@@ -234,23 +243,75 @@ export function buildWarmStartContext(
     );
   }
 
+  const stepMs = durationToMilliseconds(report.scenario.window.step);
+  const windowMs = newEndTimestamp - report.finalState.timestamp;
+  if (windowMs % stepMs !== 0) {
+    throw new RangeError(
+      `The continuation window of ${windowMs} ms is not a whole number of ` +
+        `steps of ${stepMs} ms, so the run's clock would reject it`
+    );
+  }
+
   return {
     startingState: report.finalState,
-    scenario: {
-      startTimestamp: report.finalState.timestamp,
-      endTimestamp: newEndTimestamp,
-      assets: report.scenario.assets,
-      engineVersion: report.scenario.engineVersion,
-    },
+    // Parsed rather than assembled, so the caller gets back a scenario a run
+    // will accept, including the schema's floor on the starting capital.
+    scenario: parseScenario({
+      ...report.scenario,
+      window: {
+        start: toIsoInstant(report.finalState.timestamp),
+        end: toIsoInstant(newEndTimestamp),
+        step: report.scenario.window.step,
+      },
+      startingCapital: report.finalState.totalValue.toString(),
+    }),
   };
 }
 
 // Asset order is part of the scenario, so a reordered set is a different one.
-function sameAssets(
-  a: readonly AssetSymbol[],
-  b: readonly AssetSymbol[]
-): boolean {
+function sameAssets(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((asset, index) => asset === b[index]);
+}
+
+// Key order is not part of a config, so the same entries in another order are
+// still the same params block.
+function sameStringRecord(
+  a: Readonly<Record<string, string>>,
+  b: Readonly<Record<string, string>>
+): boolean {
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => a[key] === b[key])
+  );
+}
+
+// Names the first scenario field, other than the window and the starting
+// capital, where the continuation disagrees with the base. A merged report
+// carries a single scenario for the whole window, so a disagreement would
+// otherwise be reported under the base's value.
+function runConfigMismatch(
+  base: Scenario,
+  continuation: Scenario
+): string | null {
+  if (base.seed !== continuation.seed) return "seed";
+  if (base.source.price !== continuation.source.price) return "source.price";
+  if (base.source.rate !== continuation.source.rate) return "source.rate";
+  if (base.strategy.id !== continuation.strategy.id) return "strategy.id";
+  if (base.strategy.version !== continuation.strategy.version) {
+    return "strategy.version";
+  }
+  if (!sameStringRecord(base.strategy.params, continuation.strategy.params)) {
+    return "strategy.params";
+  }
+  if (!sameAssets(base.assets, continuation.assets)) return "assets";
+  if (
+    durationToMilliseconds(base.window.step) !==
+    durationToMilliseconds(continuation.window.step)
+  ) {
+    return "window.step";
+  }
+  return null;
 }
 
 // Merge a continuation RunReport back into the base report to produce a single
@@ -260,30 +321,35 @@ export function mergeReports(
   continuation: RunReport,
   options: MergeOptions
 ): RunReport {
-  if (continuation.scenario.startTimestamp !== base.finalState.timestamp) {
+  // Compared as instants rather than as strings, since the schema accepts both
+  // `...T00:00:00Z` and `...T00:00:00.000Z` for the same moment.
+  if (
+    Date.parse(continuation.scenario.window.start) !== base.finalState.timestamp
+  ) {
     throw new RangeError(
-      `Continuation start (${continuation.scenario.startTimestamp}) does not ` +
+      `Continuation start (${continuation.scenario.window.start}) does not ` +
         `match base final timestamp (${base.finalState.timestamp})`
     );
   }
-  if (continuation.scenario.endTimestamp !== options.newEndTimestamp) {
+  if (
+    Date.parse(continuation.scenario.window.end) !== options.newEndTimestamp
+  ) {
     throw new RangeError(
-      `Continuation end (${continuation.scenario.endTimestamp}) does not ` +
+      `Continuation end (${continuation.scenario.window.end}) does not ` +
         `match the requested new end timestamp (${options.newEndTimestamp})`
     );
   }
-  // The merged report can only carry one engine version and one asset set, so
-  // a continuation that disagrees would be attributed to the base's values.
-  if (continuation.scenario.engineVersion !== base.scenario.engineVersion) {
+  if (continuation.engineVersion !== base.engineVersion) {
     throw new RangeError(
-      `Continuation engine version (${continuation.scenario.engineVersion}) ` +
-        `does not match base engine version (${base.scenario.engineVersion})`
+      `Continuation engine version (${continuation.engineVersion}) ` +
+        `does not match base engine version (${base.engineVersion})`
     );
   }
-  if (!sameAssets(continuation.scenario.assets, base.scenario.assets)) {
+  const mismatch = runConfigMismatch(base.scenario, continuation.scenario);
+  if (mismatch !== null) {
     throw new RangeError(
-      `Continuation assets (${continuation.scenario.assets.join(", ")}) do ` +
-        `not match base assets (${base.scenario.assets.join(", ")})`
+      `Continuation scenario differs from the base at ${mismatch}, so the ` +
+        `merged report could not attribute the run to the right config`
     );
   }
 
@@ -315,12 +381,15 @@ export function mergeReports(
 
   return {
     version: REPORT_FORMAT_VERSION,
-    scenario: {
-      startTimestamp: base.scenario.startTimestamp,
-      endTimestamp: continuation.scenario.endTimestamp,
-      assets: base.scenario.assets,
-      engineVersion: base.scenario.engineVersion,
-    },
+    scenario: parseScenario({
+      ...base.scenario,
+      window: {
+        start: base.scenario.window.start,
+        end: continuation.scenario.window.end,
+        step: base.scenario.window.step,
+      },
+    }),
+    engineVersion: base.engineVersion,
     riskMetrics: {
       maxDrawdown,
       sharpeProxy: continuation.riskMetrics.sharpeProxy,
