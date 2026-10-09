@@ -30,6 +30,11 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     consoleLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     loadPositionSnapshotStore: vi.fn(() => ({})),
     recordPositionSnapshot: vi.fn(async () => true),
+    getPositionHistory: vi.fn(async () => []),
+    // The history handler reads these two at call time, so the mock has to
+    // carry them or every request through that route throws.
+    HISTORY_DEFAULT_DAYS: 30,
+    HISTORY_MAX_DAYS: 90,
   };
 });
 
@@ -41,6 +46,7 @@ import {
   submitTx,
   fetchAllVaults,
   selectBestVault,
+  getPositionHistory,
 } from "@meridian/stellar-sdk-helpers";
 
 const WALLET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -103,6 +109,57 @@ describe("GET /api/v1/positions/:publicKey", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/v1/positions/${WALLET}`,
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toHaveProperty("error");
+  });
+});
+
+describe("GET /api/v1/positions/:publicKey/history", () => {
+  const snapshot = { timestamp: 1, totalValue: 10, totalEarned: 1, vaults: [] };
+
+  it("returns 200 with the snapshots and the default window", async () => {
+    const app = buildApp();
+    vi.mocked(getPositionHistory).mockResolvedValue([snapshot] as never);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}/history`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ days: 30, snapshots: [snapshot] });
+  });
+
+  it("forwards the days query parameter", async () => {
+    const app = buildApp();
+    vi.mocked(getPositionHistory).mockResolvedValue([] as never);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}/history?days=7`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ days: 7 });
+    expect(vi.mocked(getPositionHistory).mock.calls[0]?.[3]).toBe(7);
+  });
+
+  it("returns 400 for a non-integer days value", async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}/history?days=abc`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(getPositionHistory).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 when the history read throws", async () => {
+    const app = buildApp();
+    vi.mocked(getPositionHistory).mockRejectedValue(new Error("redis down"));
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}/history`,
     });
     expect(res.statusCode).toBe(503);
     expect(res.json()).toHaveProperty("error");
