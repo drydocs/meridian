@@ -25,6 +25,11 @@ export function WalletConnect() {
     Partial<Record<WalletId, boolean>>
   >({});
   const pickerRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // Which option receives focus when the menu opens: the first for a click or
+  // ArrowDown, the last for ArrowUp (WAI-ARIA menu button pattern).
+  const openFocusRef = useRef<"first" | "last">("first");
 
   // Refreshed on every open rather than once on mount: extension install
   // state can change between opens without a page reload.
@@ -39,6 +44,17 @@ export function WalletConnect() {
     return () => {
       cancelled = true;
     };
+  }, [pickerOpen]);
+
+  // Move focus into the menu when it opens so arrow keys work immediately.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const items =
+      menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]');
+    if (!items || items.length === 0) return;
+    const target =
+      openFocusRef.current === "last" ? items[items.length - 1] : items[0];
+    target.focus();
   }, [pickerOpen]);
 
   useEffect(() => {
@@ -68,6 +84,66 @@ export function WalletConnect() {
     // at all while connected, so it can't close itself via a click).
     setPickerOpen(false);
     push("info", t("walletConnect.walletDisconnected"));
+  }
+
+  function closePicker(restoreFocus: boolean) {
+    setPickerOpen(false);
+    if (restoreFocus) toggleRef.current?.focus();
+  }
+
+  function handleToggleKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      openFocusRef.current = e.key === "ArrowUp" ? "last" : "first";
+      if (pickerOpen) {
+        // Already open: just move focus into the menu.
+        const items =
+          menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]');
+        if (items && items.length > 0) {
+          (e.key === "ArrowUp" ? items[items.length - 1] : items[0]).focus();
+        }
+      } else {
+        setPickerOpen(true);
+      }
+    } else if (e.key === "Escape" && pickerOpen) {
+      e.preventDefault();
+      closePicker(true);
+    }
+  }
+
+  function handleMenuKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []
+    );
+    if (items.length === 0) return;
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    let next: HTMLElement | undefined;
+    switch (e.key) {
+      case "ArrowDown":
+        next = items[(index + 1) % items.length];
+        break;
+      case "ArrowUp":
+        next = items[(index - 1 + items.length) % items.length];
+        break;
+      case "Home":
+        next = items[0];
+        break;
+      case "End":
+        next = items[items.length - 1];
+        break;
+      case "Escape":
+        e.preventDefault();
+        closePicker(true);
+        return;
+      case "Tab":
+        // Let focus move on naturally, but don't leave the menu open behind it.
+        setPickerOpen(false);
+        return;
+      default:
+        return;
+    }
+    e.preventDefault();
+    next.focus();
   }
 
   function handlePick(wallet: (typeof WALLETS)[number]) {
@@ -132,8 +208,13 @@ export function WalletConnect() {
       )}
 
       <button
+        ref={toggleRef}
         data-testid="wallet-picker-toggle"
-        onClick={() => setPickerOpen((open) => !open)}
+        onClick={() => {
+          openFocusRef.current = "first";
+          setPickerOpen((open) => !open);
+        }}
+        onKeyDown={handleToggleKeyDown}
         disabled={status === "connecting"}
         aria-haspopup="menu"
         aria-expanded={pickerOpen}
@@ -147,6 +228,10 @@ export function WalletConnect() {
 
       {pickerOpen && (
         <div
+          ref={menuRef}
+          role="menu"
+          aria-label={t("common.connectWallet")}
+          onKeyDown={handleMenuKeyDown}
           data-testid="wallet-picker-menu"
           className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-gray-800 bg-deep shadow-xl shadow-black/40 overflow-hidden z-10"
         >
@@ -155,6 +240,9 @@ export function WalletConnect() {
             return (
               <button
                 key={w.id}
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
                 data-testid={`wallet-picker-option-${w.id}`}
                 onClick={() => handlePick(w)}
                 className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-gray-300 hover:bg-gray-800/60 hover:text-white transition-colors duration-150"
