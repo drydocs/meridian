@@ -5,19 +5,38 @@ import { positionsRoute } from "../routes/positions.js";
 import { txRoute } from "../routes/tx.js";
 import { vaultsRoute } from "../routes/vaults.js";
 
-vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
-  ContractSimulationError: (
-    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
-  ).ContractSimulationError,
-  resolvePositions: vi.fn(),
-  buildDepositTx: vi.fn(),
-  buildWithdrawTx: vi.fn(),
-  buildAddTrustlineTx: vi.fn(),
-  submitTx: vi.fn(),
-  fetchAllVaults: vi.fn(),
-  selectBestVault: vi.fn(),
-  isVaultCacheWarm: vi.fn(() => false),
-}));
+vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
+  // Keep the real error classes: api-core narrows on `instanceof`, so a
+  // stubbed class would stop behaving like the error it maps to an HTTP status.
+  const actual =
+    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>();
+  return {
+    ContractSimulationError: actual.ContractSimulationError,
+    MissingTrustlineError: actual.MissingTrustlineError,
+    resolvePositions: vi.fn(),
+    buildDepositTx: vi.fn(),
+    buildWithdrawTx: vi.fn(),
+    buildAddTrustlineTx: vi.fn(),
+    submitTx: vi.fn(),
+    fetchAllVaults: vi.fn(),
+    selectBestVault: vi.fn(),
+    isVaultCacheWarm: vi.fn(() => false),
+    // api-core now calls this on the deposit/withdraw build path. Without a
+    // stub it resolved to `undefined` and threw, turning five route cases into
+    // 500s instead of their expected statuses.
+    assertRequiredTrustlines: vi.fn().mockResolvedValue(undefined),
+    // Same trap: the positions handler imports these three, and a missing
+    // export throws instead of resolving to undefined, turning its 200 into a 503.
+    consoleLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    loadPositionSnapshotStore: vi.fn(() => ({})),
+    recordPositionSnapshot: vi.fn(async () => true),
+    getPositionHistory: vi.fn(async () => []),
+    // The history handler reads these two at call time, so the mock has to
+    // carry them or every request through that route throws.
+    HISTORY_DEFAULT_DAYS: 30,
+    HISTORY_MAX_DAYS: 90,
+  };
+});
 
 import {
   resolvePositions,
@@ -27,6 +46,7 @@ import {
   submitTx,
   fetchAllVaults,
   selectBestVault,
+  getPositionHistory,
 } from "@meridian/stellar-sdk-helpers";
 
 const WALLET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -89,6 +109,57 @@ describe("GET /api/v1/positions/:publicKey", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/v1/positions/${WALLET}`,
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toHaveProperty("error");
+  });
+});
+
+describe("GET /api/v1/positions/:publicKey/history", () => {
+  const snapshot = { timestamp: 1, totalValue: 10, totalEarned: 1, vaults: [] };
+
+  it("returns 200 with the snapshots and the default window", async () => {
+    const app = buildApp();
+    vi.mocked(getPositionHistory).mockResolvedValue([snapshot] as never);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}/history`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ days: 30, snapshots: [snapshot] });
+  });
+
+  it("forwards the days query parameter", async () => {
+    const app = buildApp();
+    vi.mocked(getPositionHistory).mockResolvedValue([] as never);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}/history?days=7`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ days: 7 });
+    expect(vi.mocked(getPositionHistory).mock.calls[0]?.[3]).toBe(7);
+  });
+
+  it("returns 400 for a non-integer days value", async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}/history?days=abc`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(getPositionHistory).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 when the history read throws", async () => {
+    const app = buildApp();
+    vi.mocked(getPositionHistory).mockRejectedValue(new Error("redis down"));
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}/history`,
     });
     expect(res.statusCode).toBe(503);
     expect(res.json()).toHaveProperty("error");

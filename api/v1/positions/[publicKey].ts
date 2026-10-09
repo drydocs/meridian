@@ -18,5 +18,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (result.error) {
     console.error("[positions] error:", result.error);
   }
+  res.setHeader("Cache-Control", "no-store");
   res.status(result.status).json(result.body);
 }

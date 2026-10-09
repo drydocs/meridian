@@ -79,10 +79,15 @@ export async function buildWithdrawTx(
  * Fetches all positions for `publicKey` across every registered coordinator
  * vault on the given network. Failures from any single vault are logged and
  * suppressed so partial results are always returned.
+ *
+ * Because a failed read is indistinguishable from an empty position in the
+ * returned list, pass `onVaultError` when the caller must tell the two apart
+ * (for example before writing a snapshot that would otherwise record zero).
  */
 export async function resolvePositions(
   publicKey: string,
-  network: StellarNetwork
+  network: StellarNetwork,
+  options: { onVaultError?: (error: unknown) => void } = {}
 ): Promise<PositionInfo[]> {
   const pools = Object.values(
     network.network === "testnet" ? KNOWN_POOLS.testnet : KNOWN_POOLS.mainnet
@@ -107,6 +112,7 @@ export async function resolvePositions(
       positions.push(...result.value);
     } else {
       console.error("[positions] fetch failed:", result.reason);
+      options.onVaultError?.(result.reason);
     }
   }
   return positions;
