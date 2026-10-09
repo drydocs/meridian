@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  HISTORY_MAX_DAYS,
+  SNAPSHOT_MAX_PER_USER,
   SNAPSHOT_MAX_TRACKED_PER_RUN,
   SNAPSHOT_MIN_INTERVAL_MS,
   buildPositionSnapshot,
@@ -36,6 +38,14 @@ function pos(deposited: number, earned: number): PositionInfo[] {
     },
   ];
 }
+
+describe("retention window", () => {
+  it("keeps enough snapshots to cover the whole history window", () => {
+    expect(
+      SNAPSHOT_MAX_PER_USER * SNAPSHOT_MIN_INTERVAL_MS
+    ).toBeGreaterThanOrEqual(HISTORY_MAX_DAYS * DAY);
+  });
+});
 
 describe("buildPositionSnapshot", () => {
   it("totals value and earned and tags each vault with its protocol", () => {
@@ -91,7 +101,9 @@ describe("recordPositionSnapshot", () => {
       { now: 1_000 }
     );
     expect(wrote).toBe(true);
-    expect(await store.listTracked(trackedUsersKey(NETWORK))).toEqual([USER]);
+    expect(await store.listTracked(trackedUsersKey(NETWORK), 10)).toEqual([
+      USER,
+    ]);
     const history = await getPositionHistory(store, USER, NETWORK, 1, 1_000);
     expect(history).toHaveLength(1);
     expect(history[0]?.totalValue).toBe(10);
@@ -204,8 +216,8 @@ describe("in-memory store retention", () => {
 describe("runPositionSnapshotKeeper", () => {
   it("snapshots every tracked user and reports counts", async () => {
     const store = createInMemoryPositionSnapshotStore();
-    await store.track(trackedUsersKey(NETWORK), "A");
-    await store.track(trackedUsersKey(NETWORK), "B");
+    await store.track(trackedUsersKey(NETWORK), "A", 1);
+    await store.track(trackedUsersKey(NETWORK), "B", 2);
     const resolve = vi.fn(async () => pos(10, 1));
     const result = await runPositionSnapshotKeeper({
       store,
@@ -241,8 +253,8 @@ describe("runPositionSnapshotKeeper", () => {
 
   it("records a failing user and continues with the rest", async () => {
     const store = createInMemoryPositionSnapshotStore();
-    await store.track(trackedUsersKey(NETWORK), "A");
-    await store.track(trackedUsersKey(NETWORK), "B");
+    await store.track(trackedUsersKey(NETWORK), "A", 1);
+    await store.track(trackedUsersKey(NETWORK), "B", 2);
     const result = await runPositionSnapshotKeeper({
       store,
       network: NETWORK,
@@ -257,20 +269,83 @@ describe("runPositionSnapshotKeeper", () => {
     expect(result.failures).toEqual([{ publicKey: "A", error: "rpc down" }]);
   });
 
-  it("caps the users processed per run", async () => {
+  it("treats a partial read as a failure and leaves the wallet tracked", async () => {
     const store = createInMemoryPositionSnapshotStore();
-    for (let i = 0; i < SNAPSHOT_MAX_TRACKED_PER_RUN + 5; i++) {
-      await store.track(trackedUsersKey(NETWORK), `U${i}`);
-    }
+    const key = trackedUsersKey(NETWORK);
+    await store.track(key, "A", 1);
+    const result = await runPositionSnapshotKeeper({
+      store,
+      network: NETWORK,
+      resolve: async () => null,
+      logger: logger(),
+      now: 10,
+    });
+    expect(result.recorded).toBe(0);
+    expect(result.failures).toEqual([
+      { publicKey: "A", error: "could not read every vault" },
+    ]);
+    expect(await store.listTracked(key, 10)).toEqual(["A"]);
+    expect(await store.range(snapshotKey("A", NETWORK), 0)).toEqual([]);
+  });
+
+  it("closes the series and drops a wallet that holds nothing", async () => {
+    const store = createInMemoryPositionSnapshotStore();
+    const key = trackedUsersKey(NETWORK);
+    const now = 1_000 + SNAPSHOT_MIN_INTERVAL_MS;
+    await recordPositionSnapshot(store, "A", NETWORK, pos(10, 1), logger(), {
+      now: 1_000,
+    });
     const result = await runPositionSnapshotKeeper({
       store,
       network: NETWORK,
       resolve: async () => [],
       logger: logger(),
-      now: 1,
+      now,
     });
-    expect(result.tracked).toBe(SNAPSHOT_MAX_TRACKED_PER_RUN + 5);
-    expect(result.processed).toBe(SNAPSHOT_MAX_TRACKED_PER_RUN);
+    expect(result.skipped).toBe(1);
+    expect(await store.listTracked(key, 10)).toEqual([]);
+    const history = await getPositionHistory(store, "A", NETWORK, 90, now);
+    expect(history.at(-1)?.totalValue).toBe(0);
+  });
+
+  it("caps the users processed per run and rotates to the ones left over", async () => {
+    const store = createInMemoryPositionSnapshotStore();
+    const key = trackedUsersKey(NETWORK);
+    const total = SNAPSHOT_MAX_TRACKED_PER_RUN + 5;
+    for (let i = 0; i < total; i++) {
+      await store.track(key, `U${i}`, 10_000 + i);
+    }
+    const first = await runPositionSnapshotKeeper({
+      store,
+      network: NETWORK,
+      resolve: async () => pos(1, 0),
+      logger: logger(),
+      now: 10_000 + total,
+    });
+    expect(first.tracked).toBe(total);
+    expect(first.processed).toBe(SNAPSHOT_MAX_TRACKED_PER_RUN);
+
+    const processed: string[] = [];
+    const second = await runPositionSnapshotKeeper({
+      store,
+      network: NETWORK,
+      resolve: async (pk) => {
+        processed.push(pk);
+        return pos(1, 0);
+      },
+      logger: logger(),
+      now: 10_000 + total + 1,
+    });
+    expect(second.processed).toBe(SNAPSHOT_MAX_TRACKED_PER_RUN);
+    // The five left over are seen longest ago, so the second run reaches them
+    // before revisiting anyone the first run already snapshotted.
+    expect(processed.slice(0, 5)).toEqual([
+      "U200",
+      "U201",
+      "U202",
+      "U203",
+      "U204",
+    ]);
   });
 });
 
@@ -322,20 +397,24 @@ describe("createUpstashPositionSnapshotStore", () => {
     });
     expect(await store.latest("k")).toBeNull();
     expect(await store.range("k", 0)).toEqual([]);
-    expect(await store.listTracked("s")).toEqual([]);
+    expect(await store.listTracked("s", 10)).toEqual([]);
   });
 
-  it("tracks users with SADD and lists them with SMEMBERS", async () => {
-    const { calls, fetchImpl } = fakeUpstash([1, ["A", "B"]]);
+  it("tracks users with ZADD and lists the longest-seen first", async () => {
+    const { calls, fetchImpl } = fakeUpstash([1, ["A", "B"], 2, 1]);
     const store = createUpstashPositionSnapshotStore({
       url: "https://r.example",
       token: "t",
       fetchImpl,
     });
-    await store.track("s", "A");
-    expect(await store.listTracked("s")).toEqual(["A", "B"]);
-    expect(calls[0]).toEqual(["SADD", "s", "A"]);
-    expect(calls[1]).toEqual(["SMEMBERS", "s"]);
+    await store.track("s", "A", 5);
+    expect(await store.listTracked("s", 2)).toEqual(["A", "B"]);
+    expect(await store.countTracked("s")).toBe(2);
+    await store.untrack("s", "A");
+    expect(calls[0]).toEqual(["ZADD", "s", 5, "A"]);
+    expect(calls[1]).toEqual(["ZRANGE", "s", 0, 1]);
+    expect(calls[2]).toEqual(["ZCARD", "s"]);
+    expect(calls[3]).toEqual(["ZREM", "s", "A"]);
   });
 
   it("surfaces HTTP and Redis errors", async () => {

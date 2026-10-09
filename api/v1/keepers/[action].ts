@@ -122,7 +122,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const result = await runPositionSnapshotKeeper({
         store,
         network: APP_NETWORK.network,
-        resolve: (publicKey) => resolvePositions(publicKey, APP_NETWORK),
+        resolve: async (publicKey) => {
+          // A vault that fails to read resolves to no position at all, which
+          // is indistinguishable from holding nothing. Report it as a failure
+          // so the keeper leaves the wallet tracked instead of closing its
+          // series with an invented zero.
+          let incomplete = false;
+          const positions = await resolvePositions(publicKey, APP_NETWORK, {
+            onVaultError: () => {
+              incomplete = true;
+            },
+          });
+          return incomplete ? null : positions;
+        },
         logger: consoleLogger,
       });
       const status = result.failures.length > 0 ? 500 : 200;

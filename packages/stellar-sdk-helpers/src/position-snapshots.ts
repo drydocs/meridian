@@ -45,12 +45,18 @@ export interface PositionSnapshot {
 
 /** Do not snapshot a user more often than this. */
 export const SNAPSHOT_MIN_INTERVAL_MS = 30 * 60_000;
-/** Snapshots retained per user (hourly for ~90 days); older ones are trimmed. */
-export const SNAPSHOT_MAX_PER_USER = 24 * 90;
-/** Upper bound on users the snapshot keeper processes in one run. */
-export const SNAPSHOT_MAX_TRACKED_PER_RUN = 200;
 export const HISTORY_DEFAULT_DAYS = 30;
 export const HISTORY_MAX_DAYS = 90;
+/**
+ * Snapshots retained per user: one per throttle interval across the whole
+ * retention window, so the read path can serve all of `HISTORY_MAX_DAYS`
+ * (4320 at a 30-minute interval). Older ones are trimmed.
+ */
+export const SNAPSHOT_MAX_PER_USER = Math.ceil(
+  (HISTORY_MAX_DAYS * 24 * 60 * 60_000) / SNAPSHOT_MIN_INTERVAL_MS
+);
+/** Upper bound on users the snapshot keeper processes in one run. */
+export const SNAPSHOT_MAX_TRACKED_PER_RUN = 200;
 
 export interface PositionSnapshotStore {
   /** Appends `snapshot` and trims the series to its newest `maxEntries`. */
@@ -62,8 +68,13 @@ export interface PositionSnapshotStore {
   latest(key: string): Promise<PositionSnapshot | null>;
   /** Snapshots with `timestamp >= sinceMs`, oldest first. */
   range(key: string, sinceMs: number): Promise<PositionSnapshot[]>;
-  track(setKey: string, member: string): Promise<void>;
-  listTracked(setKey: string): Promise<string[]>;
+  /** Registers `member`, scored by `seenAt` so the keeper can rotate fairly. */
+  track(setKey: string, member: string, seenAt: number): Promise<void>;
+  /** Drops `member`, for a wallet the keeper no longer needs to visit. */
+  untrack(setKey: string, member: string): Promise<void>;
+  /** The `limit` members seen longest ago, oldest first. */
+  listTracked(setKey: string, limit: number): Promise<string[]>;
+  countTracked(setKey: string): Promise<number>;
 }
 
 export function snapshotKey(publicKey: string, network: string): string {
@@ -146,7 +157,7 @@ export async function recordPositionSnapshot(
       buildPositionSnapshot(positions, now),
       SNAPSHOT_MAX_PER_USER
     );
-    await store.track(trackedUsersKey(network), publicKey);
+    await store.track(trackedUsersKey(network), publicKey, now);
     return true;
   } catch (err) {
     logger.warn("[position-snapshots] could not record snapshot", {
@@ -185,24 +196,36 @@ export interface PositionSnapshotRunResult {
 }
 
 /**
- * Snapshots every tracked user (up to SNAPSHOT_MAX_TRACKED_PER_RUN), honouring
- * the same throttle as the read path. A failure reading one user's positions
- * is recorded and does not stop the rest.
+ * Snapshots tracked users, oldest-seen first and up to
+ * SNAPSHOT_MAX_TRACKED_PER_RUN of them, honouring the same throttle as the
+ * read path. `resolve` returning `null` means the read was incomplete (a
+ * vault failed), which is a failure and leaves the wallet tracked; an empty
+ * array means the wallet holds nothing, which closes its series and drops it
+ * from the rotation.
  */
 export async function runPositionSnapshotKeeper(options: {
   store: PositionSnapshotStore;
   network: string;
-  resolve: (publicKey: string) => Promise<PositionInfo[]>;
+  resolve: (publicKey: string) => Promise<PositionInfo[] | null>;
   logger: KeeperLogger;
   now?: number;
   minIntervalMs?: number;
 }): Promise<PositionSnapshotRunResult> {
   const { store, network, resolve, logger } = options;
-  const tracked = await store.listTracked(trackedUsersKey(network));
-  const batch = tracked.slice(0, SNAPSHOT_MAX_TRACKED_PER_RUN);
+  const trackedKey = trackedUsersKey(network);
+  const throttle = {
+    ...(options.now !== undefined && { now: options.now }),
+    ...(options.minIntervalMs !== undefined && {
+      minIntervalMs: options.minIntervalMs,
+    }),
+  };
+  const batch = await store.listTracked(
+    trackedKey,
+    SNAPSHOT_MAX_TRACKED_PER_RUN
+  );
   const result: PositionSnapshotRunResult = {
     network,
-    tracked: tracked.length,
+    tracked: await store.countTracked(trackedKey),
     processed: 0,
     recorded: 0,
     skipped: 0,
@@ -212,18 +235,35 @@ export async function runPositionSnapshotKeeper(options: {
     result.processed += 1;
     try {
       const positions = await resolve(publicKey);
+      if (positions === null) {
+        result.failures.push({
+          publicKey,
+          error: "could not read every vault",
+        });
+        continue;
+      }
+      if (positions.length === 0) {
+        // One final zero closes the series so the chart shows the withdrawal,
+        // then the wallet leaves the rotation.
+        await recordPositionSnapshot(
+          store,
+          publicKey,
+          network,
+          positions,
+          logger,
+          throttle
+        );
+        await store.untrack(trackedKey, publicKey);
+        result.skipped += 1;
+        continue;
+      }
       const wrote = await recordPositionSnapshot(
         store,
         publicKey,
         network,
         positions,
         logger,
-        {
-          ...(options.now !== undefined && { now: options.now }),
-          ...(options.minIntervalMs !== undefined && {
-            minIntervalMs: options.minIntervalMs,
-          }),
-        }
+        throttle
       );
       if (wrote) result.recorded += 1;
       else result.skipped += 1;
@@ -237,7 +277,7 @@ export async function runPositionSnapshotKeeper(options: {
 /** Per-process store, for tests and local dev. Shares nothing across invocations. */
 export function createInMemoryPositionSnapshotStore(): PositionSnapshotStore {
   const series = new Map<string, PositionSnapshot[]>();
-  const sets = new Map<string, Set<string>>();
+  const tracked = new Map<string, Map<string, number>>();
   return {
     async append(key, snapshot, maxEntries) {
       const list = [...(series.get(key) ?? []), snapshot].sort(
@@ -252,13 +292,22 @@ export function createInMemoryPositionSnapshotStore(): PositionSnapshotStore {
     async range(key, sinceMs) {
       return (series.get(key) ?? []).filter((s) => s.timestamp >= sinceMs);
     },
-    async track(setKey, member) {
-      const set = sets.get(setKey) ?? new Set<string>();
-      set.add(member);
-      sets.set(setKey, set);
+    async track(setKey, member, seenAt) {
+      const registry = tracked.get(setKey) ?? new Map<string, number>();
+      registry.set(member, seenAt);
+      tracked.set(setKey, registry);
     },
-    async listTracked(setKey) {
-      return [...(sets.get(setKey) ?? [])];
+    async untrack(setKey, member) {
+      tracked.get(setKey)?.delete(member);
+    },
+    async listTracked(setKey, limit) {
+      return [...(tracked.get(setKey) ?? new Map<string, number>())]
+        .sort((a, b) => a[1] - b[1])
+        .slice(0, limit)
+        .map(([member]) => member);
+    },
+    async countTracked(setKey) {
+      return (tracked.get(setKey) ?? new Map<string, number>()).size;
     },
   };
 }
@@ -266,7 +315,8 @@ export function createInMemoryPositionSnapshotStore(): PositionSnapshotStore {
 /**
  * Upstash Redis store over the REST API (plain `fetch`, like
  * keeper-heartbeat.ts). Each user's series is a sorted set scored by capture
- * time; the tracked-user registry is a plain set.
+ * time; the tracked-user registry is a sorted set scored by last visit, so
+ * the keeper always rotates onto whoever it has left longest.
  */
 export function createUpstashPositionSnapshotStore(options: {
   url: string;
@@ -332,14 +382,21 @@ export function createUpstashPositionSnapshotStore(options: {
         await command(["ZRANGEBYSCORE", key, sinceMs, "+inf"])
       );
     },
-    async track(setKey, member) {
-      await command(["SADD", setKey, member]);
+    async track(setKey, member, seenAt) {
+      await command(["ZADD", setKey, seenAt, member]);
     },
-    async listTracked(setKey) {
-      const result = await command(["SMEMBERS", setKey]);
+    async untrack(setKey, member) {
+      await command(["ZREM", setKey, member]);
+    },
+    async listTracked(setKey, limit) {
+      const result = await command(["ZRANGE", setKey, 0, limit - 1]);
       return Array.isArray(result)
         ? result.filter((m): m is string => typeof m === "string")
         : [];
+    },
+    async countTracked(setKey) {
+      const result = await command(["ZCARD", setKey]);
+      return typeof result === "number" ? result : 0;
     },
   };
 }

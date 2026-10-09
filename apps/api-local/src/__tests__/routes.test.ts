@@ -25,6 +25,11 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     // stub it resolved to `undefined` and threw, turning five route cases into
     // 500s instead of their expected statuses.
     assertRequiredTrustlines: vi.fn().mockResolvedValue(undefined),
+    // Same trap: the positions handler imports these three, and a missing
+    // export throws instead of resolving to undefined, turning its 200 into a 503.
+    consoleLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    loadPositionSnapshotStore: vi.fn(() => ({})),
+    recordPositionSnapshot: vi.fn(async () => true),
   };
 });
 
