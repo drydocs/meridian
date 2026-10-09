@@ -79,7 +79,10 @@ describe("useVaults", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(result.current.data).toEqual({ vaults: VAULTS, recommendedVaultId: "meridian-usdc" });
+    expect(result.current.data).toEqual({
+      vaults: VAULTS,
+      recommendedVaultId: "meridian-usdc",
+    });
     expect(result.current.data).not.toHaveProperty("updatedAt");
     expect(result.current.data).not.toHaveProperty("cached");
     expect(result.current.error).toBeNull();
@@ -108,7 +111,9 @@ describe("useVaults", () => {
   });
 
   it("recovers when the retry succeeds", async () => {
-    getVaults.mockRejectedValueOnce(new Error("blip")).mockResolvedValueOnce(response());
+    getVaults
+      .mockRejectedValueOnce(new Error("blip"))
+      .mockResolvedValueOnce(response());
     const { result } = setup();
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -123,7 +128,10 @@ describe("useVaults", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(client.getQueryData(["vaults"])).toEqual({ vaults: VAULTS, recommendedVaultId: "meridian-usdc" });
+    expect(client.getQueryData(["vaults"])).toEqual({
+      vaults: VAULTS,
+      recommendedVaultId: "meridian-usdc",
+    });
     const query = client.getQueryCache().find({ queryKey: ["vaults"] });
     expect(query?.isStale()).toBe(false);
     expect(query?.observers[0]?.options.staleTime).toBe(5 * 60_000);
