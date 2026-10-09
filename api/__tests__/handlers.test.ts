@@ -17,158 +17,185 @@ vi.mock("../_lib/middleware.js", async () => {
 // Stub the workspace builders/readers — these tests exercise the HTTP handler
 // contract (method guards, field validation, status codes, payload shape), not
 // the Soroban transaction building, which is unit-tested in the helpers package.
-vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
-  ContractSimulationError: (
-    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
-  ).ContractSimulationError,
-  redactedErrorMessage: vi.fn((err: unknown) => {
-    if (!(err instanceof Error)) return "Keeper operation failed";
-    const first = err.message.split("\n")[0]?.trim();
-    if (!first || /https?:\/\/|C[A-Z2-7]{50,}/.test(first))
-      return "Keeper operation failed";
-    return first;
-  }),
-  buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
-  buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
-  buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
-  submitTx: vi.fn(async () => ({ hash: "HASH" })),
-  loadBlendAccrualKeeperConfig: vi.fn(() => ({
-    network: {
+vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
+  // Keep the real error classes: api-core narrows on `instanceof`, so a
+  // stubbed class would stop behaving like the error it maps to an HTTP status.
+  const actual =
+    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>();
+  return {
+    ContractSimulationError: actual.ContractSimulationError,
+    MissingTrustlineError: actual.MissingTrustlineError,
+    redactedErrorMessage: vi.fn((err: unknown) => {
+      if (!(err instanceof Error)) return "Keeper operation failed";
+      const first = err.message.split("\n")[0]?.trim();
+      if (!first || /https?:\/\/|C[A-Z2-7]{50,}/.test(first))
+        return "Keeper operation failed";
+      return first;
+    }),
+    buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
+    buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
+    buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
+    submitTx: vi.fn(async () => ({ hash: "HASH" })),
+    loadBlendAccrualKeeperConfig: vi.fn(() => ({
+      network: {
+        network: "testnet",
+        rpcUrl: "https://rpc.example",
+        passphrase: "Test SDF Network ; September 2015",
+      },
+      secretKey: "SECRET",
+      maxAttempts: 3,
+      baseDelayMs: 1,
+      rpcTimeoutMs: 100,
+    })),
+    runBlendAccrualKeeper: vi.fn(async () => ({
       network: "testnet",
-      rpcUrl: "https://rpc.example",
-      passphrase: "Test SDF Network ; September 2015",
-    },
-    secretKey: "SECRET",
-    maxAttempts: 3,
-    baseDelayMs: 1,
-    rpcTimeoutMs: 100,
-  })),
-  runBlendAccrualKeeper: vi.fn(async () => ({
-    network: "testnet",
-    startedAt: "2026-08-06T00:00:00.000Z",
-    finishedAt: "2026-08-06T00:00:01.000Z",
-    discoveredAdapters: 1,
-    blendAdapters: 1,
-    successes: [
+      startedAt: "2026-08-06T00:00:00.000Z",
+      finishedAt: "2026-08-06T00:00:01.000Z",
+      discoveredAdapters: 1,
+      blendAdapters: 1,
+      successes: [
+        {
+          vaultId: "meridian-usdc",
+          adapterId: "CADAPTER",
+          hash: "HASH",
+          ledger: 123,
+          attempts: 1,
+        },
+      ],
+      skipped: [],
+      failures: [],
+    })),
+    isMigrationKeeperConfigured: vi.fn(
+      (env: Record<string, string | undefined>) =>
+        Boolean(env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY?.trim())
+    ),
+    isAlertKeeperConfigured: vi.fn((env: Record<string, string | undefined>) =>
+      Boolean(env.MERIDIAN_ALERT_WEBHOOK_URL?.trim())
+    ),
+    loadMigrationKeeperConfig: vi.fn(() => ({
+      network: {
+        network: "testnet",
+        rpcUrl: "https://rpc.example",
+        passphrase: "Test SDF Network ; September 2015",
+      },
+      secretKey: "SECRET",
+      maxAttempts: 3,
+      baseDelayMs: 1,
+      rpcTimeoutMs: 100,
+      minImprovementBps: 50,
+      maxSlippageBps: 100,
+      candidateAdapters: {},
+    })),
+    runMigrationKeeper: vi.fn(async () => ({
+      network: "testnet",
+      startedAt: "2026-08-06T00:00:00.000Z",
+      finishedAt: "2026-08-06T00:00:01.000Z",
+      discoveredVaults: 1,
+      migrations: [],
+      skipped: [
+        { vaultId: "meridian-usdc", reason: "current rate unavailable" },
+      ],
+      failures: [],
+    })),
+    fetchAllVaults: vi.fn(async () => [
+      { id: "blend-usdc-fixed", protocol: "blend" },
+    ]),
+    selectBestVault: vi.fn(() => ({ id: "blend-usdc-fixed" })),
+    isVaultCacheWarm: vi.fn(() => false),
+    resolvePositions: vi.fn(async () => [
       {
-        vaultId: "meridian-usdc",
-        adapterId: "CADAPTER",
-        hash: "HASH",
-        ledger: 123,
-        attempts: 1,
+        vaultId: "blend-usdc-fixed",
+        shares: 1,
+        deposited: 1,
+        earned: 0,
+        entryTime: 0,
       },
-    ],
-    skipped: [],
-    failures: [],
-  })),
-  isMigrationKeeperConfigured: vi.fn(
-    (env: Record<string, string | undefined>) =>
-      Boolean(env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY?.trim())
-  ),
-  isAlertKeeperConfigured: vi.fn((env: Record<string, string | undefined>) =>
-    Boolean(env.MERIDIAN_ALERT_WEBHOOK_URL?.trim())
-  ),
-  loadMigrationKeeperConfig: vi.fn(() => ({
-    network: {
+    ]),
+    consoleLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    loadKeeperHeartbeatStore: vi.fn(() => ({
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {}),
+    })),
+    recordKeeperHeartbeat: vi.fn(async () => {}),
+    getKeeperHeartbeat: vi.fn(async () => null),
+    isKeeperHealthy: vi.fn(() => false),
+    KEEPER_SCHEDULE_MS: { accrual: 15 * 60_000, migration: 60 * 60_000 },
+    KNOWN_POOLS: {
+      testnet: {
+        "meridian-usdc": {
+          id: "meridian-usdc",
+          name: "Meridian",
+          protocol: "meridian",
+          label: "USDC Vault",
+          contractId:
+            "CBOE7JPROCMUKQ4NJWPKCLBBQGHLTGV4X3463DHK4D7KX6KWXGZETAJL",
+          assetId: "CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU",
+          asset: "USDC",
+        },
+      },
+      mainnet: {
+        "meridian-usdc": {
+          id: "meridian-usdc",
+          name: "Meridian",
+          protocol: "meridian",
+          label: "USDC Vault",
+          contractId:
+            "CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ",
+          assetId: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+        },
+      },
+    },
+    fetchCoordinatorState: vi.fn(async () => ({
+      protocol: "blend",
+      adapterId: "CADAPTER",
+      totalShares: 1000,
+      totalAssets: 1050,
+      paused: false,
+    })),
+    loadAlertKeeperConfig: vi.fn(() => ({
+      network: {
+        network: "testnet",
+        rpcUrl: "https://rpc.example",
+        passphrase: "Test SDF Network ; September 2015",
+      },
+      webhookUrl: "https://hooks.example.com/webhook",
+      maxAttempts: 3,
+      baseDelayMs: 1,
+      rpcTimeoutMs: 100,
+    })),
+    runAlertKeeper: vi.fn(async () => ({
       network: "testnet",
-      rpcUrl: "https://rpc.example",
-      passphrase: "Test SDF Network ; September 2015",
-    },
-    secretKey: "SECRET",
-    maxAttempts: 3,
-    baseDelayMs: 1,
-    rpcTimeoutMs: 100,
-    minImprovementBps: 50,
-    maxSlippageBps: 100,
-    candidateAdapters: {},
-  })),
-  runMigrationKeeper: vi.fn(async () => ({
-    network: "testnet",
-    startedAt: "2026-08-06T00:00:00.000Z",
-    finishedAt: "2026-08-06T00:00:01.000Z",
-    discoveredVaults: 1,
-    migrations: [],
-    skipped: [{ vaultId: "meridian-usdc", reason: "current rate unavailable" }],
-    failures: [],
-  })),
-  fetchAllVaults: vi.fn(async () => [
-    { id: "blend-usdc-fixed", protocol: "blend" },
-  ]),
-  selectBestVault: vi.fn(() => ({ id: "blend-usdc-fixed" })),
-  isVaultCacheWarm: vi.fn(() => false),
-  resolvePositions: vi.fn(async () => [
-    {
-      vaultId: "blend-usdc-fixed",
-      shares: 1,
-      deposited: 1,
-      earned: 0,
-      entryTime: 0,
-    },
-  ]),
-  consoleLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  loadKeeperHeartbeatStore: vi.fn(() => ({
-    get: vi.fn(async () => null),
-    set: vi.fn(async () => {}),
-  })),
-  recordKeeperHeartbeat: vi.fn(async () => {}),
-  getKeeperHeartbeat: vi.fn(async () => null),
-  isKeeperHealthy: vi.fn(() => false),
-  KEEPER_SCHEDULE_MS: { accrual: 15 * 60_000, migration: 60 * 60_000 },
-  KNOWN_POOLS: {
-    testnet: {
-      "meridian-usdc": {
-        id: "meridian-usdc",
-        name: "Meridian",
-        protocol: "meridian",
-        label: "USDC Vault",
-        contractId: "CBOE7JPROCMUKQ4NJWPKCLBBQGHLTGV4X3463DHK4D7KX6KWXGZETAJL",
-        assetId: "CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU",
-        asset: "USDC",
-      },
-    },
-    mainnet: {
-      "meridian-usdc": {
-        id: "meridian-usdc",
-        name: "Meridian",
-        protocol: "meridian",
-        label: "USDC Vault",
-        contractId: "CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ",
-        assetId: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
-      },
-    },
-  },
-  fetchCoordinatorState: vi.fn(async () => ({
-    protocol: "blend",
-    adapterId: "CADAPTER",
-    totalShares: 1000,
-    totalAssets: 1050,
-    paused: false,
-  })),
-  loadAlertKeeperConfig: vi.fn(() => ({
-    network: {
+      startedAt: "2026-08-06T00:00:00.000Z",
+      finishedAt: "2026-08-06T00:00:01.000Z",
+      vaultsChecked: 1,
+      alertsSent: [],
+      failures: [],
+    })),
+    // api-core now calls this on the deposit/withdraw build path. Without a
+    // stub it resolved to `undefined` and threw, turning the tx cases into 500s
+    // instead of their expected statuses.
+    assertRequiredTrustlines: vi.fn().mockResolvedValue(undefined),
+    loadPositionSnapshotStore: vi.fn(() => ({})),
+    recordPositionSnapshot: vi.fn(async () => true),
+    getPositionHistory: vi.fn(async () => []),
+    HISTORY_DEFAULT_DAYS: 30,
+    HISTORY_MAX_DAYS: 90,
+    runPositionSnapshotKeeper: vi.fn(async () => ({
       network: "testnet",
-      rpcUrl: "https://rpc.example",
-      passphrase: "Test SDF Network ; September 2015",
-    },
-    webhookUrl: "https://hooks.example.com/webhook",
-    maxAttempts: 3,
-    baseDelayMs: 1,
-    rpcTimeoutMs: 100,
-  })),
-  runAlertKeeper: vi.fn(async () => ({
-    network: "testnet",
-    startedAt: "2026-08-06T00:00:00.000Z",
-    finishedAt: "2026-08-06T00:00:01.000Z",
-    vaultsChecked: 1,
-    alertsSent: [],
-    failures: [],
-  })),
-}));
+      tracked: 2,
+      processed: 2,
+      recorded: 2,
+      skipped: 0,
+      failures: [],
+    })),
+  };
+});
 
 import txHandler from "../v1/tx/[action]";
 import vaultsHandler from "../v1/vaults/index";
 import positionsHandler from "../v1/positions/[publicKey]";
 import keepersHandler from "../v1/keepers/[action]";
+import positionHistoryHandler from "../v1/positions/[publicKey]/history";
 import adminHandler from "../v1/admin/[resource]";
 import {
   checkRateLimit,
@@ -185,6 +212,10 @@ import {
   isKeeperHealthy,
   fetchCoordinatorState,
   runAlertKeeper,
+  assertRequiredTrustlines,
+  MissingTrustlineError,
+  getPositionHistory,
+  runPositionSnapshotKeeper,
 } from "@meridian/stellar-sdk-helpers";
 
 // A 56-char Stellar public key shape (only the length is validated).
@@ -227,6 +258,21 @@ beforeEach(() => {
   process.env.CRON_SECRET = "cron-secret";
   process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY = "S".repeat(56);
   process.env.MERIDIAN_ALERT_WEBHOOK_URL = "https://hooks.example.com/webhook";
+});
+
+describe("GET /api/v1/positions/[publicKey]", () => {
+  it("sets an explicit Cache-Control header", async () => {
+    const res = makeRes();
+    await positionsHandler(
+      fakeReq({
+        query: { publicKey: PUBKEY },
+        method: "GET",
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["Cache-Control"]).toBe("no-store");
+  });
 });
 
 describe("POST /api/v1/tx/deposit", () => {
@@ -370,6 +416,61 @@ describe("POST /api/v1/tx/deposit", () => {
     expect(res.statusCode).toBe(500);
     expect(res.body).toEqual({ error: "USDC trustline missing" });
   });
+
+  it("returns 400 when the pre-flight trustline check reports a missing USDC trustline", async () => {
+    vi.mocked(assertRequiredTrustlines).mockRejectedValueOnce(
+      new MissingTrustlineError(["USDC"])
+    );
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "deposit" },
+        method: "POST",
+        body: {
+          walletAddress: PUBKEY,
+          vaultId: "blend-usdc-fixed",
+          amount: "10",
+          riskAcknowledged: true,
+        },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      error: expect.stringContaining("Missing USDC trustline"),
+    });
+    // The check short-circuits, so nothing is simulated for a wallet that
+    // cannot hold the asset and no builder error is ever reached.
+    expect(buildDepositTx).not.toHaveBeenCalled();
+  });
+
+  it("checks the depositing wallet's trustlines before building the tx", async () => {
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "deposit" },
+        method: "POST",
+        body: {
+          walletAddress: PUBKEY,
+          vaultId: "blend-usdc-fixed",
+          amount: "10",
+          riskAcknowledged: true,
+        },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    expect(assertRequiredTrustlines).toHaveBeenCalledWith(
+      PUBKEY,
+      expect.anything()
+    );
+    const checkedAt = vi.mocked(assertRequiredTrustlines).mock
+      .invocationCallOrder[0];
+    const builtAt = vi.mocked(buildDepositTx).mock.invocationCallOrder[0];
+    expect(checkedAt).toBeDefined();
+    expect(builtAt).toBeDefined();
+    expect(checkedAt!).toBeLessThan(builtAt!);
+  });
 });
 
 describe("POST /api/v1/tx/withdraw", () => {
@@ -429,6 +530,32 @@ describe("POST /api/v1/tx/withdraw", () => {
       expect.anything(),
       "4.8"
     );
+  });
+
+  it("returns 400 when the wallet is missing required trustlines", async () => {
+    vi.mocked(assertRequiredTrustlines).mockRejectedValueOnce(
+      new MissingTrustlineError(["USDC", "MUSDC"])
+    );
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "withdraw" },
+        method: "POST",
+        body: {
+          walletAddress: PUBKEY,
+          vaultId: "blend-usdc-fixed",
+          shares: "5",
+        },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      error: expect.stringContaining(
+        "Missing required trustlines: USDC, MUSDC"
+      ),
+    });
+    expect(buildWithdrawTx).not.toHaveBeenCalled();
   });
 });
 
@@ -544,6 +671,127 @@ describe("GET /api/v1/positions/:publicKey", () => {
     );
     expect(res.statusCode).toBe(503);
     expect(res.body).toEqual({ error: "Failed to read positions" });
+  });
+});
+
+describe("GET /api/v1/positions/:publicKey/history", () => {
+  it("rejects a malformed public key with 400", async () => {
+    const res = makeRes();
+    await positionHistoryHandler(
+      fakeReq({ method: "GET", query: { publicKey: "too-short" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(getPositionHistory).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-GET methods with 405", async () => {
+    const res = makeRes();
+    await positionHistoryHandler(
+      fakeReq({ method: "POST", query: { publicKey: PUBKEY } }),
+      res
+    );
+    expect(res.statusCode).toBe(405);
+    expect(res.headers["Allow"]).toBe("GET");
+  });
+
+  it("returns the stored snapshots, uncached", async () => {
+    const snapshot = {
+      timestamp: 1_000,
+      totalValue: 10,
+      totalEarned: 1,
+      vaults: [
+        {
+          vaultId: "blend-usdc-fixed",
+          protocol: "blend",
+          value: 10,
+          earned: 1,
+        },
+      ],
+    };
+    vi.mocked(getPositionHistory).mockResolvedValueOnce([snapshot]);
+    const res = makeRes();
+    await positionHistoryHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY, days: "7" } }),
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      publicKey: PUBKEY,
+      days: 7,
+      snapshots: [snapshot],
+    });
+    expect(res.headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("rejects an invalid days value with 400", async () => {
+    const res = makeRes();
+    await positionHistoryHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY, days: "abc" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("returns 503 when the store read fails", async () => {
+    vi.mocked(getPositionHistory).mockRejectedValueOnce(
+      new Error("redis down")
+    );
+    const res = makeRes();
+    await positionHistoryHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY } }),
+      res
+    );
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({ error: "Failed to read position history" });
+  });
+});
+
+describe("GET /api/v1/keepers/snapshot", () => {
+  it("rejects requests without the cron bearer token", async () => {
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({ query: { action: "snapshot" }, method: "POST", headers: {} }),
+      res
+    );
+    expect(res.statusCode).toBe(401);
+    expect(runPositionSnapshotKeeper).not.toHaveBeenCalled();
+  });
+
+  it("runs the snapshot keeper for authorized cron calls", async () => {
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "snapshot" },
+        method: "POST",
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ tracked: 2, recorded: 2 });
+    expect(runPositionSnapshotKeeper).toHaveBeenCalledOnce();
+  });
+
+  it("returns 500 when a user's snapshot fails so the cron run is observable", async () => {
+    vi.mocked(runPositionSnapshotKeeper).mockResolvedValueOnce({
+      network: "testnet",
+      tracked: 1,
+      processed: 1,
+      recorded: 0,
+      skipped: 0,
+      failures: [{ publicKey: PUBKEY, error: "rpc down" }],
+    });
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "snapshot" },
+        method: "POST",
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(500);
   });
 });
 
@@ -1028,6 +1276,27 @@ describe("GET /api/v1/keepers/health", () => {
 });
 
 describe("GET /api/v1/admin/vault-state", () => {
+  it("returns 503 when the upstream rate limiter fails", async () => {
+    vi.mocked(checkRateLimit).mockRejectedValueOnce(
+      new Error("Upstash timeout")
+    );
+
+    const res = makeRes();
+    await adminHandler(
+      fakeReq({
+        query: { resource: "vault-state" },
+        method: "GET",
+        headers: {},
+      }),
+      res
+    );
+
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({
+      error: "Rate limiter unavailable; refusing to run",
+    });
+  });
+
   it("is public — no cron bearer token required", async () => {
     const res = makeRes();
     await adminHandler(
