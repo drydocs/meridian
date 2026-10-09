@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 interface AmountInputProps {
   currency: string;
   value: string;
@@ -15,6 +17,7 @@ export function AmountInput({
   invalid = false,
   describedBy,
 }: AmountInputProps) {
+  const { t } = useTranslation();
   return (
     <div
       className={`flex items-center gap-3 rounded-xl border bg-gray-900/70 px-4 py-3.5 transition-colors duration-150 ${
@@ -29,7 +32,7 @@ export function AmountInput({
         min="0"
         step="any"
         placeholder="0.00"
-        aria-label={`Amount in ${currency}`}
+        aria-label={t("vaultPanel.amountAriaLabel", { currency })}
         aria-invalid={invalid || undefined}
         aria-describedby={describedBy}
         value={value}
