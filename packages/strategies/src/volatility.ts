@@ -1,56 +1,68 @@
-import { Decimal } from "./decimal";
+// Volatility estimators over a price series (#867).
+//
+// Both estimators read the shared `TimeSeries` (see ./time-series) and return
+// one `Decimal` per stored point, at the series scale, so the outputs stay
+// index-aligned with `series.points`. A point has no return behind it until
+// the point after it exists, which makes the first value always zero.
+//
+// Rolling is the population standard deviation of simple returns over the
+// trailing `window` returns, with a partial window at the start of the series.
+// EWMA seeds variance from the first observed return, then updates it with
+// `decay * variance + (1 - decay) * return^2`.
+//
+// `decay` is applied at its own scale rather than rescaled to the series
+// scale, so a decay finer than the series scale is not rounded before use.
 
-export interface VolatilityPricePoint {
-  readonly timestampMs: number;
-  readonly price: Decimal;
-}
+import { Decimal } from "./decimal";
+import type { TimeSeries } from "./time-series";
 
 /**
- * Returns population standard deviation of simple returns for every point.
- * Partial windows are used at the start; the first point is zero because it
- * has no preceding price from which to calculate a return.
+ * Population standard deviation of simple returns for every point, over the
+ * trailing `window` returns.
+ *
+ * @throws RangeError when `window` is not a positive safe integer, or when a
+ * price is not positive.
  */
 export function rollingVolatility(
-  series: readonly VolatilityPricePoint[],
+  series: TimeSeries,
   window: number
 ): Decimal[] {
   if (!Number.isSafeInteger(window) || window <= 0) {
     throw new RangeError("window must be a positive safe integer");
   }
+  if (series.size === 0) return [];
 
   const returns = getReturns(series);
-  if (series.length === 0) return [];
-
-  const scale = series[0]!.price.scale;
-  const results = [Decimal.zero(scale)];
-
-  for (let index = 1; index < series.length; index += 1) {
+  const results = [Decimal.zero(series.scale)];
+  for (let index = 1; index < series.size; index += 1) {
     const start = Math.max(0, index - window);
-    results.push(standardDeviation(returns.slice(start, index), scale));
+    results.push(standardDeviation(returns.slice(start, index), series.scale));
   }
-
   return results;
 }
 
 /**
- * Returns EWMA volatility aligned to the input points. The first observed
- * return seeds variance; subsequent returns use lambda * prior + (1-lambda) * r^2.
- * The initial point is zero because no return is available yet.
+ * EWMA volatility for every point, with variance seeded by the first observed
+ * return.
+ *
+ * @throws RangeError when `decayFactor` is not strictly between zero and one,
+ * or when a price is not positive.
  */
 export function ewmaVolatility(
-  series: readonly VolatilityPricePoint[],
+  series: TimeSeries,
   decayFactor: Decimal
 ): Decimal[] {
-  const scale = series[0]?.price.scale ?? decayFactor.scale;
-  const decay = decayFactor.rescale(scale);
-  const scaleFactor = 10n ** BigInt(scale);
-  if (decay.raw <= 0n || decay.raw >= scaleFactor) {
-    throw new RangeError("decayFactor must be greater than zero and less than one");
+  const scaleFactor = 10n ** BigInt(decayFactor.scale);
+  if (decayFactor.raw <= 0n || decayFactor.raw >= scaleFactor) {
+    throw new RangeError(
+      "decayFactor must be greater than zero and less than one"
+    );
   }
-  if (series.length === 0) return [];
+  if (series.size === 0) return [];
 
+  const scale = series.scale;
+  const oneMinusDecay = Decimal.one(decayFactor.scale).sub(decayFactor);
   const returns = getReturns(series);
-  const oneMinusDecay = Decimal.one(scale).sub(decay);
   const results = [Decimal.zero(scale)];
   let variance = Decimal.zero(scale);
 
@@ -59,42 +71,34 @@ export function ewmaVolatility(
     variance =
       index === 0
         ? squaredReturn
-        : decay.mul(variance).add(oneMinusDecay.mul(squaredReturn));
+        : decayFactor
+            .mul(variance)
+            .add(oneMinusDecay.mul(squaredReturn))
+            .rescale(scale);
     results.push(squareRoot(variance));
   }
-
   return results;
 }
 
-function getReturns(series: readonly VolatilityPricePoint[]): Decimal[] {
-  const first = series[0];
-  if (!first) return [];
-
-  const scale = first.price.scale;
-  const one = Decimal.one(scale);
-  let previousTimestamp: number | undefined;
-  let previousPrice: Decimal | undefined;
+/** Simple returns between consecutive points, at the series scale. */
+function getReturns(series: TimeSeries): Decimal[] {
+  const one = Decimal.one(series.scale);
   const returns: Decimal[] = [];
+  let previous: Decimal | null = null;
 
-  for (const point of series) {
-    if (
-      !Number.isSafeInteger(point.timestampMs) ||
-      (previousTimestamp !== undefined && point.timestampMs <= previousTimestamp)
-    ) {
-      throw new RangeError("price timestamps must be increasing safe integers");
+  for (const point of series.points) {
+    if (point.value.raw <= 0n) {
+      throw new RangeError("volatility: prices must be greater than zero");
     }
-    const price = point.price.rescale(scale);
-    if (price.raw <= 0n) {
-      throw new RangeError("prices must be greater than zero");
+    if (previous !== null) {
+      returns.push(point.value.div(previous).sub(one));
     }
-    if (previousPrice) returns.push(price.div(previousPrice).sub(one));
-    previousPrice = price;
-    previousTimestamp = point.timestampMs;
+    previous = point.value;
   }
-
   return returns;
 }
 
+/** Population standard deviation of `values`, which are held at `scale`. */
 function standardDeviation(values: readonly Decimal[], scale: number): Decimal {
   if (values.length === 0) return Decimal.zero(scale);
 
@@ -107,20 +111,25 @@ function standardDeviation(values: readonly Decimal[], scale: number): Decimal {
 
   const count = BigInt(values.length);
   const numerator = count * sumSquares - sum * sum;
-  const denominator = count * count * (10n ** BigInt(scale));
-  const varianceRaw = divideHalfUp(numerator, denominator);
-  return squareRoot(Decimal.fromBigInt(varianceRaw, scale));
+  const denominator = count * count * 10n ** BigInt(scale);
+  const variance = Decimal.fromBigInt(
+    divideHalfUp(numerator, denominator),
+    scale
+  );
+  return squareRoot(variance);
 }
 
+/** `sqrt(value)` at the value's scale, rounded to the nearest stroop. */
 function squareRoot(value: Decimal): Decimal {
   if (value.raw <= 0n) return Decimal.zero(value.scale);
 
-  const scaledValue = value.raw * (10n ** BigInt(value.scale));
+  const scaledValue = value.raw * 10n ** BigInt(value.scale);
   let root = integerSquareRoot(scaledValue);
   if (scaledValue - root * root > root) root += 1n;
   return Decimal.fromBigInt(root, value.scale);
 }
 
+/** Newton's method on a non-negative integer, truncating toward zero. */
 function integerSquareRoot(value: bigint): bigint {
   if (value < 2n) return value;
 
@@ -133,6 +142,7 @@ function integerSquareRoot(value: bigint): bigint {
   return estimate;
 }
 
+/** Integer division rounding halves away from zero. */
 function divideHalfUp(numerator: bigint, denominator: bigint): bigint {
   const quotient = numerator / denominator;
   const remainder = numerator % denominator;
