@@ -19,6 +19,7 @@ import {
   handleWithdrawRequest,
   handleAddTrustlineRequest,
   handleSubmitRequest,
+  USER_FIXABLE_CONTRACT_ERRORS,
 } from "./tx";
 import {
   buildDepositTx,
@@ -40,14 +41,39 @@ describe.each([
 ] as const)("%s contract rejections", (action, handler, builder) => {
   it.each([
     [
-      18,
-      action === "deposit" ? 400 : 500,
-      "Slippage tolerance exceeded. Adjust slippage and retry.",
+      3,
+      400,
+      USER_FIXABLE_CONTRACT_ERRORS[3],
+    ],
+    [
+      4,
+      400,
+      USER_FIXABLE_CONTRACT_ERRORS[4],
+    ],
+    [
+      5,
+      400,
+      USER_FIXABLE_CONTRACT_ERRORS[5],
+    ],
+    [
+      7,
+      400,
+      USER_FIXABLE_CONTRACT_ERRORS[7],
+    ],
+    [
+      8,
+      400,
+      USER_FIXABLE_CONTRACT_ERRORS[8],
     ],
     [
       15,
-      action === "withdraw" ? 400 : 500,
-      "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
+      400,
+      USER_FIXABLE_CONTRACT_ERRORS[15],
+    ],
+    [
+      18,
+      400,
+      USER_FIXABLE_CONTRACT_ERRORS[18],
     ],
     [
       17,
@@ -72,8 +98,49 @@ describe.each([
         riskAcknowledged: true,
       });
       expect(result.status).toBe(status);
-      expect(result.body).toEqual({ error: `Simulation failed: ${message}` });
+      if (status === 400) {
+        expect(result.body).toEqual({ error: message });
+      } else {
+        expect(result.body).toEqual({ error: `Simulation failed: ${message}` });
+      }
       expect(result.error).toBe(err);
+    }
+  );
+
+  it("maps user-fixable codes from generic Error messages to HTTP 400", async () => {
+    const err = new Error("Simulation failed: Error(Contract, #3)");
+    vi.mocked(builder).mockRejectedValueOnce(err);
+    const result = await handler({
+      walletAddress: PUBKEY,
+      vaultId: "meridian-usdc",
+      amount: "10",
+      shares: "5",
+      riskAcknowledged: true,
+    });
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: USER_FIXABLE_CONTRACT_ERRORS[3] });
+  });
+
+  it.each([
+    ["a thrown string", "network failure"],
+    ["a thrown null", null],
+    ["a thrown plain object", { code: 18 }],
+  ] as const)(
+    "maps %s to HTTP 500 with fallback message",
+    async (_label, thrown) => {
+      vi.mocked(builder).mockRejectedValueOnce(thrown);
+      const result = await handler({
+        walletAddress: PUBKEY,
+        vaultId: "meridian-usdc",
+        amount: "10",
+        shares: "5",
+        riskAcknowledged: true,
+      });
+      expect(result.status).toBe(500);
+      expect(result.body).toEqual({
+        error: action === "deposit" ? "Failed to build deposit transaction" : "Failed to build withdraw transaction",
+      });
+      expect(result.error).toBe(thrown);
     }
   );
 });
@@ -297,5 +364,16 @@ describe("handleSubmitRequest", () => {
     expect(result.status).toBe(500);
     expect(result.body).toEqual({ error: "submit failed" });
     expect(result.error).toBe(err);
+  });
+
+  it("maps user-fixable contract codes on submit to HTTP 400", async () => {
+    const err = new ContractSimulationError(
+      18,
+      "HostError: Error(Contract, #18)"
+    );
+    vi.mocked(submitTx).mockRejectedValueOnce(err);
+    const result = await handleSubmitRequest({ xdr: "SIGNED" });
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: USER_FIXABLE_CONTRACT_ERRORS[18] });
   });
 });
