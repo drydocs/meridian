@@ -93,7 +93,7 @@ export function DepositTab({
         data-testid="vault-deposit-submit"
         onClick={onSubmit}
         disabled={error !== null || !bestVault || isDepositing}
-        className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3.5 transition-all duration-150 disabled:cursor-not-allowed"
+        className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3.5 transition-all duration-150 disabled:cursor-not-allowed"
       >
         {isDepositing ? t("vaultPanel.waiting") : t("vaultPanel.deposit")}
       </button>

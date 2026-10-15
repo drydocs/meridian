@@ -79,7 +79,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
               onClick={() => setDays(range.days)}
               className={`rounded-md px-2 py-1 text-xs font-medium transition-colors duration-150 active:scale-95 ${
                 days === range.days
-                  ? "bg-gray-800 text-white"
+                  ? "bg-gray-800 text-paper"
                   : "text-gray-500 hover:text-gray-300"
               }`}
             >
@@ -149,7 +149,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
                   PROTOCOL_LABEL[String(name)] ?? String(name),
                 ]}
                 contentStyle={{
-                  background: "#0d1e35",
+                  background: "var(--color-deep)",
                   border: "1px solid #1f2937",
                   borderRadius: 8,
                   fontSize: 12,

@@ -52,7 +52,7 @@ export function AdminLogin() {
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-gray-800">
             <LockOpen className="h-5 w-5 text-gray-400" />
           </div>
-          <h1 className="text-xl font-bold text-white">Admin access</h1>
+          <h1 className="text-xl font-bold text-paper">Admin access</h1>
           <p className="mt-2 text-sm text-gray-400">
             Connect the vault's admin wallet to view keeper health, vault state,
             and recent admin actions.
@@ -60,7 +60,7 @@ export function AdminLogin() {
           <button
             onClick={() => void handleConnect()}
             disabled={connectStatus === "connecting"}
-            className="mt-6 w-full rounded-lg bg-emerald-500 px-6 py-3 font-semibold text-white hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed transition-colors duration-150"
+            className="mt-6 w-full rounded-lg bg-settled px-6 py-3 font-semibold text-white hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed transition-colors duration-150"
           >
             Connect Wallet
           </button>
@@ -76,7 +76,7 @@ export function AdminLogin() {
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-red-500/10">
             <Lock className="h-5 w-5 text-red-400" />
           </div>
-          <h1 className="text-xl font-bold text-white">Not authorized</h1>
+          <h1 className="text-xl font-bold text-paper">Not authorized</h1>
           <p className="mt-2 text-sm text-gray-400">
             The connected wallet doesn't match the vault's admin address. This
             page is only accessible to the vault admin.
@@ -91,7 +91,7 @@ export function AdminLogin() {
           </div>
           <button
             onClick={disconnect}
-            className="mt-3 w-full rounded-lg border border-gray-700 px-6 py-3 font-semibold text-gray-200 hover:border-gray-600 hover:text-white transition-colors duration-150"
+            className="mt-3 w-full rounded-lg border border-gray-700 px-6 py-3 font-semibold text-gray-200 hover:border-gray-600 hover:text-paper transition-colors duration-150"
           >
             Switch Wallet
           </button>
@@ -102,7 +102,7 @@ export function AdminLogin() {
 
   if (status === "allowed") {
     return (
-      <div className="min-h-screen bg-night text-white">
+      <div className="min-h-screen bg-night text-paper">
         <AdminDashboard />
       </div>
     );

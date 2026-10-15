@@ -88,11 +88,11 @@ export function StatusPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-night text-white">
+    <div className="min-h-screen bg-night text-paper">
       <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-lg font-extrabold text-white">
+            <h1 className="text-lg font-extrabold text-paper">
               {t("status.title")}
             </h1>
             <span className="rounded-full border border-gray-700 px-2.5 py-0.5 text-xs font-medium text-gray-400 uppercase">
@@ -121,7 +121,7 @@ export function StatusPage() {
             <span className="text-sm text-gray-400">
               {t("status.parameters.migrationCooldown")}
             </span>
-            <span className="text-sm text-white tabular-nums">
+            <span className="text-sm text-paper tabular-nums">
               {t("status.parameters.migrationCooldownValue", {
                 ledgers: MIGRATION_COOLDOWN_LEDGERS,
               })}

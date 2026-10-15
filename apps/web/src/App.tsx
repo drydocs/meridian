@@ -51,7 +51,7 @@ function Dashboard() {
   }, [i18n]);
 
   return (
-    <div className="relative min-h-screen bg-night text-white overflow-hidden">
+    <div className="relative min-h-screen bg-night text-paper overflow-hidden">
       <svg
         aria-hidden="true"
         viewBox="4 4 32 17"
@@ -67,8 +67,8 @@ function Dashboard() {
             y2="17"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0%" stopColor="#3b82f6" />
-            <stop offset="100%" stopColor="#10b981" />
+            <stop offset="0%" stopColor="var(--color-entry)" />
+            <stop offset="100%" stopColor="var(--color-settled)" />
           </linearGradient>
         </defs>
         <path
@@ -82,14 +82,14 @@ function Dashboard() {
 
       <header className="sticky top-0 z-50 border-b border-gray-800 bg-night/95 backdrop-blur-sm pb-4">
         <div className="max-w-xl mx-auto px-6 h-20 flex items-end justify-between pb-4">
-          <span className="font-extrabold text-lg tracking-tight text-white">
+          <span className="font-extrabold text-lg tracking-tight text-paper">
             {t("header.title")}
           </span>
           <div className="flex items-center gap-2">
             <WalletConnect />
             <button
               onClick={toggleLanguage}
-              className="text-sm border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150"
+              className="text-sm border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150"
             >
               {i18n.language === "en" ? "FR" : "EN"}
             </button>

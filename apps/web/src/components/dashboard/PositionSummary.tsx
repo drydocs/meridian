@@ -15,7 +15,7 @@ export function PositionSummary({ position }: PositionSummaryProps) {
         <p className="text-xs text-gray-500 mb-1">
           {t("vaultPanel.yourPosition")}
         </p>
-        <p className="text-base font-bold text-white">
+        <p className="text-base font-bold text-paper">
           {formatUsd(position.deposited, i18n.language)}
         </p>
       </div>

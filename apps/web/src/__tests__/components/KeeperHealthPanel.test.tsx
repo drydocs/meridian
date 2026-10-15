@@ -56,7 +56,7 @@ describe("KeeperHealthPanel", () => {
     render(<KeeperHealthPanel />);
 
     const dot = screen.getByTestId("keeper-status-dot-accrual");
-    expect(dot.className).toContain("bg-emerald-500");
+    expect(dot.className).toContain("bg-settled");
     expect(screen.getByText("admin.keeperHealth.healthy")).toBeDefined();
   });
 
