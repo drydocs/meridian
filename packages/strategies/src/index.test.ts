@@ -262,17 +262,15 @@ describe("BacktestPriceFeed", () => {
       );
     });
 
-    it("has isStrict set to true", () => {
-      expect(strictFeed.isStrict).toBe(true);
-    });
-
     it("returns exact price at exact timestamp", () => {
       const price = strictFeed.getSpotPrice(USDC, BASE_TIMESTAMP + 3600_000);
       expect(price.toString()).toBe("1.0001");
     });
 
     it("succeeds at exactly first and last timestamps", () => {
-      expect(strictFeed.getSpotPrice(USDC, BASE_TIMESTAMP).toString()).toBe("1");
+      expect(strictFeed.getSpotPrice(USDC, BASE_TIMESTAMP).toString()).toBe(
+        "1"
+      );
       expect(
         strictFeed.getSpotPrice(USDC, BASE_TIMESTAMP + 7200_000).toString()
       ).toBe("1.0002");
@@ -294,8 +292,6 @@ describe("BacktestPriceFeed", () => {
           expect(err.before.price.toString()).toBe("1");
           expect(err.after.timestamp).toBe(BASE_TIMESTAMP + 3600_000);
           expect(err.after.price.toString()).toBe("1.0001");
-          expect(err.previous.timestamp).toBe(BASE_TIMESTAMP);
-          expect(err.next.timestamp).toBe(BASE_TIMESTAMP + 3600_000);
         }
       }
     });
@@ -310,23 +306,6 @@ describe("BacktestPriceFeed", () => {
       expect(() =>
         strictFeed.getSpotPrice(USDC, BASE_TIMESTAMP + 7200_000 + 1)
       ).toThrow(TimestampOutOfRangeError);
-    });
-
-    it("supports boolean argument for strict", () => {
-      const boolStrictFeed = BacktestPriceFeed.create(
-        {
-          USDC: [
-            { timestamp: BASE_TIMESTAMP, price: "1.0000000" },
-            { timestamp: BASE_TIMESTAMP + 1000, price: "1.0001000" },
-          ],
-          EURC: [],
-        },
-        true
-      );
-      expect(boolStrictFeed.isStrict).toBe(true);
-      expect(() => boolStrictFeed.getSpotPrice(USDC, BASE_TIMESTAMP + 500)).toThrow(
-        PriceGapError
-      );
     });
   });
 });

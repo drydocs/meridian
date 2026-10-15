@@ -168,28 +168,11 @@ export class PriceGapError extends Error {
     this.before = before;
     this.after = after;
   }
-
-  get previous(): BacktestPricePoint {
-    return this.before;
-  }
-
-  get next(): BacktestPricePoint {
-    return this.after;
-  }
-
-  get beforePoint(): BacktestPricePoint {
-    return this.before;
-  }
-
-  get afterPoint(): BacktestPricePoint {
-    return this.after;
-  }
 }
 
 export function isPriceGapError(error: unknown): error is PriceGapError {
   return error instanceof PriceGapError;
 }
-
 
 /**
  * A periodic funding rate expressed in stroops-per-unit of notional per second.

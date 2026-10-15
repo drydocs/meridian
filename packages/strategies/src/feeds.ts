@@ -56,19 +56,14 @@ export class BacktestPriceFeed implements PriceFeed {
 
   constructor(
     data: Map<AssetSymbol, BacktestPricePoint[]>,
-    options?: BacktestPriceFeedOptions | boolean
+    options?: BacktestPriceFeedOptions
   ) {
     this.#data = new Map();
-    this.#strict =
-      typeof options === "boolean" ? options : Boolean(options?.strict);
+    this.#strict = Boolean(options?.strict);
     for (const [asset, points] of data.entries()) {
       const sorted = [...points].sort((a, b) => a.timestamp - b.timestamp);
       this.#data.set(asset, sorted);
     }
-  }
-
-  get isStrict(): boolean {
-    return this.#strict;
   }
 
   getSpotPrice(
@@ -130,7 +125,7 @@ export class BacktestPriceFeed implements PriceFeed {
         price: string | FixedPointDecimal;
       }>
     >,
-    options?: BacktestPriceFeedOptions | boolean
+    options?: BacktestPriceFeedOptions
   ): BacktestPriceFeed {
     const map = new Map<AssetSymbol, BacktestPricePoint[]>();
     for (const [asset, points] of Object.entries(data)) {
