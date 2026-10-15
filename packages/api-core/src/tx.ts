@@ -131,9 +131,7 @@ export async function handleAddTrustlineRequest(
   }
 }
 
-export async function handleSubmitRequest(
-  body: unknown
-): Promise<RouteResult> {
+export async function handleSubmitRequest(body: unknown): Promise<RouteResult> {
   const parsed = SubmitRequestSchema.safeParse(body);
   if (!parsed.success) {
     return { status: 400, body: { error: formatZodError(parsed.error) } };
