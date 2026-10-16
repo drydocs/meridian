@@ -27,6 +27,7 @@
   ],
   "sideEffects": false,
   "scripts": {
+    "lint": "eslint src",
     "build": "tsup",
     "test": "vitest run --coverage",
     "test:coverage": "vitest run --coverage --reporter=html --reporter=text",
