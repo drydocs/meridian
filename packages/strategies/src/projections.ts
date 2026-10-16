@@ -165,8 +165,8 @@ export function computeLoanProjections(
       .add(interestAccrued)
       .add(costIncurred);
 
-    let netYieldRepaid = Decimal.zero();
-    let debtEnd = Decimal.zero();
+    let netYieldRepaid: Decimal;
+    let debtEnd: Decimal;
 
     if (grossYield.gte(debtWithInterestAndCost)) {
       netYieldRepaid = debtWithInterestAndCost;
