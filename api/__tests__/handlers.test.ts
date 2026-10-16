@@ -197,6 +197,7 @@ import positionsHandler from "../v1/positions/[publicKey]";
 import keepersHandler from "../v1/keepers/[action]";
 import positionHistoryHandler from "../v1/positions/[publicKey]/history";
 import adminHandler from "../v1/admin/[resource]";
+import publicVaultStateHandler from "../v1/vault-state";
 import {
   checkRateLimit,
   resetRateLimitForTesting,
@@ -1297,27 +1298,27 @@ describe("GET /api/v1/admin/vault-state", () => {
     });
   });
 
-  it("is public — no cron bearer token required", async () => {
+  it("rejects a public-key header without a signed session", async () => {
     const res = makeRes();
     await adminHandler(
       fakeReq({
         query: { resource: "vault-state" },
         method: "GET",
-        headers: {},
+        headers: { "x-wallet-address": PUBKEY },
       }),
       res
     );
 
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(401);
   });
 
-  it("returns the coordinator vault's on-chain state", async () => {
+  it("returns coordinator state through the public read path", async () => {
     const res = makeRes();
-    await adminHandler(
+    await publicVaultStateHandler(
       fakeReq({
-        query: { resource: "vault-state" },
+        query: {},
         method: "GET",
-        headers: {},
+        headers: { "x-wallet-address": PUBKEY },
       }),
       res
     );
@@ -1338,11 +1339,11 @@ describe("GET /api/v1/admin/vault-state", () => {
     );
 
     const res = makeRes();
-    await adminHandler(
+    await publicVaultStateHandler(
       fakeReq({
-        query: { resource: "vault-state" },
+        query: {},
         method: "GET",
-        headers: {},
+        headers: { "x-wallet-address": PUBKEY },
       }),
       res
     );
