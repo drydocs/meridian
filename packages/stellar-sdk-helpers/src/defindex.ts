@@ -101,6 +101,9 @@ export async function buildDefindexDepositTx(
  * payout (quoted via `get_asset_amounts_per_shares`) and min_amounts_out so
  * that a withdrawal executing at a much worse rate than expected fails cleanly.
  * Pass 0 only in tests.
+ *
+ * Throws before building anything when the quote is missing or zero, since the
+ * floor cannot be computed.
  */
 export async function buildDefindexWithdrawTx(
   config: DefindexVaultConfig,
@@ -112,13 +115,19 @@ export async function buildDefindexWithdrawTx(
 
   // Quote the expected payout so we can compute a real floor.
   const server = getRpcServer(config.network.rpcUrl, 12_000);
-  const expectedAmount =
-    (await getDefindexAssetAmountPerShares(
-      server,
-      config.vaultId,
-      config.network.passphrase,
-      shares
-    )) ?? 0n;
+  const expectedAmount = await getDefindexAssetAmountPerShares(
+    server,
+    config.vaultId,
+    config.network.passphrase,
+    shares
+  );
+  // A missing or zero quote would collapse the floor to 0, so refuse to build
+  // a withdrawal that cannot revert on a bad rate.
+  if (expectedAmount === null || expectedAmount <= 0n) {
+    throw new Error(
+      "DeFindex withdrawal quote unavailable: cannot compute a slippage floor"
+    );
+  }
   const minAmount = expectedAmount - (expectedAmount * slippageBps) / 10_000n;
 
   const contract = new Contract(config.vaultId);
