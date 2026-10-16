@@ -2,6 +2,7 @@ import {
   test,
   expect,
   getSignedXdrs,
+  USER_FIXABLE_TX_ERRORS,
   acknowledgeRiskDisclosure,
 } from "./fixtures";
 
@@ -33,12 +34,15 @@ test.describe("deposit", () => {
     // Real trustline pre-flight, real Soroban simulation, and/or a real
     // sign-decline round trip, so a generous timeout. Every path ends in an
     // error toast -- the API's 400 when the wallet holds no USDC trustline and
-    // the app could not establish one, a simulation failure when the build
+    // the app could not establish one, the API's friendly 400 for a
+    // caller-fixable contract rejection, a simulation failure when the build
     // does reach RPC, or the wallet's own decline -- and the app never
     // silently swallows a failure here.
     await expect(
       page.getByText(
-        /User declined access|Simulation failed|Missing USDC trustline/
+        new RegExp(
+          `User declined access|Simulation failed|Missing USDC trustline|${USER_FIXABLE_TX_ERRORS}`
+        )
       )
     ).toBeVisible({ timeout: 25_000 });
 
