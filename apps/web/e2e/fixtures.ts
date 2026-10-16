@@ -7,6 +7,12 @@ import { test as base, expect, type Page } from "@playwright/test";
 export const TEST_ADDRESS =
   "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
+// Caller-fixable vault contract rejections come back as HTTP 400 with these
+// messages instead of the raw simulation failure (packages/api-core/src/tx.ts),
+// so specs that sample the live vault accept them alongside the rest.
+export const USER_FIXABLE_TX_ERRORS =
+  "Deposits are currently paused|Insufficient shares for this withdrawal|Withdrawal returned less USDC than your minimum|Slippage tolerance exceeded";
+
 export interface MockWalletOptions {
   installed?: boolean;
   authorized?: boolean;

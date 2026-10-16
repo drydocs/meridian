@@ -32,6 +32,20 @@ import {
 
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
+const USER_FIXABLE_MESSAGES: Record<number, string> = {
+  3: "Deposits are currently paused. Try again later.",
+  7: "Insufficient shares for this withdrawal.",
+  15: "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
+  18: "Slippage tolerance exceeded. Adjust slippage and retry.",
+};
+
+// The per-action fallback txErrorResult passes to sanitizeTxError, which is
+// what a non-Error rejection ends up producing.
+const FALLBACK_MESSAGES = {
+  deposit: "Failed to build deposit transaction",
+  withdraw: "Failed to build withdraw transaction",
+} as const;
+
 beforeEach(() => vi.clearAllMocks());
 
 describe.each([
@@ -39,16 +53,10 @@ describe.each([
   ["withdraw", handleWithdrawRequest, buildWithdrawTx],
 ] as const)("%s contract rejections", (action, handler, builder) => {
   it.each([
-    [
-      18,
-      action === "deposit" ? 400 : 500,
-      "Slippage tolerance exceeded. Adjust slippage and retry.",
-    ],
-    [
-      15,
-      action === "withdraw" ? 400 : 500,
-      "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
-    ],
+    [18, 400, USER_FIXABLE_MESSAGES[18]],
+    [15, 400, USER_FIXABLE_MESSAGES[15]],
+    [3, 400, USER_FIXABLE_MESSAGES[3]],
+    [7, 400, USER_FIXABLE_MESSAGES[7]],
     [
       17,
       500,
@@ -72,8 +80,51 @@ describe.each([
         riskAcknowledged: true,
       });
       expect(result.status).toBe(status);
-      expect(result.body).toEqual({ error: `Simulation failed: ${message}` });
+      if (status === 400) {
+        expect(result.body).toEqual({ error: message });
+      } else {
+        expect(result.body).toEqual({ error: `Simulation failed: ${message}` });
+      }
       expect(result.error).toBe(err);
+    }
+  );
+
+  it("maps user-fixable codes from generic Error messages to HTTP 400", async () => {
+    const err = new Error("Simulation failed: Error(Contract, #3)");
+    vi.mocked(builder).mockRejectedValueOnce(err);
+    const result = await handler({
+      walletAddress: PUBKEY,
+      vaultId: "meridian-usdc",
+      amount: "10",
+      shares: "5",
+      riskAcknowledged: true,
+    });
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: USER_FIXABLE_MESSAGES[3] });
+  });
+
+  // contractErrorCode can only read a discriminant off a ContractSimulationError
+  // or an Error. Anything else — a thrown string, a null, a plain object — has
+  // to fall through it rather than blow up while the response is being built.
+  it.each([
+    ["a thrown string", "boom"],
+    ["a thrown null", null],
+    ["a thrown plain object", { code: 18 }],
+  ] as const)(
+    "maps %s to HTTP 500 with the fallback message",
+    async (_label, thrown) => {
+      vi.mocked(builder).mockRejectedValueOnce(thrown);
+      const result = await handler({
+        walletAddress: PUBKEY,
+        vaultId: "meridian-usdc",
+        amount: "10",
+        shares: "5",
+        riskAcknowledged: true,
+      });
+      expect(result.status).toBe(500);
+      // sanitizeTxError returns the fallback for any non-Error value.
+      expect(result.body).toEqual({ error: FALLBACK_MESSAGES[action] });
+      expect(result.error).toBe(thrown);
     }
   );
 });
@@ -297,5 +348,16 @@ describe("handleSubmitRequest", () => {
     expect(result.status).toBe(500);
     expect(result.body).toEqual({ error: "submit failed" });
     expect(result.error).toBe(err);
+  });
+
+  it("maps user-fixable contract codes on submit to HTTP 400", async () => {
+    const err = new ContractSimulationError(
+      18,
+      "HostError: Error(Contract, #18)"
+    );
+    vi.mocked(submitTx).mockRejectedValueOnce(err);
+    const result = await handleSubmitRequest({ xdr: "SIGNED" });
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: USER_FIXABLE_MESSAGES[18] });
   });
 });
