@@ -3,6 +3,7 @@ import {
   expect,
   getSignedXdrs,
   TEST_ADDRESS,
+  USER_FIXABLE_TX_ERRORS,
   acknowledgeRiskDisclosure,
 } from "./fixtures";
 
@@ -60,13 +61,17 @@ test.describe("withdraw", () => {
     // withdraw tx, so TEST_ADDRESS most often fails there with an actionable
     // 400. When it does clear that check the build reaches real testnet RPC,
     // where the contract correctly rejects the withdrawal (InsufficientShares
-    // #7 or NoSharesOutstanding #6); if testnet RPC is down the backend
-    // returns the generic build error instead. All of these exercise the real
-    // tx-build path end to end, so accept each rather than depending on the
-    // live wallet state and testnet availability.
+    // #7 or NoSharesOutstanding #6). #7 is caller-fixable, so the API reports
+    // it as a friendly 400; #6 has no friendly mapping and still surfaces as
+    // the simulation failure. If testnet RPC is down the backend returns the
+    // generic build error instead. All of these exercise the real tx-build
+    // path end to end, so accept each rather than depending on the live
+    // wallet state and testnet availability.
     await expect(
       page.getByText(
-        /Missing USDC trustline|Simulation failed: HostError|Failed to build withdraw transaction/
+        new RegExp(
+          `Missing USDC trustline|Simulation failed: HostError|Failed to build withdraw transaction|${USER_FIXABLE_TX_ERRORS}`
+        )
       )
     ).toBeVisible({ timeout: 20_000 });
 
