@@ -31,6 +31,15 @@ const USER_FIXABLE_CONTRACT_ERRORS: Record<number, string> = {
   18: "Slippage tolerance exceeded. Adjust slippage and retry.",
 };
 
+/**
+ * Transaction errors safe to relay to API callers. Everything else returns the
+ * route's generic fallback so SDK diagnostics and assertion text stay in logs.
+ */
+const CALLER_FACING_TX_ERRORS = new Set([
+  "All required trustlines already exist",
+  "USDC trustline missing",
+]);
+
 const CONTRACT_ERROR_CODE = /Error\(\s*Contract\s*,\s*#(\d+)\s*\)/i;
 
 function contractErrorCode(err: unknown): number | undefined {
@@ -51,9 +60,12 @@ function txErrorResult(err: unknown, fallback: string): RouteResult {
       return { status: 400, body: { error: friendly }, error: err };
     }
   }
+  const message = sanitizeTxError(err, fallback);
   return {
     status: 500,
-    body: { error: sanitizeTxError(err, fallback) },
+    body: {
+      error: CALLER_FACING_TX_ERRORS.has(message) ? message : fallback,
+    },
     error: err,
   };
 }

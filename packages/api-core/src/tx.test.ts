@@ -83,7 +83,7 @@ describe.each([
       if (status === 400) {
         expect(result.body).toEqual({ error: message });
       } else {
-        expect(result.body).toEqual({ error: `Simulation failed: ${message}` });
+        expect(result.body).toEqual({ error: FALLBACK_MESSAGES[action] });
       }
       expect(result.error).toBe(err);
     }
@@ -186,7 +186,7 @@ describe("handleDepositRequest", () => {
     );
   });
 
-  it("surfaces builder errors as 500 and returns the raw error for logging", async () => {
+  it("returns an allowlisted builder error while retaining it for logging", async () => {
     const err = new Error("USDC trustline missing");
     vi.mocked(buildDepositTx).mockRejectedValueOnce(err);
     const result = await handleDepositRequest({
@@ -245,7 +245,7 @@ describe("handleWithdrawRequest", () => {
     );
   });
 
-  it("surfaces builder errors as 500 and returns the raw error for logging", async () => {
+  it("hides internal builder errors from the caller while retaining them for logging", async () => {
     const err = new Error("withdraw failed");
     vi.mocked(buildWithdrawTx).mockRejectedValueOnce(err);
     const result = await handleWithdrawRequest({
@@ -254,7 +254,9 @@ describe("handleWithdrawRequest", () => {
       shares: "5",
     });
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: "withdraw failed" });
+    expect(result.body).toEqual({
+      error: "Failed to build withdraw transaction",
+    });
     expect(result.error).toBe(err);
   });
 });
@@ -320,12 +322,14 @@ describe("handleAddTrustlineRequest", () => {
     expect(result.body).toEqual({ xdr: "TRUST_XDR" });
   });
 
-  it("surfaces builder errors as 500 and returns the raw error for logging", async () => {
+  it("hides builder errors from the caller while retaining them for logging", async () => {
     const err = new Error("trustline build failed");
     vi.mocked(buildAddTrustlineTx).mockRejectedValueOnce(err);
     const result = await handleAddTrustlineRequest({ walletAddress: PUBKEY });
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: "trustline build failed" });
+    expect(result.body).toEqual({
+      error: "Failed to build trustline transaction",
+    });
     expect(result.error).toBe(err);
   });
 });
@@ -341,12 +345,12 @@ describe("handleSubmitRequest", () => {
     expect(result.body).toEqual({ hash: "HASH" });
   });
 
-  it("surfaces submit errors as 500 and returns the raw error for logging", async () => {
+  it("hides submit errors from the caller while retaining them for logging", async () => {
     const err = new Error("submit failed");
     vi.mocked(submitTx).mockRejectedValueOnce(err);
     const result = await handleSubmitRequest({ xdr: "SIGNED" });
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: "submit failed" });
+    expect(result.body).toEqual({ error: "Failed to submit transaction" });
     expect(result.error).toBe(err);
   });
 
