@@ -176,7 +176,9 @@ export class BuyAndHoldStrategy implements Strategy<BuyAndHoldConfig> {
     this.#entered = false;
   }
 
-  step(_context: StrategyContext): void {}
+  step(_context: StrategyContext): void {
+    void _context;
+  }
 
   rebalance(context: StrategyContext): readonly Order[] {
     if (this.#entered || this.#asset === null) return [];
