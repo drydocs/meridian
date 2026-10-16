@@ -176,7 +176,7 @@ export interface BlendUserPosition {
   supply: Record<string, number>;
 }
 
-export interface BlendAdapterConfig extends BlendPoolConfig {}
+export type BlendAdapterConfig = BlendPoolConfig;
 
 /**
  * High-level Blend Capital adapter used by Meridian callers.
