@@ -100,16 +100,21 @@ describe("StaticPriceFeed", () => {
     expect(usdcPrice.equals(eurcPrice)).toBe(false);
   });
 
+  it("prices non-stablecoin assets through the same feed contract", () => {
+    const xlmFeed = StaticPriceFeed.create({ XLM: "0.12" });
+    expect(xlmFeed.getSpotPrice("XLM", BASE_TIMESTAMP).toString()).toBe("0.12");
+  });
+
   it("throws UnknownAssetError for unknown asset", () => {
     expect(() =>
-      feed.getSpotPrice("BTC" as AssetSymbol, BASE_TIMESTAMP)
+      feed.getSpotPrice("DOGE" as AssetSymbol, BASE_TIMESTAMP)
     ).toThrow(UnknownAssetError);
     try {
-      feed.getSpotPrice("BTC" as AssetSymbol, BASE_TIMESTAMP);
+      feed.getSpotPrice("DOGE" as AssetSymbol, BASE_TIMESTAMP);
     } catch (err) {
       expect(isUnknownAssetError(err)).toBe(true);
       if (isUnknownAssetError(err)) {
-        expect(err.asset).toBe("BTC");
+        expect(err.asset).toBe("DOGE");
       }
     }
   });
@@ -161,12 +166,19 @@ describe("BacktestPriceFeed", () => {
     expect(eurcPrice.toString()).toBe("1.08");
   });
 
+  it("accepts a non-stablecoin asset key", () => {
+    const xlmFeed = BacktestPriceFeed.create({
+      XLM: [{ timestamp: BASE_TIMESTAMP, price: "0.12" }],
+    });
+    expect(xlmFeed.getSpotPrice("XLM", BASE_TIMESTAMP).toString()).toBe("0.12");
+  });
+
   it("throws UnknownAssetError for unknown asset", () => {
     expect(() =>
-      feed.getSpotPrice("BTC" as AssetSymbol, BASE_TIMESTAMP)
+      feed.getSpotPrice("DOGE" as AssetSymbol, BASE_TIMESTAMP)
     ).toThrow(UnknownAssetError);
     try {
-      feed.getSpotPrice("BTC" as AssetSymbol, BASE_TIMESTAMP);
+      feed.getSpotPrice("DOGE" as AssetSymbol, BASE_TIMESTAMP);
     } catch (err) {
       expect(isUnknownAssetError(err)).toBe(true);
     }
@@ -290,7 +302,7 @@ describe("PriceFeed contract tests - multiple implementations", () => {
 
       it("unknown asset throws UnknownAssetError", () => {
         expect(() =>
-          feed.getSpotPrice("BTC" as AssetSymbol, BASE_TIMESTAMP)
+          feed.getSpotPrice("DOGE" as AssetSymbol, BASE_TIMESTAMP)
         ).toThrow(UnknownAssetError);
       });
     });
@@ -368,7 +380,7 @@ describe("PriceFeed contract tests - multiple implementations", () => {
 
 describe("Error type guards", () => {
   it("isUnknownAssetError identifies UnknownAssetError", () => {
-    const err = new UnknownAssetError("BTC" as AssetSymbol);
+    const err = new UnknownAssetError("DOGE" as AssetSymbol);
     expect(isUnknownAssetError(err)).toBe(true);
     expect(isUnknownAssetError(new Error())).toBe(false);
     expect(isUnknownAssetError("string")).toBe(false);

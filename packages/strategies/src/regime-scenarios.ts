@@ -1,5 +1,3 @@
-import { SUPPORTED_STABLECOINS } from "@meridian/shared";
-
 import { SimulationClock } from "./clock";
 import type { DeltaNeutralConfig } from "./delta-neutral";
 import { BacktestPriceFeed } from "./feeds";
@@ -13,6 +11,7 @@ import {
 import type { Scenario } from "./scenario";
 import { FixedPointDecimal } from "./types";
 import type { AssetSymbol, FundingRate, PriceFeed } from "./types";
+import { KNOWN_ASSETS, KNOWN_ASSET_SYMBOLS } from "./config";
 
 /**
  * Synthetic market regimes for scenario backtests (#932).
@@ -183,7 +182,7 @@ function scenarioAsset(scenario: Scenario): AssetSymbol {
 }
 
 function isAssetSymbol(value: string): value is AssetSymbol {
-  return (SUPPORTED_STABLECOINS as readonly string[]).includes(value);
+  return KNOWN_ASSETS.has(value);
 }
 
 /** The scenario's window and step as a simulation clock. */
@@ -216,7 +215,9 @@ export function scenarioPriceFeed(scenario: Scenario): BacktestPriceFeed {
   const series: Record<
     AssetSymbol,
     Array<{ timestamp: number; price: FixedPointDecimal }>
-  > = { USDC: [], EURC: [] };
+  > = Object.fromEntries(
+    KNOWN_ASSET_SYMBOLS.map((supported) => [supported, []])
+  ) as Record<AssetSymbol, Array<{ timestamp: number; price: FixedPointDecimal }>>;
   series[asset] = path.map((price, index) => ({
     timestamp: clock.timestampAt(index),
     price,

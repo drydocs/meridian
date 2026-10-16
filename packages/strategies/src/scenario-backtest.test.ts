@@ -68,6 +68,14 @@ function series(run: RegimeRun): string {
 }
 
 describe("delta-neutral scenario backtests", () => {
+  it("generates a price series for a non-stablecoin scenario asset", () => {
+    const scenario = buildRegimeScenario("trending", { asset: "XLM", steps: 2 });
+    const priceFeed = scenarioPriceFeed(scenario);
+
+    expect(priceFeed.getSpotPrice("XLM", Date.parse(scenario.window.start)))
+      .toBeInstanceOf(FixedPointDecimal);
+  });
+
   it("runs every regime to completion through the shared runner", () => {
     for (const regime of MARKET_REGIMES) {
       const { strategy, result } = runRegime(regime);

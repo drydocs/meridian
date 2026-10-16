@@ -27,8 +27,8 @@ const hourly = (steps: number) =>
 /**
  * One USDC price per tick, taken from `prices` in tick order, so a test states
  * the path it is testing rather than interpolating between endpoints. EURC is
- * carried at a flat price because the feed wants every asset, but no test here
- * trades it.
+ * carried at a flat price in these cases, though feeds may contain any subset
+ * of the engine's supported assets.
  */
 const feed = (...prices: string[]) =>
   BacktestPriceFeed.create({
@@ -84,6 +84,25 @@ const hold = () => ({
 });
 
 describe("runBacktest", () => {
+  it("runs a strategy with a volatile asset in its portfolio", () => {
+    const xlmFeed = BacktestPriceFeed.create({
+      XLM: [
+        { timestamp: START, price: "0.10" },
+        { timestamp: START + ONE_HOUR_MS, price: "0.12" },
+      ],
+    });
+    const result = runBacktest({
+      clock: hourly(1),
+      assets: ["XLM"],
+      prices: xlmFeed,
+      strategy: new BuyAndHoldStrategy(),
+      strategyConfig: { asset: "XLM" },
+      initialCash: amount("1000"),
+    });
+
+    expect(result.snapshots[1]?.positions[0]?.asset).toBe("XLM");
+  });
+
   it("reproduces a hand-worked buy-and-hold run", () => {
     // The reference strategy leaves 50 bps unspent so its entry fill can
     // absorb costs, so 1000 cash buys 995 / 100 = 9.95 units at tick 0.

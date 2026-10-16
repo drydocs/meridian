@@ -52,14 +52,16 @@ export interface SelfRepayingLoanConfig {
   readonly collateralSet?: CollateralConfig[];
 }
 
-export const KNOWN_ASSETS = new Set([
+export const KNOWN_ASSET_SYMBOLS = [
   "USDC",
   "XLM",
   "USDG",
   "EURC",
   "BTC",
   "ETH",
-]);
+] as const;
+export type KnownAssetSymbol = (typeof KNOWN_ASSET_SYMBOLS)[number];
+export const KNOWN_ASSETS: ReadonlySet<string> = new Set(KNOWN_ASSET_SYMBOLS);
 export const KNOWN_YIELD_SOURCES = new Set([
   "blend-pool",
   "defindex-vault",

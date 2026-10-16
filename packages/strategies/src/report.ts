@@ -35,7 +35,7 @@ export interface EventCounts {
 // Holdings are per asset expressed as FixedPointDecimal amounts.
 export interface ReportPortfolioState {
   readonly timestamp: SimulationTimestamp;
-  readonly holdings: Readonly<Record<AssetSymbol, FixedPointDecimal>>;
+  readonly holdings: Readonly<Partial<Record<AssetSymbol, FixedPointDecimal>>>;
   // Total portfolio value denominated in the reference asset (USDC).
   readonly totalValue: FixedPointDecimal;
 }
@@ -189,7 +189,7 @@ export function deserializeReport(raw: SerializedRunReport): RunReport {
     eventCounts: { ...raw.eventCounts },
     finalState: {
       timestamp: raw.finalState.timestamp,
-      holdings: holdings as Record<AssetSymbol, FixedPointDecimal>,
+      holdings: holdings as Partial<Record<AssetSymbol, FixedPointDecimal>>,
       totalValue: deserializeFixed(raw.finalState.totalValue),
     },
   };

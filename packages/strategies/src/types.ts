@@ -1,4 +1,4 @@
-import { SupportedStablecoin } from "@meridian/shared";
+import type { KnownAssetSymbol } from "./config";
 
 export const STROOPS_PER_UNIT = 10_000_000n;
 
@@ -81,7 +81,8 @@ export class FixedPointDecimal {
   }
 }
 
-export type AssetSymbol = SupportedStablecoin;
+/** Assets the strategy engine can price; distinct from vault deposit assets. */
+export type AssetSymbol = KnownAssetSymbol;
 
 export type SimulationTimestamp = number;
 
