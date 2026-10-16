@@ -225,10 +225,12 @@ export async function fetchAllVaults(
     (meta) => meta.protocol === "meridian"
   );
 
+  let meridianReadFailed = false;
   const [meridianVaultsRaw, poolsResult] = await Promise.all([
     Promise.all(
       meridianMetas.map((meta) =>
         fetchMeridianVault(server, net, meta).catch((err) => {
+          meridianReadFailed = true;
           console.warn(
             "[vaults] failed to read Meridian vault on-chain, serving cached value:",
             meta.id,
@@ -282,9 +284,13 @@ export async function fetchAllVaults(
   const vaults: ApiVault[] = [...meridianVaults, ...resolvedLlamaVaults];
 
   if (vaults.length > 0) {
-    vaultCache = { vaults, expiresAt: now + CACHE_TTL_MS };
-    // Best-effort shared write; failures must not block the response.
-    await setCachedVaults(network, vaults);
+    // A failed read must not cache an incomplete list or renew stale data;
+    // leave both cache layers untouched so the next call retries.
+    if (!meridianReadFailed) {
+      vaultCache = { vaults, expiresAt: now + CACHE_TTL_MS };
+      // Best-effort shared write; failures must not block the response.
+      await setCachedVaults(network, vaults);
+    }
     return vaults;
   }
 
