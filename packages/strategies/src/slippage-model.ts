@@ -36,6 +36,9 @@ export class ZeroSlippageModel implements SlippageModel {
     _quantity: FixedPointDecimal,
     _midPrice: FixedPointDecimal
   ): FixedPointDecimal {
+    void _side;
+    void _quantity;
+    void _midPrice;
     return FixedPointDecimal.fromStroops(0n);
   }
 }
@@ -63,6 +66,9 @@ export class FixedBpsSlippageModel implements SlippageModel {
     _quantity: FixedPointDecimal,
     _midPrice: FixedPointDecimal
   ): FixedPointDecimal {
+    void _side;
+    void _quantity;
+    void _midPrice;
     // 1 bps = 10_000_000n / 10_000n = 1,000n stroops
     return FixedPointDecimal.fromStroops(this.bps * 1000n);
   }
@@ -112,6 +118,8 @@ export class SizeProportionalSlippageModel implements SlippageModel {
     quantity: FixedPointDecimal,
     _midPrice: FixedPointDecimal
   ): FixedPointDecimal {
+    void _side;
+    void _midPrice;
     const baseStroops = this.baseBps * 1000n;
     const qtyStroops = quantity.toStroops();
     const refStroops = this.referenceVolume.toStroops();

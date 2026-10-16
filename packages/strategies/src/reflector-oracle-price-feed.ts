@@ -242,6 +242,7 @@ export class ReflectorOraclePriceFeed implements PriceFeed {
     asset: AssetSymbol,
     _timestamp: SimulationTimestamp
   ): FixedPointDecimal {
+    void _timestamp;
     const entry = this.#entries.get(asset);
     if (!entry) {
       throw new UnknownAssetError(asset);

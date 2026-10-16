@@ -28,6 +28,7 @@ export class StaticPriceFeed implements PriceFeed {
     asset: AssetSymbol,
     _timestamp: SimulationTimestamp
   ): FixedPointDecimal {
+    void _timestamp;
     const price = this.#prices.get(asset);
     if (!price) {
       throw new UnknownAssetError(asset);
