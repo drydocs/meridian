@@ -4,6 +4,19 @@ import {
   TimestampOutOfRangeError,
 } from "./types";
 import type { AssetSymbol, PriceFeed, SimulationTimestamp } from "./types";
+export type { AssetSymbol, PriceFeed, SimulationTimestamp } from "./types";
+
+export class MissingPriceDataError extends Error {
+  constructor(
+    public readonly asset: AssetSymbol,
+    public readonly window: { start: SimulationTimestamp; end: SimulationTimestamp }
+  ) {
+    super(
+      `No price data for asset "${asset}" over window [${window.start}, ${window.end}]`
+    );
+    this.name = "MissingPriceDataError";
+  }
+}
 
 export class StaticPriceFeed implements PriceFeed {
   readonly #prices: Map<AssetSymbol, FixedPointDecimal>;
@@ -135,5 +148,20 @@ export class BacktestPriceFeed implements PriceFeed {
       min: points[0]!.timestamp,
       max: points[points.length - 1]!.timestamp,
     };
+  }
+
+  assertCoversWindow(
+    window: { start: SimulationTimestamp; end: SimulationTimestamp }
+  ): void {
+    for (const [asset, points] of this.#data.entries()) {
+      if (!points || points.length === 0) {
+        throw new MissingPriceDataError(asset, window);
+      }
+      const first = points[0]!;
+      const last = points[points.length - 1]!;
+      if (first.timestamp > window.start || last.timestamp < window.end) {
+        throw new MissingPriceDataError(asset, window);
+      }
+    }
   }
 }

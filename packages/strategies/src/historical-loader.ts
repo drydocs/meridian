@@ -96,7 +96,9 @@ export interface HistoricalStreamMapInput {
 }
 
 export type HistoricalInput =
-  readonly HistoricalRow[] | HistoricalRowInput | HistoricalStreamMapInput;
+  | readonly HistoricalRow[]
+  | HistoricalRowInput
+  | HistoricalStreamMapInput;
 
 export type OutOfOrderPolicy = "reject" | "sort";
 export type DuplicatePolicy = "reject" | "first" | "last";
@@ -147,7 +149,7 @@ export class HistoricalLoadError extends Error {
 
 /** One loaded stream: its identity, and the series a backtest replays. */
 export interface LoadedStream {
-  /** `"<kind>:<asset>"` for row-sourced streams, the map key for the map form. */
+  /** `"{kind}:{asset}"` for row-sourced streams, the map key for the map form. */
   readonly id: string;
   readonly asset: string;
   readonly kind: StreamKind;
@@ -210,8 +212,8 @@ function powerOfTen(exponent: number): bigint {
  * Strings and numbers are read as decimal literals (a number via its shortest
  * round-trip representation), and scientific notation is expanded exactly, so
  * every digit the source carries survives the trip. A value needing more than
- * `scale` decimal places is rejected rather than rounded, which is what makes
- * the loader's round-trip guarantee possible; trailing zeros beyond `scale` are
+ * `scale` decimal places is rejected rather than rounded, which is what makes the
+ * loader's round-trip guarantee possible; trailing zeros beyond `scale` are
  * still exact and therefore accepted (e.g. `"1.230000000"` at scale 7).
  */
 function parseDecimal(raw: string, scale: number): Decimal {
@@ -369,28 +371,20 @@ function parseValue(
 ): Decimal {
   try {
     return parseDecimal(String(raw), scale);
-  } catch (err) {
+  } catch (error) {
     throw new HistoricalLoadError(
       "invalid-value",
-      err instanceof Error ? err.message : String(err),
+      `${(error as Error).message}`,
       details
     );
   }
 }
 
-function isStreamKind(value: unknown): value is StreamKind {
-  return value === "price" || value === "rate";
+function streamId(kind: StreamKind, asset: string): string {
+  return `${kind}:${asset}`;
 }
 
-function hasValue(value: unknown): value is HistoricalValue {
-  return typeof value === "string" || typeof value === "number";
-}
-
-function isSkippable(err: unknown): boolean {
-  return err instanceof HistoricalLoadError && SKIPPABLE.has(err.code);
-}
-
-function bucketFor(
+function getBucket(
   buckets: Map<string, Bucket>,
   id: string,
   asset: string,
@@ -406,172 +400,168 @@ function bucketFor(
   return bucket;
 }
 
-function collectRow(
-  row: HistoricalRow,
+function addRowPoint(
+  buckets: Map<string, Bucket>,
+  kind: StreamKind,
+  asset: string,
+  timestampRaw: number | string,
+  valueRaw: HistoricalValue,
   index: number,
-  options: NormalizedOptions,
-  buckets: Map<string, Bucket>
+  options: NormalizedOptions
 ): void {
-  if (!row || typeof row !== "object") {
-    throw new HistoricalLoadError(
-      "malformed-input",
-      `row ${index} must be an object`,
-      { index }
-    );
-  }
-  if (typeof row.asset !== "string" || row.asset.trim() === "") {
-    throw new HistoricalLoadError(
-      "malformed-input",
-      `row ${index} must have a non-empty string "asset"`,
-      { index }
-    );
-  }
-  const asset = row.asset;
-  const timestamp = parseTimestamp(row.timestamp, { stream: asset, index });
-
-  const contributions: Array<{ kind: StreamKind; raw: HistoricalValue }> = [];
-  if (row.kind !== undefined) {
-    if (!isStreamKind(row.kind)) {
-      throw new HistoricalLoadError(
-        "malformed-input",
-        `row ${index} has invalid "kind": ${JSON.stringify(row.kind)}`,
-        { stream: asset, index }
-      );
-    }
-    const value = row.kind === "price" ? row.price : row.rate;
-    if (!hasValue(value)) {
-      throw new HistoricalLoadError(
-        "malformed-input",
-        `row ${index} declares kind "${row.kind}" but is missing a "${row.kind}" value`,
-        { stream: asset, index }
-      );
-    }
-    contributions.push({ kind: row.kind, raw: value });
-  } else {
-    if (hasValue(row.price)) {
-      contributions.push({ kind: "price", raw: row.price });
-    }
-    if (hasValue(row.rate)) {
-      contributions.push({ kind: "rate", raw: row.rate });
-    }
-    if (contributions.length === 0) {
-      throw new HistoricalLoadError(
-        "malformed-input",
-        `row ${index} must provide at least one of "price" or "rate"`,
-        { stream: asset, index }
-      );
-    }
-  }
-
-  // Parse every value this row contributes before touching a bucket, so a row
-  // that fails on its second field doesn't leave a partial point behind.
-  const parsed = contributions.map(({ kind, raw }) => {
-    const id = `${kind}:${asset}`;
-    return {
-      kind,
-      id,
-      value: parseValue(raw, options.scale, { stream: id, index }),
-    };
-  });
-  for (const point of parsed) {
-    bucketFor(
-      buckets,
-      point.id,
-      asset,
-      point.kind,
-      options.scale,
-      options.intervalMs
-    ).points.push({
-      timestamp,
-      value: point.value,
-      source: index,
-    });
-  }
+  const id = streamId(kind, asset);
+  const details = { stream: id, index };
+  const timestamp = parseTimestamp(timestampRaw, details);
+  const value = parseValue(valueRaw, options.scale, details);
+  const bucket = getBucket(
+    buckets,
+    id,
+    asset,
+    kind,
+    options.scale,
+    options.intervalMs
+  );
+  bucket.points.push({ timestamp, value, source: index });
 }
 
-function collectRows(
+function loadRows(
   rows: readonly HistoricalRow[],
-  options: NormalizedOptions,
-  buckets: Map<string, Bucket>
-): void {
-  for (let index = 0; index < rows.length; index++) {
+  options: NormalizedOptions
+ ): Map<string, Bucket> {
+  const buckets = new Map<string, Bucket>();
+  rows.forEach((row, index) => {
     try {
-      collectRow(rows[index]!, index, options, buckets);
-    } catch (err) {
-      if (options.onMalformed === "skip" && isSkippable(err)) {
-        continue;
-      }
-      throw err;
-    }
-  }
-}
-
-function collectStreams(
-  streams: Readonly<Record<string, HistoricalStream>>,
-  options: NormalizedOptions,
-  buckets: Map<string, Bucket>
-): void {
-  for (const [id, stream] of Object.entries(streams)) {
-    let bucket: Bucket;
-    try {
-      if (id.trim() === "") {
+      if (row === null || typeof row !== "object") {
         throw new HistoricalLoadError(
           "malformed-input",
-          "stream map contains an empty stream id"
+          "row must be an object",
+          { index }
         );
       }
-      if (!stream || typeof stream !== "object") {
+      if (typeof row.asset !== "string" || row.asset.trim() === "") {
         throw new HistoricalLoadError(
           "malformed-input",
-          `stream "${id}" must be an object`,
-          { stream: id }
+          "row.asset must be a non-empty string",
+          { index }
         );
       }
-      if (typeof stream.asset !== "string" || stream.asset.trim() === "") {
+      const asset = row.asset;
+      const kind = row.kind;
+      if (kind !== undefined && kind !== "price" && kind !== "rate") {
         throw new HistoricalLoadError(
           "malformed-input",
-          `stream "${id}" must have a non-empty string "asset"`,
-          { stream: id }
+          `row.kind must be "price" or "rate", received ${String(kind)}`,
+          { index }
         );
       }
-      if (!isStreamKind(stream.kind)) {
-        throw new HistoricalLoadError(
-          "malformed-input",
-          `stream "${id}" must have kind "price" or "rate"`,
-          { stream: id }
-        );
-      }
-      if (!Array.isArray(stream.points)) {
-        throw new HistoricalLoadError(
-          "malformed-input",
-          `stream "${id}" must have a "points" array`,
-          { stream: id }
-        );
-      }
-      bucket = bucketFor(
-        buckets,
-        id,
-        stream.asset,
-        stream.kind,
-        resolveScale(stream.scale ?? options.scale),
-        resolveInterval(stream.intervalMs ?? options.intervalMs)
-      );
-    } catch (err) {
-      if (options.onMalformed === "skip" && isSkippable(err)) {
-        continue;
-      }
-      throw err;
-    }
-
-    // Each point is handled independently so `onMalformed: "skip"` drops only
-    // the bad observation, not the rest of the stream.
-    for (let index = 0; index < stream.points.length; index++) {
-      try {
-        const point = stream.points[index]!;
-        if (!point || typeof point !== "object") {
+      if (kind === "price") {
+        if (row.price === undefined) {
           throw new HistoricalLoadError(
             "malformed-input",
-            `stream "${id}" point ${index} must be an object`,
+            `row declares kind "price" but has no price`,
+            { index }
+          );
+        }
+        addRowPoint(buckets, "price", asset, row.timestamp, row.price, index, options);
+        return;
+      }
+      if (kind === "rate") {
+        if (row.rate === undefined) {
+          throw new HistoricalLoadError(
+            "malformed-input",
+            `row declares kind "rate" but has no rate`,
+            { index }
+          );
+        }
+        addRowPoint(buckets, "rate", asset, row.timestamp, row.rate, index, options);
+        return;
+      }
+      if (row.price === undefined && row.rate === undefined) {
+        throw new HistoricalLoadError(
+          "malformed-input",
+          "row must carry a price or a rate",
+          { index }
+        );
+      }
+      if (row.price !== undefined) {
+        addRowPoint(buckets, "price", asset, row.timestamp, row.price, index, options);
+      }
+      if (row.rate !== undefined) {
+        addRowPoint(buckets, "rate", asset, row.timestamp, row.rate, index, options);
+      }
+    } catch (error) {
+      if (
+        options.onMalformed === "skip" &&
+        error instanceof HistoricalLoadError &&
+        SKIPPABLE.has(error.code)
+      ) {
+        return;
+      }
+      throw error;
+    }
+  });
+  return buckets;
+}
+
+function loadStreamMap(
+  input: HistoricalStreamMapInput,
+  options: NormalizedOptions
+): Map<string, Bucket> {
+  const buckets = new Map<string, Bucket>();
+  const streams = input.streams;
+  if (streams === null || typeof streams !== "object") {
+    throw new HistoricalLoadError(
+      "malformed-input",
+      "streams must be an object keyed by stream id"
+    );
+  }
+  for (const [id, stream] of Object.entries(streams)) {
+    if (stream === null || typeof stream !== "object") {
+      throw new HistoricalLoadError(
+        "malformed-input",
+        `stream "${id}" must be an object`,
+        { stream: id }
+      );
+    }
+    if (typeof stream.asset !== "string" || stream.asset.trim() === "") {
+      throw new HistoricalLoadError(
+        "malformed-input",
+        `stream "${id}" must name a non-empty asset`,
+        { stream: id }
+      );
+    }
+    if (stream.kind !== "price" && stream.kind !== "rate") {
+      throw new HistoricalLoadError(
+        "malformed-input",
+        `stream "${id}" must declare kind "price" or "rate"`,
+        { stream: id }
+      );
+    }
+    if (!Array.isArray(stream.points)) {
+      throw new HistoricalLoadError(
+        "malformed-input",
+        `stream "${id}" must carry a points array`,
+        { stream: id }
+      );
+    }
+    const scale = resolveScale(stream.scale ?? options.scale);
+    const intervalMs = resolveInterval(
+      stream.intervalMs ?? options.intervalMs
+    );
+    const bucket = getBucket(
+      buckets,
+      id,
+      stream.asset,
+      stream.kind,
+      scale,
+      intervalMs
+    );
+    stream.points.forEach((point, index) => {
+      try {
+        if (point === null || typeof point !== "object") {
+          throw new HistoricalLoadError(
+            "malformed-input",
+            "point must be an object",
             { stream: id, index }
           );
         }
@@ -579,129 +569,119 @@ function collectStreams(
           stream: id,
           index,
         });
-        if (!hasValue(point.value)) {
-          throw new HistoricalLoadError(
-            "malformed-input",
-            `stream "${id}" point ${index} must have a "value"`,
-            { stream: id, index }
-          );
-        }
-        bucket.points.push({
-          timestamp,
-          value: parseValue(point.value, bucket.scale, {
-            stream: id,
-            index,
-          }),
-          source: index,
+        const value = parseValue(point.value, scale, {
+          stream: id,
+          index,
         });
-      } catch (err) {
-        if (options.onMalformed === "skip" && isSkippable(err)) {
-          continue;
+        bucket.points.push({ timestamp, value, source: index });
+      } catch (error) {
+        if (
+          options.onMalformed === "skip" &&
+          error instanceof HistoricalLoadError &&
+          SKIPPABLE.has(error.code)
+        ) {
+          return;
         }
-        throw err;
+        throw error;
+      }
+    });
+  }
+  return buckets;
+}
+
+function orderPoints(
+  bucket: Bucket,
+  options: NormalizedOptions
+ ): RawPoint[] {
+  const points = [...bucket.points];
+  if (options.onOutOfOrder === "sort") {
+    points.sort((a, b) => a.timestamp - b.timestamp);
+  } else {
+    for (let i = 1; i < points.length; i++) {
+      if (points[i]!.timestamp < points[i - 1]!.timestamp) {
+        throw new HistoricalLoadError(
+          "out-of-order",
+          `timestamp ${points[i]!.timestamp} precedes ${points[i - 1]!.timestamp} in stream "${bucket.id}"`,
+          { stream: bucket.id, index: points[i]!.source }
+        );
       }
     }
   }
-}
 
-/**
- * Throws unless the kept timestamps sit on the declared cadence. A gap of
- * several intervals means missing samples, which is legitimate; a gap that is
- * not a whole number of intervals means the declared cadence is wrong.
- */
-function assertCadence(bucket: Bucket, kept: readonly RawPoint[]): void {
-  for (let i = 1; i < kept.length; i++) {
-    const previous = kept[i - 1]!;
-    const point = kept[i]!;
-    const gap = point.timestamp - previous.timestamp;
-    if (gap % bucket.intervalMs !== 0) {
-      throw new HistoricalLoadError(
-        "interval",
-        `stream "${bucket.id}" has a ${gap}ms gap between ${previous.timestamp} and ${point.timestamp} (source ${point.source}), which is not a multiple of the declared intervalMs ${bucket.intervalMs}`,
-        { stream: bucket.id, index: point.source }
-      );
-    }
-  }
-}
-
-function finalizeBucket(
-  bucket: Bucket,
-  options: NormalizedOptions
-): LoadedStream {
-  const ordered =
-    options.onOutOfOrder === "sort"
-      ? [...bucket.points].sort((a, b) => a.timestamp - b.timestamp)
-      : bucket.points;
-
-  const kept: RawPoint[] = [];
-  for (const point of ordered) {
-    const previous = kept[kept.length - 1];
-    if (previous === undefined) {
-      kept.push(point);
-      continue;
-    }
-    if (point.timestamp < previous.timestamp) {
-      throw new HistoricalLoadError(
-        "out-of-order",
-        `stream "${bucket.id}" timestamp ${point.timestamp} (source ${point.source}) precedes ${previous.timestamp}; set onOutOfOrder: "sort" to sort instead`,
-        { stream: bucket.id, index: point.source }
-      );
-    }
-    if (point.timestamp === previous.timestamp) {
+  const deduped: RawPoint[] = [];
+  for (const point of points) {
+    const last = deduped[deduped.length - 1];
+    if (last && last.timestamp === point.timestamp) {
       if (options.onDuplicate === "reject") {
         throw new HistoricalLoadError(
           "duplicate",
-          `stream "${bucket.id}" has duplicate timestamp ${point.timestamp} (source ${point.source}); set onDuplicate to "first" or "last" to resolve`,
+          `timestamp ${point.timestamp} appears twice in stream "${bucket.id}"`,
           { stream: bucket.id, index: point.source }
         );
       }
       if (options.onDuplicate === "last") {
-        kept[kept.length - 1] = point;
+        deduped[deduped.length - 1] = point;
       }
       continue;
     }
-    kept.push(point);
+    deduped.push(point);
   }
+  return deduped;
+}
 
-  assertCadence(bucket, kept);
+function assertCadence(bucket: Bucket, points: RawPoint[]): void {
+  for (let i = 1; i < points.length; i++) {
+    const gap = points[i]!.timestamp - points[i - 1]!.timestamp;
+    if (gap % bucket.intervalMs !== 0) {
+      throw new HistoricalLoadError(
+        "interval",
+        `gap of ${gap}ms in stream "${bucket.id}" is not a whole number of ${bucket.intervalMs}ms intervals`,
+        { stream: bucket.id, index: points[i]!.source }
+      );
+    }
+  }
+}
 
-  const entries: TimeSeriesEntry[] = kept.map((point) => ({
-    timestampMs: point.timestamp,
+function materialize(bucket: Bucket, points: RawPoint[]): LoadedStream {
+  const entries: TimeSeriesEntry[] = points.map((point) => ({
+    timestamp: point.timestamp,
     value: point.value,
   }));
-
+  const series = new TimeSeries({
+    id: bucket.id,
+    asset: bucket.asset,
+    kind: bucket.kind,
+    intervalMs: bucket.intervalMs,
+    entries,
+  });
   return {
     id: bucket.id,
     asset: bucket.asset,
     kind: bucket.kind,
-    series: TimeSeries.from(entries, {
-      intervalMs: bucket.intervalMs,
-      scale: bucket.scale,
-    }),
+    series,
   };
 }
 
 /**
- * Loads historical price/rate data into time series.
+ * Loads recorded market data into one {@link LoadedStream} per stream.
  *
- * Multiple assets and rate streams are loaded in one pass; the returned record
- * is keyed by stream id (`"<kind>:<asset>"` for row-sourced streams, the map
- * key for the map form). Throws {@link HistoricalLoadError} on any rejected
- * input, with a stable `code`.
+ * The returned map is keyed by stream id: `${kind}:${asset}` for row-sourced
+ * streams, and the map key for the multi-stream form. Every stream is ordered,
+ * deduplicated, and cadence-checked before it is returned, so a backtest
+ * replaying the result never sees a malformed grid.
  */
-export function loadHistoricalSeries(
+export function loadHistorical(
   input: HistoricalInput,
   options: LoadHistoricalOptions
-): Record<string, LoadedStream> {
+): Map<string, LoadedStream> {
   const normalized = normalizeOptions(options);
-  const buckets = new Map<string, Bucket>();
-
-  if (isStreamMap(input)) {
-    collectStreams(input.streams, normalized, buckets);
+  let buckets: Map<string, Bucket>;
+  if (Array.isArray(input)) {
+    buckets = loadRows(input, normalized);
+  } else if (isStreamMap(input)) {
+    buckets = loadStreamMap(input, normalized);
   } else if (isRowInput(input)) {
-    collectRows(input.rows, normalized, buckets);
-  } else if (Array.isArray(input)) {
-    collectRows(input as readonly HistoricalRow[], normalized, buckets);
+    buckets = loadRows(input.rows, normalized);
   } else {
     throw new HistoricalLoadError(
       "malformed-input",
@@ -709,30 +689,11 @@ export function loadHistoricalSeries(
     );
   }
 
-  const loaded: Record<string, LoadedStream> = {};
+  const out = new Map<string, LoadedStream>();
   for (const bucket of buckets.values()) {
-    loaded[bucket.id] = finalizeBucket(bucket, normalized);
+    const ordered = orderPoints(bucket, normalized);
+    assertCadence(bucket, ordered);
+    out.set(bucket.id, materialize(bucket, ordered));
   }
-  return loaded;
-}
-
-/**
- * Serialises a loaded stream back into row form at full scale. Feeding the
- * result back through {@link loadHistoricalSeries} with the same scale and
- * interval reproduces every value exactly (see historical-loader.test.ts).
- */
-export function seriesToRows(stream: LoadedStream): HistoricalRow[] {
-  return stream.series.points.map((point) => {
-    const row: HistoricalRow = {
-      asset: stream.asset,
-      timestamp: point.timestampMs,
-      kind: stream.kind,
-    };
-    if (stream.kind === "price") {
-      row.price = point.value.toString();
-    } else {
-      row.rate = point.value.toString();
-    }
-    return row;
-  });
+  return out;
 }
