@@ -10,14 +10,13 @@ name: Verify Contract Addresses
 # rebuild from source, and compare against the chain. PRs that touch these
 # files without moving an address pass without the slow build.
 #
-# This check is required (blocking) per #389's acceptance criteria.
-# Branch protection must list "Verify On-Chain Bytecode" as a required status.
+# Every PR must report this job, including PRs unrelated to contract addresses.
+# Filtering the workflow itself leaves a required status pending indefinitely.
+# Enforcement is configured separately: after this workflow is merged, a repo
+# admin must add "Verify On-Chain Bytecode" to main's required status checks
+# (see #1067). A failing job alone does not enable branch protection.
 on:
-  pull_request:
-    paths:
-      - "packages/shared/src/constants.ts"
-      - "packages/shared/deployed-contracts.json"
-      - "packages/stellar-sdk-helpers/src/known-pools.ts"
+  pull_request: {}
   workflow_dispatch: {}
 
 # One run per PR at a time. A new push cancels any in-progress run on the
@@ -30,9 +29,10 @@ jobs:
   verify:
     name: Verify On-Chain Bytecode
     runs-on: ubuntu-latest
-    # Explicitly blocking: a hash mismatch must prevent the PR from merging.
-    # continue-on-error defaults to false; stated here so the intent is clear
-    # to anyone reading this file.
+    permissions:
+      contents: read
+      pull-requests: read
+    # Preserve failures so branch protection can enforce this check.
     continue-on-error: false
     timeout-minutes: 30
     steps:
@@ -41,13 +41,32 @@ jobs:
           # The planning step diffs this PR against its base commit to decide
           # whether a recorded address changed, so it needs full history.
           fetch-depth: 0
+      - name: Detect verification changes
+        if: github.event_name == 'pull_request'
+        id: changes
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            verification:
+              - "packages/shared/src/constants.ts"
+              - "packages/shared/deployed-contracts.json"
+              - "packages/stellar-sdk-helpers/src/known-pools.ts"
+              - "scripts/verify-contract-addresses.ts"
+              - ".github/workflows/verify-contract-addresses.yml"
+      - name: No verification changes
+        if: github.event_name == 'pull_request' && steps.changes.outputs.verification == 'false'
+        run: echo "No contract address or verification changes; verification is not needed."
       - uses: pnpm/action-setup@v6.1.0
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.verification == 'true'
       - uses: actions/setup-node@v7
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.verification == 'true'
         with:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.verification == 'true'
       - name: Plan verification
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.verification == 'true'
         # Decides pass / fail / build from the deploy record, CONTRACT_ADDRESSES,
         # and what this PR changed. Fails fast here on any address disagreement,
         # before any toolchain is installed. Sets needs_build for the steps
