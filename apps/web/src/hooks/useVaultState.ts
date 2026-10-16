@@ -4,6 +4,7 @@ import {
   VAULT_PERFORMANCE_FEE_BPS,
 } from "@meridian/shared";
 import { api, type VaultState } from "../lib/api";
+import { getAdminSessionToken } from "../lib/adminSession";
 
 const STALE_TIME_MS = 30_000;
 
@@ -14,7 +15,7 @@ const STALE_TIME_MS = 30_000;
  * rather than a stale position share price.
  */
 export async function fetchFreshVaultState(): Promise<VaultState> {
-  return api.getVaultState();
+  return api.getPublicVaultState();
 }
 
 /** Shares expected for `amount` USDC at the live vault share price, with slippage haircut. */
@@ -105,9 +106,11 @@ export function computeMinUsdcOut({
 }
 
 export function useVaultState() {
+  const sessionToken = getAdminSessionToken();
   return useQuery({
-    queryKey: ["vault-state"],
-    queryFn: () => api.getVaultState(),
+    queryKey: ["vault-state", "admin", Boolean(sessionToken)],
+    queryFn: () => api.getVaultState(sessionToken!),
+    enabled: Boolean(sessionToken),
     staleTime: STALE_TIME_MS,
     retry: 1,
   });

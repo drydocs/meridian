@@ -63,6 +63,10 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function adminHeaders(walletAddress: string): HeadersInit {
+  return { "x-wallet-address": walletAddress };
+}
+
 export const api = {
   getVaults: () =>
     apiFetch<{
@@ -114,8 +118,11 @@ export const api = {
     apiFetch<{ keepers: KeeperHealthEntry[]; checkedAt: string }>(
       "/api/v1/keepers/health"
     ),
-  getVaultState: () => apiFetch<VaultState>("/api/v1/admin/vault-state"),
-  getAdminHistory: (vaultId: string) =>
+  getVaultState: (walletAddress: string) =>
+    apiFetch<VaultState>("/api/v1/admin/vault-state", {
+      headers: adminHeaders(walletAddress),
+    }),
+  getAdminHistory: (vaultId: string, walletAddress: string) =>
     apiFetch<{
       vaultId: string;
       contractId: string;
@@ -129,5 +136,7 @@ export const api = {
         details: Record<string, unknown>;
       }>;
       updatedAt: string;
-    }>(`/api/v1/admin/history?vaultId=${encodeURIComponent(vaultId)}`),
+    }>(`/api/v1/admin/history?vaultId=${encodeURIComponent(vaultId)}`, {
+      headers: adminHeaders(walletAddress),
+    }),
 };

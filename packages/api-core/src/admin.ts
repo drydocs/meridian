@@ -9,6 +9,7 @@ import {
   loadKeeperHeartbeatStore,
 } from "@meridian/stellar-sdk-helpers";
 import type { RouteResult } from "./types";
+import { verifyAdmin } from "./admin-auth";
 
 export interface KeeperHealthEntry {
   id: "accrual" | "migration";
@@ -65,7 +66,9 @@ export async function handleGetKeeperHealth(): Promise<RouteResult> {
  * changes, this picks the first one rather than guessing which is "the"
  * vault the dashboard should show.
  */
-export async function handleGetVaultState(): Promise<RouteResult> {
+export async function handleGetVaultState(
+  caller?: string
+): Promise<RouteResult> {
   const pools =
     APP_NETWORK.network === "testnet"
       ? KNOWN_POOLS.testnet
@@ -82,6 +85,9 @@ export async function handleGetVaultState(): Promise<RouteResult> {
       },
     };
   }
+
+  const authorization = await verifyAdmin(entry.contractId, caller);
+  if (authorization) return authorization;
 
   try {
     const state = await fetchCoordinatorState({

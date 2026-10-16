@@ -5,6 +5,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>();
   return {
     ...actual,
+    fetchVaultAdmin: vi.fn(async () => "GADMIN"),
     getAdminActionHistory: vi.fn(async () => [
       {
         id: "1",
@@ -20,6 +21,10 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
 });
 
 import { handleGetAdminHistory } from "@meridian/api-core";
+import {
+  fetchVaultAdmin,
+  getAdminActionHistory,
+} from "@meridian/stellar-sdk-helpers";
 
 describe("handleGetAdminHistory", () => {
   beforeEach(() => {
@@ -36,10 +41,23 @@ describe("handleGetAdminHistory", () => {
   });
 
   it("returns 200 with actions for a known vault", async () => {
-    const result = await handleGetAdminHistory("meridian-usdc");
+    const result = await handleGetAdminHistory("meridian-usdc", "GADMIN");
     expect(result.status).toBe(200);
     const body = result.body as { actions: Array<{ type: string }> };
     expect(body.actions).toHaveLength(1);
     expect(body.actions[0]!.type).toBe("set_paused");
+  });
+
+  it("rejects a stale admin session after admin rotation", async () => {
+    const result = await handleGetAdminHistory("meridian-usdc", "GSTALE");
+    expect(result.status).toBe(403);
+    expect(getAdminActionHistory).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the live admin lookup fails", async () => {
+    vi.mocked(fetchVaultAdmin).mockRejectedValueOnce(new Error("rpc down"));
+    const result = await handleGetAdminHistory("meridian-usdc", "GADMIN");
+    expect(result.status).toBe(503);
+    expect(getAdminActionHistory).not.toHaveBeenCalled();
   });
 });
