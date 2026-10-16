@@ -15,10 +15,21 @@ vi.mock("./internal", async (importOriginal) => {
   };
 });
 
+vi.mock("./vault-cache", () => ({
+  getCachedVaults: vi.fn(),
+  setCachedVaults: vi.fn(),
+}));
+
 import { simulateView } from "./tx";
 import { toBigInt } from "./internal";
 import { fetchAllVaults, clearVaultCache, isVaultCacheWarm } from "./vaults";
+import { getCachedVaults, setCachedVaults } from "./vault-cache";
 import { KNOWN_POOLS } from "./known-pools";
+
+beforeEach(() => {
+  vi.mocked(getCachedVaults).mockReset().mockResolvedValue(null);
+  vi.mocked(setCachedVaults).mockReset().mockResolvedValue(undefined);
+});
 
 // Mainnet DeFiLlama pool UUID mapping to blend-usdc-fixed in KNOWN_POOLS.mainnet.
 const KNOWN_BLEND = "ecf788e3-d2ef-4fdd-9ece-8a2d96226ddf";
@@ -105,6 +116,7 @@ describe("isVaultCacheWarm", () => {
 describe("fetchAllVaults (mainnet)", () => {
   beforeEach(() => {
     clearVaultCache();
+    vi.clearAllMocks();
     mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
     vi.mocked(toBigInt).mockReturnValue(10_000_000_000n);
   });
@@ -133,6 +145,8 @@ describe("fetchAllVaults (mainnet)", () => {
     expect(blendVault?.protocol).toBe("blend");
     expect(blendVault?.apy).toBe(5.12);
     expect(blendVault?.riskLevel).toBe("safe");
+    expect(isVaultCacheWarm()).toBe(true);
+    expect(setCachedVaults).toHaveBeenCalledExactlyOnceWith("mainnet", vaults);
   });
 
   it("skips pools with no known-pool mapping while preserving the live Meridian vault", async () => {
@@ -159,6 +173,24 @@ describe("fetchAllVaults (mainnet)", () => {
     await fetchAllVaults("mainnet");
 
     expect(mockFetch).toHaveBeenCalledOnce();
+    expect(getCachedVaults).toHaveBeenCalledOnce();
+    expect(setCachedVaults).toHaveBeenCalledOnce();
+  });
+
+  it("warms L1 from a shared cache hit without fetching or rewriting vaults", async () => {
+    stubPools([llamaPool()]);
+    const first = await fetchAllVaults("mainnet");
+    clearVaultCache();
+    vi.clearAllMocks();
+    vi.mocked(getCachedVaults).mockResolvedValueOnce(first);
+
+    expect(await fetchAllVaults("mainnet")).toBe(first);
+    expect(await fetchAllVaults("mainnet")).toBe(first);
+    expect(isVaultCacheWarm()).toBe(true);
+    expect(getCachedVaults).toHaveBeenCalledExactlyOnceWith("mainnet");
+    expect(simulateView).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(setCachedVaults).not.toHaveBeenCalled();
   });
 
   it("serves stale cache instead of dropping third-party pools when DeFiLlama returns no pools", async () => {
@@ -240,23 +272,30 @@ describe("fetchAllVaults (mainnet)", () => {
     expect(meridianVault?.apy).toBe(0);
   });
 
-  it("skips Meridian vaults that lack contractId or assetId", async () => {
-    const incompleteVaultId = "meridian-incomplete";
-    KNOWN_POOLS.mainnet[incompleteVaultId] = {
-      id: incompleteVaultId,
-      name: "Incomplete Vault",
-      protocol: "meridian",
-      label: "Incomplete",
-    };
+  it.each(["contractId", "assetId"] as const)(
+    "still caches vaults when Meridian legitimately lacks %s",
+    async (missingField) => {
+      const original = KNOWN_POOLS.mainnet["meridian-usdc"];
+      const incomplete = { ...original };
+      delete incomplete[missingField];
+      KNOWN_POOLS.mainnet["meridian-usdc"] = incomplete;
 
-    try {
-      stubPools([]);
-      const vaults = await fetchAllVaults("mainnet");
-      expect(vaults.find((v) => v.id === incompleteVaultId)).toBeUndefined();
-    } finally {
-      delete KNOWN_POOLS.mainnet[incompleteVaultId];
+      try {
+        stubPools([llamaPool()]);
+        const vaults = await fetchAllVaults("mainnet");
+        expect(vaults.map((v) => v.id)).toEqual(["blend-usdc-fixed"]);
+        expect(simulateView).not.toHaveBeenCalled();
+        expect(isVaultCacheWarm()).toBe(true);
+        expect(setCachedVaults).toHaveBeenCalledExactlyOnceWith(
+          "mainnet",
+          vaults
+        );
+        expect(await fetchAllVaults("mainnet")).toBe(vaults);
+      } finally {
+        KNOWN_POOLS.mainnet["meridian-usdc"] = original;
+      }
     }
-  });
+  );
 
   it("defaults asset to USDC when meta.asset is undefined", async () => {
     const noAssetVaultId = "meridian-no-asset";
@@ -293,7 +332,7 @@ describe("fetchAllVaults (mainnet)", () => {
     expect(vaults[0].id).toBe("meridian-usdc");
   });
 
-  it("serves the cached Meridian vault when a later on-chain read fails", async () => {
+  it("serves stale Meridian data without renewing either cache and retries immediately", async () => {
     // Prime the cache with a healthy on-chain read.
     mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
     vi.mocked(toBigInt).mockReturnValue(10_000_000_000n);
@@ -305,22 +344,108 @@ describe("fetchAllVaults (mainnet)", () => {
     vi.useFakeTimers();
     vi.advanceTimersByTime(61_000);
     vi.mocked(simulateView).mockRejectedValue(new Error("Soroban RPC down"));
-    stubPools([llamaPool()]);
+    stubPools([llamaPool({ apy: 9 })]);
     const second = await fetchAllVaults("mainnet");
 
     const cached = second.find((v) => v.id === "meridian-usdc");
     expect(cached).toBeDefined();
     expect(cached?.tvl).toBe(1000);
     expect(second.some((v) => v.id === "blend-usdc-fixed")).toBe(true);
+    expect(second.find((v) => v.id === "blend-usdc-fixed")?.apy).toBe(9);
+    expect(isVaultCacheWarm()).toBe(false);
+    expect(setCachedVaults).toHaveBeenCalledExactlyOnceWith("mainnet", first);
+
+    // Another outage must still fall back to the last good L1 payload.
+    stubPools([]);
+    expect(await fetchAllVaults("mainnet")).toEqual(first);
+    expect(isVaultCacheWarm()).toBe(false);
+    expect(setCachedVaults).toHaveBeenCalledOnce();
+
+    mockAdapterDiscovery({ totalAssets: 20_000_000_000n, protocol: "none" });
+    vi.mocked(toBigInt).mockReturnValue(20_000_000_000n);
+    stubPools([llamaPool()]);
+    const recovered = await fetchAllVaults("mainnet");
+    expect(recovered.find((v) => v.id === "meridian-usdc")?.tvl).toBe(2000);
+    expect(isVaultCacheWarm()).toBe(true);
+    expect(setCachedVaults).toHaveBeenCalledTimes(2);
+    expect(setCachedVaults).toHaveBeenLastCalledWith("mainnet", recovered);
   });
 
-  it("drops a Meridian vault whose on-chain read fails with no cache to fall back on", async () => {
-    vi.mocked(simulateView).mockRejectedValue(new Error("Soroban RPC down"));
-    stubPools([llamaPool()]);
-    const vaults = await fetchAllVaults("mainnet");
+  it.each(["get_total_assets", "get_adapter"])(
+    "does not cache a cold %s failure and caches the next successful refresh",
+    async (failedMethod) => {
+      const healthyRead = vi.mocked(simulateView).getMockImplementation()!;
+      vi.mocked(simulateView).mockImplementation((...args) => {
+        if (args[3] === failedMethod) {
+          return Promise.reject(new Error("Soroban RPC down"));
+        }
+        return healthyRead(...args);
+      });
+      stubPools([llamaPool()]);
+      const vaults = await fetchAllVaults("mainnet");
 
-    expect(vaults.find((v) => v.id === "meridian-usdc")).toBeUndefined();
-    expect(vaults.some((v) => v.id === "blend-usdc-fixed")).toBe(true);
+      expect(vaults.map((v) => v.id)).toEqual(["blend-usdc-fixed"]);
+      expect(isVaultCacheWarm()).toBe(false);
+      expect(setCachedVaults).not.toHaveBeenCalled();
+
+      expect(await fetchAllVaults("mainnet")).toEqual(vaults);
+      expect(getCachedVaults).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(isVaultCacheWarm()).toBe(false);
+      expect(setCachedVaults).not.toHaveBeenCalled();
+
+      mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
+      const recovered = await fetchAllVaults("mainnet");
+      expect(recovered.map((v) => v.id)).toEqual([
+        "meridian-usdc",
+        "blend-usdc-fixed",
+      ]);
+      expect(isVaultCacheWarm()).toBe(true);
+      expect(setCachedVaults).toHaveBeenCalledExactlyOnceWith(
+        "mainnet",
+        recovered
+      );
+
+      vi.mocked(simulateView).mockClear();
+      expect(await fetchAllVaults("mainnet")).toBe(recovered);
+      expect(simulateView).not.toHaveBeenCalled();
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(getCachedVaults).toHaveBeenCalledTimes(3);
+      expect(setCachedVaults).toHaveBeenCalledOnce();
+    }
+  );
+
+  it("does not cache healthy vaults when another configured Meridian vault fails", async () => {
+    const failingId = "meridian-failing";
+    const failingContract = "CFAILING";
+    KNOWN_POOLS.mainnet[failingId] = {
+      id: failingId,
+      name: "Failing Meridian Vault",
+      protocol: "meridian",
+      label: "Failing Vault",
+      contractId: failingContract,
+      assetId: "CASSET",
+    };
+    const healthyRead = vi.mocked(simulateView).getMockImplementation()!;
+    vi.mocked(simulateView).mockImplementation((...args) => {
+      if (args[1] === failingContract) {
+        return Promise.reject(new Error("Soroban RPC down"));
+      }
+      return healthyRead(...args);
+    });
+
+    try {
+      stubPools([llamaPool()]);
+      const vaults = await fetchAllVaults("mainnet");
+      expect(vaults.map((v) => v.id)).toEqual([
+        "meridian-usdc",
+        "blend-usdc-fixed",
+      ]);
+      expect(isVaultCacheWarm()).toBe(false);
+      expect(setCachedVaults).not.toHaveBeenCalled();
+    } finally {
+      delete KNOWN_POOLS.mainnet[failingId];
+    }
   });
 
   it("prevents duplicates when DeFiLlama returns a pool matching a Meridian vault id", async () => {
