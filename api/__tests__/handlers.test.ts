@@ -193,6 +193,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
 
 import txHandler from "../v1/tx/[action]";
 import vaultsHandler from "../v1/vaults/index";
+import vaultDetailHandler from "../v1/vaults/[vaultId]";
 import positionsHandler from "../v1/positions/[publicKey]";
 import keepersHandler from "../v1/keepers/[action]";
 import positionHistoryHandler from "../v1/positions/[publicKey]/history";
@@ -216,6 +217,7 @@ import {
   MissingTrustlineError,
   getPositionHistory,
   runPositionSnapshotKeeper,
+  fetchAllVaults,
 } from "@meridian/stellar-sdk-helpers";
 
 // A 56-char Stellar public key shape (only the length is validated).
@@ -628,6 +630,49 @@ describe("GET /api/v1/vaults", () => {
       recommendedVaultId: "blend-usdc-fixed",
       cached: false,
     });
+  });
+});
+
+describe("GET /api/v1/vaults/:vaultId", () => {
+  it("returns a vault with the same cache header as the list endpoint", async () => {
+    vi.mocked(fetchAllVaults).mockResolvedValueOnce([
+      {
+        id: "meridian-usdc",
+        protocol: "meridian",
+        asset: "USDC",
+        name: "Meridian",
+        label: "USDC Vault",
+        apy: 5,
+        tvl: 1000,
+        userBalance: 0,
+        riskLevel: "safe",
+      },
+    ]);
+    const res = makeRes();
+    await vaultDetailHandler(
+      fakeReq({ method: "GET", query: { vaultId: "meridian-usdc" } }),
+      res
+    );
+    expect(res.statusCode).toBe(200);
+
+    // Both vault reads must share one per-network cache policy — a detail
+    // response cached while the list is fresh (or vice versa) is the #1051 bug.
+    const listRes = makeRes();
+    await vaultsHandler(fakeReq({ method: "GET" }), listRes);
+    expect(res.headers["Cache-Control"]).toBe(
+      "public, s-maxage=60, stale-while-revalidate=300"
+    );
+    expect(res.headers["Cache-Control"]).toBe(listRes.headers["Cache-Control"]);
+  });
+
+  it("leaves error responses uncached", async () => {
+    const res = makeRes();
+    await vaultDetailHandler(
+      fakeReq({ method: "GET", query: { vaultId: "unknown-vault" } }),
+      res
+    );
+    expect(res.statusCode).toBe(404);
+    expect(res.headers["Cache-Control"]).toBeUndefined();
   });
 });
 
