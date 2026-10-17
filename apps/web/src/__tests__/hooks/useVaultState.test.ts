@@ -165,7 +165,7 @@ describe("useVaultState", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(client.getQueryData(["vault-state", "admin", true])).toEqual(STATE);
-    const query = client.getQueryCache().find({ queryKey: ["vault-state", "admin"] });
+    const query = client.getQueryCache().find({ queryKey: ["vault-state", "admin", true] });
     expect(query?.isStale()).toBe(false);
     expect(query?.observers[0]?.options.staleTime).toBe(30_000);
   });
