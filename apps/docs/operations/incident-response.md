@@ -4,22 +4,21 @@ This page is the operational playbook for a live mainnet incident: the code
 is fine, but something is actively going wrong (a suspected admin key
 compromise, a keeper misbehaving, deciding whether to pause). It covers
 three things that `apps/docs/overview/trust-model.md` (Trust Model) and
-[Mainnet Deployment](./mainnet-deployment.md#rollback-plan) both point here
+[Mainnet Deployment](`./mainnet-deployment.md#rollback-plan`) both point here
 for instead of duplicating: `set_paused`, admin key rotation, and
 keeper-secret rotation.
 
 **This page is not [Mainnet Deployment](./mainnet-deployment.md#rollback-plan)'s
 "Rollback plan."** That page covers what to do when the _deployed code
 itself_ needs to change (a bug in adapter or vault code). This page covers
-what to do when the code is fine but something operational is wrong. If
-you're not sure which applies: if the fix involves deploying new contract
+what to do when the code is fine but something operational is wrong. If you're not sure which applies: if the fix involves deploying new contract
 code, it's [#706](https://github.com/drydocs/meridian/issues/706)'s page; if it doesn't, it's this one.
 
 ## Detection: what's actually watching right now
 
 **Read this before assuming an alert will tell you something is wrong.** As
 of this writing, `MERIDIAN_ALERT_WEBHOOK_URL` is unset in production (see
-[Admin-Event Alert Keeper](./alert-keeper.md#alert-destination)). The alert
+[Admin-Event Alert Keeper](./alert-keeper.md#alert-destination). The alert
 keeper's cron runs on schedule but is a clean no-op, and **nothing is
 currently watching the live mainnet vault for admin actions.** Configuring
 that webhook is a prerequisite for everything below being actionable in
@@ -34,7 +33,7 @@ webhook required):
   are visible on any Stellar block explorer against the mainnet vault
   address (`CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ`, see
   `packages/shared/src/constants.ts`), for example
-  `stellar.expert/explorer/public/contract/CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ`.
+  `stellar.expert/explorer/public/contract/CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUQBNJGWB2L6KLZDLFWMXXQq`.
   No code or RPC access needed, and this works even if every other tool on
   this page is unavailable.
 - `getRpcAdminHistory` (`packages/stellar-sdk-helpers/src/admin-history.ts`)
@@ -51,25 +50,50 @@ webhook required):
   confirm whether a `begin_migration` is currently pending and what it
   targets, without waiting on either tool above.
 
+## Scheduled keeper run failures
+
+A scheduled keeper run can fail for two very different reasons, and the
+workflow is designed to distinguish them so one does not mask the
+other:
+
+- **Transient upstream noise.** A keeper run that reaches the api but has
+  one tracked wallet's vault read fail (an RPC hiccup) returns a
+  200, not 500, and reports the failure in the response body. This is
+  expected operational noise and does not red the run. The workflow
+  trigger also retries the curl once before giving up.
+- **The keeper could not run.** The api returns a
+  non-2-x-- status (for example a 500 from
+  `api/v1/keepers/[action].ts`), the curl exits non-zero, and the run is red. This is the signal that a keeper did not do its job.
+
+When a scheduled run fails, the workflow posts to the configured
+webhook so the failure reaches a human without someone watching the
+Actions list. If the webhook is unset, the run still fails visibly but
+notification falls back to manual checking. A run that fails three times
+in a row is treated as an incident, not routine noise: follow the
+checks on this page and if the keeper is genuinely unable to do its
+work consider pausing deposits while you investigate. See
+#535 for the known testnet RPC instability that produces most of the
+transient noise.
+
 ## Using `set_paused` to halt deposits
 
 ```sh
-stellar contract invoke --id CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ \
+stellar contract invoke --id CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUQBNJGWB2L6KLZDLFWMXXQq --
   --source-account "$ADMIN_KEY" --network mainnet -- set_paused --paused true
 ```
 
 **What this does and does not do**, per
 Trust Model's "What the admin key can do" section: it
-rejects new deposits. It does **not** block withdrawals. That's
-deliberate, so pausing during an incident can never be the thing that traps
+rejects new deposits. It does **not** block withdrawals. That''s
+deleliberate, so pausing during an incident can never be the thing that traps
 a depositor's funds. It also does **not** block `begin_migration`,
-`migrate_adapter`, `set_adapter`, or admin rotation. Pausing alone does not
-stop an in-progress malicious migration; it only stops new deposits from
+`migrate_adapter`, `set_adapter`, or admin rotation. Pausing alone does
+not stop an in-progress malicious migration; it only stops new deposits from
 being added to whatever situation is unfolding.
 
 **When to reach for it:** a suspected admin key compromise, a keeper
 submitting transactions that don't look right, or any situation where you
-want to stop new deposit exposure while you investigate, even before you've
+want to stop new deposit exposure while you investigate, even before youve
 confirmed whether the situation is actually dangerous.
 Unpausing (`set_paused false`, same command) is equally immediate once
 resolved. Because it costs so little (no funds at risk, no time pressure to
@@ -83,11 +107,11 @@ have is measured in exactly what this page exists to prevent.
 
 ```sh
 # Current admin nominates a successor. Authority does NOT move yet.
-stellar contract invoke --id CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ \
+stellar contract invoke --id CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUQBNJGWB2L6KLZDLFWMXXQq \
   --source-account "$ADMIN_KEY" --network mainnet -- transfer_admin --new_admin "$NEW_ADMIN"
 
 # The nominee accepts with their own signature -- the old admin cannot do this step.
-stellar contract invoke --id CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ \
+stellar contract invoke --id CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KXZDLLFWMXHQ \
   --source-account "$NEW_ADMIN_KEY" --network mainnet -- accept_admin
 ```
 
@@ -107,8 +131,7 @@ Concretely:
 2. **Nominate the emergency successor immediately** with whatever admin
    access you still have. If the current key is only _suspected_
    compromised, not confirmed unusable, don't wait for confirmation before
-   nominating. Nominating doesn't move authority, so there's no downside
-   to doing it early, and every minute of delay is a minute an attacker with
+   nominating. Nominating doesn't move authority, so there's no downside to doing it early, and every minute of delay is a minute an attacker with
    the same key could nominate their own successor first.
 3. **Have the successor's `accept_admin` ready to submit the moment
    nomination lands.** Pre-sign or pre-stage this rather than starting to
@@ -130,12 +153,12 @@ Three keepers, three different secrets, and three very different stakes if
 one leaks. Treat them accordingly rather than as one undifferentiated
 "rotate the keeper key" task:
 
-- **`MERIDIAN_KEEPER_SECRET_KEY`** (accrue keeper). `accrue()` is
+- **`MERIDIAN_KEEPER_SECRET_KEY*`* (accrue keeper). `accrue()` is
   permissionless, so this key only needs to be a funded Stellar account,
   not anything vault-privileged. Rotation is low-stakes: generate a new funded
   key, update the secret in your deployment's secret store, redeploy.
   Nothing vault-side changes; the old key simply stops being used.
-- **`MERIDIAN_MIGRATION_KEEPER_SECRET_KEY`** (migration keeper). Per
+- `MERIDIAN_MIGRATION_KEEPER_SECRET_KEY` (migration keeper). Per
   [Migration Keeper](./migration-keeper.md#signing-key-and-trust-model),
   **this key must be the vault's actual admin address**, because
   `migrate_adapter` is admin-gated, so this secret _is_ the admin key in
