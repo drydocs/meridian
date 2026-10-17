@@ -16,7 +16,8 @@ import { txRoute } from "./routes/tx";
 import { keepersRoute } from "./routes/keepers";
 import { adminRoute } from "./routes/admin";
 
-// Rate limits: global 100 req/min; /tx/deposit and /tx/withdraw 10 req/min per IP.
+// Rate limits: one shared 100 req/min limiter across all routes, matching the
+// deployed handlers' shared Upstash sliding window (api/_lib/middleware.ts).
 // Body limit: 10 KB on all routes to block oversized payload attacks.
 // Security headers: X-Content-Type-Options and X-Frame-Options on every response.
 const app = Fastify({ logger: true, bodyLimit: 10 * 1024 });
@@ -27,10 +28,14 @@ const redisClient = process.env.REDIS_URL
 
 await app.register(cors, {
   origin: process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN,
+  methods: ["GET", "OPTIONS"],
 });
 await app.register(rateLimit, {
   max: 100,
   timeWindow: "1 minute",
+  // One shared bucket across all routes, not one per route, so a local run
+  // exercises the same budget as the deployed shared Upstash limiter.
+  keyGenerator: (req) => req.ip ?? "unknown",
   ...(redisClient ? { redis: redisClient } : {}),
 });
 

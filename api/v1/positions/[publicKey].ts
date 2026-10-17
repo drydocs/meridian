@@ -1,9 +1,14 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { handleGetPositions } from "@meridian/api-core";
-import { applyCors, checkRateLimit } from "../../_lib/middleware.js";
+import {
+  applyCors,
+  checkRateLimit,
+  requireGetMethod,
+} from "../../_lib/middleware.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
+  if (requireGetMethod(req, res)) return;
   try {
     if (!(await checkRateLimit(req, res))) return;
   } catch (err) {
