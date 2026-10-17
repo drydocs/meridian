@@ -2,9 +2,11 @@ import type { RouteResult } from "./types";
 import { getAdminActionHistory } from "@meridian/stellar-sdk-helpers";
 import { APP_NETWORK } from "@meridian/shared";
 import { KNOWN_POOLS } from "@meridian/stellar-sdk-helpers";
+import { verifyAdmin } from "./admin-auth";
 
 export async function handleGetAdminHistory(
-  vaultId: string
+  vaultId: string,
+  authorization?: string
 ): Promise<RouteResult> {
   try {
     const vault = KNOWN_POOLS.mainnet[vaultId] ?? KNOWN_POOLS.testnet[vaultId];
@@ -14,6 +16,12 @@ export async function handleGetAdminHistory(
         body: { error: "vault not found or missing contractId", vaultId },
       };
     }
+
+    const authorizationResult = await verifyAdmin(
+      vault.contractId,
+      authorization
+    );
+    if (authorizationResult) return authorizationResult;
 
     const actions = await getAdminActionHistory(APP_NETWORK, vault.contractId, {
       limit: 50,

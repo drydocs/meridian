@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { getAdminSessionToken } from "../lib/adminSession";
 
 export interface AdminAction {
   id: string;
@@ -12,10 +13,11 @@ export interface AdminAction {
 }
 
 export function useAdminHistory(vaultId: string | null) {
+  const sessionToken = getAdminSessionToken();
   return useQuery({
-    queryKey: ["adminHistory", vaultId],
-    queryFn: () => api.getAdminHistory(vaultId!),
-    enabled: Boolean(vaultId),
+    queryKey: ["adminHistory", vaultId, Boolean(sessionToken)],
+    queryFn: () => api.getAdminHistory(vaultId!, sessionToken!),
+    enabled: Boolean(vaultId && sessionToken),
     staleTime: 30_000,
     retry: 1,
   });

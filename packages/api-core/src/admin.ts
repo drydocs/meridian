@@ -9,6 +9,7 @@ import {
   loadKeeperHeartbeatStore,
 } from "@meridian/stellar-sdk-helpers";
 import type { RouteResult } from "./types";
+import { verifyAdmin } from "./admin-auth";
 
 export interface KeeperHealthEntry {
   id: "accrual" | "migration";
@@ -65,7 +66,7 @@ export async function handleGetKeeperHealth(): Promise<RouteResult> {
  * changes, this picks the first one rather than guessing which is "the"
  * vault the dashboard should show.
  */
-export async function handleGetVaultState(): Promise<RouteResult> {
+async function readVaultState(): Promise<RouteResult> {
   const pools =
     APP_NETWORK.network === "testnet"
       ? KNOWN_POOLS.testnet
@@ -96,4 +97,35 @@ export async function handleGetVaultState(): Promise<RouteResult> {
       error: err,
     };
   }
+}
+
+export async function handleGetPublicVaultState(): Promise<RouteResult> {
+  return readVaultState();
+}
+
+export async function handleGetVaultState(
+  authorization?: string
+): Promise<RouteResult> {
+  const pools =
+    APP_NETWORK.network === "testnet"
+      ? KNOWN_POOLS.testnet
+      : KNOWN_POOLS.mainnet;
+  const entry = Object.values(pools).find(
+    (p): p is typeof p & { contractId: string } =>
+      p.protocol === "meridian" && Boolean(p.contractId)
+  );
+  if (!entry) {
+    return {
+      status: 404,
+      body: {
+        error: "No Meridian coordinator vault configured for this network",
+      },
+    };
+  }
+  const authorizationResult = await verifyAdmin(
+    entry.contractId,
+    authorization
+  );
+  if (authorizationResult) return authorizationResult;
+  return readVaultState();
 }

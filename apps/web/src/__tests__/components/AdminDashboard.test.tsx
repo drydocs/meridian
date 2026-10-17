@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { AdminDashboard } from "../../pages/AdminDashboard";
 
 vi.mock("../../components/admin/KeeperHealthPanel", () => ({
@@ -32,5 +32,13 @@ describe("AdminDashboard", () => {
     expect(screen.getByTestId("keeper-health-panel")).toBeDefined();
     expect(screen.getByTestId("vault-state-panel")).toBeDefined();
     expect(screen.getByTestId("admin-action-history")).toBeDefined();
+  });
+
+  it("calls the logout action", () => {
+    const onLogout = vi.fn();
+    render(<AdminDashboard onLogout={onLogout} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "admin.signOut" }));
+    expect(onLogout).toHaveBeenCalledOnce();
   });
 });

@@ -44,6 +44,7 @@ function makeWrapper() {
 }
 
 beforeEach(() => {
+  window.sessionStorage.setItem("meridian-admin-session", "signed-session");
   getAdminHistory.mockReset();
 });
 
@@ -58,7 +59,7 @@ describe("useAdminHistory", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(getAdminHistory).toHaveBeenCalledOnce();
-    expect(getAdminHistory).toHaveBeenCalledWith("vault-1");
+    expect(getAdminHistory).toHaveBeenCalledWith("vault-1", "signed-session");
     expect(result.current.data).toEqual(RESPONSE);
   });
 
@@ -129,7 +130,22 @@ describe("useAdminHistory", () => {
     expect(second.result.current.data?.actions).toEqual([
       { ...ACTION, id: "vault-2" },
     ]);
-    expect(client.getQueryData(["adminHistory", "vault-1"])).toBeDefined();
-    expect(client.getQueryData(["adminHistory", "vault-2"])).toBeDefined();
+    expect(
+      client.getQueryData(["adminHistory", "vault-1", true])
+    ).toBeDefined();
+    expect(
+      client.getQueryData(["adminHistory", "vault-2", true])
+    ).toBeDefined();
+  });
+
+  it("does not fetch without a signed admin session", () => {
+    window.sessionStorage.clear();
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useAdminHistory("vault-1"), {
+      wrapper,
+    });
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(getAdminHistory).not.toHaveBeenCalled();
   });
 });

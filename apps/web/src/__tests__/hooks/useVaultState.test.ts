@@ -7,10 +7,12 @@ import {
   computeMinUsdcOut,
   useVaultState,
 } from "../../hooks/useVaultState";
+import { usePublicVaultState } from "../../hooks/usePublicVaultState";
 
 vi.mock("../../lib/api", () => ({
   api: {
     getVaultState: vi.fn(),
+    getPublicVaultState: vi.fn(),
   },
 }));
 
@@ -97,6 +99,7 @@ describe("computeMinSharesOut / computeMinUsdcOut", () => {
 
 describe("useVaultState", () => {
   beforeEach(() => {
+    window.sessionStorage.setItem("meridian-admin-session", "signed-session");
     vi.clearAllMocks();
   });
 
@@ -107,7 +110,7 @@ describe("useVaultState", () => {
     expect(result.current.isPending).toBe(true);
     expect(result.current.isLoading).toBe(true);
     expect(result.current.data).toBeUndefined();
-    expect(getVaultState).toHaveBeenCalledTimes(1);
+    expect(getVaultState).toHaveBeenCalledWith("signed-session");
   });
 
   it("returns the vault state on success", async () => {
@@ -119,7 +122,7 @@ describe("useVaultState", () => {
     expect(result.current.data).toEqual(STATE);
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error).toBeNull();
-    expect(getVaultState).toHaveBeenCalledTimes(1);
+    expect(getVaultState).toHaveBeenCalledWith("signed-session");
   });
 
   it("reports a paused vault as returned, without transforming it", async () => {
@@ -161,9 +164,39 @@ describe("useVaultState", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(client.getQueryData(["vault-state"])).toEqual(STATE);
-    const query = client.getQueryCache().find({ queryKey: ["vault-state"] });
+    expect(client.getQueryData(["vault-state", "admin", true])).toEqual(STATE);
+    const query = client
+      .getQueryCache()
+      .find({ queryKey: ["vault-state", "admin", true] });
     expect(query?.isStale()).toBe(false);
     expect(query?.observers[0]?.options.staleTime).toBe(30_000);
+  });
+
+  it("does not fetch admin state without a signed session", () => {
+    window.sessionStorage.clear();
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result } = renderHook(() => useVaultState(), { wrapper });
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(getVaultState).not.toHaveBeenCalled();
+  });
+
+  it("fetches public vault state without a wallet or session", async () => {
+    window.sessionStorage.clear();
+    const getPublicVaultState = vi.mocked(api.getPublicVaultState);
+    getPublicVaultState.mockResolvedValue(STATE);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result } = renderHook(() => usePublicVaultState(), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(getPublicVaultState).toHaveBeenCalledOnce();
   });
 });

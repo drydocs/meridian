@@ -88,6 +88,13 @@ vi.mock("../../lib/api", () => ({
       totalAssets: 100,
       paused: false,
     })),
+    getPublicVaultState: vi.fn(async () => ({
+      protocol: "blend",
+      adapterId: "adapter",
+      totalShares: 50,
+      totalAssets: 100,
+      paused: false,
+    })),
   },
 }));
 
@@ -422,7 +429,7 @@ describe("useVaultActions — fresh vault state slippage", () => {
     });
 
     expect(ok).toBe(true);
-    expect(api.getVaultState).toHaveBeenCalled();
+    expect(api.getPublicVaultState).toHaveBeenCalled();
     // 25 * (50/100) * 0.995 = 12.4375
     expect(api.buildDeposit).toHaveBeenCalledWith({
       walletAddress: KEY,
@@ -442,7 +449,7 @@ describe("useVaultActions — fresh vault state slippage", () => {
     });
 
     expect(ok).toBe(true);
-    expect(api.getVaultState).toHaveBeenCalled();
+    expect(api.getPublicVaultState).toHaveBeenCalled();
     // 10 * (100/50) = 20 gross. No cached position, so the whole payout is
     // priced as gain: 20 - 10% fee = 18, then the 0.5% haircut -> 17.91.
     expect(api.buildWithdraw).toHaveBeenCalledWith({
@@ -509,7 +516,7 @@ describe("useVaultActions — fresh vault state slippage", () => {
   });
 
   it("falls back to the cached vault state when the fresh read fails", async () => {
-    vi.mocked(api.getVaultState).mockRejectedValueOnce(
+    vi.mocked(api.getPublicVaultState).mockRejectedValueOnce(
       new Error("rate limited")
     );
     getQueryData.mockImplementation((key: unknown[]) =>
@@ -547,7 +554,9 @@ describe("useVaultActions — fresh vault state slippage", () => {
   });
 
   it("refuses to submit unprotected when no vault state is available at all", async () => {
-    vi.mocked(api.getVaultState).mockRejectedValueOnce(new Error("rpc down"));
+    vi.mocked(api.getPublicVaultState).mockRejectedValueOnce(
+      new Error("rpc down")
+    );
     const { result } = renderHook(() => useVaultActions());
 
     let ok: boolean | undefined;

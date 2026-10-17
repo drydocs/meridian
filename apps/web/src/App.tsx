@@ -7,10 +7,12 @@ import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useWalletStore } from "./store/wallet";
 import { useTranslation } from "react-i18next";
 import { AdminLogin } from "./pages/AdminLogin";
+import { configureAdminSessionQueryClient } from "./lib/adminSession";
 import { StatusPage } from "./pages/StatusPage";
 import { NotFound } from "./pages/NotFound";
 
 const queryClient = new QueryClient();
+configureAdminSessionQueryClient(queryClient);
 
 // No router dependency for a few extra routes: the app has a handful of
 // pages, and pulling in react-router for a couple of static path splits

@@ -1,17 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { StatusPage } from "../../pages/StatusPage";
-import { useVaultState } from "../../hooks/useVaultState";
+import { usePublicVaultState } from "../../hooks/usePublicVaultState";
 import { APP_ADDRESSES } from "@meridian/shared";
 
-vi.mock("../../hooks/useVaultState", () => ({
-  useVaultState: vi.fn(),
+vi.mock("../../hooks/usePublicVaultState", () => ({
+  usePublicVaultState: vi.fn(),
 }));
 vi.mock("../../components/admin/VaultStatePanel", () => ({
   VaultStatePanel: () => <div data-testid="vault-state-panel" />,
-}));
-vi.mock("../../components/dashboard/AdminActionHistory", () => ({
-  AdminActionHistory: () => <div data-testid="admin-action-history" />,
 }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -28,13 +25,13 @@ vi.mock("react-i18next", () => ({
   },
 }));
 
-function mockVaultState(data: ReturnType<typeof useVaultState>["data"]) {
-  vi.mocked(useVaultState).mockReturnValue({
+function mockVaultState(data: ReturnType<typeof usePublicVaultState>["data"]) {
+  vi.mocked(usePublicVaultState).mockReturnValue({
     data,
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
-  } as unknown as ReturnType<typeof useVaultState>);
+  } as unknown as ReturnType<typeof usePublicVaultState>);
 }
 
 describe("StatusPage", () => {
@@ -76,12 +73,12 @@ describe("StatusPage", () => {
     ).toBeDefined();
   });
 
-  it("renders the vault state panel and admin action history", () => {
+  it("renders the public vault state panel without admin history", () => {
     mockVaultState(undefined);
     render(<StatusPage />);
 
     expect(screen.getByTestId("vault-state-panel")).toBeDefined();
-    expect(screen.getByTestId("admin-action-history")).toBeDefined();
+    expect(screen.queryByTestId("admin-action-history")).toBeNull();
   });
 
   it("shows the migration cooldown as a fixed protocol parameter", () => {

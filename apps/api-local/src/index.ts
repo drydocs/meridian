@@ -15,6 +15,7 @@ import { positionsRoute } from "./routes/positions";
 import { txRoute } from "./routes/tx";
 import { keepersRoute } from "./routes/keepers";
 import { adminRoute } from "./routes/admin";
+import { publicVaultStateRoute } from "./routes/vault-state";
 
 // Rate limits: global 100 req/min; /tx/deposit and /tx/withdraw 10 req/min per IP.
 // Body limit: 10 KB on all routes to block oversized payload attacks.
@@ -45,6 +46,7 @@ app.register(positionsRoute, { prefix: "/api/v1/positions" });
 app.register(txRoute, { prefix: "/api/v1/tx" });
 app.register(keepersRoute, { prefix: "/api/v1/keepers" });
 app.register(adminRoute, { prefix: "/api/v1/admin" });
+app.register(publicVaultStateRoute, { prefix: "/api/v1/vault-state" });
 
 app.get("/health", async () => ({ status: "ok" }));
 
