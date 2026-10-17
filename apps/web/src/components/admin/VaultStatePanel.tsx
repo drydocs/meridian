@@ -16,7 +16,7 @@ export function VaultStatePanel() {
   return (
     <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40">
       <div className="px-6 pt-5 pb-4 border-b border-gray-800">
-        <p className="text-sm font-semibold text-white">
+        <p className="text-sm font-semibold text-paper">
           {t("admin.vaultState.title")}
         </p>
       </div>
@@ -49,7 +49,7 @@ export function VaultStatePanel() {
               <p className="text-xs text-gray-500 mb-1">
                 {t("admin.vaultState.adapter")}
               </p>
-              <p className="text-sm font-semibold text-white">
+              <p className="text-sm font-semibold text-paper">
                 {PROTOCOL_LABEL[data.protocol] ?? data.protocol}
               </p>
             </div>
@@ -76,7 +76,7 @@ export function VaultStatePanel() {
               <p className="text-xs text-gray-500 mb-1">
                 {t("admin.vaultState.totalShares")}
               </p>
-              <p className="text-sm font-semibold text-white tabular-nums">
+              <p className="text-sm font-semibold text-paper tabular-nums">
                 {formatAmount(data.totalShares)}
               </p>
             </div>
@@ -84,7 +84,7 @@ export function VaultStatePanel() {
               <p className="text-xs text-gray-500 mb-1">
                 {t("admin.vaultState.totalAssets")}
               </p>
-              <p className="text-sm font-semibold text-white tabular-nums">
+              <p className="text-sm font-semibold text-paper tabular-nums">
                 {formatAmount(data.totalAssets)}
               </p>
             </div>

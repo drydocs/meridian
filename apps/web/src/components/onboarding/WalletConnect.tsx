@@ -171,7 +171,7 @@ export function WalletConnect() {
 
   if (connected && publicKey) {
     return (
-      <div className="flex items-center gap-2 text-sm border border-gray-700 rounded-lg px-3 py-2 text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150">
+      <div className="flex items-center gap-2 text-sm border border-gray-700 rounded-lg px-3 py-2 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
         <span>{shortenAddress(publicKey)}</span>
         <button
@@ -182,7 +182,7 @@ export function WalletConnect() {
           aria-label={
             copied ? t("walletConnect.copied") : t("walletConnect.copyAddress")
           }
-          className="text-gray-400 hover:text-white transition-colors duration-150"
+          className="text-gray-400 hover:text-paper transition-colors duration-150"
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
@@ -190,7 +190,7 @@ export function WalletConnect() {
         <span className="text-gray-600">·</span>
         <button
           onClick={handleDisconnect}
-          className="text-gray-400 hover:text-white transition-colors duration-150"
+          className="text-gray-400 hover:text-paper transition-colors duration-150"
         >
           {t("walletConnect.disconnect")}
         </button>
@@ -218,7 +218,7 @@ export function WalletConnect() {
         disabled={status === "connecting"}
         aria-haspopup="menu"
         aria-expanded={pickerOpen}
-        className="text-sm border border-gray-700 rounded-lg pl-4 pr-3 py-2 font-medium text-gray-300 hover:border-gray-600 hover:text-white transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+        className="text-sm border border-gray-700 rounded-lg pl-4 pr-3 py-2 font-medium text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
       >
         {status === "connecting"
           ? t("common.connecting")
@@ -245,7 +245,7 @@ export function WalletConnect() {
                 tabIndex={-1}
                 data-testid={`wallet-picker-option-${w.id}`}
                 onClick={() => handlePick(w)}
-                className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-gray-300 hover:bg-gray-800/60 hover:text-white transition-colors duration-150"
+                className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-gray-300 hover:bg-gray-800/60 hover:text-paper transition-colors duration-150"
               >
                 <span>{w.name}</span>
                 {installed === true && (

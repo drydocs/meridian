@@ -144,7 +144,7 @@ export function VaultPanel() {
             </svg>
             <div>
               <p className="text-xs text-gray-500">Meridian</p>
-              <p className="text-sm font-semibold text-white">USDC Vault</p>
+              <p className="text-sm font-semibold text-paper">USDC Vault</p>
             </div>
           </div>
           <div className="text-right">
@@ -182,7 +182,7 @@ export function VaultPanel() {
               <p className="text-xs text-gray-500 mb-1.5">
                 {t("vaultPanel.tvl")}
               </p>
-              <p className="text-lg font-bold text-white">
+              <p className="text-lg font-bold text-paper">
                 {formatTvl(bestVault.tvl)}
               </p>
             </div>
@@ -190,7 +190,7 @@ export function VaultPanel() {
               <p className="text-xs text-gray-500 mb-1.5">
                 {t("vaultPanel.route")}
               </p>
-              <p className="text-lg font-bold text-white">
+              <p className="text-lg font-bold text-paper">
                 {PROTOCOL_LABEL[bestVault.protocol] ?? bestVault.protocol}
               </p>
             </div>
@@ -238,7 +238,7 @@ export function VaultPanel() {
               onClick={() => handleTabChange(tabId)}
               className={`flex-1 py-3 text-sm font-semibold transition-colors duration-150 ${
                 tab === tabId
-                  ? "text-white border-b-2 border-emerald-500"
+                  ? "text-paper border-b-2 border-settled"
                   : "text-gray-600 hover:text-gray-400"
               }`}
             >
@@ -276,7 +276,7 @@ export function VaultPanel() {
               <button
                 onClick={() => void handleConnect()}
                 disabled={connectStatus === "connecting"}
-                className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
+                className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
               >
                 {connectStatus === "connecting"
                   ? t("common.connecting")
