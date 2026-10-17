@@ -274,4 +274,3 @@ describe("Blend transaction builders", () => {
     expect(prepareSorobanTx).not.toHaveBeenCalled();
   });
 });
-
