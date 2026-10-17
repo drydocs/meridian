@@ -554,7 +554,9 @@ describe("useVaultActions — fresh vault state slippage", () => {
   });
 
   it("refuses to submit unprotected when no vault state is available at all", async () => {
-    vi.mocked(api.getPublicVaultState).mockRejectedValueOnce(new Error("rpc down"));
+    vi.mocked(api.getPublicVaultState).mockRejectedValueOnce(
+      new Error("rpc down")
+    );
     const { result } = renderHook(() => useVaultActions());
 
     let ok: boolean | undefined;

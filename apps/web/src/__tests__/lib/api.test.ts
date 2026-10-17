@@ -7,7 +7,10 @@ import {
   getAdminSessionToken,
 } from "../../lib/adminSession";
 
-function response(status: number, body: unknown = { error: "failed" }): Response {
+function response(
+  status: number,
+  body: unknown = { error: "failed" }
+): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
@@ -21,19 +24,23 @@ beforeEach(() => {
 });
 
 describe("admin API session invalidation", () => {
-  it.each([401, 403])("clears the session on an authenticated %s", async (status) => {
-    window.sessionStorage.setItem("meridian-admin-session", "token");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(status)));
+  it.each([401, 403])(
+    "clears the session on an authenticated %s",
+    async (status) => {
+      window.sessionStorage.setItem("meridian-admin-session", "token");
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(status)));
 
-    await expect(api.getVaultState("token")).rejects.toThrow(
-      "Session ended, please sign in again"
-    );
-    expect(getAdminSessionToken()).toBeNull();
-  });
+      await expect(api.getVaultState("token")).rejects.toThrow(
+        "Session ended, please sign in again"
+      );
+      expect(getAdminSessionToken()).toBeNull();
+    }
+  );
 
   it("does not clear the session on a 500 or network error", async () => {
     window.sessionStorage.setItem("meridian-admin-session", "token");
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce(response(500))
       .mockRejectedValueOnce(new Error("network down"));
     vi.stubGlobal("fetch", fetchMock);
@@ -64,7 +71,11 @@ describe("admin API session invalidation", () => {
 
     expect(getAdminSessionToken()).toBeNull();
     expect(queryClient.getQueryData(["adminHistory", "vault"])).toBeUndefined();
-    expect(queryClient.getQueryData(["vault-state", "admin", true])).toBeUndefined();
-    expect(queryClient.getQueryData(["vault-state", "public"])).toEqual({ paused: false });
+    expect(
+      queryClient.getQueryData(["vault-state", "admin", true])
+    ).toBeUndefined();
+    expect(queryClient.getQueryData(["vault-state", "public"])).toEqual({
+      paused: false,
+    });
   });
 });

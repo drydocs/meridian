@@ -165,17 +165,19 @@ class FreighterWallet implements WalletAdapter {
   async signMessage(message: string): Promise<string> {
     return withMockWallet(
       async (mock) => {
-        if (!mock.signMessage) throw new Error("This wallet cannot sign admin challenges");
+        if (!mock.signMessage)
+          throw new Error("This wallet cannot sign admin challenges");
         return mock.signMessage(message);
       },
       async () => {
-        const freighter = (await import("@stellar/freighter-api")) as unknown as {
-          signMessage?: (message: string) => Promise<{
-            signedMessage?: string;
-            signature?: string;
-            error?: { message: string };
-          }>;
-        };
+        const freighter =
+          (await import("@stellar/freighter-api")) as unknown as {
+            signMessage?: (message: string) => Promise<{
+              signedMessage?: string;
+              signature?: string;
+              error?: { message: string };
+            }>;
+          };
         if (!freighter.signMessage) {
           throw new Error("This wallet cannot sign admin challenges");
         }
@@ -523,7 +525,9 @@ export const wallet: WalletAdapter = {
   signMessage: (message) => {
     const adapter = getWalletAdapter(getSelectedWalletId());
     if (!adapter.signMessage) {
-      return Promise.reject(new Error("This wallet cannot sign admin challenges"));
+      return Promise.reject(
+        new Error("This wallet cannot sign admin challenges")
+      );
     }
     return adapter.signMessage(message);
   },

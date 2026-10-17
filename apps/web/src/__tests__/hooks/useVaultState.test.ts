@@ -165,14 +165,18 @@ describe("useVaultState", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(client.getQueryData(["vault-state", "admin", true])).toEqual(STATE);
-    const query = client.getQueryCache().find({ queryKey: ["vault-state", "admin", true] });
+    const query = client
+      .getQueryCache()
+      .find({ queryKey: ["vault-state", "admin", true] });
     expect(query?.isStale()).toBe(false);
     expect(query?.observers[0]?.options.staleTime).toBe(30_000);
   });
 
   it("does not fetch admin state without a signed session", () => {
     window.sessionStorage.clear();
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(QueryClientProvider, { client }, children);
     const { result } = renderHook(() => useVaultState(), { wrapper });
@@ -185,7 +189,9 @@ describe("useVaultState", () => {
     window.sessionStorage.clear();
     const getPublicVaultState = vi.mocked(api.getPublicVaultState);
     getPublicVaultState.mockResolvedValue(STATE);
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(QueryClientProvider, { client }, children);
     const { result } = renderHook(() => usePublicVaultState(), { wrapper });

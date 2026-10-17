@@ -78,7 +78,10 @@ describe("handleGetAdminHistory", () => {
   it("rejects a stale admin session after admin rotation", async () => {
     const token = await tokenFor();
     vi.mocked(fetchVaultAdmin).mockResolvedValue(Keypair.random().publicKey());
-    const result = await handleGetAdminHistory("meridian-usdc", `Bearer ${token}`);
+    const result = await handleGetAdminHistory(
+      "meridian-usdc",
+      `Bearer ${token}`
+    );
     expect(result.status).toBe(403);
     expect(getAdminActionHistory).not.toHaveBeenCalled();
   });
@@ -86,7 +89,10 @@ describe("handleGetAdminHistory", () => {
   it("fails closed when the live admin lookup fails", async () => {
     vi.mocked(fetchVaultAdmin).mockRejectedValueOnce(new Error("rpc down"));
     const token = await tokenFor();
-    const result = await handleGetAdminHistory("meridian-usdc", `Bearer ${token}`);
+    const result = await handleGetAdminHistory(
+      "meridian-usdc",
+      `Bearer ${token}`
+    );
     expect(result.status).toBe(503);
     expect(getAdminActionHistory).not.toHaveBeenCalled();
   });
