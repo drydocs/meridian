@@ -207,10 +207,7 @@ jobs:
         working-directory: packages/contracts
         run: >-
           cargo llvm-cov
-          --package meridian-vault
-          --package meridian-blend-adapter
-          --package meridian-defindex-adapter
-          --package adapter-common
+          --workspace
           --summary-only
           --fail-under-lines 97.5
       - name: Build wasm
