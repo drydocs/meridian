@@ -20,27 +20,58 @@ on:
 jobs:
   trigger-keepers:
     runs-on: ubuntu-latest
+    continue-on-error: false
     steps:
       - name: Trigger alert keeper
         if: github.event.schedule == '*/5 * * * *' || github.event_name == 'workflow_dispatch'
         run: |
-          curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/alert" \
+          curl -sf --retry 3 --retry-delay 10 --retry-connrefused -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/alert" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
 
       - name: Trigger accrual keeper
         if: github.event.schedule == '*/15 * * * *' || github.event_name == 'workflow_dispatch'
         run: |
-          curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/accrue" \
+          curl -sf --retry 3 --retry-delay 10 --retry-connrefused -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/accrue" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
 
       - name: Trigger migration keeper
         if: github.event.schedule == '0 * * * *' || github.event_name == 'workflow_dispatch'
         run: |
-          curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/rebalance" \
+          curl -sf --retry 3 --retry-delay 10 --retry-connrefused -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/rebalance" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
 
       - name: Trigger position snapshot keeper
         if: github.event.schedule == '0 * * * *' || github.event_name == 'workflow_dispatch'
         run: |
-          curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/snapshot" \
+          curl -sf --retry 3 --retry-delay 10 --retry-connrefused -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/snapshot" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+
+      - name: Alert on repeated keeper failures
+        if: failure()
+        run: |
+          echo "::error::Keeper run failed for schedule '${{ github.event.schedule }}' (run ${{ github.run_id }})."
+          curl -sf -X POST "${{ vars.API_BASE_URL }}/api/v1/keepers/alert" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"source":"github-actions","schedule":"${{ github.event.schedule }}","runId":"${{ github.run_id }}","runUrl":"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' || true
+
+      - name: Alert on three consecutive keeper failures
+        if: failure()
+        env:
+          GH/TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Count consecutive failed runs for this workflow before this one.
+          consecutive=$(gh run list \
+            --workflow "${{ github.workflow }}" \
+            --branch "${{ github.ref_name }}" \
+            --status failure \
+            --limit 3 \
+            --json databaseId \
+            --jq 'length')
+          if [ "$consecutive" -ge 3 ]; then
+            echo "::error::Keeper workflow has failed $consecutive times in a row; escalating to a human."
+            gh issue create \
+              --title "Keeper workflow failing repeatedly (${{ github.workflow }})" \
+              --body "The Keepers Schedule workflow has failed $consecutive consecutive runs. Latest: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              --label "bug" || true
+          fi
