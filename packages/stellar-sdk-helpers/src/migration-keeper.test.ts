@@ -597,7 +597,7 @@ describe("runMigrationKeeper", () => {
 
     expect(rateSource).toHaveBeenCalled();
     for (const call of rateSource.mock.calls) {
-      expect(call[0]).not.toHaveProperty("assetId");
+      expect((call as unknown[])[0]).not.toHaveProperty("assetId");
     }
   });
 

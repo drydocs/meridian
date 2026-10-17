@@ -34,7 +34,7 @@ describe("handleGetVaults", () => {
   });
 
   it("sets recommendedVaultId to null when no best vault is found", async () => {
-    vi.mocked(selectBestVault).mockReturnValueOnce(undefined);
+    vi.mocked(selectBestVault).mockReturnValueOnce(null);
     const result = await handleGetVaults();
     expect(result.status).toBe(200);
     expect(result.body).toMatchObject({ recommendedVaultId: null });

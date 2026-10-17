@@ -780,7 +780,7 @@ describe("createDefaultRateSource", () => {
     await rateSource(defindexQuery());
 
     expect(fetchMock).toHaveBeenCalled();
-    const [calledUrl] = fetchMock.mock.calls[0] as [string];
+    const [calledUrl] = fetchMock.mock.calls[0] as unknown as [string];
     expect(calledUrl).toContain("https://upstash.example/get/");
   });
 

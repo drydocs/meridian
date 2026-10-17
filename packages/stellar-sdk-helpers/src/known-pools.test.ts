@@ -9,20 +9,21 @@ describe("known-pools", () => {
 
     for (const key of mainnetKeys) {
       const pool = KNOWN_POOLS.mainnet[key];
-      expect(pool.id).toBeTruthy();
-      expect(pool.name).toBeTruthy();
-      expect(pool.protocol).toBeTruthy();
-      expect(pool.label).toBeTruthy();
+      expect(pool).toBeDefined();
+      expect(pool!.id).toBeTruthy();
+      expect(pool!.name).toBeTruthy();
+      expect(pool!.protocol).toBeTruthy();
+      expect(pool!.label).toBeTruthy();
     }
   });
 
   it("contains valid mainnet meridian-usdc metadata with asset, contractId, and assetId", () => {
     const pool = KNOWN_POOLS.mainnet["meridian-usdc"];
     expect(pool).toBeDefined();
-    expect(pool.protocol).toBe("meridian");
-    expect(pool.asset).toBe("USDC");
-    expect(pool.contractId).toBeTruthy();
-    expect(pool.assetId).toBeTruthy();
+    expect(pool!.protocol).toBe("meridian");
+    expect(pool!.asset).toBe("USDC");
+    expect(pool!.contractId).toBeTruthy();
+    expect(pool!.assetId).toBeTruthy();
   });
 
   it("contains valid testnet pools metadata", () => {
@@ -32,13 +33,14 @@ describe("known-pools", () => {
 
     for (const key of testnetKeys) {
       const pool = KNOWN_POOLS.testnet[key];
-      expect(pool.id).toBeTruthy();
-      expect(pool.name).toBeTruthy();
-      expect(pool.protocol).toBeTruthy();
-      expect(pool.label).toBeTruthy();
-      expect(pool.contractId).toBeTruthy();
-      expect(pool.assetId).toBeTruthy();
-      expect(pool.asset).toBeTruthy();
+      expect(pool).toBeDefined();
+      expect(pool!.id).toBeTruthy();
+      expect(pool!.name).toBeTruthy();
+      expect(pool!.protocol).toBeTruthy();
+      expect(pool!.label).toBeTruthy();
+      expect(pool!.contractId).toBeTruthy();
+      expect(pool!.assetId).toBeTruthy();
+      expect(pool!.asset).toBeTruthy();
     }
   });
 });

@@ -267,7 +267,11 @@ describe("keeper-tx", () => {
 
   describe("submitKeeperOperation", () => {
     const config = {
-      network: { id: "testnet", passphrase: "Test Passphrase" },
+      network: {
+        network: "testnet" as const,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        passphrase: "Test SDF Network ; September 2015",
+      },
       secretKey: "SDJVL65W4DVKN2G3V5477LSPTL2FPG35VSPM5Y4Y5W3HLSQO3542247A", // valid secret key for tests
       rpcTimeoutMs: 1000,
       confirmationTimeoutMs: 2000,

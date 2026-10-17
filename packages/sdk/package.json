@@ -31,7 +31,7 @@
     "test": "vitest run --coverage",
     "test:coverage": "vitest run --coverage --reporter=html --reporter=text",
     "coverage": "vitest run --coverage --passWithNoTests",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
     "@meridian/shared": "workspace:*",

@@ -265,7 +265,10 @@ describe("prepareSorobanTx contract errors", () => {
         latestLedger: 1,
         error: raw,
         events: [],
-      });
+        _parsed: true,
+      } as unknown as Awaited<
+        ReturnType<typeof rpc.Server.prototype.simulateTransaction>
+      >);
       const network: StellarNetwork = {
         network: "testnet",
         rpcUrl: "https://soroban-testnet.stellar.org",
@@ -367,7 +370,10 @@ describe("simulateView", () => {
       .invokeHostFunctionOp()
       .hostFunction()
       .invokeContract();
-    expect(invocation.contractAddress().contractId().toString("hex")).toBe(
+    const contractIdBytes = invocation
+      .contractAddress()
+      .contractId() as unknown as Uint8Array;
+    expect(Buffer.from(contractIdBytes).toString("hex")).toBe(
       new Contract(CONTRACT_ID).address().toBuffer().toString("hex")
     );
     expect(invocation.functionName().toString()).toBe("get_total_assets");
@@ -481,7 +487,7 @@ describe("assertRequiredTrustlines", () => {
 
   it("resolves when the USDC trustline is present", async () => {
     vi.spyOn(Horizon.Server.prototype, "loadAccount").mockResolvedValue({
-      balances: [makeBalance("USDC", USDC_ISSUER_TESTNET)],
+      balances: [makeBalance("USDC", USDC_ISSUER_TESTNET!)],
     } as unknown as Awaited<ReturnType<Horizon.Server["loadAccount"]>>);
 
     await expect(
@@ -527,7 +533,7 @@ describe("buildAddTrustlineTx", () => {
     // mUSDC is a SEP-41 contract token post-#578 (MUSDC_ISSUER.testnet is
     // ""), so it has no classic trustline to check — only USDC is required.
     vi.spyOn(Horizon.Server.prototype, "loadAccount").mockResolvedValue({
-      balances: [makeBalance("USDC", USDC_ISSUER_TESTNET)],
+      balances: [makeBalance("USDC", USDC_ISSUER_TESTNET!)],
     } as unknown as Awaited<ReturnType<Horizon.Server["loadAccount"]>>);
 
     await expect(

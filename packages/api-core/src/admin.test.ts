@@ -115,7 +115,7 @@ describe("handleGetVaultState", () => {
         error: "No Meridian coordinator vault configured for this network",
       });
     } finally {
-      entry.contractId = originalContractId;
+      entry.contractId = originalContractId!;
     }
   });
 });

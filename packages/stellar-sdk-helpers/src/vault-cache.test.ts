@@ -116,7 +116,7 @@ describe("vault-cache", () => {
 
     await getCachedVaults("mainnet");
 
-    expect(mockFetch.mock.calls[0][0]).toBe(REST_URL);
+    expect((mockFetch.mock.calls[0] as unknown[])[0]).toBe(REST_URL);
   });
 
   // Regression: the payload used to be JSON.stringify'd on the way in and
@@ -171,10 +171,11 @@ describe("vault-cache", () => {
 
     await getCachedVaults("testnet");
 
-    expect(JSON.parse(mockFetch.mock.calls[0][1].body as string)).toEqual([
-      "GET",
-      "vault-cache:testnet",
-    ]);
+    const call = mockFetch.mock.calls[0] as unknown as [
+      unknown,
+      { body: string },
+    ];
+    expect(JSON.parse(call[1].body)).toEqual(["GET", "vault-cache:testnet"]);
   });
 
   it("returns null when the key is absent", async () => {

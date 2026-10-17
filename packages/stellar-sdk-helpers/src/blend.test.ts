@@ -183,10 +183,11 @@ describe("fetchBlendPositions", () => {
     vi.mocked(PoolV2.load).mockResolvedValue(pool as never);
 
     const [pos] = await fetchBlendPositions(network, POOL_ID, PUBKEY, [
-      reserves[0],
+      reserves[0]!,
     ]);
-    expect(pos.shares).toBe(30);
-    expect(pos.deposited).toBe(40);
+    expect(pos).toBeDefined();
+    expect(pos!.shares).toBe(30);
+    expect(pos!.deposited).toBe(40);
   });
 
   it("skips reserves not present in the pool", async () => {
@@ -204,7 +205,7 @@ describe("fetchBlendPositions", () => {
       reserves
     );
     expect(result).toHaveLength(1);
-    expect(result[0].vaultId).toBe("blend-usdc-fixed");
+    expect(result[0]!.vaultId).toBe("blend-usdc-fixed");
   });
 
   it("skips reserves where the user has zero total balance", async () => {
@@ -215,7 +216,7 @@ describe("fetchBlendPositions", () => {
     vi.mocked(PoolV2.load).mockResolvedValue(pool as never);
 
     const result = await fetchBlendPositions(network, POOL_ID, PUBKEY, [
-      reserves[0],
+      reserves[0]!,
     ]);
     expect(result).toEqual([]);
   });

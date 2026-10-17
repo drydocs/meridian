@@ -153,7 +153,7 @@ describe("fetchAllVaults (mainnet)", () => {
     stubPools([llamaPool({ pool: "unrecognised-id" })]);
     const vaults = await fetchAllVaults("mainnet");
     expect(vaults).toHaveLength(1);
-    expect(vaults[0].id).toBe("meridian-usdc");
+    expect(vaults[0]!.id).toBe("meridian-usdc");
   });
 
   it("no longer emits a placeholder DeFindex vault", async () => {
@@ -276,7 +276,7 @@ describe("fetchAllVaults (mainnet)", () => {
     "still caches vaults when Meridian legitimately lacks %s",
     async (missingField) => {
       const original = KNOWN_POOLS.mainnet["meridian-usdc"];
-      const incomplete = { ...original };
+      const incomplete = { ...original! };
       delete incomplete[missingField];
       KNOWN_POOLS.mainnet["meridian-usdc"] = incomplete;
 
@@ -292,7 +292,7 @@ describe("fetchAllVaults (mainnet)", () => {
         );
         expect(await fetchAllVaults("mainnet")).toBe(vaults);
       } finally {
-        KNOWN_POOLS.mainnet["meridian-usdc"] = original;
+        KNOWN_POOLS.mainnet["meridian-usdc"] = original!;
       }
     }
   );
@@ -329,7 +329,7 @@ describe("fetchAllVaults (mainnet)", () => {
     );
     const vaults = await fetchAllVaults("mainnet");
     expect(vaults).toHaveLength(1);
-    expect(vaults[0].id).toBe("meridian-usdc");
+    expect(vaults[0]!.id).toBe("meridian-usdc");
   });
 
   it("serves stale Meridian data without renewing either cache and retries immediately", async () => {
@@ -468,7 +468,7 @@ describe("fetchAllVaults (mainnet)", () => {
       const vaults = await fetchAllVaults("mainnet");
       expect(vaults).toEqual([]);
     } finally {
-      KNOWN_POOLS.mainnet["meridian-usdc"] = origMeridian;
+      KNOWN_POOLS.mainnet["meridian-usdc"] = origMeridian!;
     }
   });
 });
@@ -490,10 +490,10 @@ describe("fetchAllVaults (testnet)", () => {
 
     const vaults = await fetchAllVaults("testnet");
     expect(vaults).toHaveLength(1);
-    expect(vaults[0].id).toBe("meridian-usdc");
-    expect(vaults[0].protocol).toBe("meridian");
-    expect(vaults[0].tvl).toBe(1000);
-    expect(vaults[0].riskLevel).toBe("safe");
+    expect(vaults[0]!.id).toBe("meridian-usdc");
+    expect(vaults[0]!.protocol).toBe("meridian");
+    expect(vaults[0]!.tvl).toBe(1000);
+    expect(vaults[0]!.riskLevel).toBe("safe");
   });
 
   it("returns zero TVL when get_total_assets returns zero", async () => {
@@ -501,7 +501,7 @@ describe("fetchAllVaults (testnet)", () => {
     vi.mocked(toBigInt).mockReturnValue(0n);
 
     const vaults = await fetchAllVaults("testnet");
-    expect(vaults[0].tvl).toBe(0);
+    expect(vaults[0]!.tvl).toBe(0);
   });
 
   it("does not cache testnet results between calls", async () => {
@@ -534,7 +534,7 @@ describe("fetchAllVaults (testnet)", () => {
       expect.objectContaining({ rpc: expect.any(String) }),
       POOL_ID
     );
-    expect(vaults[0].apy).toBe(8);
+    expect(vaults[0]!.apy).toBe(8);
   });
 
   it("returns apy 0 without querying Blend when the adapter wraps an unrecognised protocol", async () => {
@@ -544,7 +544,7 @@ describe("fetchAllVaults (testnet)", () => {
 
     const vaults = await fetchAllVaults("testnet");
 
-    expect(vaults[0].apy).toBe(0);
+    expect(vaults[0]!.apy).toBe(0);
     expect(loadSpy).not.toHaveBeenCalled();
   });
 
