@@ -17,13 +17,11 @@ describe("sanitizeTxError", () => {
     expect(sanitizeTxError(undefined, "fallback")).toBe("fallback");
   });
 
-  it("returns the first line of a clean multi-line error message", () => {
+  it("uses the fallback for an unapproved clean-looking error message", () => {
     const err = new Error(
       "Transaction simulation failed\n  at contract: ...\n  context: ..."
     );
-    expect(sanitizeTxError(err, "fallback")).toBe(
-      "Transaction simulation failed"
-    );
+    expect(sanitizeTxError(err, "fallback")).toBe("fallback");
   });
 
   it("returns the fallback when the first line contains an RPC URL", () => {
@@ -50,6 +48,14 @@ describe("sanitizeTxError", () => {
     expect(sanitizeTxError(err, "fallback")).toBe(
       "All required trustlines already exist"
     );
+    expect(sanitizeTxError(new Error("USDC trustline missing"), "fallback")).toBe(
+      "USDC trustline missing"
+    );
+  });
+
+  it("falls back for arbitrary SDK and assertion messages", () => {
+    expect(sanitizeTxError(new Error("withdraw failed"), "fallback")).toBe("fallback");
+    expect(sanitizeTxError(new Error("trust something build failed"), "fallback")).toBe("fallback");
   });
 });
 
