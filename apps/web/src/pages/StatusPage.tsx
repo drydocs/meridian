@@ -1,8 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { APP_ADDRESSES, APP_NETWORK } from "@meridian/shared";
-import { useVaultState } from "../hooks/useVaultState";
+import { usePublicVaultState } from "../hooks/usePublicVaultState";
 import { VaultStatePanel } from "../components/admin/VaultStatePanel";
-import { AdminActionHistory } from "../components/dashboard/AdminActionHistory";
 import { ErrorBoundary } from "../components/ui/ErrorBoundary";
 
 // Migration cooldown is a compile-time Rust constant
@@ -62,7 +61,7 @@ function AddressList({ rows }: { rows: AddressRow[] }) {
 
 export function StatusPage() {
   const { t } = useTranslation();
-  const { data: vaultState } = useVaultState();
+  const { data: vaultState } = usePublicVaultState();
 
   const addressRows: AddressRow[] = [
     {
@@ -110,7 +109,7 @@ export function StatusPage() {
         </div>
 
         <ErrorBoundary>
-          <VaultStatePanel />
+          <VaultStatePanel publicReadOnly />
         </ErrorBoundary>
 
         <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40 px-6 py-6">
@@ -131,14 +130,6 @@ export function StatusPage() {
             {t("status.parameters.note")}
           </p>
         </div>
-
-        <ErrorBoundary>
-          <AdminActionHistory
-            vaultId="meridian-usdc"
-            network={APP_NETWORK.network}
-            isAdmin
-          />
-        </ErrorBoundary>
 
         <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40 px-6 py-6">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">

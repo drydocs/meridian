@@ -73,6 +73,7 @@ export interface E2EMockWallet {
   authorized: boolean;
   address: string;
   sign: (xdr: string, networkPassphrase: string) => Promise<string>;
+  signMessage?: (message: string) => Promise<string>;
 }
 
 declare global {
@@ -112,6 +113,7 @@ export interface WalletAdapter {
   isAuthorized(): Promise<boolean>;
   connect(): Promise<string>;
   sign(xdr: string, networkPassphrase: string): Promise<string>;
+  signMessage?(message: string): Promise<string>;
 }
 
 class FreighterWallet implements WalletAdapter {
@@ -156,6 +158,32 @@ class FreighterWallet implements WalletAdapter {
         if (result.error) throw new Error(result.error.message);
         if (!result.signedTxXdr) throw new Error("Signing cancelled");
         return result.signedTxXdr;
+      }
+    );
+  }
+
+  async signMessage(message: string): Promise<string> {
+    return withMockWallet(
+      async (mock) => {
+        if (!mock.signMessage) throw new Error("This wallet cannot sign admin challenges");
+        return mock.signMessage(message);
+      },
+      async () => {
+        const freighter = (await import("@stellar/freighter-api")) as unknown as {
+          signMessage?: (message: string) => Promise<{
+            signedMessage?: string;
+            signature?: string;
+            error?: { message: string };
+          }>;
+        };
+        if (!freighter.signMessage) {
+          throw new Error("This wallet cannot sign admin challenges");
+        }
+        const result = await freighter.signMessage(message);
+        if (result.error) throw new Error(result.error.message);
+        const signature = result.signedMessage ?? result.signature;
+        if (!signature) throw new Error("Signing cancelled");
+        return signature;
       }
     );
   }
@@ -492,4 +520,11 @@ export const wallet: WalletAdapter = {
   connect: () => getWalletAdapter(getSelectedWalletId()).connect(),
   sign: (xdr, networkPassphrase) =>
     getWalletAdapter(getSelectedWalletId()).sign(xdr, networkPassphrase),
+  signMessage: (message) => {
+    const adapter = getWalletAdapter(getSelectedWalletId());
+    if (!adapter.signMessage) {
+      return Promise.reject(new Error("This wallet cannot sign admin challenges"));
+    }
+    return adapter.signMessage(message);
+  },
 };

@@ -5,3 +5,4 @@ export * from "./position-history";
 export * from "./vaults";
 export * from "./admin";
 export * from "./admin-history";
+export * from "./admin-auth";

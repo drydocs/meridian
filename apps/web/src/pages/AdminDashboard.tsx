@@ -9,7 +9,7 @@ import { ErrorBoundary } from "../components/ui/ErrorBoundary";
 // by AdminLogin, which only renders this once the connected wallet has been
 // verified against the vault's live get_admin — this component assumes that
 // check has already passed and does not re-gate anything itself.
-export function AdminDashboard() {
+export function AdminDashboard({ onLogout }: { onLogout?: () => void }) {
   const { t } = useTranslation();
 
   return (
@@ -17,6 +17,15 @@ export function AdminDashboard() {
       <h1 className="text-lg font-extrabold text-white mb-6">
         {t("admin.title")}
       </h1>
+      {onLogout ? (
+        <button
+          type="button"
+          onClick={onLogout}
+          className="rounded-lg border border-gray-700 px-4 py-2 text-sm font-semibold text-gray-200 hover:border-gray-600 hover:text-white"
+        >
+          {t("admin.signOut")}
+        </button>
+      ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <ErrorBoundary>

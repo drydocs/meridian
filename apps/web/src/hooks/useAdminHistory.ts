@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import { useWalletStore } from "../store/wallet";
+import { getAdminSessionToken } from "../lib/adminSession";
 
 export interface AdminAction {
   id: string;
@@ -13,11 +13,11 @@ export interface AdminAction {
 }
 
 export function useAdminHistory(vaultId: string | null) {
-  const publicKey = useWalletStore((state) => state.publicKey);
+  const sessionToken = getAdminSessionToken();
   return useQuery({
-    queryKey: ["adminHistory", vaultId, publicKey],
-    queryFn: () => api.getAdminHistory(vaultId!, publicKey!),
-    enabled: Boolean(vaultId && publicKey),
+    queryKey: ["adminHistory", vaultId, Boolean(sessionToken)],
+    queryFn: () => api.getAdminHistory(vaultId!, sessionToken!),
+    enabled: Boolean(vaultId && sessionToken),
     staleTime: 30_000,
     retry: 1,
   });

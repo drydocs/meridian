@@ -283,6 +283,9 @@ importers:
       '@meridian/stellar-sdk-helpers':
         specifier: workspace:*
         version: link:../stellar-sdk-helpers
+      '@stellar/stellar-sdk':
+        specifier: ^14.6.1
+        version: 14.6.1
       zod:
         specifier: ^4.6.5
         version: 4.6.5

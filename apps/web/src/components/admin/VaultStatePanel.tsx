@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useVaultState } from "../../hooks/useVaultState";
+import { usePublicVaultState } from "../../hooks/usePublicVaultState";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
 
 function formatAmount(value: number): string {
@@ -9,9 +10,16 @@ function formatAmount(value: number): string {
   });
 }
 
-export function VaultStatePanel() {
+interface VaultStateQuery {
+  data: ReturnType<typeof useVaultState>["data"];
+  isLoading: boolean;
+  isError: boolean;
+  refetch: () => unknown;
+}
+
+function VaultStatePanelContent({ query }: { query: VaultStateQuery }) {
   const { t } = useTranslation();
-  const { data, isLoading, isError, refetch } = useVaultState();
+  const { data, isLoading, isError, refetch } = query;
 
   return (
     <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40">
@@ -93,4 +101,20 @@ export function VaultStatePanel() {
       </div>
     </div>
   );
+}
+
+function AdminVaultStatePanel() {
+  return <VaultStatePanelContent query={useVaultState()} />;
+}
+
+function PublicVaultStatePanel() {
+  return <VaultStatePanelContent query={usePublicVaultState()} />;
+}
+
+export function VaultStatePanel({
+  publicReadOnly = false,
+}: {
+  publicReadOnly?: boolean;
+}) {
+  return publicReadOnly ? <PublicVaultStatePanel /> : <AdminVaultStatePanel />;
 }
