@@ -11,3 +11,7 @@
 delete process.env.VERCEL_ENV;
 delete process.env.UPSTASH_REDIS_REST_URL;
 delete process.env.UPSTASH_REDIS_REST_TOKEN;
+// APP_NETWORK (packages/shared) defaults to mainnet unless STELLAR_NETWORK=testnet.
+// A local .env containing STELLAR_NETWORK=testnet must not bleed into the test
+// environment and change the expected Cache-Control header on /api/v1/vaults.
+delete process.env.STELLAR_NETWORK;

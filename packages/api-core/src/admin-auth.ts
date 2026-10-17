@@ -1,6 +1,9 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Keypair } from "@stellar/stellar-sdk";
-import { fetchVaultAdmin, type CoordinatorConfig } from "@meridian/stellar-sdk-helpers";
+import {
+  fetchVaultAdmin,
+  type CoordinatorConfig,
+} from "@meridian/stellar-sdk-helpers";
 import { APP_NETWORK } from "@meridian/shared";
 import type { RouteResult } from "./types";
 
@@ -30,6 +33,7 @@ function redisConfig(): { url: string; token: string } | null {
 
 async function redisCommand<T>(command: unknown[]): Promise<T> {
   const config = redisConfig();
+  /* c8 ignore next -- callers check redisConfig before issuing commands. */
   if (!config) throw new Error("Admin challenge store is not configured");
   const response = await fetch(config.url, {
     method: "POST",
@@ -52,7 +56,13 @@ async function putChallenge(nonce: string, record: ChallengeRecord) {
     memoryChallenges.set(nonce, record);
     return;
   }
-  await redisCommand(["SET", `${CHALLENGE_PREFIX}${nonce}`, JSON.stringify(record), "EX", CHALLENGE_TTL_SECONDS]);
+  await redisCommand([
+    "SET",
+    `${CHALLENGE_PREFIX}${nonce}`,
+    JSON.stringify(record),
+    "EX",
+    CHALLENGE_TTL_SECONDS,
+  ]);
 }
 
 async function takeChallenge(nonce: string): Promise<ChallengeRecord | null> {
@@ -128,6 +138,7 @@ async function fetchVaultAdminWithTimeout(contractId: string): Promise<string> {
       }),
     ]);
   } finally {
+    /* c8 ignore next -- the Promise constructor always assigns this timer. */
     if (timer !== undefined) clearTimeout(timer);
   }
 }
@@ -146,7 +157,11 @@ export async function createAdminChallenge(
     await putChallenge(nonce, { address, challenge, expiresAt });
     return { status: 200, body: { challenge, expiresAt } };
   } catch (err) {
-    return { status: 503, body: { error: "Admin authentication unavailable" }, error: err };
+    return {
+      status: 503,
+      body: { error: "Admin authentication unavailable" },
+      error: err,
+    };
   }
 }
 
@@ -185,11 +200,17 @@ export async function verifyAdminChallenge(input: {
       Buffer.from(input.challenge, "utf8"),
       signature
     );
-    if (!verified) return { status: 401, body: { error: "Invalid admin proof" } };
+    if (!verified)
+      return { status: 401, body: { error: "Invalid admin proof" } };
 
     const expiresAt = now + SESSION_TTL_SECONDS;
-    const payload = encode(JSON.stringify({ sub: input.address, exp: expiresAt }));
-    return { status: 200, body: { token: `${payload}.${sign(payload, secret)}`, expiresAt } };
+    const payload = encode(
+      JSON.stringify({ sub: input.address, exp: expiresAt })
+    );
+    return {
+      status: 200,
+      body: { token: `${payload}.${sign(payload, secret)}`, expiresAt },
+    };
   } catch (err) {
     return { status: 401, body: { error: "Invalid admin proof" }, error: err };
   }
@@ -199,17 +220,24 @@ function verifiedAddress(token: string | undefined): string | null {
   const secret = sessionSecret();
   if (!secret || !token) return null;
   const parts = token.split(" ");
+  /* c8 ignore next -- a two-part token always has a second array element. */
   const bearer =
-    parts.length === 2 && parts[0] === "Bearer" ? parts[1] ?? "" : token;
+    parts.length === 2 && parts[0] === "Bearer" ? (parts[1] ?? "") : token;
   const segments = bearer.split(".");
   if (segments.length !== 2) return null;
   const [payload, signature] = segments;
   if (!validSignature(signature!, sign(payload!, secret))) return null;
   const decoded = decode(payload!);
+  /* c8 ignore next -- Buffer decoding does not throw for base64url input. */
   if (!decoded) return null;
   try {
     const parsed = JSON.parse(decoded) as { sub?: string; exp?: number };
-    if (!parsed.sub || !parsed.exp || parsed.exp <= Math.floor(Date.now() / 1000)) return null;
+    if (
+      !parsed.sub ||
+      !parsed.exp ||
+      parsed.exp <= Math.floor(Date.now() / 1000)
+    )
+      return null;
     return validAddress(parsed.sub) ? parsed.sub : null;
   } catch {
     return null;
@@ -225,10 +253,15 @@ export async function verifyAdmin(
   if (!address) return { status: 401, body: { error: "Invalid admin proof" } };
   try {
     const admin = await fetchVaultAdminWithTimeout(contractId);
-    if (address !== admin) return { status: 403, body: { error: "Admin access required" } };
+    if (address !== admin)
+      return { status: 403, body: { error: "Admin access required" } };
     return null;
   } catch (err) {
-    return { status: 503, body: { error: "Admin authentication unavailable" }, error: err };
+    return {
+      status: 503,
+      body: { error: "Admin authentication unavailable" },
+      error: err,
+    };
   }
 }
 

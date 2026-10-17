@@ -127,10 +127,13 @@ export const api = {
     ),
   getPublicVaultState: () => apiFetch<VaultState>("/api/v1/vault-state"),
   getAdminChallenge: (address: string) =>
-    apiFetch<{ challenge: string; expiresAt: number }>("/api/v1/admin/challenge", {
-      method: "POST",
-      body: JSON.stringify({ address }),
-    }),
+    apiFetch<{ challenge: string; expiresAt: number }>(
+      "/api/v1/admin/challenge",
+      {
+        method: "POST",
+        body: JSON.stringify({ address }),
+      }
+    ),
   verifyAdminChallenge: (body: {
     address: string;
     challenge: string;

@@ -6,7 +6,9 @@ type AdminQueryClient = {
 
 let adminQueryClient: AdminQueryClient | null = null;
 
-export function configureAdminSessionQueryClient(client: AdminQueryClient): void {
+export function configureAdminSessionQueryClient(
+  client: AdminQueryClient
+): void {
   adminQueryClient = client;
 }
 
@@ -20,7 +22,8 @@ export function setAdminSessionToken(token: string): void {
 }
 
 export function clearAdminSession(): void {
-  if (typeof window !== "undefined") window.sessionStorage.removeItem(STORAGE_KEY);
+  if (typeof window !== "undefined")
+    window.sessionStorage.removeItem(STORAGE_KEY);
   adminQueryClient?.removeQueries({ queryKey: ["adminHistory"] });
   adminQueryClient?.removeQueries({ queryKey: ["vault-state", "admin"] });
 }

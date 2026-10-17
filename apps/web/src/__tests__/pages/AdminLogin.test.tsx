@@ -87,7 +87,9 @@ describe("AdminLogin", () => {
 
     render(<AdminLogin />);
 
-    await waitFor(() => expect(screen.getByText("Not authorized")).toBeDefined());
+    await waitFor(() =>
+      expect(screen.getByText("Not authorized")).toBeDefined()
+    );
     expect(screen.getByText(shortenAddress(OTHER))).toBeDefined();
     expect(screen.queryByText(OTHER)).toBeNull();
     expect(screen.queryByText(ADMIN, { exact: false })).toBeNull();
@@ -110,7 +112,9 @@ describe("AdminLogin", () => {
     useWalletStore.setState({ publicKey: ADMIN, connected: true });
     render(<AdminLogin />);
 
-    await waitFor(() => expect(screen.getByTestId("admin-dashboard")).toBeDefined());
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-dashboard")).toBeDefined()
+    );
     fireEvent.click(screen.getByText("Dashboard logout"));
     expect(clearAdminSession).toHaveBeenCalled();
   });

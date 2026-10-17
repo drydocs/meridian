@@ -122,7 +122,10 @@ export async function handleGetVaultState(
       },
     };
   }
-  const authorizationResult = await verifyAdmin(entry.contractId, authorization);
+  const authorizationResult = await verifyAdmin(
+    entry.contractId,
+    authorization
+  );
   if (authorizationResult) return authorizationResult;
   return readVaultState();
 }

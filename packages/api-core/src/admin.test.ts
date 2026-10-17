@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Keypair } from "@stellar/stellar-sdk";
 
 vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
   const actual =
@@ -23,6 +24,7 @@ import {
   handleGetPublicVaultState,
   handleGetVaultState,
 } from "./admin";
+import { createAdminChallenge, verifyAdminChallenge } from "./admin-auth";
 import {
   fetchCoordinatorState,
   fetchVaultAdmin,
@@ -30,7 +32,10 @@ import {
   KNOWN_POOLS,
 } from "@meridian/stellar-sdk-helpers";
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  process.env.MERIDIAN_ADMIN_SESSION_SECRET = "test-only-secret";
+  vi.clearAllMocks();
+});
 
 describe("handleGetKeeperHealth", () => {
   it("reports both keepers as unhealthy when no heartbeat has ever been recorded", async () => {
@@ -104,6 +109,22 @@ describe("handleGetVaultState", () => {
     expect(fetchVaultAdmin).not.toHaveBeenCalled();
   });
 
+  it("serves the protected state to a verified current admin", async () => {
+    const admin = Keypair.random();
+    vi.mocked(fetchVaultAdmin).mockResolvedValue(admin.publicKey());
+    const challengeResult = await createAdminChallenge(admin.publicKey());
+    const challenge = (challengeResult.body as { challenge: string }).challenge;
+    const verified = await verifyAdminChallenge({
+      address: admin.publicKey(),
+      challenge,
+      signature: admin.sign(Buffer.from(challenge)).toString("base64"),
+    });
+    const token = (verified.body as { token: string }).token;
+    const result = await handleGetVaultState(`Bearer ${token}`);
+    expect(result.status).toBe(200);
+    expect(fetchCoordinatorState).toHaveBeenCalled();
+  });
+
   it("returns 503 when the on-chain read fails", async () => {
     const err = new Error("rpc unavailable");
     vi.mocked(fetchCoordinatorState).mockRejectedValueOnce(err);
@@ -133,6 +154,9 @@ describe("handleGetVaultState", () => {
       expect(result.body).toEqual({
         error: "No Meridian coordinator vault configured for this network",
       });
+
+      const adminResult = await handleGetVaultState();
+      expect(adminResult.status).toBe(404);
     } finally {
       entry.contractId = originalContractId;
     }
