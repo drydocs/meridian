@@ -7,13 +7,8 @@ import { ErrorBoundary } from "../components/ui/ErrorBoundary";
 
 // Migration cooldown is a compile-time Rust constant
 // (packages/contracts/vault/src/storage.rs's MIN_LEDGER_GAP), not something
-// queryable on-chain, so it's hardcoded here rather than fetched. Slippage
-// tolerance and TTL thresholds are deliberately not shown yet: the vault
-// currently has no admin-configurable slippage ceiling at all (#557, open)
-// and the TTL-extension mechanism (#553) hasn't landed on a deployed
-// contract yet, so displaying either now would misrepresent what's actually
-// live. Add them here once their respective PRs merge.
-const MIGRATION_COOLDOWN_LEDGERS = 12;
+// queryable on-chain, so it's hardcoded here rather than fetched.
+const MIGRATION_COOLDOWN_LEDGERS = 17_280;
 
 const EXPLORER_CONTRACT_BASE: Record<string, string> = {
   testnet: "https://stellar.expert/explorer/testnet/contract",
