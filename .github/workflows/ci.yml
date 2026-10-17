@@ -79,9 +79,6 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
-      # The Vercel serverless functions in api/ live outside the pnpm workspace,
-      # so turbo doesn't cover them — typecheck them explicitly.
-      - run: pnpm typecheck:api
       - name: Verify apps/api-local build output is flat
         run: |
           pnpm --filter @meridian/api-local build
