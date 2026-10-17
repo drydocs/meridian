@@ -4,5 +4,12 @@
   "scripts": {
     "build": "stellar contract build",
     "deploy:testnet": "bash ../../scripts/deploy-testnet.sh"
+  },
+  "turbo": {
+    "tasks": {
+      "build": {
+        "outputs": ["target/**"]
+      }
+    }
   }
 }

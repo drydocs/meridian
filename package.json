@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "turbo run dev",
-    "build": "turbo run build",
+    "dev": "node api.js && turbo run dev",
+    "build": "node api.js && turbo run build",
     "test": "turbo run test",
     "coverage": "turbo run coverage",
     "lint": "turbo run lint",
