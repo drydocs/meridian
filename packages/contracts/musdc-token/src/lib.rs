@@ -28,6 +28,16 @@ const NAME: Symbol = symbol_short!("NAME");
 const SYMBOL: Symbol = symbol_short!("SYMBOL");
 const TOTAL_SUP: Symbol = symbol_short!("TOTAL_SUP");
 
+// TTL management, mirroring the native Stellar Asset Contract this token
+// replaced. Instance storage holds ADMIN/DECIMALS/NAME/SYMBOL/TOTAL_SUP and
+// must be bumped on every entry point; balance entries are persistent and
+// must be bumped after each read and write. Without this, both the contract
+// instance and holder balances archive and every entry point traps.
+const INSTANCE_THRESHOLD: u32 = 17_280; // ~1 day at 5s ledgers
+const INSTANCE_BUMP: u32 = 518_400; // ~30 days
+const BALANCE_THRESHOLD: u32 = 17_280;
+const BALANCE_BUMP: u32 = 518_400;
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -152,6 +162,7 @@ impl MusdcToken {
     /// side (`vault/src/lib.rs`), which calls this the same panic-through
     /// way it already calls the adapter interface's non-`Result` methods.
     pub fn mint(env: Env, to: Address, amount: i128) {
+        Self::extend_instance_ttl(&env);
         if let Err(err) = Self::require_admin(&env) {
             panic_with_error!(&env, err);
         }
@@ -176,10 +187,12 @@ impl MusdcToken {
     }
 
     pub fn total_supply(env: Env) -> i128 {
+        Self::extend_instance_ttl(&env);
         env.storage().instance().get(&TOTAL_SUP).unwrap_or(0)
     }
 
     pub fn admin(env: Env) -> Result<Address, ContractError> {
+        Self::extend_instance_ttl(&env);
         env.storage()
             .instance()
             .get(&ADMIN)
@@ -189,6 +202,24 @@ impl MusdcToken {
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    /// Bumps the contract instance's TTL. Called at the top of every entry
+    /// point so the instance (and the metadata/supply it holds) never
+    /// archives while the token is in use.
+    fn extend_instance_ttl(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+    }
+
+    /// Bumps a balance entry's TTL. Called after every read and write of a
+    /// balance so a holder who takes no action still keeps their position
+    /// alive as long as anyone touches it.
+    fn extend_balance_ttl(env: &Env, id: &Address) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Balance(id.clone()), BALANCE_THRESHOLD, BALANCE_BUMP);
+    }
 
     fn require_admin(env: &Env) -> Result<(), ContractError> {
         let admin: Address = env
@@ -201,16 +232,20 @@ impl MusdcToken {
     }
 
     fn read_balance(env: &Env, id: &Address) -> i128 {
-        env.storage()
+        let balance = env
+            .storage()
             .persistent()
             .get(&DataKey::Balance(id.clone()))
-            .unwrap_or(0)
+            .unwrap_or(0);
+        Self::extend_balance_ttl(env, id);
+        balance
     }
 
     fn write_balance(env: &Env, id: &Address, amount: i128) {
         env.storage()
             .persistent()
             .set(&DataKey::Balance(id.clone()), &amount);
+        Self::extend_balance_ttl(env, id);
     }
 
     fn read_allowance(env: &Env, from: &Address, spender: &Address) -> AllowanceValue {
@@ -323,10 +358,12 @@ impl MusdcToken {
 #[contractimpl]
 impl TokenInterface for MusdcToken {
     fn allowance(env: Env, from: Address, spender: Address) -> i128 {
+        Self::extend_instance_ttl(&env);
         Self::read_allowance(&env, &from, &spender).amount
     }
 
     fn approve(env: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+        Self::extend_instance_ttl(&env);
         from.require_auth();
         if amount < 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
@@ -345,15 +382,18 @@ impl TokenInterface for MusdcToken {
     }
 
     fn balance(env: Env, id: Address) -> i128 {
+        Self::extend_instance_ttl(&env);
         Self::read_balance(&env, &id)
     }
 
     fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        Self::extend_instance_ttl(&env);
         from.require_auth();
         Self::do_transfer(&env, &from, &to, amount);
     }
 
     fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        Self::extend_instance_ttl(&env);
         spender.require_auth();
         if amount <= 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
@@ -363,6 +403,7 @@ impl TokenInterface for MusdcToken {
     }
 
     fn burn(env: Env, from: Address, amount: i128) {
+        Self::extend_instance_ttl(&env);
         from.require_auth();
         if amount <= 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
@@ -386,6 +427,7 @@ impl TokenInterface for MusdcToken {
     }
 
     fn burn_from(env: Env, spender: Address, from: Address, amount: i128) {
+        Self::extend_instance_ttl(&env);
         spender.require_auth();
         if amount <= 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
@@ -410,10 +452,12 @@ impl TokenInterface for MusdcToken {
     }
 
     fn decimals(env: Env) -> u32 {
+        Self::extend_instance_ttl(&env);
         env.storage().instance().get(&DECIMALS).unwrap_or(7)
     }
 
     fn name(env: Env) -> String {
+        Self::extend_instance_ttl(&env);
         env.storage()
             .instance()
             .get(&NAME)
@@ -421,10 +465,25 @@ impl TokenInterface for MusdcToken {
     }
 
     fn symbol(env: Env) -> String {
+        Self::extend_instance_ttl(&env);
         env.storage()
             .instance()
             .get(&SYMBOL)
             .unwrap_or_else(|| String::from_str(&env, ""))
+    }
+}
+
+#[contractimpl]
+impl MusdcToken {
+    /// Permissionless TTL refresh so a keeper can keep this token (and the
+    /// given holder's balance entry) alive without holding any authority.
+    /// Mirrors the vault's `extend_position_ttl`. Extends the instance and,
+    /// when `holder` is provided, that holder's balance entry.
+    pub fn extend_ttl(env: Env, holder: Option<Address>) {
+        Self::extend_instance_ttl(&env);
+        if let Some(holder) = holder {
+            Self::extend_balance_ttl(&env, &holder);
+        }
     }
 }
 

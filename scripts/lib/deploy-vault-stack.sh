@@ -47,6 +47,13 @@
 # After sourcing, call deploy_vault_stack. It sets VAULT_ID, BLEND_ADAPTER_ID,
 # MUSDC_ID, and VAULT_INITIALIZED (1 if the vault itself was deployed this
 # run, 0 if the ADMIN_KEY-empty fallback above was taken) as globals.
+#
+# mUSDC (#bug: TTL management) is a custom persistent-storage token with no
+# TTL extension of its own, so its instance and balance entries can archive.
+# deploy_vault_stack therefore calls the token's permissionless
+# extend_instance_ttl entry point after deploying it (and, when the vault is
+# deployed this run, after the vault constructor's initial mint), so a fresh
+# deployment does not start already close to archival.
 
 upload() {
   stellar contract upload "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" --wasm "$1"
@@ -147,6 +154,15 @@ deploy_vault_stack() {
     -- --admin "$VAULT_ID" --decimals 7 --name "Meridian USDC" --symbol mUSDC)
   echo "mUSDC contract ID: $MUSDC_ID"
 
+  # mUSDC has no TTL management of its own beyond the permissionless
+  # extend_instance_ttl entry point, so bump its instance TTL right after
+  # deploy. This is permissionless and idempotent; a keeper should call it
+  # periodically afterwards. Failure here is non-fatal: the token is already
+  # deployed and wired, and the entry point can be invoked again later.
+  echo "Extending mUSDC instance TTL..."
+  stellar contract invoke "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" --id "$MUSDC_ID" \
+    -- extend_instance_ttl || echo "WARNING: failed to extend mUSDC instance TTL; re-run extend_instance_ttl later." >&2
+
   # Deploying with the same salt used to reserve VAULT_ID above lands the
   # vault at that exact address. Its constructor sets
   # admin/usdc/musdc/adapter/treasury in this same transaction and requires
@@ -173,6 +189,15 @@ deploy_vault_stack() {
       exit 1
     fi
     echo "vault contract ID: $VAULT_ID"
+
+    # The vault constructor mints initial shares to the admin, creating the
+    # first mUSDC balance entry. Extend the instance TTL again now that the
+    # token has been used, so the freshly-deployed token does not begin its
+    # life already partway through its persistent-entry lifetime.
+    echo "Extending mUSDC instance TTL after vault initialization..."
+    stellar contract invoke "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" --id "$MUSDC_ID" \
+      -- extend_instance_ttl || echo "WARNING: failed to extend mUSDC instance TTL; re-run extend_instance_ttl later." >&2
+
     VAULT_INITIALIZED=1
   else
     # ADMIN is separate from DEPLOYER and ADMIN_KEY was not supplied, so
@@ -195,6 +220,12 @@ deploy_vault_stack() {
     echo "  stellar contract deploy ${STELLAR_NETWORK_FLAGS[*]} --source <your-ADMIN-key-or-alias> \\"
     echo "    --wasm-hash $vault_hash --salt $vault_salt \\"
     echo "    -- --admin $ADMIN_ADDRESS --usdc $USDC_ID --musdc $MUSDC_ID --adapter $BLEND_ADAPTER_ID --treasury $TREASURY_ADDRESS"
+    echo ""
+    echo "After the vault is deployed, extend the mUSDC instance TTL (and any"
+    echo "balance entries) so the token does not archive:"
+    echo ""
+    echo "  stellar contract invoke ${STELLAR_NETWORK_FLAGS[*]} --source <any-key> --id $MUSDC_ID \\"
+    echo "    -- extend_instance_ttl"
     echo ""
   fi
 }
