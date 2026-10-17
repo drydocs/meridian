@@ -6,10 +6,15 @@ vi.mock("@meridian/stellar-sdk-helpers", () => ({
   ]),
   selectBestVault: vi.fn(() => ({ id: "blend-usdc-fixed" })),
   isVaultCacheWarm: vi.fn(() => false),
+  wasVaultCacheHit: vi.fn(() => false),
 }));
 
 import { handleGetVaults, handleGetVaultById } from "./vaults";
-import { fetchAllVaults, selectBestVault } from "@meridian/stellar-sdk-helpers";
+import {
+  fetchAllVaults,
+  selectBestVault,
+  wasVaultCacheHit,
+} from "@meridian/stellar-sdk-helpers";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -21,6 +26,15 @@ describe("handleGetVaults", () => {
       vaults: [{ id: "blend-usdc-fixed" }],
       recommendedVaultId: "blend-usdc-fixed",
       cached: false,
+    });
+  });
+
+  it("returns cached: true when wasVaultCacheHit reports a cache hit", async () => {
+    vi.mocked(wasVaultCacheHit).mockReturnValueOnce(true);
+    const result = await handleGetVaults();
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      cached: true,
     });
   });
 

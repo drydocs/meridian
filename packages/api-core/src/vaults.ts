@@ -2,14 +2,14 @@ import { isDefindexConfigured, APP_NETWORK } from "@meridian/shared";
 import {
   fetchAllVaults,
   selectBestVault,
-  isVaultCacheWarm,
+  wasVaultCacheHit,
 } from "@meridian/stellar-sdk-helpers";
 import type { RouteResult } from "./types";
 
 export async function handleGetVaults(): Promise<RouteResult> {
   try {
-    const cached = isVaultCacheWarm();
     const vaults = await fetchAllVaults(APP_NETWORK.network);
+    const cached = wasVaultCacheHit();
     const best = selectBestVault(vaults, {
       defindexConfigured: isDefindexConfigured(),
     });

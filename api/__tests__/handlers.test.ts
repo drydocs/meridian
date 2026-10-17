@@ -102,6 +102,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     ]),
     selectBestVault: vi.fn(() => ({ id: "blend-usdc-fixed" })),
     isVaultCacheWarm: vi.fn(() => false),
+    wasVaultCacheHit: vi.fn(() => false),
     resolvePositions: vi.fn(async () => [
       {
         vaultId: "blend-usdc-fixed",
@@ -218,6 +219,7 @@ import {
   getPositionHistory,
   runPositionSnapshotKeeper,
   fetchAllVaults,
+  wasVaultCacheHit,
 } from "@meridian/stellar-sdk-helpers";
 
 // A 56-char Stellar public key shape (only the length is validated).
@@ -629,6 +631,16 @@ describe("GET /api/v1/vaults", () => {
       vaults: [{ id: "blend-usdc-fixed" }],
       recommendedVaultId: "blend-usdc-fixed",
       cached: false,
+    });
+  });
+
+  it("reports cached: true when served from cache", async () => {
+    vi.mocked(wasVaultCacheHit).mockReturnValueOnce(true);
+    const res = makeRes();
+    await vaultsHandler(fakeReq({ method: "GET" }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      cached: true,
     });
   });
 });

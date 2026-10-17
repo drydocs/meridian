@@ -22,7 +22,13 @@ vi.mock("./vault-cache", () => ({
 
 import { simulateView } from "./tx";
 import { toBigInt } from "./internal";
-import { fetchAllVaults, clearVaultCache, isVaultCacheWarm } from "./vaults";
+import {
+  fetchAllVaults,
+  fetchVaultsWithCache,
+  clearVaultCache,
+  isVaultCacheWarm,
+  wasVaultCacheHit,
+} from "./vaults";
 import { getCachedVaults, setCachedVaults } from "./vault-cache";
 import { KNOWN_POOLS } from "./known-pools";
 
@@ -113,6 +119,39 @@ describe("isVaultCacheWarm", () => {
   });
 });
 
+describe("wasVaultCacheHit", () => {
+  beforeEach(() => {
+    clearVaultCache();
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    clearVaultCache();
+  });
+
+  it("returns false initially when cache is empty", () => {
+    expect(wasVaultCacheHit()).toBe(false);
+  });
+
+  it("returns false after fresh mainnet fetch and true on subsequent warm call", async () => {
+    mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
+    stubPools([llamaPool()]);
+
+    await fetchAllVaults("mainnet");
+    expect(wasVaultCacheHit()).toBe(false);
+
+    await fetchAllVaults("mainnet");
+    expect(wasVaultCacheHit()).toBe(true);
+  });
+
+  it("returns false on testnet calls", async () => {
+    mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
+    await fetchAllVaults("testnet");
+    expect(wasVaultCacheHit()).toBe(false);
+  });
+});
+
 describe("fetchAllVaults (mainnet)", () => {
   beforeEach(() => {
     clearVaultCache();
@@ -185,12 +224,31 @@ describe("fetchAllVaults (mainnet)", () => {
     vi.mocked(getCachedVaults).mockResolvedValueOnce(first);
 
     expect(await fetchAllVaults("mainnet")).toBe(first);
+    expect(wasVaultCacheHit()).toBe(true);
     expect(await fetchAllVaults("mainnet")).toBe(first);
+    expect(wasVaultCacheHit()).toBe(true);
     expect(isVaultCacheWarm()).toBe(true);
     expect(getCachedVaults).toHaveBeenCalledExactlyOnceWith("mainnet");
     expect(simulateView).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
     expect(setCachedVaults).not.toHaveBeenCalled();
+  });
+
+  it("reports cached: true via fetchVaultsWithCache on shared L2 cache hit", async () => {
+    stubPools([llamaPool()]);
+    const first = await fetchAllVaults("mainnet");
+    clearVaultCache();
+    vi.clearAllMocks();
+    vi.mocked(getCachedVaults).mockResolvedValueOnce(first);
+
+    const res = await fetchVaultsWithCache("mainnet");
+    expect(res.cached).toBe(true);
+    expect(res.vaults).toBe(first);
+    expect(wasVaultCacheHit()).toBe(true);
+    expect(isVaultCacheWarm()).toBe(true);
+    expect(getCachedVaults).toHaveBeenCalledExactlyOnceWith("mainnet");
+    expect(simulateView).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("serves stale cache instead of dropping third-party pools when DeFiLlama returns no pools", async () => {

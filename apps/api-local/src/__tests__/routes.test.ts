@@ -21,6 +21,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     fetchAllVaults: vi.fn(),
     selectBestVault: vi.fn(),
     isVaultCacheWarm: vi.fn(() => false),
+    wasVaultCacheHit: vi.fn(() => false),
     // api-core now calls this on the deposit/withdraw build path. Without a
     // stub it resolved to `undefined` and threw, turning five route cases into
     // 500s instead of their expected statuses.
