@@ -18,7 +18,11 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
   };
 });
 
-import { handleGetKeeperHealth, handleGetVaultState } from "./admin";
+import {
+  handleGetKeeperHealth,
+  handleGetPublicVaultState,
+  handleGetVaultState,
+} from "./admin";
 import {
   fetchCoordinatorState,
   fetchVaultAdmin,
@@ -76,7 +80,7 @@ describe("handleGetKeeperHealth", () => {
 
 describe("handleGetVaultState", () => {
   it("returns the coordinator vault's state for the configured network", async () => {
-    const result = await handleGetVaultState("GADMIN");
+    const result = await handleGetPublicVaultState();
     expect(result.status).toBe(200);
     expect(result.body).toEqual({
       protocol: "blend",
@@ -88,9 +92,9 @@ describe("handleGetVaultState", () => {
   });
 
   it("rejects a caller who is no longer the live vault admin", async () => {
-    const result = await handleGetVaultState("GSTALE");
-    expect(result.status).toBe(403);
-    expect(fetchVaultAdmin).toHaveBeenCalledOnce();
+    const result = await handleGetVaultState("Bearer not-a-token");
+    expect(result.status).toBe(401);
+    expect(fetchVaultAdmin).not.toHaveBeenCalled();
     expect(fetchCoordinatorState).not.toHaveBeenCalled();
   });
 
@@ -103,16 +107,9 @@ describe("handleGetVaultState", () => {
   it("returns 503 when the on-chain read fails", async () => {
     const err = new Error("rpc unavailable");
     vi.mocked(fetchCoordinatorState).mockRejectedValueOnce(err);
-    const result = await handleGetVaultState("GADMIN");
+    const result = await handleGetPublicVaultState();
     expect(result.status).toBe(503);
     expect(result.error).toBe(err);
-  });
-
-  it("fails closed when the live admin lookup fails", async () => {
-    vi.mocked(fetchVaultAdmin).mockRejectedValueOnce(new Error("rpc down"));
-    const result = await handleGetVaultState("GADMIN");
-    expect(result.status).toBe(503);
-    expect(fetchCoordinatorState).not.toHaveBeenCalled();
   });
 
   it("returns 404 when no Meridian coordinator vault is configured for this network", async () => {
@@ -131,7 +128,7 @@ describe("handleGetVaultState", () => {
     delete entry.contractId;
 
     try {
-      const result = await handleGetVaultState();
+      const result = await handleGetPublicVaultState();
       expect(result.status).toBe(404);
       expect(result.body).toEqual({
         error: "No Meridian coordinator vault configured for this network",

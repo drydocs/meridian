@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Lock, LockOpen } from "lucide-react";
-import { fetchVaultAdmin } from "@meridian/stellar-sdk-helpers";
-import { APP_ADDRESSES, APP_NETWORK, shortenAddress } from "@meridian/shared";
+import { shortenAddress } from "@meridian/shared";
 import { useWalletStore } from "../store/wallet";
 import { useWalletConnect } from "../hooks/useWalletConnect";
 import { AdminDashboard } from "./AdminDashboard";
+import { api } from "../lib/api";
+import { clearAdminSession, setAdminSessionToken } from "../lib/adminSession";
+import { wallet } from "../lib/wallet";
 
 // Keyed by the public key it was resolved for, so a wallet switch is
 // recognized as "not checked yet" (loading) during render rather than
@@ -22,16 +24,33 @@ export function AdminLogin() {
   const [result, setResult] = useState<GateResult | null>(null);
 
   useEffect(() => {
-    if (!connected || !publicKey) return;
+    if (!connected || !publicKey) {
+      clearAdminSession();
+      return;
+    }
     let cancelled = false;
-    fetchVaultAdmin({ contractId: APP_ADDRESSES.vault, network: APP_NETWORK })
-      .then((admin) => {
+    clearAdminSession();
+    api
+      .getAdminChallenge(publicKey)
+      .then(async ({ challenge }) => {
+        const signature = await wallet.signMessage!(challenge);
+        return api.verifyAdminChallenge({
+          address: publicKey,
+          challenge,
+          signature,
+        });
+      })
+      .then(({ token }) => {
         if (!cancelled) {
-          setResult({ publicKey, authorized: admin === publicKey });
+          setAdminSessionToken(token);
+          setResult({ publicKey, authorized: true });
         }
       })
       .catch(() => {
-        if (!cancelled) setResult({ publicKey, authorized: false });
+        if (!cancelled) {
+          clearAdminSession();
+          setResult({ publicKey, authorized: false });
+        }
       });
     return () => {
       cancelled = true;
@@ -103,7 +122,12 @@ export function AdminLogin() {
   if (status === "allowed") {
     return (
       <div className="min-h-screen bg-night text-white">
-        <AdminDashboard />
+        <AdminDashboard
+          onLogout={() => {
+            clearAdminSession();
+            disconnect();
+          }}
+        />
       </div>
     );
   }

@@ -6,7 +6,7 @@ import { verifyAdmin } from "./admin-auth";
 
 export async function handleGetAdminHistory(
   vaultId: string,
-  caller?: string
+  authorization?: string
 ): Promise<RouteResult> {
   try {
     const vault = KNOWN_POOLS.mainnet[vaultId] ?? KNOWN_POOLS.testnet[vaultId];
@@ -17,8 +17,11 @@ export async function handleGetAdminHistory(
       };
     }
 
-    const authorization = await verifyAdmin(vault.contractId, caller);
-    if (authorization) return authorization;
+    const authorizationResult = await verifyAdmin(
+      vault.contractId,
+      authorization
+    );
+    if (authorizationResult) return authorizationResult;
 
     const actions = await getAdminActionHistory(APP_NETWORK, vault.contractId, {
       limit: 50,

@@ -1,4 +1,5 @@
 import type { ApiVault, PositionInfo } from "@meridian/stellar-sdk-helpers";
+import { clearAdminSession } from "./adminSession";
 
 export type { ApiVault };
 export type ApiPosition = PositionInfo;
@@ -36,12 +37,18 @@ export interface VaultState {
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  const isAdminRequest = headers.has("Authorization");
   const res = await fetch(`${API_BASE}${path}`, {
     signal: AbortSignal.timeout(15_000),
     headers: { "Content-Type": "application/json" },
     ...init,
   });
   if (!res.ok) {
+    if (isAdminRequest && (res.status === 401 || res.status === 403)) {
+      clearAdminSession();
+      throw new Error("Session ended, please sign in again");
+    }
     const body: unknown = await res.json().catch(() => null);
     let msg = res.statusText;
     if (body !== null && typeof body === "object") {
@@ -63,8 +70,8 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function adminHeaders(walletAddress: string): HeadersInit {
-  return { "x-wallet-address": walletAddress };
+function adminHeaders(sessionToken: string): HeadersInit {
+  return { Authorization: `Bearer ${sessionToken}` };
 }
 
 export const api = {
@@ -118,11 +125,26 @@ export const api = {
     apiFetch<{ keepers: KeeperHealthEntry[]; checkedAt: string }>(
       "/api/v1/keepers/health"
     ),
-  getVaultState: (walletAddress: string) =>
-    apiFetch<VaultState>("/api/v1/admin/vault-state", {
-      headers: adminHeaders(walletAddress),
+  getPublicVaultState: () => apiFetch<VaultState>("/api/v1/vault-state"),
+  getAdminChallenge: (address: string) =>
+    apiFetch<{ challenge: string; expiresAt: number }>("/api/v1/admin/challenge", {
+      method: "POST",
+      body: JSON.stringify({ address }),
     }),
-  getAdminHistory: (vaultId: string, walletAddress: string) =>
+  verifyAdminChallenge: (body: {
+    address: string;
+    challenge: string;
+    signature: string;
+  }) =>
+    apiFetch<{ token: string; expiresAt: number }>("/api/v1/admin/verify", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  getVaultState: (sessionToken: string) =>
+    apiFetch<VaultState>("/api/v1/admin/vault-state", {
+      headers: adminHeaders(sessionToken),
+    }),
+  getAdminHistory: (vaultId: string, sessionToken: string) =>
     apiFetch<{
       vaultId: string;
       contractId: string;
@@ -137,6 +159,6 @@ export const api = {
       }>;
       updatedAt: string;
     }>(`/api/v1/admin/history?vaultId=${encodeURIComponent(vaultId)}`, {
-      headers: adminHeaders(walletAddress),
+      headers: adminHeaders(sessionToken),
     }),
 };
