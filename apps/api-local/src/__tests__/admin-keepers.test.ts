@@ -4,11 +4,18 @@ import { adminRoute } from "../routes/admin.js";
 import { keepersRoute } from "../routes/keepers.js";
 
 vi.mock("@meridian/api-core", () => ({
+  createAdminChallenge: vi.fn(),
+  verifyAdminChallenge: vi.fn(),
   handleGetVaultState: vi.fn(),
   handleGetKeeperHealth: vi.fn(),
 }));
 
-import { handleGetVaultState, handleGetKeeperHealth } from "@meridian/api-core";
+import {
+  createAdminChallenge,
+  verifyAdminChallenge,
+  handleGetVaultState,
+  handleGetKeeperHealth,
+} from "@meridian/api-core";
 
 function buildApp() {
   const app = Fastify({ logger: false });
@@ -24,6 +31,120 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(() => vi.clearAllMocks());
+
+describe("POST /api/v1/admin/challenge", () => {
+  it("returns 200 with the challenge when the address is valid", async () => {
+    const app = buildApp();
+    const body = {
+      challenge: "meridian-admin-v1:GADDR:nonce:1234567890",
+      expiresAt: 1234567890,
+    };
+    vi.mocked(createAdminChallenge).mockResolvedValue({ status: 200, body });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/challenge",
+      payload: { address: "GADDR" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual(body);
+    expect(createAdminChallenge).toHaveBeenCalledWith("GADDR");
+  });
+
+  it("returns 400 when the address is invalid", async () => {
+    const app = buildApp();
+    vi.mocked(createAdminChallenge).mockResolvedValue({
+      status: 400,
+      body: { error: "Invalid wallet address" },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/challenge",
+      payload: { address: "not-a-key" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toHaveProperty("error");
+    expect(createAdminChallenge).toHaveBeenCalledWith("not-a-key");
+  });
+
+  it("coerces a missing address field to an empty string", async () => {
+    const app = buildApp();
+    vi.mocked(createAdminChallenge).mockResolvedValue({
+      status: 400,
+      body: { error: "Invalid wallet address" },
+    });
+
+    // Send with no body at all so req.body is null/undefined (covers the ?? {} branch)
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/challenge",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(createAdminChallenge).toHaveBeenCalledWith("");
+  });
+});
+
+describe("POST /api/v1/admin/verify", () => {
+  it("returns 200 with a session token on valid proof", async () => {
+    const app = buildApp();
+    const body = { token: "hdr.pay.sig", expiresAt: 9999999999 };
+    vi.mocked(verifyAdminChallenge).mockResolvedValue({ status: 200, body });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/verify",
+      payload: {
+        address: "GADDR",
+        challenge: "meridian-admin-v1:GADDR:nonce:1234567890",
+        signature: "AABBCC==",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual(body);
+    expect(verifyAdminChallenge).toHaveBeenCalledWith({
+      address: "GADDR",
+      challenge: "meridian-admin-v1:GADDR:nonce:1234567890",
+      signature: "AABBCC==",
+    });
+  });
+
+  it("returns 401 when the proof is invalid", async () => {
+    const app = buildApp();
+    vi.mocked(verifyAdminChallenge).mockResolvedValue({
+      status: 401,
+      body: { error: "Invalid admin proof" },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/verify",
+      payload: { address: "GADDR", challenge: "bad", signature: "sig" },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toHaveProperty("error");
+  });
+
+  it("coerces missing fields to empty strings", async () => {
+    const app = buildApp();
+    vi.mocked(verifyAdminChallenge).mockResolvedValue({
+      status: 401,
+      body: { error: "Invalid admin proof" },
+    });
+
+    // Send with no body at all so req.body is null/undefined (covers the ?? {} branch)
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/verify",
+    });
+    expect(res.statusCode).toBe(401);
+    expect(verifyAdminChallenge).toHaveBeenCalledWith({
+      address: "",
+      challenge: "",
+      signature: "",
+    });
+  });
+});
 
 describe("GET /api/v1/admin/vault-state", () => {
   it("returns 200 with the coordinator vault state", async () => {
