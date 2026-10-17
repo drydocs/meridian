@@ -26,14 +26,14 @@ App
     └── Action area          # Amount input + submit button
 
 AdminDashboard (/admin)
-├── useIsAdminWallet          # Placeholder client-side gate (see its comment); #614 replaces this
+├── AdminLogin               # Client-side gate calling fetchVaultAdmin to verify connected wallet
 ├── KeeperHealthPanel         # Accrual/migration keeper status, last run, overdue-by
 └── VaultStatePanel           # Active adapter, total shares/assets, Active/Paused badge
 ```
 
 `VaultPanel` is the main stateful UI component. It pulls from three hooks:
 
-- `useVaults()`: fetches `GET /api/v1/vaults`, picks `bestVault` by APY.
+- `useVaults()`: fetches `GET /api/v1/vaults`, selects `bestVault` on the server's `recommendedVaultId`.
 - `usePositions(publicKey)`: fetches `GET /api/v1/positions/:key`, enabled only when connected.
 - `useVaultActions()`: orchestrates the build → sign → submit cycle.
 
@@ -45,7 +45,7 @@ AdminDashboard (/admin)
 useVaults
   └─► api.getVaults() → GET /api/v1/vaults
         └─► returns ApiVault[]
-              └─► bestVault = vaults.reduce(highest APY)
+              └─► bestVault = vaults.find(v => v.id === data?.recommendedVaultId)
 
 useVaultActions.deposit(amount, vaultId)
   └─► api.buildDeposit({ walletAddress, vaultId, amount })
@@ -53,7 +53,8 @@ useVaultActions.deposit(amount, vaultId)
               └─► signTransaction(xdr, networkPassphrase)  ← whichever wallet is selected
                     └─► api.submitTx({ xdr: signedXdr })
                           └─► POST /api/v1/tx/submit → { hash }
-                                └─► queryClient.invalidateQueries(["positions"])
+                                ├─► queryClient.invalidateQueries({ queryKey: ["vaults"] })
+                                └─► usePositionPolling (startPolling)
 ```
 
 ## Wallet store

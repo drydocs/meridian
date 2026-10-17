@@ -79,8 +79,8 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
-      # The Vercel serverless functions in api/ live outside the pnpm workspace,
-      # so turbo doesn't cover them — typecheck them explicitly.
+      # api/ is in the pnpm workspace, but turbo skips it due to missing package
+      # scripts (tracked separately) — typecheck them explicitly.
       - run: pnpm typecheck:api
       - name: Verify apps/api-local build output is flat
         run: |
@@ -154,7 +154,7 @@ jobs:
     # signing is mocked, see apps/web/e2e/fixtures.ts), so it exercises
     # the real API and Soroban simulation paths end to end. Tests use page.route()
     # to stub live-network-dependent data where it would otherwise be flaky on
-    # testnet RPC hiccups (see #535). Blocking.
+    # testnet RPC hiccups (see #535). Not a required check (#1036).
     #
     # STELLAR_NETWORK must be set explicitly: mainnet is now the default
     # (packages/shared/src/constants.ts, #738) since the product is live
