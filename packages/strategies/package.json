@@ -19,7 +19,6 @@
     "LICENSE"
   ],
   "scripts": {
-    "lint": "eslint src",
     "build": "tsc",
     "test": "vitest run --passWithNoTests",
     "coverage": "vitest run --coverage --passWithNoTests",
