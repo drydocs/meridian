@@ -6,6 +6,7 @@ import { useVaults } from "../../hooks/useVaults";
 import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
+import { useUsdcBalance } from "../../hooks/useUsdcBalance";
 
 const refetchPositions = vi.fn();
 const deposit = vi.fn(async () => true);
@@ -41,6 +42,7 @@ vi.mock("../../hooks/useVaults", () => ({ useVaults: vi.fn() }));
 vi.mock("../../hooks/usePositions", () => ({ usePositions: vi.fn() }));
 vi.mock("../../hooks/useVaultActions", () => ({ useVaultActions: vi.fn() }));
 vi.mock("../../hooks/useWalletConnect", () => ({ useWalletConnect: vi.fn() }));
+vi.mock("../../hooks/useUsdcBalance", () => ({ useUsdcBalance: vi.fn() }));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -94,6 +96,8 @@ beforeEach(() => {
     isWithdrawing: false,
   } as unknown as ReturnType<typeof useVaultActions>);
   mockConnect({});
+  // Default: no balance information — DepositTab's guard is skipped.
+  vi.mocked(useUsdcBalance).mockReturnValue(undefined);
 });
 
 describe("VaultPanel — position load error", () => {
@@ -373,5 +377,54 @@ describe("VaultPanel — withdraw", () => {
     expect(screen.getByText("vaultPanel.position")).toBeDefined();
     expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
     expect(withdraw).not.toHaveBeenCalled();
+  });
+});
+
+describe("VaultPanel — over-balance deposit guard (#1063)", () => {
+  it("disables deposit submit and shows the error when the amount exceeds the wallet balance", () => {
+    vi.mocked(useUsdcBalance).mockReturnValue(10);
+    render(<VaultPanel />);
+
+    const amountInput = screen.getByPlaceholderText("0.00");
+    fireEvent.change(amountInput, { target: { value: "100" } });
+
+    expect(screen.getByTestId("deposit-amount-error").textContent).toBe(
+      "vaultPanel.validation.exceedsBalance"
+    );
+
+    const depositButton = screen.getByTestId(
+      "vault-deposit-submit"
+    ) as HTMLButtonElement;
+    expect(depositButton.disabled).toBe(true);
+  });
+
+  it("keeps submit enabled when the amount is within the wallet balance", () => {
+    vi.mocked(useUsdcBalance).mockReturnValue(100);
+    render(<VaultPanel />);
+
+    const amountInput = screen.getByPlaceholderText("0.00");
+    fireEvent.change(amountInput, { target: { value: "50" } });
+
+    const depositButton = screen.getByTestId(
+      "vault-deposit-submit"
+    ) as HTMLButtonElement;
+    expect(depositButton.disabled).toBe(false);
+  });
+
+  it("fails if VaultPanel forgets to pass availableBalance to DepositTab (regression guard)", () => {
+    // If VaultPanel stops wiring `availableBalance` into DepositTab, this
+    // test would still see the "disabled" state on a balance-less render —
+    // which is exactly the bug #1063 describes. So we assert the error
+    // message is shown when balance < amount. That can only happen if the
+    // prop is actually passed.
+    vi.mocked(useUsdcBalance).mockReturnValue(5);
+    render(<VaultPanel />);
+
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "100" },
+    });
+
+    // The presence of the error proves the balance prop was received.
+    expect(screen.getByTestId("deposit-amount-error")).toBeDefined();
   });
 });
