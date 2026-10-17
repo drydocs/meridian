@@ -1808,6 +1808,139 @@ mod tests {
     }
 
     #[test]
+    fn deposit_rejects_missing_authorization() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_deposit(&user, &100_0000000, &0),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        // A zero amount stops before the token's own authorization check. If
+        // the vault guard disappears, this returns ZeroAmount instead of Abort.
+        assert_eq!(
+            vault.try_deposit(&user, &0, &0),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert_eq!(vault.get_total_shares(), 0);
+        assert_eq!(vault.get_position(&user), 0);
+    }
+
+    #[test]
+    fn withdraw_rejects_missing_authorization() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        let amount = 100_0000000;
+        vault.deposit(&user, &amount, &0);
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_withdraw(&user, &amount, &0),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        // Isolate the vault guard from the mUSDC burn's authorization check.
+        assert_eq!(
+            vault.try_withdraw(&user, &0, &0),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert_eq!(vault.get_total_shares(), amount);
+        assert_eq!(vault.get_position(&user), amount);
+    }
+
+    #[test]
+    fn set_paused_rejects_missing_authorization() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_set_paused(&true),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert!(!vault.is_paused());
+    }
+
+    #[test]
+    fn transfer_admin_rejects_missing_authorization() {
+        let (env, admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_transfer_admin(&user),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert_eq!(vault.get_admin(), admin);
+        assert_eq!(vault.get_pending_admin(), None);
+    }
+
+    #[test]
+    fn accept_admin_rejects_missing_authorization() {
+        let (env, admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.transfer_admin(&user);
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_accept_admin(),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert_eq!(vault.get_admin(), admin);
+        assert_eq!(vault.get_pending_admin(), Some(user));
+    }
+
+    #[test]
+    fn set_adapter_rejects_missing_authorization() {
+        let (env, _admin, _user, usdc, _musdc, adapter, vault) = setup();
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_set_adapter(&new_adapter),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert_eq!(vault.get_adapter(), adapter);
+    }
+
+    #[test]
+    fn begin_migration_rejects_missing_authorization() {
+        let (env, _admin, _user, usdc, _musdc, adapter, vault) = setup();
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_begin_migration(&new_adapter),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert_eq!(vault.get_adapter(), adapter);
+        assert_eq!(
+            vault.try_get_migration_snapshot(),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+    }
+
+    #[test]
+    fn migrate_adapter_rejects_missing_authorization() {
+        let (env, _admin, user, usdc, _musdc, adapter, vault) = setup();
+        let amount = 100_0000000;
+        vault.deposit(&user, &amount, &0);
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        vault.begin_migration(&new_adapter);
+        let snapshot = vault.get_migration_snapshot();
+        env.ledger()
+            .with_mut(|li| li.sequence_number += MIN_LEDGER_GAP);
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_migrate_adapter(&new_adapter, &0),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert_eq!(vault.get_adapter(), adapter);
+        assert_eq!(vault.get_migration_snapshot(), snapshot);
+        assert_eq!(vault.get_total_shares(), amount);
+        assert_eq!(vault.get_position(&user), amount);
+    }
+
+    #[test]
     fn deposit_mints_shares() {
         let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
 
