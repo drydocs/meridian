@@ -6,11 +6,10 @@ Meridian is a DeFi application that routes real user funds through Soroban smart
 
 ## Supported Versions
 
-| Version          | Supported         |
-| ---------------- | ----------------- |
-| `main` branch    | Yes               |
-| `develop` branch | Yes (pre-release) |
-| All others       | No                |
+| Version       | Supported |
+| ------------- | --------- |
+| `main` branch | Yes       |
+| All others    | No        |
 
 ---
 
@@ -22,7 +21,7 @@ The following are considered in scope for vulnerability reports:
 
 - **Soroban smart contracts** (`packages/contracts/`) on Stellar **mainnet** — treat any finding here as **Critical severity**
 - **Soroban smart contracts** on Stellar **testnet** — treat as High severity
-- **API server** (`apps/api-local/`) — authentication bypass, injection, SSRF, exposed secrets, improper input validation
+- **Production API server** (`api/`) and **local development API mirror** (`apps/api-local/`) — authentication bypass, injection, SSRF, exposed secrets, improper input validation
 - **Frontend** (`apps/web/`) — XSS, insecure wallet interaction, transaction manipulation before signing
 - **SDK helpers** (`packages/stellar-sdk-helpers/`) — incorrect transaction construction, signing logic flaws, improper RPC handling
 - **Dependency vulnerabilities** that directly affect on-chain behaviour or user funds
@@ -104,6 +103,6 @@ Meridian follows **coordinated disclosure**:
 
 ---
 
-## Known Limitations (Current Development Phase)
+## Known Limitations
 
-Meridian `v0.1.0` is a pre-mainnet scaffold. No real user funds are at risk in the current release. However, smart contract code merged into `main` that is intended for mainnet deployment must be reviewed as if funds are already at stake.
+Meridian is live on Stellar mainnet. Real USDC deposits are routed through the deployed `MeridianVault` into Blend Capital's mainnet USDC pool, and depositors receive mUSDC shares representing that position. Contract findings on the live deployment are treated as Critical severity without regard to the apparent difficulty of exploitation. Testnet deployments carry no user funds.
