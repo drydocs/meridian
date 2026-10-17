@@ -152,29 +152,22 @@ describe("buildDefindexWithdrawTx", () => {
     expect(capturedOp!.toXDR("base64")).toBe(expectedOp.toXDR("base64"));
   });
 
-  it("handles null expected payout safeguard", async () => {
-    vi.mocked(simulateView).mockResolvedValue(null);
+  it.each([
+    ["null", null],
+    ["an empty array", []],
+    ["a zero payout", [0n]],
+  ])(
+    "rejects instead of building a zero floor when the quote is %s",
+    async (_label, quote) => {
+      vi.mocked(simulateView).mockResolvedValue(quote);
+      vi.mocked(prepareSorobanTx).mockClear();
 
-    let capturedOp: xdr.Operation | undefined;
-    vi.mocked(prepareSorobanTx).mockImplementation(
-      async (_net, _caller, op) => {
-        capturedOp = op;
-        return { xdr: "AAAA", fee: "100" };
-      }
-    );
-
-    await buildDefindexWithdrawTx(config, ADDR, 5_000_000n);
-
-    expect(capturedOp).toBeDefined();
-    // When the simulation returns null, expectedAmount is 0n → minAmount = 0n
-    const expectedOp = new Contract(config.vaultId).call(
-      "withdraw",
-      nativeToScVal(5_000_000n, { type: "i128" }),
-      xdr.ScVal.scvVec([nativeToScVal(0n, { type: "i128" })]),
-      Address.fromString(ADDR).toScVal()
-    );
-    expect(capturedOp!.toXDR("base64")).toBe(expectedOp.toXDR("base64"));
-  });
+      await expect(
+        buildDefindexWithdrawTx(config, ADDR, 5_000_000n)
+      ).rejects.toThrow(/quote unavailable/);
+      expect(prepareSorobanTx).not.toHaveBeenCalled();
+    }
+  );
 
   it("calls simulateView with get_asset_amounts_per_shares and the given shares", async () => {
     const shares = 7_000_000n;

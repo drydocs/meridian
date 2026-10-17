@@ -234,20 +234,28 @@ export abstract class VaultBase {
    * `owner` and a mismatch is rejected rather than silently ignored.
    *
    * The share amount is rounded up, so the payout covers `assets` rather than
-   * falling a stroop short of it. Passing 0 as `min_usdc_out` disables the
-   * contract's slippage floor; callers that want one should build the
-   * operation directly with the value they are willing to accept.
+   * falling a stroop short of it.
+   *
+   * `minUsdcOut` is the contract's `min_usdc_out` slippage guard: the
+   * transaction reverts if the payout would be less than this amount. It
+   * defaults to 0n, which disables the guard; pass the smallest payout you
+   * are willing to accept to protect against share-price movement between
+   * the totals read below and the transaction's inclusion.
    *
    * @param assets   USDC amount in stroops to redeem
    * @param receiver Stellar G-address to receive USDC (must equal owner)
    * @param owner    Stellar G-address whose mUSDC shares are burned
+   * @param minUsdcOut Minimum acceptable USDC payout in stroops
+   *                   (default 0n, which disables slippage protection)
    */
   async withdraw(
     assets: bigint,
     receiver: string,
-    owner: string
+    owner: string,
+    minUsdcOut: bigint = 0n
   ): Promise<Transaction> {
     if (assets <= 0n) throw new Error("assets must be positive");
+    if (minUsdcOut < 0n) throw new Error("minUsdcOut must be non-negative");
     if (receiver !== owner) {
       throw new Error(
         "receiver must equal owner: MeridianVault pays USDC to the account that authorises the withdrawal"
@@ -264,7 +272,12 @@ export abstract class VaultBase {
       "up"
     );
     return this.prepare(
-      this.contract().call("withdraw", addrScVal(owner), i128(shares), i128(0n))
+      this.contract().call(
+        "withdraw",
+        addrScVal(owner),
+        i128(shares),
+        i128(minUsdcOut)
+      )
     );
   }
 

@@ -20,7 +20,7 @@ export default defineConfig({
       { text: "Overview", link: "/overview/introduction" },
       { text: "Architecture", link: "/architecture/monorepo" },
       { text: "Operations", link: "/operations/local-development" },
-      { text: "App", link: "https://meridian-web.vercel.app/app/" },
+      { text: "App", link: "https://usemeridian.vercel.app" },
       { text: "GitHub", link: "https://github.com/drydocs/meridian" },
     ],
     sidebar: [

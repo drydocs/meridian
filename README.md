@@ -54,13 +54,15 @@ meridian/
 │   ├── web/          # Vite + React 19 dashboard (TypeScript, Tailwind, Zustand)
 │   ├── api-local/    # Fastify REST API (local dev only): builds Soroban txs, aggregates APY
 │   ├── docs/         # Internal architecture and operations docs
-│   └── landing/      # Marketing landing page
+│   ├── landing/      # Marketing landing page
+│   └── strategies/   # Vite + React strategies simulation and visualization dashboard
 ├── api/              # Vercel serverless functions (api/v1/...) — the production API
 ├── packages/
 │   ├── api-core/             # Framework-agnostic route handlers shared by both servers
 │   ├── stellar-sdk-helpers/  # Blend & DeFindex client wrappers
 │   ├── sdk/                  # @meridian/sdk: public TypeScript SDK (ESM + CJS)
 │   ├── shared/               # Zod schemas, constants, pure utils
+│   ├── strategies/           # Strategy engine and simulation library for Meridian
 │   └── contracts/            # Soroban smart contracts (Rust): vault, blend-adapter, defindex-adapter, adapter-common, musdc-token
 └── scripts/          # deploy-testnet.sh / deploy-mainnet.sh (fresh stack), redeploy-blend-adapter.sh (swap adapter on a live vault)
 ```

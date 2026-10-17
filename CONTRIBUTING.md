@@ -125,7 +125,7 @@ npm install -g pnpm@9
    | Variable                | Required for | Description                                                                                                      |
    | ----------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
    | `PORT`                  | API          | Port for the Fastify API server. Default `3001`.                                                                 |
-   | `ALLOWED_ORIGIN`        | API          | CORS allowed origin. Default `http://localhost:3000`.                                                            |
+   | `ALLOWED_ORIGIN`        | API          | CORS allowed origin. Default `https://usemeridian.vercel.app`.                                                   |
    | `STELLAR_NETWORK`       | API, SDK     | Target network: `testnet` or `mainnet`. Default `mainnet`; `.env.example` sets `testnet` for local dev.          |
    | `DEFINDEX_VAULT_ID`     | API          | DeFindex vault contract address (C-address). Leave empty to disable DeFindex; only Blend positions are returned. |
    | `VITE_API_URL`          | Web          | URL the web app uses to reach the API. Default `http://localhost:3001`.                                          |
@@ -159,14 +159,17 @@ meridian/
   apps/
     web/        -- Vite + React frontend (Freighter wallet, yield dashboard)
     api-local/  -- Fastify API, local dev only (yield aggregation, Soroban tx building)
-    docs/       -- Documentation site
+    docs/       -- Documentation site (VitePress)
     landing/    -- Landing page
+    strategies/ -- Strategies simulation and visualization dashboard
   api/          -- Vercel serverless functions (api/v1/...), the production API
   packages/
     api-core/   -- Framework-agnostic route handlers shared by both servers
     contracts/  -- Soroban smart contracts (Rust)
+    sdk/        -- Public TypeScript SDK (@meridian/sdk)
     shared/     -- Shared utilities used by both api and web
     stellar-sdk-helpers/ -- Typed wrappers around @stellar/stellar-sdk
+    strategies/ -- Strategy engine and simulation library (@meridian/strategies)
 ```
 
 Changes to `packages/` affect multiple apps. If you modify a shared package, run the full check suite from the repo root.
@@ -379,7 +382,7 @@ pnpm format        # Prettier (auto-fix)
 pnpm --filter @meridian/stellar-sdk-helpers test
 
 # Run a single test file
-pnpm test -- packages/stellar-sdk-helpers/src/__tests__/tx.test.ts
+pnpm --filter @meridian/stellar-sdk-helpers exec vitest run src/tx.test.ts
 
 # Soroban contract checks (only needed when modifying packages/contracts)
 cargo fmt --all
