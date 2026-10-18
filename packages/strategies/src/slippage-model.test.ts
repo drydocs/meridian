@@ -192,7 +192,6 @@ describe("applyOrderFill", () => {
     // 10 bps fee rate (0.0010 = 10,000 stroops), 100 stroops network fee per op
     const costSchedule: CostSchedule = {
       swapFeeRate: FixedPointDecimal.fromString("0.001"),
-      borrowSpreadRate: FixedPointDecimal.fromString("0"),
       networkFee: FixedPointDecimal.fromStroops(100n),
     };
 
