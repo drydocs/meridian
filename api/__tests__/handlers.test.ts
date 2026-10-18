@@ -97,12 +97,15 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
       ],
       failures: [],
     })),
+    fetchVaultsWithCache: vi.fn(async () => ({
+      vaults: [{ id: "blend-usdc-fixed", protocol: "blend" }],
+      cached: false,
+    })),
     fetchAllVaults: vi.fn(async () => [
       { id: "blend-usdc-fixed", protocol: "blend" },
     ]),
     selectBestVault: vi.fn(() => ({ id: "blend-usdc-fixed" })),
     isVaultCacheWarm: vi.fn(() => false),
-    wasVaultCacheHit: vi.fn(() => false),
     resolvePositions: vi.fn(async () => [
       {
         vaultId: "blend-usdc-fixed",
@@ -219,7 +222,7 @@ import {
   getPositionHistory,
   runPositionSnapshotKeeper,
   fetchAllVaults,
-  wasVaultCacheHit,
+  fetchVaultsWithCache,
 } from "@meridian/stellar-sdk-helpers";
 
 // A 56-char Stellar public key shape (only the length is validated).
@@ -635,7 +638,22 @@ describe("GET /api/v1/vaults", () => {
   });
 
   it("reports cached: true when served from cache", async () => {
-    vi.mocked(wasVaultCacheHit).mockReturnValueOnce(true);
+    vi.mocked(fetchVaultsWithCache).mockResolvedValueOnce({
+      vaults: [
+        {
+          id: "blend-usdc-fixed",
+          protocol: "blend",
+          asset: "USDC",
+          name: "Blend USDC",
+          label: "Blend",
+          apy: 5,
+          tvl: 1000,
+          userBalance: 0,
+          riskLevel: "safe",
+        },
+      ],
+      cached: true,
+    });
     const res = makeRes();
     await vaultsHandler(fakeReq({ method: "GET" }), res);
     expect(res.statusCode).toBe(200);

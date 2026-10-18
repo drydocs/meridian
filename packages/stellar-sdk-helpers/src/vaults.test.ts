@@ -27,7 +27,6 @@ import {
   fetchVaultsWithCache,
   clearVaultCache,
   isVaultCacheWarm,
-  wasVaultCacheHit,
 } from "./vaults";
 import { getCachedVaults, setCachedVaults } from "./vault-cache";
 import { KNOWN_POOLS } from "./known-pools";
@@ -119,7 +118,7 @@ describe("isVaultCacheWarm", () => {
   });
 });
 
-describe("wasVaultCacheHit", () => {
+describe("fetchVaultsWithCache", () => {
   beforeEach(() => {
     clearVaultCache();
     vi.clearAllMocks();
@@ -130,25 +129,21 @@ describe("wasVaultCacheHit", () => {
     clearVaultCache();
   });
 
-  it("returns false initially when cache is empty", () => {
-    expect(wasVaultCacheHit()).toBe(false);
-  });
-
-  it("returns false after fresh mainnet fetch and true on subsequent warm call", async () => {
+  it("returns cached: false after fresh mainnet fetch and cached: true on subsequent warm call", async () => {
     mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
     stubPools([llamaPool()]);
 
-    await fetchAllVaults("mainnet");
-    expect(wasVaultCacheHit()).toBe(false);
+    const first = await fetchVaultsWithCache("mainnet");
+    expect(first.cached).toBe(false);
 
-    await fetchAllVaults("mainnet");
-    expect(wasVaultCacheHit()).toBe(true);
+    const second = await fetchVaultsWithCache("mainnet");
+    expect(second.cached).toBe(true);
   });
 
-  it("returns false on testnet calls", async () => {
+  it("returns cached: false on testnet calls", async () => {
     mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
-    await fetchAllVaults("testnet");
-    expect(wasVaultCacheHit()).toBe(false);
+    const res = await fetchVaultsWithCache("testnet");
+    expect(res.cached).toBe(false);
   });
 });
 
@@ -224,9 +219,7 @@ describe("fetchAllVaults (mainnet)", () => {
     vi.mocked(getCachedVaults).mockResolvedValueOnce(first);
 
     expect(await fetchAllVaults("mainnet")).toBe(first);
-    expect(wasVaultCacheHit()).toBe(true);
     expect(await fetchAllVaults("mainnet")).toBe(first);
-    expect(wasVaultCacheHit()).toBe(true);
     expect(isVaultCacheWarm()).toBe(true);
     expect(getCachedVaults).toHaveBeenCalledExactlyOnceWith("mainnet");
     expect(simulateView).not.toHaveBeenCalled();
@@ -244,7 +237,6 @@ describe("fetchAllVaults (mainnet)", () => {
     const res = await fetchVaultsWithCache("mainnet");
     expect(res.cached).toBe(true);
     expect(res.vaults).toBe(first);
-    expect(wasVaultCacheHit()).toBe(true);
     expect(isVaultCacheWarm()).toBe(true);
     expect(getCachedVaults).toHaveBeenCalledExactlyOnceWith("mainnet");
     expect(simulateView).not.toHaveBeenCalled();

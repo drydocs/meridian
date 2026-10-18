@@ -32,22 +32,15 @@ export interface ApiVault {
 // Upstash so cold starts share results across serverless instances.
 const CACHE_TTL_MS = 60_000;
 let vaultCache: { vaults: ApiVault[]; expiresAt: number } | null = null;
-let lastVaultCacheHit = false;
 
 /** Clears the in-memory vault cache. Exposed for tests only. */
 export function clearVaultCache(): void {
   vaultCache = null;
-  lastVaultCacheHit = false;
 }
 
 /** Returns true if a valid cached result exists in L1 and will be returned by fetchAllVaults. */
 export function isVaultCacheWarm(): boolean {
   return vaultCache !== null && Date.now() < vaultCache.expiresAt;
-}
-
-/** Returns true if the most recent vault fetch was served from L1 or L2 cache. */
-export function wasVaultCacheHit(): boolean {
-  return lastVaultCacheHit;
 }
 
 export interface FetchVaultsResult {
@@ -215,7 +208,6 @@ export async function fetchVaultsWithCache(
   network: "mainnet" | "testnet" = APP_NETWORK.network
 ): Promise<FetchVaultsResult> {
   if (network === "testnet") {
-    lastVaultCacheHit = false;
     const vaults = await fetchTestnetVaults();
     return { vaults, cached: false };
   }
@@ -223,7 +215,6 @@ export async function fetchVaultsWithCache(
   const now = Date.now();
   // L1: warm in-process cache (same Lambda instance).
   if (vaultCache && now < vaultCache.expiresAt) {
-    lastVaultCacheHit = true;
     return { vaults: vaultCache.vaults, cached: true };
   }
 
@@ -231,11 +222,9 @@ export async function fetchVaultsWithCache(
   const shared = await getCachedVaults(network);
   if (shared && shared.length > 0) {
     vaultCache = { vaults: shared, expiresAt: now + CACHE_TTL_MS };
-    lastVaultCacheHit = true;
     return { vaults: shared, cached: true };
   }
 
-  lastVaultCacheHit = false;
   const net = getNetworkConfig("mainnet");
   const server = getRpcServer(net.rpc, 10_000);
 
