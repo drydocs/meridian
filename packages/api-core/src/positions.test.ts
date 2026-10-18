@@ -64,51 +64,10 @@ describe("handleGetPositions", () => {
     expect(result.error).toBe(err);
   });
 
-  it("records a position snapshot after a successful read", async () => {
-    await handleGetPositions(PUBKEY);
-    expect(recordPositionSnapshot).toHaveBeenCalledOnce();
-    expect(vi.mocked(recordPositionSnapshot).mock.calls[0]?.[1]).toBe(PUBKEY);
-  });
-
-  it("does not record a snapshot for a wallet holding nothing", async () => {
-    vi.mocked(resolvePositions).mockResolvedValueOnce([]);
+  it("does not write to the snapshot store on a public read", async () => {
     const result = await handleGetPositions(PUBKEY);
     expect(result.status).toBe(200);
     expect(recordPositionSnapshot).not.toHaveBeenCalled();
-  });
-
-  it("does not record a snapshot when a vault failed to read", async () => {
-    vi.mocked(resolvePositions).mockImplementationOnce(
-      async (_publicKey, _network, options) => {
-        options?.onVaultError?.(new Error("rpc down"));
-        return [
-          {
-            vaultId: "blend-usdc-fixed",
-            shares: 1,
-            deposited: 1,
-            earned: 0,
-            entryTime: 0,
-          },
-        ];
-      }
-    );
-    const result = await handleGetPositions(PUBKEY);
-    expect(result.status).toBe(200);
-    expect(recordPositionSnapshot).not.toHaveBeenCalled();
-  });
-
-  it("does not record a snapshot when the read fails", async () => {
-    vi.mocked(resolvePositions).mockRejectedValueOnce(new Error("rpc down"));
-    await handleGetPositions(PUBKEY);
-    expect(recordPositionSnapshot).not.toHaveBeenCalled();
-  });
-
-  it("still returns positions when building the snapshot store throws", async () => {
-    vi.mocked(loadPositionSnapshotStore).mockImplementationOnce(() => {
-      throw new Error("bad store config");
-    });
-    const result = await handleGetPositions(PUBKEY);
-    expect(result.status).toBe(200);
-    expect(recordPositionSnapshot).not.toHaveBeenCalled();
+    expect(loadPositionSnapshotStore).not.toHaveBeenCalled();
   });
 });
