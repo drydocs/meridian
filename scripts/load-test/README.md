@@ -8,11 +8,11 @@ endpoints behave under concurrent traffic, before mainnet. It covers:
 | `deposit-withdraw.js`    | `POST /api/v1/tx/deposit`, `POST /api/v1/tx/withdraw` | Throughput/latency under sustained concurrent traffic                                  |
 | `positions.js`           | `GET /api/v1/positions/:publicKey`                    | Steady-state read load                                                                 |
 | `rate-limit-fallback.js` | `GET /api/v1/positions/:publicKey`                    | Characterizes the in-memory rate-limit fallback's per-instance behavior                |
-| `keepers.js`             | `GET /api/v1/keepers/:action`                         | `health` load, plus a concurrency probe on the accrue/rebalance/alert submission-lease |
+| `keepers.js`             | `GET /api/v1/keepers/:action`                         | `health` load, plus a concurrency probe on the accrue/rebalance/alert/snapshot submission-lease |
 
 None of these submit signed transactions except `keepers.js`'s
 `accrue`/`rebalance`/`alert` invocations, which sign and submit for real off
-the keeper's own key — see the safety warning below before running it.
+the keeper's own key (`snapshot` reads only, signs nothing) — see the safety warning below before running it.
 
 ## Prerequisites
 

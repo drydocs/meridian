@@ -18,7 +18,7 @@ export const BASE_URL = (__ENV.BASE_URL || "http://localhost:3001").replace(
 export const VAULT_ID =
   __ENV.VAULT_ID || "CAIQBVLBIUWQGE6DQUHDMZ2QWI7QP6KTCN7GP2BIZ6JZC4ES47JO4SSM";
 
-// Bearer token for the cron-gated keeper actions (accrue/rebalance/alert).
+// Bearer token for the cron-gated keeper actions (accrue/rebalance/alert/snapshot).
 // Only ever set this to a throwaway value configured on a throwaway testnet
 // deployment — never the real CRON_SECRET from a production/mainnet project.
 export const CRON_SECRET = __ENV.CRON_SECRET || "";
