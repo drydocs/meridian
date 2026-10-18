@@ -152,15 +152,19 @@ request access; `useWalletStore` calls `wallet.isAuthorized()` on mount and on w
 re-validate a persisted key, clearing it if the wallet is gone or access was revoked. Signing a
 transaction (this doc's flow) goes through `wallet.sign()`.
 
-Today two adapters exist in code, `FreighterWallet` and `LobstrWallet`, but only Freighter is
-currently wired up as the active `wallet` export — there is no wallet-selection UI yet, so
-LOBSTR's adapter isn't reachable from the app.
+The application ships a wallet registry and selection picker in
+[`apps/web/src/lib/wallet.ts`](../apps/web/src/lib/wallet.ts) and
+[`apps/web/src/components/WalletConnect.tsx`](../apps/web/src/components/WalletConnect.tsx),
+supporting **Freighter**, **LOBSTR**, and **xBull** (an **Albedo** adapter is also implemented
+in code). The active `wallet` export acts as a dynamic dispatcher delegating `isInstalled()`,
+`isAuthorized()`, `connect()`, and `sign()` to whichever adapter is currently selected by the user
+and persisted in browser storage.
 
-<!-- TODO(#613): describe picker UI once #476/#488/#490 land -->
+For full architectural details, see [Frontend Architecture](../apps/docs/architecture/frontend.md).
 
-The examples in this doc use Freighter as the concrete illustration since it's the wallet
-actually in use today, but nothing in the flow is Freighter-specific — any `WalletAdapter`
-implementation follows the same sequence.
+The examples in this doc use Freighter as the concrete illustration, but nothing in the flow is
+Freighter-specific — every `WalletAdapter` implementation adheres to the same contract and follows
+the same sequence.
 
 The browser-side wrappers live in
 [`apps/web/src/lib/wallet.ts`](../apps/web/src/lib/wallet.ts) (signing) and
