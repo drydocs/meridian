@@ -11,13 +11,15 @@ meridian/
 │       ├── vaults/               # GET /api/v1/vaults, GET /api/v1/vaults/:id
 │       │   ├── index.ts
 │       │   └── [vaultId].ts
-│       ├── tx/                   # POST /api/v1/tx/*
-│       │   ├── deposit.ts
-│       │   ├── withdraw.ts
-│       │   ├── add-trustline.ts
-│       │   └── submit.ts
-│       └── positions/
-│           └── [publicKey].ts    # GET /api/v1/positions/:publicKey
+│       ├── tx/
+│       │   └── [action].ts       # POST /api/v1/tx/:action (deposit, withdraw, submit, etc.)
+│       ├── positions/
+│       │   ├── [publicKey].ts    # GET /api/v1/positions/:publicKey
+│       │   └── [publicKey]/history.ts # GET /api/v1/positions/:publicKey/history
+│       ├── admin/
+│       │   └── [resource].ts     # GET /api/v1/admin/:resource (vault-state, etc.)
+│       └── keepers/
+│           └── [action].ts       # POST /api/v1/keepers/:action (accrue, heartbeat, health, etc.)
 │
 ├── apps/
 │   ├── web/                      # Vite + React 19 dashboard
@@ -86,7 +88,15 @@ meridian/
 │       ├── defindex-adapter/src/lib.rs # Deposits USDC into a DeFindex vault
 │       ├── adapter-common/src/lib.rs  # Common traits and types for adapters
 │       └── musdc-token/src/lib.rs     # mUSDC yield-bearing share token
-├── scripts/                      # deploy-testnet.sh (fresh stack), redeploy-blend-adapter.sh (swap adapter on a live vault)
+├── scripts/                      # Deployment, verification, and operations tooling
+│   ├── deploy-testnet.sh         # Fresh testnet stack deployment
+│   ├── deploy-mainnet.sh         # Production mainnet deployment
+│   ├── redeploy-blend-adapter.sh # Swap adapter on a live vault
+│   ├── deploy-external-pinger.sh # Deploy external heartbeat pinger
+│   ├── build-vercel.sh           # Pre-build workspace bundles for Vercel
+│   ├── verify-contract-addresses.ts # Bytecode & address verification
+│   ├── lib/deploy-vault-stack.sh # Shared deployment helpers
+│   └── load-test/                # Load and stress testing scripts
 ├── vercel.json                   # Vercel routing config
 └── turbo.json                    # Turborepo task graph
 ```
