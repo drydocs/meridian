@@ -214,6 +214,30 @@ describe("VaultBase.deposit", () => {
     expect(args[2]).toEqual(nativeToScVal(0n, { type: "i128" }));
   });
 
+  it("passes minSharesOut floor to the contract when specified", async () => {
+    const vault = makeVault();
+    await vault.deposit(50_000_000n, WALLET, 45_000_000n);
+    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    const args = op
+      .body()
+      .invokeHostFunctionOp()
+      .hostFunction()
+      .invokeContract()
+      .args();
+    expect(args).toHaveLength(3);
+    expect(Address.fromScVal(args[0]!).toString()).toBe(WALLET);
+    expect(args[1]).toEqual(nativeToScVal(50_000_000n, { type: "i128" }));
+    expect(args[2]).toEqual(nativeToScVal(45_000_000n, { type: "i128" }));
+  });
+
+  it("throws for negative minSharesOut", async () => {
+    const vault = makeVault();
+    await expect(vault.deposit(50_000_000n, WALLET, -1n)).rejects.toThrow(
+      "minSharesOut must be non-negative"
+    );
+    expect(prepareSorobanTx).not.toHaveBeenCalled();
+  });
+
   it("throws for non-positive assets", async () => {
     const vault = makeVault();
     await expect(vault.deposit(0n, WALLET)).rejects.toThrow(
