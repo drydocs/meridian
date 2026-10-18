@@ -308,6 +308,58 @@ describe("runPositionSnapshotKeeper", () => {
     expect(history.at(-1)?.totalValue).toBe(0);
   });
 
+  it("writes the closing zero and untracks inside the throttle window", async () => {
+    const store = createInMemoryPositionSnapshotStore();
+    const key = trackedUsersKey(NETWORK);
+    await recordPositionSnapshot(store, "A", NETWORK, pos(10, 1), logger(), {
+      now: 1_000,
+    });
+    const now = 2_000;
+    const result = await runPositionSnapshotKeeper({
+      store,
+      network: NETWORK,
+      resolve: async () => [],
+      logger: logger(),
+      now,
+    });
+    expect(result.failures).toEqual([]);
+    expect(await store.listTracked(key, 10)).toEqual([]);
+    const history = await getPositionHistory(store, "A", NETWORK, 90, now);
+    expect(history.map((snapshot) => snapshot.totalValue)).toEqual([10, 0]);
+    expect(history.at(-1)?.timestamp).toBe(now);
+  });
+
+  it("keeps the wallet tracked if writing the closing zero fails", async () => {
+    const baseStore = createInMemoryPositionSnapshotStore();
+    const store: PositionSnapshotStore = {
+      ...baseStore,
+      append: async (key, snapshot, maxEntries) => {
+        if (snapshot.totalValue === 0) throw new Error("redis down");
+        await baseStore.append(key, snapshot, maxEntries);
+      },
+    };
+    const key = trackedUsersKey(NETWORK);
+    await recordPositionSnapshot(store, "A", NETWORK, pos(10, 1), logger(), {
+      now: 1_000,
+    });
+    const log = logger();
+    const result = await runPositionSnapshotKeeper({
+      store,
+      network: NETWORK,
+      resolve: async () => [],
+      logger: log,
+      now: 2_000,
+    });
+    expect(result.failures).toEqual([
+      { publicKey: "A", error: "could not write closing zero snapshot" },
+    ]);
+    expect(await store.listTracked(key, 10)).toEqual(["A"]);
+    expect(
+      (await store.range(snapshotKey("A", NETWORK), 0)).map((s) => s.totalValue)
+    ).toEqual([10]);
+    expect(log.warn).toHaveBeenCalledOnce();
+  });
+
   it("caps the users processed per run and rotates to the ones left over", async () => {
     const store = createInMemoryPositionSnapshotStore();
     const key = trackedUsersKey(NETWORK);

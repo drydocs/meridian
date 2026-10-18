@@ -135,6 +135,7 @@ function parseSnapshot(raw: unknown): PositionSnapshot | null {
 
 /**
  * Records a snapshot unless one was already taken within `minIntervalMs`.
+ * `force` bypasses the throttle for the closing zero snapshot.
  * Also registers the user as tracked so the keeper keeps snapshotting them.
  * Never throws. Returns whether a snapshot was written.
  */
@@ -144,14 +145,15 @@ export async function recordPositionSnapshot(
   network: string,
   positions: PositionInfo[],
   logger: KeeperLogger,
-  options: { now?: number; minIntervalMs?: number } = {}
+  options: { now?: number; minIntervalMs?: number; force?: boolean } = {}
 ): Promise<boolean> {
   const now = options.now ?? Date.now();
   const minIntervalMs = options.minIntervalMs ?? SNAPSHOT_MIN_INTERVAL_MS;
   const key = snapshotKey(publicKey, network);
   try {
     const last = await store.latest(key);
-    if (last && now - last.timestamp < minIntervalMs) return false;
+    if (!options.force && last && now - last.timestamp < minIntervalMs)
+      return false;
     await store.append(
       key,
       buildPositionSnapshot(positions, now),
@@ -244,15 +246,22 @@ export async function runPositionSnapshotKeeper(options: {
       }
       if (positions.length === 0) {
         // One final zero closes the series so the chart shows the withdrawal,
-        // then the wallet leaves the rotation.
-        await recordPositionSnapshot(
+        // then the wallet leaves the rotation. This must bypass the throttle.
+        const wrote = await recordPositionSnapshot(
           store,
           publicKey,
           network,
           positions,
           logger,
-          throttle
+          { ...throttle, force: true }
         );
+        if (!wrote) {
+          result.failures.push({
+            publicKey,
+            error: "could not write closing zero snapshot",
+          });
+          continue;
+        }
         await store.untrack(trackedKey, publicKey);
         result.skipped += 1;
         continue;
