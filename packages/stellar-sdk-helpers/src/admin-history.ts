@@ -1,4 +1,5 @@
 import { Address, rpc, xdr } from "@stellar/stellar-sdk";
+import { withRaceTimeout } from "@meridian/shared";
 import type { StellarNetwork } from "./types";
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -134,9 +135,12 @@ export function summarizeAction(
  * `set_adapter`, `migrate_adapter`, `transfer_admin`, and `accept_admin`
  * call made against the vault.
  */
+export const DEFAULT_HORIZON_TIMEOUT_MS = 10_000;
+
 export interface GetAdminActionHistoryOptions {
   limit?: number;
   maxPages?: number;
+  timeoutMs?: number;
 }
 
 export async function getAdminActionHistory(
@@ -144,7 +148,11 @@ export async function getAdminActionHistory(
   vaultContractId: string,
   options: GetAdminActionHistoryOptions = {}
 ): Promise<AdminAction[]> {
-  const { limit = 50, maxPages = 20 } = options;
+  const {
+    limit = 50,
+    maxPages = 20,
+    timeoutMs = DEFAULT_HORIZON_TIMEOUT_MS,
+  } = options;
   const { baseUrl } = buildHorizonServer(network.network);
   const actions: AdminAction[] = [];
   let cursor: string | undefined;
@@ -157,7 +165,14 @@ export async function getAdminActionHistory(
     url.searchParams.set("limit", "200");
     if (cursor) url.searchParams.set("cursor", cursor);
 
-    const response = await fetch(url.toString());
+    const response = await withRaceTimeout(
+      () =>
+        fetch(url.toString(), {
+          signal: AbortSignal.timeout(timeoutMs),
+        }),
+      timeoutMs,
+      "Horizon operations"
+    );
     if (!response.ok) {
       throw new Error(`Horizon operations request failed: ${response.status}`);
     }

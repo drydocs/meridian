@@ -4,6 +4,7 @@ import {
   summarizeAction,
   getAdminActionHistory,
   getRpcAdminHistory,
+  DEFAULT_HORIZON_TIMEOUT_MS,
 } from "./admin-history";
 import { Address, rpc, xdr } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "./types";
@@ -390,6 +391,20 @@ describe("getAdminActionHistory", () => {
     await expect(getAdminActionHistory(network, VAULT_ID)).rejects.toThrow(
       /Horizon operations request failed: 503/
     );
+  });
+
+  it("times out when Horizon request hangs", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetch).mockReturnValue(new Promise(() => {})); // never resolves
+
+    const pending = getAdminActionHistory(network, VAULT_ID);
+    const assertion = expect(pending).rejects.toThrow(
+      /Horizon operations timed out/
+    );
+    await vi.advanceTimersByTimeAsync(DEFAULT_HORIZON_TIMEOUT_MS);
+    await assertion;
+
+    vi.useRealTimers();
   });
 });
 
