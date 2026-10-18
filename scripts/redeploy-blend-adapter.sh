@@ -8,11 +8,12 @@ set -euo pipefail
 # update_current_contract_wasm function) — the only way to update an
 # adapter's code is to deploy a new contract and swap the vault onto it.
 #
-# IMPORTANT: set_adapter resets the vault's adapter-share accounting
-# (ADPT_SH) to zero and does not itself move any funds out of the old
-# adapter first. If the vault has real depositors, use migrate_adapter
-# instead of set_adapter for the final step this script prints, it moves
-# the vault's entire position to the new adapter atomically, with a
+# IMPORTANT: set_adapter requires that both total vault shares (TOTAL_SH)
+# and adapter shares (ADPT_SH) are zero; it deliberately does not reset
+# ADPT_SH (to preserve diagnostic observability) and will revert with
+# AdapterSwapUnsafe if any position exists. If the vault has real depositors,
+# use migrate_adapter instead of set_adapter for the final step this script prints:
+# it moves the vault's entire position to the new adapter atomically, with a
 # slippage-bounded value check, and does not require every depositor to
 # withdraw first. set_adapter remains correct only for a vault with no
 # depositors yet (e.g. right after a fresh deploy, before any real funds
