@@ -146,6 +146,12 @@ export interface GetAdminActionHistoryOptions {
    * explicitly so it cannot be confused with a whole-scan budget.
    */
   pageTimeoutMs?: number;
+  /**
+   * Wall-clock budget for the whole scan, shared by every page request.
+   * Horizon cannot filter by contract, so a scan that finds few matches would
+   * otherwise keep paging until `maxPages`. Unbounded when omitted.
+   */
+  scanTimeoutMs?: number;
 }
 
 // Matches the other HTTP call sites in this package (keeper-state.ts,
@@ -158,9 +164,11 @@ export async function getAdminActionHistory(
   vaultContractId: string,
   options: GetAdminActionHistoryOptions = {}
 ): Promise<AdminAction[]> {
-  const { limit = 50, maxPages = 20 } = options;
-  const timeoutMs = options.pageTimeoutMs ?? DEFAULT_HORIZON_PAGE_TIMEOUT_MS;
+  const { limit = 50, maxPages = 20, pageTimeoutMs, scanTimeoutMs } = options;
+  const pageTimeout = pageTimeoutMs ?? DEFAULT_HORIZON_PAGE_TIMEOUT_MS;
   const { baseUrl } = buildHorizonServer(network.network);
+  const scanSignal =
+    scanTimeoutMs === undefined ? undefined : AbortSignal.timeout(scanTimeoutMs);
   const actions: AdminAction[] = [];
   let cursor: string | undefined;
   let pages = 0;
@@ -172,14 +180,18 @@ export async function getAdminActionHistory(
     url.searchParams.set("limit", "200");
     if (cursor) url.searchParams.set("cursor", cursor);
 
+    const pageSignal = AbortSignal.timeout(pageTimeout);
+    const signal = scanSignal
+      ? AbortSignal.any([scanSignal, pageSignal])
+      : pageSignal;
     const response = await withRaceTimeout(
       () =>
         fetch(url.toString(), {
           // Belt and braces with the race below: this also frees the socket
           // rather than leaving a hung request running past the loop.
-          signal: AbortSignal.timeout(timeoutMs),
+          signal,
         }),
-      timeoutMs,
+      pageTimeout,
       "Horizon operations"
     );
     if (!response.ok) {

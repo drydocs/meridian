@@ -2,7 +2,8 @@
   "buildCommand": "bash scripts/build-vercel.sh",
   "outputDirectory": "dist",
   "functions": {
-    "api/v1/keepers/[action].ts": { "maxDuration": 60 }
+    "api/v1/keepers/[action].ts": { "maxDuration": 60 },
+    "api/v1/admin/[resource].ts": { "maxDuration": 10 }
   },
   "redirects": [
     {
