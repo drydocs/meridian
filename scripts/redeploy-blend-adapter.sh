@@ -8,15 +8,17 @@ set -euo pipefail
 # update_current_contract_wasm function) — the only way to update an
 # adapter's code is to deploy a new contract and swap the vault onto it.
 #
-# IMPORTANT: set_adapter resets the vault's adapter-share accounting
-# (ADPT_SH) to zero and does not itself move any funds out of the old
-# adapter first. If the vault has real depositors, use migrate_adapter
-# instead of set_adapter for the final step this script prints, it moves
-# the vault's entire position to the new adapter atomically, with a
-# slippage-bounded value check, and does not require every depositor to
-# withdraw first. set_adapter remains correct only for a vault with no
-# depositors yet (e.g. right after a fresh deploy, before any real funds
-# are at risk).
+# IMPORTANT: set_adapter does not move any funds out of the old adapter,
+# and it does not reset the vault's adapter-share accounting (ADPT_SH):
+# the contract rejects it with AdapterSwapUnsafe unless both TOTAL_SH and
+# ADPT_SH are already zero, and leaves ADPT_SH untouched so a stranded
+# position at the old adapter stays visible. If the vault has real
+# depositors, use migrate_adapter instead of set_adapter for the final step
+# this script prints, it moves the vault's entire position to the new
+# adapter atomically, with a slippage-bounded value check, and does not
+# require every depositor to withdraw first. set_adapter remains correct
+# only for a vault with no depositors yet (e.g. right after a fresh deploy,
+# before any real funds are at risk).
 #
 # Usage: VAULT_ID=<live vault> DEPLOYER=<key> bash scripts/redeploy-blend-adapter.sh
 
