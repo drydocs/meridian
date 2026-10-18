@@ -1318,6 +1318,27 @@ describe("GET /api/v1/keepers/health", () => {
       lastSuccessMs: null,
     });
   });
+
+  it("returns 503 when the rate limiter fails", async () => {
+    vi.mocked(checkRateLimit).mockRejectedValueOnce(
+      new Error("Upstash timeout")
+    );
+
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "health" },
+        method: "GET",
+        headers: {},
+      }),
+      res
+    );
+
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({
+      error: "Rate limiter unavailable; refusing to run",
+    });
+  });
 });
 
 describe("GET /api/v1/admin/vault-state", () => {

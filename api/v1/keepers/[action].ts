@@ -43,7 +43,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (action === "health") {
     if (applyCors(req, res)) return;
-    if (!(await checkRateLimit(req, res))) return;
+    try {
+      if (!(await checkRateLimit(req, res))) return;
+    } catch (err) {
+      console.error("[keepers/health] rate limit check failed:", err);
+      return res
+        .status(503)
+        .json({ error: "Rate limiter unavailable; refusing to run" });
+    }
     const result = await handleGetKeeperHealth();
     if (result.error) console.error("[keepers/health] error:", result.error);
     res.setHeader("Cache-Control", "no-store");
