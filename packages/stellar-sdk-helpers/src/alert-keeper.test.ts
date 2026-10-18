@@ -25,19 +25,36 @@ const OLD_ADAPTER = "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526";
 function adminEvent(
   action: string,
   value: xdr.ScVal,
-  ledger = 100
+  ledger = 100,
+  eventIndex = 0
 ): rpc.Api.EventResponse {
   return {
     type: "contract",
     ledger,
     ledgerClosedAt: "2026-09-01T00:00:00Z",
-    id: `${ledger}-0`,
-    pagingToken: `${ledger}-0`,
+    id: `${ledger}-${eventIndex}`,
+    pagingToken: `${ledger}-${eventIndex}`,
     topic: [xdr.ScVal.scvSymbol("admin"), xdr.ScVal.scvSymbol(action)],
     value,
     inSuccessfulContractCall: true,
     txHash: "HASH",
   } as unknown as rpc.Api.EventResponse;
+}
+
+function mockAdminEvents(
+  events: rpc.Api.EventResponse[],
+  latestLedger: number
+) {
+  return vi
+    .spyOn(rpc.Server.prototype, "getEvents")
+    .mockImplementation(async (request) => {
+      const startLedger =
+        "startLedger" in request ? (request.startLedger ?? 0) : 0;
+      return {
+        events: events.filter((event) => event.ledger >= startLedger),
+        latestLedger,
+      } as never;
+    });
 }
 
 function baseConfig(
@@ -263,18 +280,19 @@ describe("runAlertKeeper", () => {
   });
 
   it("stops the cursor at the last successful action when a send fails", async () => {
-    vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
-      events: [
+    const getEventsSpy = mockAdminEvents(
+      [
         adminEvent("paused", xdr.ScVal.scvBool(true), 300),
         adminEvent("adapter", Address.fromString(NEW_ADAPTER).toScVal(), 310),
       ],
-      latestLedger: 310,
-    } as never);
+      310
+    );
 
     const cursorStore = createInMemoryKeeperHeartbeatStore();
     await cursorStore.set(alertCursorKey(VAULT_CONTRACT_ID, "testnet"), 200);
     const fetchImpl = vi
       .fn()
+      .mockResolvedValue({ ok: true })
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({ ok: false, status: 500 });
 
@@ -297,6 +315,166 @@ describe("runAlertKeeper", () => {
     expect(
       await cursorStore.get(alertCursorKey(VAULT_CONTRACT_ID, "testnet"))
     ).toBe(301);
+
+    const retry = await runAlertKeeper(baseConfig(), {
+      targets: [target],
+      cursorStore,
+      fetchImpl,
+    });
+
+    expect(getEventsSpy).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ startLedger: 301 })
+    );
+    expect(retry.alertsSent).toEqual([
+      { vaultId: target.vaultId, action: "adapter", ledgerSequence: 310 },
+    ]);
+    expect(retry.failures).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(
+      await cursorStore.get(alertCursorKey(VAULT_CONTRACT_ID, "testnet"))
+    ).toBe(311);
+  });
+
+  it.each(["paused", "accept"] as const)(
+    "retries a failed same-ledger alert after %s on the next run",
+    async (precedingAction) => {
+      const getEventsSpy = mockAdminEvents(
+        [
+          adminEvent(
+            precedingAction,
+            precedingAction === "paused"
+              ? xdr.ScVal.scvBool(true)
+              : Address.fromString(NEW_ADMIN).toScVal(),
+            300
+          ),
+          adminEvent(
+            "adapter",
+            Address.fromString(NEW_ADAPTER).toScVal(),
+            300,
+            1
+          ),
+          adminEvent(
+            "transfer",
+            Address.fromString(NEW_ADMIN).toScVal(),
+            300,
+            2
+          ),
+          adminEvent("paused", xdr.ScVal.scvBool(false), 310),
+        ],
+        310
+      );
+      const key = alertCursorKey(VAULT_CONTRACT_ID, "testnet");
+      const cursorStore = createInMemoryKeeperHeartbeatStore();
+      await cursorStore.set(key, 200);
+      const fetchImpl = vi.fn().mockResolvedValue({ ok: true });
+      const earlierAlerts =
+        precedingAction === "paused"
+          ? [{ vaultId: target.vaultId, action: "paused", ledgerSequence: 300 }]
+          : [];
+      if (precedingAction === "paused") {
+        fetchImpl.mockResolvedValueOnce({ ok: true });
+      }
+      fetchImpl.mockResolvedValueOnce({ ok: false, status: 500 });
+      const deps = { targets: [target], cursorStore, fetchImpl };
+
+      const firstRun = await runAlertKeeper(baseConfig(), deps);
+
+      expect(firstRun.alertsSent).toEqual(earlierAlerts);
+      expect(firstRun.failures).toEqual([
+        expect.objectContaining({
+          vaultId: target.vaultId,
+          stage: "send",
+          attempts: 1,
+        }),
+      ]);
+      expect(fetchImpl).toHaveBeenCalledTimes(earlierAlerts.length + 1);
+      expect(await cursorStore.get(key)).toBe(300);
+
+      fetchImpl.mockClear();
+      const secondRun = await runAlertKeeper(baseConfig(), deps);
+
+      expect(getEventsSpy).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ startLedger: 300 })
+      );
+      // Replaying the failed ledger can repeat its earlier successful alert.
+      expect(secondRun.alertsSent).toEqual([
+        ...earlierAlerts,
+        { vaultId: target.vaultId, action: "adapter", ledgerSequence: 300 },
+        { vaultId: target.vaultId, action: "transfer", ledgerSequence: 300 },
+        { vaultId: target.vaultId, action: "paused", ledgerSequence: 310 },
+      ]);
+      expect(secondRun.failures).toEqual([]);
+      expect(fetchImpl).toHaveBeenCalledTimes(earlierAlerts.length + 3);
+      expect(await cursorStore.get(key)).toBe(311);
+    }
+  );
+
+  it("advances past a successful same-ledger batch without replaying it", async () => {
+    const getEventsSpy = mockAdminEvents(
+      [
+        adminEvent("paused", xdr.ScVal.scvBool(true), 300),
+        adminEvent("accept", Address.fromString(NEW_ADMIN).toScVal(), 300, 1),
+        adminEvent(
+          "adapter",
+          Address.fromString(NEW_ADAPTER).toScVal(),
+          300,
+          2
+        ),
+      ],
+      310
+    );
+    const key = alertCursorKey(VAULT_CONTRACT_ID, "testnet");
+    const cursorStore = createInMemoryKeeperHeartbeatStore();
+    await cursorStore.set(key, 200);
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true });
+    const deps = { targets: [target], cursorStore, fetchImpl };
+
+    const firstRun = await runAlertKeeper(baseConfig(), deps);
+
+    expect(firstRun.alertsSent).toEqual([
+      { vaultId: target.vaultId, action: "paused", ledgerSequence: 300 },
+      { vaultId: target.vaultId, action: "adapter", ledgerSequence: 300 },
+    ]);
+    expect(firstRun.failures).toEqual([]);
+    expect(await cursorStore.get(key)).toBe(301);
+
+    const secondRun = await runAlertKeeper(baseConfig(), deps);
+
+    expect(getEventsSpy).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ startLedger: 301 })
+    );
+    expect(secondRun.alertsSent).toEqual([]);
+    expect(secondRun.failures).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(await cursorStore.get(key)).toBe(301);
+  });
+
+  it("keeps the starting cursor when the first alert exhausts its retries", async () => {
+    mockAdminEvents([adminEvent("paused", xdr.ScVal.scvBool(true), 300)], 300);
+    const key = alertCursorKey(VAULT_CONTRACT_ID, "testnet");
+    const cursorStore = createInMemoryKeeperHeartbeatStore();
+    await cursorStore.set(key, 200);
+    const fetchImpl = vi.fn().mockRejectedValue(new Error("webhook down"));
+
+    const result = await runAlertKeeper(baseConfig({ maxAttempts: 2 }), {
+      targets: [target],
+      cursorStore,
+      fetchImpl,
+    });
+
+    expect(result.alertsSent).toEqual([]);
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        stage: "send",
+        attempts: 2,
+        error: "webhook down",
+      }),
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(await cursorStore.get(key)).toBe(200);
   });
 
   it("records a discover failure and leaves the cursor untouched", async () => {
