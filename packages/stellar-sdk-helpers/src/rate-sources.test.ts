@@ -22,6 +22,7 @@ import {
   createDefaultRateSource,
   createInMemoryRateSnapshotStore,
   createUpstashRateSnapshotStore,
+  defindexRateSnapshotKey,
   type RateSnapshotStore,
 } from "./rate-sources";
 
@@ -397,6 +398,20 @@ function makeReserveV2(params: {
 // DeFindex
 // ---------------------------------------------------------------------------
 
+describe("defindexRateSnapshotKey", () => {
+  it("namespaces the key by network so testnet and mainnet keys differ", () => {
+    const testnetKey = defindexRateSnapshotKey("testnet", DEFINDEX_VAULT);
+    const mainnetKey = defindexRateSnapshotKey("mainnet", DEFINDEX_VAULT);
+    expect(testnetKey).not.toBe(mainnetKey);
+    expect(testnetKey).toBe(
+      `meridian:keeper:defindex-rate:testnet:${DEFINDEX_VAULT}`
+    );
+    expect(mainnetKey).toBe(
+      `meridian:keeper:defindex-rate:mainnet:${DEFINDEX_VAULT}`
+    );
+  });
+});
+
 describe("createDefindexRateSource", () => {
   it("returns null and never queries the vault for a non-defindex query", async () => {
     const store = createInMemoryRateSnapshotStore();
@@ -450,16 +465,19 @@ describe("createDefindexRateSource", () => {
 
     expect(rate).toBeNull();
     await expect(
-      store.get(`migration-keeper:defindex-rate:${DEFINDEX_VAULT}`)
+      store.get(defindexRateSnapshotKey(NETWORK.network, DEFINDEX_VAULT))
     ).resolves.toEqual({ timestampMs: 1_000, priceStroops: 10_000_000n });
   });
 
   it("returns null when two samples are too close together to be a meaningful signal", async () => {
     const store = createInMemoryRateSnapshotStore();
-    await store.set(`migration-keeper:defindex-rate:${DEFINDEX_VAULT}`, {
-      timestampMs: 0,
-      priceStroops: 10_000_000n,
-    });
+    await store.set(
+      defindexRateSnapshotKey(NETWORK.network, DEFINDEX_VAULT),
+      {
+        timestampMs: 0,
+        priceStroops: 10_000_000n,
+      }
+    );
     simulateViewMock.mockResolvedValueOnce([10_050_000n]);
     const rateSource = createDefindexRateSource({
       network: NETWORK,
@@ -477,7 +495,7 @@ describe("createDefindexRateSource", () => {
     // before the elapsed-time check, so a too-frequent caller would slide the
     // anchor forward on every call and elapsedMs would never reach the floor.
     const store = createInMemoryRateSnapshotStore();
-    const key = `migration-keeper:defindex-rate:${DEFINDEX_VAULT}`;
+    const key = defindexRateSnapshotKey(NETWORK.network, DEFINDEX_VAULT);
     await store.set(key, { timestampMs: 0, priceStroops: 10_000_000n });
 
     // A too-close call: returns null and must leave the anchor untouched.
@@ -517,10 +535,13 @@ describe("createDefindexRateSource", () => {
     // this is the exact "single skewed sample" scenario the MAX_PLAUSIBLE_APY
     // ceiling exists to catch, per PR #538 review.
     const store = createInMemoryRateSnapshotStore();
-    await store.set(`migration-keeper:defindex-rate:${DEFINDEX_VAULT}`, {
-      timestampMs: 0,
-      priceStroops: 10_000_000n,
-    });
+    await store.set(
+      defindexRateSnapshotKey(NETWORK.network, DEFINDEX_VAULT),
+      {
+        timestampMs: 0,
+        priceStroops: 10_000_000n,
+      }
+    );
     simulateViewMock.mockResolvedValueOnce([10_100_000n]); // +1%
     const rateSource = createDefindexRateSource({
       network: NETWORK,
@@ -536,10 +557,13 @@ describe("createDefindexRateSource", () => {
   it("annualizes a 5% share-price gain over exactly one year to 500 bps", async () => {
     const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
     const store = createInMemoryRateSnapshotStore();
-    await store.set(`migration-keeper:defindex-rate:${DEFINDEX_VAULT}`, {
-      timestampMs: 0,
-      priceStroops: 10_000_000n,
-    });
+    await store.set(
+      defindexRateSnapshotKey(NETWORK.network, DEFINDEX_VAULT),
+      {
+        timestampMs: 0,
+        priceStroops: 10_000_000n,
+      }
+    );
     simulateViewMock.mockResolvedValueOnce([10_500_000n]); // +5%
     const rateSource = createDefindexRateSource({
       network: NETWORK,
@@ -558,10 +582,13 @@ describe("createDefindexRateSource", () => {
     // extrapolation (which would report ~12.17%).
     const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
     const store = createInMemoryRateSnapshotStore();
-    await store.set(`migration-keeper:defindex-rate:${DEFINDEX_VAULT}`, {
-      timestampMs: 0,
-      priceStroops: 100_000_000n,
-    });
+    await store.set(
+      defindexRateSnapshotKey(NETWORK.network, DEFINDEX_VAULT),
+      {
+        timestampMs: 0,
+        priceStroops: 100_000_000n,
+      }
+    );
     simulateViewMock.mockResolvedValueOnce([101_000_000n]); // +1%
     const rateSource = createDefindexRateSource({
       network: NETWORK,
@@ -577,7 +604,7 @@ describe("createDefindexRateSource", () => {
   });
 
   it("treats a zero or negative quoted price as unavailable and does not overwrite the stored snapshot", async () => {
-    const key = `migration-keeper:defindex-rate:${DEFINDEX_VAULT}`;
+    const key = defindexRateSnapshotKey(NETWORK.network, DEFINDEX_VAULT);
     const store = createInMemoryRateSnapshotStore();
     await store.set(key, { timestampMs: 0, priceStroops: 10_000_000n });
     simulateViewMock.mockResolvedValueOnce([0n]);
@@ -747,10 +774,13 @@ describe("createDefaultRateSource", () => {
 
   it("dispatches a defindex query through the real DeFindex rate source with the given snapshot store", async () => {
     const store = createInMemoryRateSnapshotStore();
-    await store.set(`migration-keeper:defindex-rate:${DEFINDEX_VAULT}`, {
-      timestampMs: 0,
-      priceStroops: 10_000_000n,
-    });
+    await store.set(
+      defindexRateSnapshotKey(NETWORK.network, DEFINDEX_VAULT),
+      {
+        timestampMs: 0,
+        priceStroops: 10_000_000n,
+      }
+    );
     simulateViewMock.mockResolvedValueOnce([10_500_000n]);
     const rateSource = createDefaultRateSource(NETWORK, {
       env: {},

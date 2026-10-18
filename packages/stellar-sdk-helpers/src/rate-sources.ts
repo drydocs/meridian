@@ -245,8 +245,15 @@ const MIN_SAMPLE_INTERVAL_MS = 10 * 60 * 1_000;
 // extrapolation rather than a real rate.
 const MAX_PLAUSIBLE_APY = 5; // 500% annualized
 
-function snapshotKey(poolId: string): string {
-  return `migration-keeper:defindex-rate:${poolId}`;
+export function defindexRateSnapshotKey(
+  network: string,
+  poolId: string
+): string {
+  return ["meridian", "keeper", "defindex-rate", network, poolId].join(":");
+}
+
+function snapshotKey(network: string, poolId: string): string {
+  return defindexRateSnapshotKey(network, poolId);
 }
 
 export interface DefindexRateSourceOptions {
@@ -279,7 +286,7 @@ export function createDefindexRateSource(
     if (query.protocol !== "defindex") return null;
 
     const server = getRpcServer(options.network.rpcUrl, 10_000);
-    const key = snapshotKey(query.poolId);
+    const key = snapshotKey(options.network.network, query.poolId);
     // Independent reads (the live quote and the persisted prior snapshot),
     // run concurrently rather than sequentially: this is on
     // findBestCandidate's deadline-budget-constrained hot path (see
