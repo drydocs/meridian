@@ -117,7 +117,7 @@ only the systems that need it, unlike the accrue keeper's key, this is not a
 key you'd hand to a low-trust automation path.
 
 The vault contract itself does not restrict which address `migrate_adapter`
-can be pointed at beyond `require_admin`, `max_slippage_bps <= 10000`, and
+can be pointed at beyond `require_admin`, `max_slippage_bps <= 500`, and
 `new_adapter != old_adapter`; there is no on-chain allowlist of permitted
 adapter addresses. This differs from the deleted `MeridianRouter`'s
 `add_vault`/`remove_vault` allowlist model. The admin gate is the entire
@@ -133,13 +133,12 @@ deployments fail closed when it's missing, only true local dev is permissive.
 
 - `MERIDIAN_MIGRATION_MAX_SLIPPAGE_BPS` default `100` (1%). Passed directly
   to `migrate_adapter`'s `max_slippage_bps` argument. The config loader
-  rejects only the literal `10000` (unlimited slippage): an unbounded
-  tolerance would accept a migration that loses an arbitrary fraction of
-  the vault's position to a stale rate read or a misbehaving adapter.
-  `9999` (99.99%) is accepted and is functionally equivalent to unlimited;
-  the check stops one integer short of the guarantee its own reasoning
-  states. Not tightened here since picking a real ceiling below "unlimited"
-  is a policy call, not a bug fix, flagging so it isn't mistaken for closed.
+  enforces the contract's `MAX_ADMIN_SLIPPAGE_BPS` cap of `500` (5%): any
+  value above it is rejected, since an unbounded tolerance would accept a
+  migration that loses an arbitrary fraction of the vault's position to a
+  stale rate read or a misbehaving adapter. See
+  [`environment-variables.md`](./environment-variables.md) and
+  [`vault-contract.md`](../architecture/vault-contract.md).
 - `MERIDIAN_MIGRATION_MIN_IMPROVEMENT_BPS` default `50` (0.5%). A candidate
   protocol's rate must exceed the vault's current rate by at least this
   much before a migration is triggered, avoiding fee-losing churn between
