@@ -617,6 +617,50 @@ describe("POST /api/v1/tx/submit", () => {
   });
 });
 
+describe("POST /api/v1/tx/[action] action validation", () => {
+  it("rejects prototype property names like constructor with 404", async () => {
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "constructor" },
+        method: "POST",
+        body: { status: 204, body: { anything: true } },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: "Unknown action" });
+  });
+
+  it("rejects prototype property names like toString with 404", async () => {
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "toString" },
+        method: "POST",
+        body: {},
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: "Unknown action" });
+  });
+
+  it("rejects unknown action names with 404", async () => {
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "unknown" },
+        method: "POST",
+        body: {},
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: "Unknown action" });
+  });
+});
+
 describe("GET /api/v1/vaults", () => {
   it("returns the vault list with the mainnet cache header (APP_NETWORK default in tests)", async () => {
     const res = makeRes();

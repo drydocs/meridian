@@ -22,7 +22,10 @@ const ACTIONS = {
 type Action = keyof typeof ACTIONS;
 
 function isAction(value: unknown): value is Action {
-  return typeof value === "string" && value in ACTIONS;
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(ACTIONS, value)
+  );
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
