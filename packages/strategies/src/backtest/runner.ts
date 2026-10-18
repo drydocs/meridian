@@ -37,7 +37,10 @@ export interface ExecutionConfig {
 export interface AccrualConfig {
   /** Rate earned on idle cash. */
   readonly cashRatePerSecond?: FixedPointDecimal;
-  /** Funding on each open position's marked notional, signed per #864. */
+  /**
+   * Funding on each open position's marked notional, signed per #864: a
+   * positive rate is paid by longs and received by shorts.
+   */
   readonly fundingRate?: FundingRate;
 }
 
@@ -231,6 +234,9 @@ function fundingPositions(
 ): FundingAccrualPosition[] {
   const rate = accrual?.fundingRate;
   if (rate === undefined) return [];
+  // The configured rate is the market's, which longs pay when it is positive,
+  // while the accrual engine reads each rate from the position's own side.
+  const longRate: FundingRate = { ratePerSecond: ZERO.sub(rate.ratePerSecond) };
 
   const positions: FundingAccrualPosition[] = [];
   for (const position of portfolio.positions()) {
@@ -240,10 +246,13 @@ function fundingPositions(
         `runBacktest: no price for "${position.asset}" to accrue funding on`
       );
     }
-    const size = FixedPointDecimal.fromStroops(
-      abs(position.size.toStroops())
-    ).mul(price);
-    positions.push({ id: position.asset, notional: size, rate });
+    const stroops = position.size.toStroops();
+    const size = FixedPointDecimal.fromStroops(abs(stroops)).mul(price);
+    positions.push({
+      id: position.asset,
+      notional: size,
+      rate: stroops > 0n ? longRate : rate,
+    });
   }
   return positions;
 }
