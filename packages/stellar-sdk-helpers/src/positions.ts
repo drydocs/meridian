@@ -31,6 +31,10 @@ export interface RawPosition {
  *   currentValue = shares * totalAssets / totalShares   (value of the holding)
  *   earned       = max(0, currentValue − principal)     (yield accrued)
  *
+ * This is the same ratio the vault contract uses for its withdrawal payout
+ * (`shares * total_assets / total_shares`, with no virtual offset), so the
+ * helper and the SDK report the same `deposited` value for the same state.
+ *
  * Returns an empty array when the address holds no shares.
  */
 export function computePosition(

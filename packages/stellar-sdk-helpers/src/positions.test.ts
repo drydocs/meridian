@@ -103,3 +103,48 @@ describe("computePosition with no recorded cost basis", () => {
     expect(position?.earned).toBe(20);
   });
 });
+
+describe("computePosition matches the vault withdrawal payout", () => {
+  // The vault burns adapter shares as `shares * total_assets / total_shares`
+  // with no virtual offset (see vault/src/lib.rs withdraw), so the helper
+  // must report the same value. This pins the formula against a known state.
+  it("converts shares to assets with the raw ratio", () => {
+    // 300 shares of 1,000 total own 300 of 1,200 assets.
+    const [position] = computePosition(VAULT, {
+      shares: 300_0000000n,
+      totalShares: 1_000_0000000n,
+      totalAssets: 1_200_0000000n,
+      principal: 300_0000000n,
+      entryTime: 0n,
+    });
+    // 300 * 1200 / 1000 = 360, exactly the withdrawal payout.
+    expect(position?.deposited).toBe(360);
+    expect(position?.earned).toBe(60);
+  });
+
+  it("rounds down and matches the withdrawal payout when totalAssets < totalShares", () => {
+    // A loss puts totalAssets below totalShares. The contract divides with
+    // integer truncation, so the helper must truncate too and never round
+    // up past the payout.
+    // 300 * 500 / 1000 = 150 exactly.
+    const [exact] = computePosition(VAULT, {
+      shares: 300_0000000n,
+      totalShares: 1_000_0000000n,
+      totalAssets: 500_0000000n,
+      principal: 300_0000000n,
+      entryTime: 0n,
+    });
+    expect(exact?.deposited).toBe(150);
+    expect(exact?.earned).toBe(0);
+
+    // 333 * 500 / 1000 = 166.5 → truncates to 166, the contract's payout.
+    const [rounded] = computePosition(VAULT, {
+      shares: 333_0000000n,
+      totalShares: 1_000_0000000n,
+      totalAssets: 500_0000000n,
+      principal: 333_0000000n,
+      entryTime: 0n,
+    });
+    expect(rounded?.deposited).toBe(166);
+  });
+});

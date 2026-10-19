@@ -74,10 +74,11 @@ export const VIRTUAL_OFFSET = 1_000n;
  * Defaults to rounding *down*, matching the contract's deposit direction: a
  * depositor is never credited more shares than their assets bought.
  *
- * Pass `"up"` when the share amount is being burned to release a requested
- * amount of assets. Rounding down there would release slightly less than the
- * requested USDC, so withdrawal sizing rounds up to the smallest share count
- * whose payout covers the request.
+ * The virtual offset mirrors the contract's *deposit* pricing only. The
+ * contract's `withdraw` burns adapter shares with the raw ratio
+ * (`shares * total_adapter_shares / total_shares`, no offset), so this
+ * function is not the inverse of `convertSharesToAssets` and does not
+ * reproduce the on-chain withdrawal payout.
  *
  *   virtualSupply = totalSupply + VIRTUAL_OFFSET
  *   virtualAssets = totalAssets + VIRTUAL_OFFSET
@@ -99,20 +100,22 @@ export function convertAssetsToShares(
 }
 
 /**
- * Convert a share amount to assets using ERC-4626 virtual-offset math.
+ * Convert a share amount to assets using the vault's raw withdrawal ratio.
  * Rounds *down* (floor division), matching the contract's withdrawal payout
- * and ERC-4626's `previewRedeem`.
+ * (`packages/contracts/vault/src/lib.rs`), which applies no virtual offset.
+ * This is the same formula used by `computePosition` in
+ * `@meridian/stellar-sdk-helpers`, so both packages report the same
+ * `deposited` value for the same vault state.
  *
- *   assets = shares * virtualAssets / virtualSupply
+ *   assets = shares * totalAssets / totalSupply
  */
 export function convertSharesToAssets(
   shares: bigint,
   totalAssets: bigint,
   totalSupply: bigint
 ): bigint {
-  const virtualAssets = totalAssets + VIRTUAL_OFFSET;
-  const virtualSupply = totalSupply + VIRTUAL_OFFSET;
-  return (shares * virtualAssets) / virtualSupply;
+  if (totalSupply === 0n) return 0n;
+  return (shares * totalAssets) / totalSupply;
 }
 
 // ---------------------------------------------------------------------------
@@ -481,7 +484,7 @@ export abstract class VaultBase {
 
   /**
    * Convert a share amount to the equivalent assets at the current exchange
-   * rate, including ERC-4626 virtual-offset inflation protection.
+   * rate, using the vault's raw withdrawal ratio (no virtual offset).
    * ERC-4626 `convertToAssets(uint256 shares)`.
    *
    * @param shares Share amount in stroops to convert
