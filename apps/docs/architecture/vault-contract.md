@@ -276,7 +276,7 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `ADAPTER`            | Instance     | Active adapter contract `Address`                                                                                                            |
 | `TREASURY`           | Instance     | Constructor-fixed performance-fee recipient `Address`; no admin setter                                                                       |
 | `TOTAL_SH`           | Instance     | Total mUSDC shares outstanding (`i128`)                                                                                                      |
-| `ADPT_SH`            | Instance     | Total adapter shares outstanding. Reset to `0` on `set_adapter`; set to the new adapter's reported share count on `migrate_adapter` (`i128`) |
+| `ADPT_SH`            | Instance     | Total adapter shares outstanding. Deliberately not reset to `0` on `set_adapter`; set to the new adapter's reported share count on `migrate_adapter` (`i128`) |
 | `PAUSED`             | Instance     | Deposit pause flag (`bool`)                                                                                                                  |
 | `Entry(address)`     | Persistent   | Per-address deposit entry timestamp (`u64`)                                                                                                  |
 | `Principal(address)` | Persistent   | Per-address net USDC deposited, not yet withdrawn (`i128`)                                                                                   |
