@@ -115,6 +115,7 @@ describe("SelfRepayingLoanStrategy", () => {
       const step1 = strategy.amortize({
         state: initialState,
         yieldAccrued: Decimal.fromString("300"),
+        borrowInterestRatePeriod: Decimal.zero(),
       });
 
       expect(step1.nextState.debtAmount.toString()).toBe("700.0000000");
@@ -131,6 +132,7 @@ describe("SelfRepayingLoanStrategy", () => {
       const step2 = strategy.amortize({
         state: step1.nextState,
         yieldAccrued: Decimal.fromString("300"),
+        borrowInterestRatePeriod: Decimal.zero(),
       });
       expect(step2.nextState.debtAmount.toString()).toBe("400.0000000");
       expect(step2.nextState.totalYieldAmortized.toString()).toBe(
@@ -141,6 +143,7 @@ describe("SelfRepayingLoanStrategy", () => {
       const step3 = strategy.amortize({
         state: step2.nextState,
         yieldAccrued: Decimal.fromString("500"),
+        borrowInterestRatePeriod: Decimal.zero(),
       });
       expect(step3.nextState.debtAmount.isZero()).toBe(true);
       expect(step3.nextState.totalYieldAmortized.toString()).toBe(
@@ -170,6 +173,109 @@ describe("SelfRepayingLoanStrategy", () => {
       expect(step1.nextState.totalYieldAmortized.toString()).toBe(
         "100.0000000"
       );
+    });
+
+    it("accrues the configured fixed rate when no period rate is passed", () => {
+      const { nextState: initialState } = strategy.open({
+        collateralAmount: Decimal.fromString("10000"),
+        collateralPrice: Decimal.fromString("0.20"),
+      });
+
+      // Debt = 1,000 at the configured 5% fixed rate -> +50 interest
+      const step = strategy.amortize({
+        state: initialState,
+        yieldAccrued: Decimal.zero(),
+      });
+
+      expect(step.nextState.totalInterestAccrued.toString()).toBe("50.0000000");
+      expect(step.nextState.debtAmount.toString()).toBe("1050.0000000");
+    });
+
+    it("accrues the configured rate before repaying and across steps", () => {
+      const { nextState: initialState } = strategy.open({
+        collateralAmount: Decimal.fromString("10000"),
+        collateralPrice: Decimal.fromString("0.20"),
+      });
+
+      // 1,000 + 5% = 1,050, then 300 of yield repays it down to 750.
+      const first = strategy.amortize({
+        state: initialState,
+        yieldAccrued: Decimal.fromString("300"),
+      });
+      expect(first.nextState.debtAmount.toString()).toBe("750.0000000");
+
+      // 750 + 5% = 787.5, and the interest adds up across the two steps.
+      const second = strategy.amortize({
+        state: first.nextState,
+        yieldAccrued: Decimal.zero(),
+      });
+      expect(second.nextState.debtAmount.toString()).toBe("787.5000000");
+      expect(second.nextState.totalInterestAccrued.toString()).toBe(
+        "87.5000000"
+      );
+    });
+
+    it("prefers an explicit period rate, including zero, over the configured rate", () => {
+      const { nextState: initialState } = strategy.open({
+        collateralAmount: Decimal.fromString("10000"),
+        collateralPrice: Decimal.fromString("0.20"),
+      });
+
+      const explicitRate = strategy.amortize({
+        state: initialState,
+        yieldAccrued: Decimal.zero(),
+        borrowInterestRatePeriod: Decimal.fromString("0.01"),
+      });
+      expect(explicitRate.nextState.debtAmount.toString()).toBe("1010.0000000");
+
+      const zeroRate = strategy.amortize({
+        state: initialState,
+        yieldAccrued: Decimal.zero(),
+        borrowInterestRatePeriod: Decimal.zero(),
+      });
+      expect(zeroRate.nextState.debtAmount.toString()).toBe("1000.0000000");
+      expect(zeroRate.nextState.totalInterestAccrued.isZero()).toBe(true);
+    });
+
+    it("requires a period rate for a variable-rate loan", () => {
+      const variableStrategy = new SelfRepayingLoanStrategy({
+        ...baseConfig,
+        borrowRate: {
+          mode: "variable",
+          baseRate: Decimal.fromString("0.01"),
+          slope1: Decimal.fromString("0.04"),
+          slope2: Decimal.fromString("0.75"),
+          optimalUtilization: Decimal.fromString("0.80"),
+        },
+      });
+      const { nextState: openState } = variableStrategy.open({
+        collateralAmount: Decimal.fromString("10000"),
+        collateralPrice: Decimal.fromString("0.20"),
+      });
+
+      expect(() =>
+        variableStrategy.amortize({
+          state: openState,
+          yieldAccrued: Decimal.fromString("10"),
+        })
+      ).toThrowError(
+        /variable borrow rate needs pool utilization to evaluate; pass borrowInterestRatePeriod/
+      );
+      // A bad input is still reported as such, ahead of the missing rate.
+      expect(() =>
+        variableStrategy.amortize({
+          state: openState,
+          yieldAccrued: Decimal.zero(),
+          collateralPrice: Decimal.zero(),
+        })
+      ).toThrowError(/Collateral price must be strictly positive/);
+
+      const step = variableStrategy.amortize({
+        state: openState,
+        yieldAccrued: Decimal.zero(),
+        borrowInterestRatePeriod: Decimal.fromString("0.02"),
+      });
+      expect(step.nextState.debtAmount.toString()).toBe("1020.0000000");
     });
 
     it("rejects negative yield, a negative period rate, and a non-positive collateral price", () => {
@@ -254,6 +360,7 @@ describe("SelfRepayingLoanStrategy", () => {
       const { nextState: amortizedState } = strategy.amortize({
         state: openState,
         yieldAccrued: Decimal.fromString("400"),
+        borrowInterestRatePeriod: Decimal.zero(),
       });
 
       const closeResult = strategy.close({
@@ -333,6 +440,7 @@ describe("SelfRepayingLoanStrategy", () => {
       const { nextState: repaid } = strategy.amortize({
         state: openState,
         yieldAccrued: Decimal.fromString("1000"),
+        borrowInterestRatePeriod: Decimal.zero(),
       });
 
       expect(repaid.debtAmount.isZero()).toBe(true);

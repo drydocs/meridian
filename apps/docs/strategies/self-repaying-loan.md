@@ -42,7 +42,9 @@ For example, 1000 USDC of collateral at a price of `1` with an
 earned in that period and, optionally, the period borrow rate and a fresh
 collateral price. Each call:
 
-1. adds interest to the debt: `debt × borrowInterestRatePeriod`,
+1. adds interest to the debt: `debt × borrowInterestRatePeriod`, or
+   `debt × fixedRate` from the config when no period rate is passed (see
+   [Rate modes](#rate-modes)),
 2. uses the period's yield to repay as much of that debt as it can,
 3. emits a `harvest_yield` and a `repay_debt` order for the repaid amount.
 
@@ -110,14 +112,18 @@ liquidation becomes relevant.
 `borrowRate.mode` selects one of two shapes:
 
 - **`fixed`**: `{ mode: "fixed", fixedRate }`. `fixedRate` must be `0` or
-  more.
+  more. It is a rate per period, which `amortize()` charges when the call
+  passes no `borrowInterestRatePeriod`.
 - **`variable`**: `{ mode: "variable", baseRate, slope1, slope2, optimalUtilization }`,
   the usual kinked utilization curve: `baseRate` is the floor, `slope1` applies
   below `optimalUtilization`, `slope2` above it. `baseRate`, `slope1` and
   `slope2` must be `0` or more; `optimalUtilization` must be between `0` and
-  `1`.
+  `1`. `amortize()` has no utilization to evaluate the curve with, so a
+  variable-rate loan must pass `borrowInterestRatePeriod` on every call;
+  without it the call throws.
 
-Any other `mode` is rejected.
+Any other `mode` is rejected. A `borrowInterestRatePeriod` passed to
+`amortize()`, including `0`, always takes precedence over the configured rate.
 
 ### What the configuration does not do yet
 
@@ -125,11 +131,10 @@ Some options are validated but not yet read by the strategy or the backtest
 runner. This guide documents the code as it is, so the gaps are stated
 plainly:
 
-- **`borrowRate` is not used to compute interest.** Neither rate mode is
-  evaluated anywhere. Interest is whatever period rate the caller passes:
-  `borrowInterestRatePeriod` on each `amortize()` call, or
-  `borrowInterestRate` on each backtest tick. Setting a fixed or variable
-  rate in the config does not change a result.
+- **The variable `borrowRate` curve is not evaluated.** Only a `fixed` rate
+  is applied, by `amortize()`; a variable-rate caller supplies the period
+  rate itself. The backtest runner does not read `borrowRate` at all: it
+  charges the `borrowInterestRate` of each tick.
 - **`deleverageBuffer` and `deleverageTargetLtv` do not drive deleveraging.**
   Auto-deleverage is configured in health-factor terms on the monitor and the
   backtest runner (next section), not from these LTV fields.

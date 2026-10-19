@@ -102,8 +102,8 @@ export class MissingTrustlineError extends Error {
     const list = missing.join(", ");
     super(
       missing.length === 1
-        ? `Missing ${list} trustline. Add the trustline via POST /api/v1/tx/trustline before depositing or withdrawing.`
-        : `Missing required trustlines: ${list}. Add them via POST /api/v1/tx/trustline before depositing or withdrawing.`
+        ? `Missing ${list} trustline. Add the trustline via POST /api/v1/tx/add-trustline before depositing or withdrawing.`
+        : `Missing required trustlines: ${list}. Add them via POST /api/v1/tx/add-trustline before depositing or withdrawing.`
     );
     this.name = "MissingTrustlineError";
   }

@@ -442,32 +442,151 @@ describe("createUpstashPositionSnapshotStore", () => {
 });
 
 describe("loadPositionSnapshotStore", () => {
-  it("uses Upstash when both credentials are set", async () => {
-    const fetchImpl = vi.fn(
+  const credentialPairs = [
+    {
+      name: "unprefixed",
+      urlKey: "UPSTASH_REDIS_REST_URL",
+      tokenKey: "UPSTASH_REDIS_REST_TOKEN",
+    },
+    {
+      name: "store-prefixed",
+      urlKey: "UPSTASH_REDIS_REST_KV_REST_API_URL",
+      tokenKey: "UPSTASH_REDIS_REST_KV_REST_API_TOKEN",
+    },
+  ];
+
+  async function expectUpstash(
+    env: Record<string, string | undefined>,
+    url: string,
+    token: string
+  ) {
+    const log = logger();
+    const fetchImpl = vi.fn<typeof fetch>(
       async () => new Response(JSON.stringify({ result: [] }))
-    ) as unknown as typeof fetch;
+    );
     const store = loadPositionSnapshotStore(
-      {
-        UPSTASH_REDIS_REST_URL: "https://r.example",
-        UPSTASH_REDIS_REST_TOKEN: "t",
-      },
-      { logger: logger(), fetchImpl }
+      { ...env, VERCEL_ENV: "production" },
+      { logger: log, fetchImpl }
     );
     await store.latest("k");
-    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl).toHaveBeenCalledExactlyOnceWith(
+      url,
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(["ZREVRANGE", "k", 0, 0]),
+      })
+    );
+    expect(log.info).not.toHaveBeenCalled();
+    expect(log.warn).not.toHaveBeenCalled();
+  }
+
+  async function expectInMemory(env: Record<string, string | undefined>) {
+    for (const vercelEnv of [undefined, "production"]) {
+      const log = logger();
+      const fetchImpl = vi.fn<typeof fetch>();
+      const store = loadPositionSnapshotStore(
+        { ...env, VERCEL_ENV: vercelEnv },
+        { logger: log, fetchImpl }
+      );
+      const snapshot = buildPositionSnapshot([], 123);
+      await store.append("k", snapshot, 10);
+      expect(await store.latest("k")).toEqual(snapshot);
+      expect(fetchImpl).not.toHaveBeenCalled();
+      if (vercelEnv) {
+        expect(log.warn).toHaveBeenCalledExactlyOnceWith(expect.any(String), {
+          store: "in-memory",
+          env: vercelEnv,
+        });
+        expect(log.info).not.toHaveBeenCalled();
+      } else {
+        expect(log.info).toHaveBeenCalledExactlyOnceWith(expect.any(String), {
+          store: "in-memory",
+        });
+        expect(log.warn).not.toHaveBeenCalled();
+      }
+    }
+  }
+
+  describe.each(credentialPairs)(
+    "$name credentials",
+    ({ urlKey, tokenKey }) => {
+      it("uses Upstash and trims both credentials", async () => {
+        await expectUpstash(
+          { [urlKey]: "  https://redis.example/  ", [tokenKey]: "  tok  " },
+          "https://redis.example",
+          "tok"
+        );
+      });
+
+      it.each([
+        ["missing URL", undefined, "tok"],
+        ["missing token", "https://redis.example", undefined],
+        ["empty URL", "", "tok"],
+        ["empty token", "https://redis.example", ""],
+        ["whitespace URL", " \t ", "tok"],
+        ["whitespace token", "https://redis.example", " \t "],
+      ])("falls back to in-memory with %s", async (_name, url, token) => {
+        await expectInMemory({ [urlKey]: url, [tokenKey]: token });
+      });
+    }
+  );
+
+  it("prefers unprefixed credentials when both pairs are present", async () => {
+    await expectUpstash(
+      {
+        UPSTASH_REDIS_REST_URL: " https://primary.example/ ",
+        UPSTASH_REDIS_REST_TOKEN: " primary-token ",
+        UPSTASH_REDIS_REST_KV_REST_API_URL: "https://fallback.example",
+        UPSTASH_REDIS_REST_KV_REST_API_TOKEN: "fallback-token",
+      },
+      "https://primary.example",
+      "primary-token"
+    );
   });
 
-  it("falls back to in-memory, warning only on a deployed environment", () => {
-    const local = logger();
-    loadPositionSnapshotStore({}, { logger: local });
-    expect(local.info).toHaveBeenCalledOnce();
-    expect(local.warn).not.toHaveBeenCalled();
+  it.each([
+    ["UPSTASH_REDIS_REST_URL", "https://fallback.example", "primary-token"],
+    ["UPSTASH_REDIS_REST_TOKEN", "https://primary.example", "fallback-token"],
+  ])(
+    "resolves the fallback independently when %s is missing",
+    async (key, url, token) => {
+      await expectUpstash(
+        {
+          UPSTASH_REDIS_REST_URL: "https://primary.example",
+          UPSTASH_REDIS_REST_TOKEN: "primary-token",
+          UPSTASH_REDIS_REST_KV_REST_API_URL: " https://fallback.example/ ",
+          UPSTASH_REDIS_REST_KV_REST_API_TOKEN: " fallback-token ",
+          [key]: undefined,
+        },
+        url,
+        token
+      );
+    }
+  );
 
-    const deployed = logger();
-    loadPositionSnapshotStore(
-      { VERCEL_ENV: "production" },
-      { logger: deployed }
-    );
-    expect(deployed.warn).toHaveBeenCalledOnce();
+  it.each(["", " \t "])(
+    "does not replace blank unprefixed credentials (%j) with the fallback pair",
+    async (blank) => {
+      for (const key of [
+        "UPSTASH_REDIS_REST_URL",
+        "UPSTASH_REDIS_REST_TOKEN",
+      ]) {
+        await expectInMemory({
+          UPSTASH_REDIS_REST_URL: "https://primary.example",
+          UPSTASH_REDIS_REST_TOKEN: "primary-token",
+          UPSTASH_REDIS_REST_KV_REST_API_URL: "https://fallback.example",
+          UPSTASH_REDIS_REST_KV_REST_API_TOKEN: "fallback-token",
+          [key]: blank,
+        });
+      }
+    }
+  );
+
+  it("falls back to in-memory when neither pair is configured", async () => {
+    await expectInMemory({});
   });
 });

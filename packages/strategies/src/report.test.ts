@@ -8,6 +8,7 @@ import {
 import type { Scenario } from "./scenario";
 import { FixedPointDecimal } from "./types";
 import type { AssetSymbol, SimulationTimestamp } from "./types";
+import { XorShift64, derivePathSeed } from "./rng";
 import {
   REPORT_FORMAT_VERSION,
   serializeReport,
@@ -16,14 +17,17 @@ import {
   reportFromJSON,
   buildWarmStartContext,
   mergeReports,
+  restoreGenerators,
   UnknownReportVersionError,
   isUnknownReportVersionError,
 } from "./report";
 import type {
+  GeneratorStates,
   RunReport,
   ReportRiskMetrics,
   EventCounts,
   ReportPortfolioState,
+  SerializedRunReport,
 } from "./report";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -95,6 +99,19 @@ function makePortfolioState(
   };
 }
 
+// One stream per asset. The USDC state is past 2^53, so a wire format that went
+// through a JSON number would lose it.
+const STREAM_USDC = "price:USDC";
+const STREAM_EURC = "price:EURC";
+const GENERATORS_START: GeneratorStates = {
+  [STREAM_USDC]: 0x1234n,
+  [STREAM_EURC]: 0x5678n,
+};
+const GENERATORS_END: GeneratorStates = {
+  [STREAM_USDC]: 0xfedcba9876543211n,
+  [STREAM_EURC]: 0x9abcn,
+};
+
 function makeReport(start = T0, end = T1, finalTs = T1): RunReport {
   return {
     version: REPORT_FORMAT_VERSION,
@@ -108,6 +125,7 @@ function makeReport(start = T0, end = T1, finalTs = T1): RunReport {
       "50.2500000",
       "154.3200000"
     ),
+    generators: { start: GENERATORS_START, end: GENERATORS_END },
   };
 }
 
@@ -122,6 +140,10 @@ function continueFrom(
   return {
     ...makeReport(Date.parse(ctx.scenario.window.start), end, end),
     scenario: { ...ctx.scenario, ...overrides },
+    generators: {
+      start: ctx.generatorStates,
+      end: { [STREAM_USDC]: 0xabcdefn, [STREAM_EURC]: 0x123n },
+    },
   };
 }
 
@@ -268,6 +290,71 @@ describe("serializeReport / deserializeReport", () => {
   });
 });
 
+describe("generator state in the wire format", () => {
+  it("round-trips every stream's start and end state exactly", () => {
+    const restored = reportFromJSON(reportToJSON(makeReport()));
+
+    expect(restored.generators.start).toEqual(GENERATORS_START);
+    expect(restored.generators.end).toEqual(GENERATORS_END);
+  });
+
+  it("stores each state as a decimal string", () => {
+    const parsed = JSON.parse(reportToJSON(makeReport()));
+
+    expect(parsed.generators.end[STREAM_USDC]).toBe("18364758544493064721");
+    expect(parsed.generators.start[STREAM_EURC]).toBe("22136");
+  });
+
+  it("keeps a report from a run that draws from no generator", () => {
+    const report: RunReport = {
+      ...makeReport(),
+      generators: { start: {}, end: {} },
+    };
+
+    expect(deserializeReport(serializeReport(report)).generators).toEqual({
+      start: {},
+      end: {},
+    });
+  });
+
+  it("rejects a malformed state instead of resuming another stream", () => {
+    for (const malformed of ["", "0x10", "-5", "1.5", "12abc", 7]) {
+      const wire = serializeReport(makeReport());
+      const corrupted = {
+        ...wire,
+        generators: {
+          ...wire.generators,
+          end: { ...wire.generators.end, [STREAM_USDC]: malformed as string },
+        },
+      };
+      expect(() => deserializeReport(corrupted)).toThrow(TypeError);
+    }
+  });
+
+  it("rejects a state no generator can hold", () => {
+    for (const outOfRange of ["0", "18446744073709551616"]) {
+      const wire = serializeReport(makeReport());
+      const corrupted = {
+        ...wire,
+        generators: {
+          ...wire.generators,
+          start: { ...wire.generators.start, [STREAM_EURC]: outOfRange },
+        },
+      };
+      expect(() => deserializeReport(corrupted)).toThrow(RangeError);
+    }
+  });
+
+  it("rejects a current-version report with no generator states", () => {
+    const wire: Partial<SerializedRunReport> = serializeReport(makeReport());
+    delete wire.generators;
+
+    expect(() => deserializeReport(wire as SerializedRunReport)).toThrow(
+      TypeError
+    );
+  });
+});
+
 // ─── JSON round-trip ─────────────────────────────────────────────────────────
 
 describe("reportToJSON / reportFromJSON", () => {
@@ -336,7 +423,7 @@ describe("version checking", () => {
 
   it("does not silently misparse an unknown version", () => {
     const wire = serializeReport(makeReport());
-    const badWire = { ...wire, version: 2 };
+    const badWire = { ...wire, version: REPORT_FORMAT_VERSION + 1 };
     let threw = false;
     try {
       deserializeReport(badWire);
@@ -345,6 +432,16 @@ describe("version checking", () => {
       expect(isUnknownReportVersionError(err)).toBe(true);
     }
     expect(threw).toBe(true);
+  });
+
+  it("rejects a version 1 report, which carries no generator state", () => {
+    // The shape a report took before generator state was stored. Read as the
+    // current version it would resume every stream from the seed.
+    const v1: Partial<SerializedRunReport> = serializeReport(makeReport());
+    delete v1.generators;
+    const json = JSON.stringify({ ...v1, version: 1 });
+
+    expect(() => reportFromJSON(json)).toThrow(UnknownReportVersionError);
   });
 
   it("isUnknownReportVersionError returns false for plain errors", () => {
@@ -446,6 +543,28 @@ describe("buildWarmStartContext", () => {
     ).toThrow(RangeError);
   });
 
+  it("carries every stream's end state for the continuation to resume from", () => {
+    const base = makeReport();
+    const ctx = buildWarmStartContext(base, { newEndTimestamp: T2 });
+
+    expect(ctx.generatorStates).toEqual({
+      [STREAM_USDC]: 0xfedcba9876543211n,
+      [STREAM_EURC]: 0x9abcn,
+    });
+    expect(ctx.generatorStates).not.toBe(base.generators.end);
+  });
+
+  it("restores each stream as a generator positioned at its end state", () => {
+    const ctx = buildWarmStartContext(makeReport(), { newEndTimestamp: T2 });
+    const generators = restoreGenerators(ctx);
+
+    expect(Object.keys(generators)).toEqual([STREAM_USDC, STREAM_EURC]);
+    expect(generators[STREAM_USDC]!.next()).toBe(
+      new XorShift64(0xfedcba9876543211n).next()
+    );
+    expect(generators[STREAM_EURC]!.getState()).toBe(0x9abcn);
+  });
+
   it("throws when the final value cannot serve as a starting capital", () => {
     const wipedOut: RunReport = {
       ...makeReport(T0, T1, T1),
@@ -506,6 +625,74 @@ function simulateRun(
       },
       totalValue: FixedPointDecimal.fromStroops(totalValueStroops),
     },
+    generators: { start: {}, end: {} },
+  };
+}
+
+// A path-driven toy strategy: each step moves every asset's holding by an amount
+// drawn from that asset's own generator stream, so the outcome depends on where
+// in each stream a run starts.
+function simulateDrawingRun(
+  startState: ReportPortfolioState,
+  scenario: Scenario,
+  generators: Record<string, XorShift64>
+): RunReport {
+  const stepMs = durationToMilliseconds(scenario.window.step);
+  const endTimestamp = Date.parse(scenario.window.end);
+  const start = snapshotStates(generators);
+  const holdings: Record<string, bigint> = {};
+  for (const asset of [USDC, EURC]) {
+    holdings[asset] = startState.holdings[asset]?.toStroops() ?? 0n;
+  }
+
+  let steps = 0;
+  let ts = startState.timestamp;
+  while (ts + stepMs <= endTimestamp) {
+    ts += stepMs;
+    for (const asset of [USDC, EURC]) {
+      const draw = generators[`price:${asset}`]!.next();
+      // Signed move in (-0.5, 0.5) units, in stroops.
+      holdings[asset] = holdings[asset]! + (draw % 10_000_000n) - 5_000_000n;
+    }
+    steps++;
+  }
+
+  return {
+    version: REPORT_FORMAT_VERSION,
+    scenario,
+    engineVersion: ENGINE_VERSION,
+    riskMetrics: makeRiskMetrics("0", "0", "0"),
+    eventCounts: makeEventCounts({ rebalances: steps }),
+    finalState: {
+      timestamp: ts,
+      holdings: {
+        USDC: FixedPointDecimal.fromStroops(holdings[USDC]!),
+        EURC: FixedPointDecimal.fromStroops(holdings[EURC]!),
+      },
+      totalValue: FixedPointDecimal.fromStroops(
+        holdings[USDC]! + holdings[EURC]!
+      ),
+    },
+    generators: { start, end: snapshotStates(generators) },
+  };
+}
+
+function snapshotStates(
+  generators: Record<string, XorShift64>
+): GeneratorStates {
+  const states: Record<string, bigint> = {};
+  for (const [stream, generator] of Object.entries(generators)) {
+    states[stream] = generator.getState();
+  }
+  return states;
+}
+
+// Fresh generators for a run, one per asset, seeded the way generateGbmPaths
+// seeds its paths.
+function seededGenerators(): Record<string, XorShift64> {
+  return {
+    [STREAM_USDC]: new XorShift64(derivePathSeed(932n, 0)),
+    [STREAM_EURC]: new XorShift64(derivePathSeed(932n, 1)),
   };
 }
 
@@ -513,10 +700,9 @@ describe("warm-start equivalence", () => {
   const T3 = T2 + 86_400_000; // +3 days from T0
 
   it("a warm-started continuation produces the same final state as an uninterrupted run", () => {
-    // `simulateRun` is deterministic, adding a constant per step and drawing
-    // nothing from the RNG, so this covers portfolio-state continuity across a
-    // split. It does not cover RNG continuity, which the report cannot provide
-    // because it stores no generator state.
+    // `simulateRun` adds a constant per step and draws nothing, so this covers
+    // portfolio-state continuity on its own. Generator continuity is covered by
+    // the path-driven test below.
     const initialState: ReportPortfolioState = makePortfolioState(
       T0,
       "100",
@@ -554,6 +740,107 @@ describe("warm-start equivalence", () => {
     expect(merged.eventCounts.rebalances).toBe(
       fullReport.eventCounts.rebalances
     );
+  });
+
+  it("a warm-started path-driven run matches an uninterrupted run over the same window", () => {
+    const initialState = makePortfolioState(T0, "100", "50", "150");
+
+    const fullReport = simulateDrawingRun(
+      initialState,
+      makeScenario(T0, T3),
+      seededGenerators()
+    );
+
+    const firstHalf = simulateDrawingRun(
+      initialState,
+      makeScenario(T0, T2),
+      seededGenerators()
+    );
+    const ctx = buildWarmStartContext(firstHalf, { newEndTimestamp: T3 });
+    const secondHalf = simulateDrawingRun(
+      ctx.startingState,
+      ctx.scenario,
+      restoreGenerators(ctx)
+    );
+    const merged = mergeReports(firstHalf, secondHalf, { newEndTimestamp: T3 });
+
+    for (const asset of [USDC, EURC]) {
+      expect(merged.finalState.holdings[asset]!.toStroops()).toBe(
+        fullReport.finalState.holdings[asset]!.toStroops()
+      );
+    }
+    expect(merged.finalState.totalValue.toStroops()).toBe(
+      fullReport.finalState.totalValue.toStroops()
+    );
+    expect(merged.generators).toEqual(fullReport.generators);
+  });
+
+  it("a continuation that restarts its streams from the seed diverges and is refused", () => {
+    // What every warm start did before generator state was stored: the result
+    // differs from the uninterrupted run, and the merge now says so.
+    const initialState = makePortfolioState(T0, "100", "50", "150");
+    const fullReport = simulateDrawingRun(
+      initialState,
+      makeScenario(T0, T3),
+      seededGenerators()
+    );
+    const firstHalf = simulateDrawingRun(
+      initialState,
+      makeScenario(T0, T2),
+      seededGenerators()
+    );
+    const ctx = buildWarmStartContext(firstHalf, { newEndTimestamp: T3 });
+    const restarted = simulateDrawingRun(
+      ctx.startingState,
+      ctx.scenario,
+      seededGenerators()
+    );
+
+    expect(restarted.finalState.totalValue.toStroops()).not.toBe(
+      fullReport.finalState.totalValue.toStroops()
+    );
+    expect(() =>
+      mergeReports(firstHalf, restarted, { newEndTimestamp: T3 })
+    ).toThrow(/generator state for stream "price:USDC"/);
+  });
+
+  const GENERATOR_MISMATCHES: Array<[string, GeneratorStates]> = [
+    [
+      "a differing state",
+      { [STREAM_USDC]: 0xfedcba9876543211n, [STREAM_EURC]: 0x9abdn },
+    ],
+    ["a missing stream", { [STREAM_USDC]: 0xfedcba9876543211n }],
+    ["an extra stream", { ...GENERATORS_END, "price:XLM": 0x1n }],
+    [
+      "another path's states",
+      { [STREAM_USDC]: 0x9abcn, [STREAM_EURC]: 0xfedcba9876543211n },
+    ],
+  ];
+
+  it.each(GENERATOR_MISMATCHES)(
+    "mergeReports rejects a continuation whose generator start has %s",
+    (_case, start) => {
+      const base = makeReport(T0, T1, T1);
+      const continuation = continueFrom(base, T2);
+      const mismatched: RunReport = {
+        ...continuation,
+        generators: { ...continuation.generators, start },
+      };
+
+      expect(() =>
+        mergeReports(base, mismatched, { newEndTimestamp: T2 })
+      ).toThrow(/generator state/);
+    }
+  );
+
+  it("merged report spans both runs' generator states", () => {
+    const base = makeReport(T0, T1, T1);
+    const continuation = continueFrom(base, T2);
+
+    const merged = mergeReports(base, continuation, { newEndTimestamp: T2 });
+
+    expect(merged.generators.start).toEqual(GENERATORS_START);
+    expect(merged.generators.end).toEqual(continuation.generators.end);
   });
 
   it("merged scenario spans the full window", () => {
@@ -879,10 +1166,10 @@ describe("report completeness", () => {
     // Pinned to the literal, so bumping the constant without a deliberate
     // change to the wire format cannot pass unnoticed.
     const report = makeReport();
-    expect(report.version).toBe(1);
+    expect(report.version).toBe(2);
 
     const wire = serializeReport(report);
-    expect(wire.version).toBe(1);
+    expect(wire.version).toBe(2);
   });
 
   it("holds all four event-count categories", () => {

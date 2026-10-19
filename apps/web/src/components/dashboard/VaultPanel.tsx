@@ -5,6 +5,7 @@ import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
 import { useRiskDisclosure } from "../../hooks/useRiskDisclosure";
+import { useUsdcBalance } from "../../hooks/useUsdcBalance";
 import { getWalletMeta, hasAcceptedRiskDisclosure } from "../../lib/wallet";
 import { PositionSummary } from "./PositionSummary";
 import { YieldHistoryChart } from "./YieldHistoryChart";
@@ -27,6 +28,8 @@ export function VaultPanel() {
   const vaults = data?.vaults;
   const { t } = useTranslation();
   const { connected, publicKey } = useWalletStore();
+  const { balance: availableBalance, refetch: refetchBalance } =
+    useUsdcBalance();
   const {
     handleConnect,
     status: connectStatus,
@@ -100,7 +103,12 @@ export function VaultPanel() {
       undefined,
       hasAcceptedRiskDisclosure()
     );
-    if (ok) setAmount("");
+    if (ok) {
+      setAmount("");
+      // A successful deposit changes the wallet's USDC balance; refresh
+      // so the over-balance guard stops comparing against stale data.
+      refetchBalance();
+    }
   }
 
   async function handleWithdraw() {
@@ -294,6 +302,7 @@ export function VaultPanel() {
             hasPosition={!!hasPosition}
             isDepositing={isDepositing}
             onSubmit={handleDeposit}
+            availableBalance={availableBalance}
           />
         ) : (
           <WithdrawTab

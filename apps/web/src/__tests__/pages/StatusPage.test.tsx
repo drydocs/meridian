@@ -90,7 +90,7 @@ describe("StatusPage", () => {
 
     expect(
       screen.getByText(
-        'status.parameters.migrationCooldownValue:{"ledgers":12}'
+        'status.parameters.migrationCooldownValue:{"ledgers":17280}'
       )
     ).toBeDefined();
   });

@@ -6,8 +6,11 @@ import {
 import type { Scenario } from "./scenario";
 import type { AssetSymbol, SimulationTimestamp } from "./types";
 import { FixedPointDecimal } from "./types";
+import { XorShift64 } from "./rng";
 
-export const REPORT_FORMAT_VERSION = 1 as const;
+// Version 2 added `generators`. A version 1 report carries no generator state,
+// so it cannot resume a run that draws from the seeded generators.
+export const REPORT_FORMAT_VERSION = 2 as const;
 export type ReportFormatVersion = typeof REPORT_FORMAT_VERSION;
 
 // Risk metrics summarising the run.
@@ -40,13 +43,26 @@ export interface ReportPortfolioState {
   readonly totalValue: FixedPointDecimal;
 }
 
+// The `XorShift64` state of each generator stream in the run, keyed by a stream
+// id the run chooses (for example one per asset, or one per path index), since
+// a run can draw from several generators and a single value could not say which
+// one it belongs to. A run that draws from no generator stores no streams.
+export type GeneratorStates = Readonly<Record<string, bigint>>;
+
+export interface ReportGenerators {
+  // Each stream's state when the run began: the seeded state for a fresh run,
+  // the base report's `end` for a warm-started one.
+  readonly start: GeneratorStates;
+  // Each stream's state at `finalState`, which a continuation resumes from.
+  readonly end: GeneratorStates;
+}
+
 // A complete, self-contained run report.
 //
-// `scenario` is the validated input the run was produced from, so a run whose
-// outcome is fixed by the scenario alone can be reproduced from the report. A
-// run that draws from the seeded generators cannot: `XorShift64` keeps its
-// state internally and no RNG state is stored here, so resuming such a run
-// restarts the stream instead of continuing it.
+// `scenario` is the validated input the run was produced from, and `generators`
+// the position of every seeded stream it drew from, so a run can be reproduced
+// from the report and a warm-started one continues each stream where the
+// previous run stopped rather than restarting it from the seed.
 export interface RunReport {
   readonly version: ReportFormatVersion;
   readonly scenario: Scenario;
@@ -56,13 +72,16 @@ export interface RunReport {
   readonly riskMetrics: ReportRiskMetrics;
   readonly eventCounts: EventCounts;
   readonly finalState: ReportPortfolioState;
+  readonly generators: ReportGenerators;
 }
 
 // ─── Wire format ─────────────────────────────────────────────────────────────
 // All FixedPointDecimal values are serialised as the raw bigint stroop count
 // expressed as a decimal string (e.g. "10000001"). This is lossless and safe
-// across JSON serialisers that would truncate large numbers. The scenario needs
-// no conversion, since every value it carries is already a string or a number.
+// across JSON serialisers that would truncate large numbers. Generator states
+// are 64-bit, past what a JSON number holds exactly, so they are decimal strings
+// too. The scenario needs no conversion, since every value it carries is already
+// a string or a number.
 
 interface SerializedRiskMetrics {
   maxDrawdown: string;
@@ -83,6 +102,12 @@ export interface SerializedRunReport {
   riskMetrics: SerializedRiskMetrics;
   eventCounts: EventCounts;
   finalState: SerializedPortfolioState;
+  generators: SerializedGenerators;
+}
+
+interface SerializedGenerators {
+  start: Record<string, string>;
+  end: Record<string, string>;
 }
 
 // ─── Serialization ───────────────────────────────────────────────────────────
@@ -102,6 +127,35 @@ function deserializeFixed(s: string): FixedPointDecimal {
     );
   }
   return FixedPointDecimal.fromStroops(BigInt(s));
+}
+
+function serializeStates(states: GeneratorStates): Record<string, string> {
+  const wire: Record<string, string> = {};
+  for (const [stream, state] of Object.entries(states)) {
+    wire[stream] = state.toString();
+  }
+  return wire;
+}
+
+// Checked the way stroop values are, and then against the range a generator can
+// hold, so a corrupted state fails here rather than resuming a different stream.
+function deserializeStates(wire: unknown, label: string): GeneratorStates {
+  if (wire === null || typeof wire !== "object" || Array.isArray(wire)) {
+    throw new TypeError(
+      `Invalid generator states in run report ${label}: ${JSON.stringify(wire)}`
+    );
+  }
+  const states: Record<string, bigint> = {};
+  for (const [stream, value] of Object.entries(wire as object)) {
+    if (typeof value !== "string" || !/^\d+$/.test(value)) {
+      throw new TypeError(
+        `Invalid generator state for stream "${stream}" in run report ` +
+          `${label}: ${JSON.stringify(value)}`
+      );
+    }
+    states[stream] = XorShift64.fromState(BigInt(value)).getState();
+  }
+  return states;
 }
 
 // Copied field by field so the wire object shares no nested value with the
@@ -138,6 +192,10 @@ export function serializeReport(report: RunReport): SerializedRunReport {
       timestamp: report.finalState.timestamp,
       holdings,
       totalValue: serializeFixed(report.finalState.totalValue),
+    },
+    generators: {
+      start: serializeStates(report.generators.start),
+      end: serializeStates(report.generators.end),
     },
   };
 }
@@ -192,6 +250,10 @@ export function deserializeReport(raw: SerializedRunReport): RunReport {
       holdings: holdings as Record<AssetSymbol, FixedPointDecimal>,
       totalValue: deserializeFixed(raw.finalState.totalValue),
     },
+    generators: {
+      start: deserializeStates(raw.generators?.start, "generators.start"),
+      end: deserializeStates(raw.generators?.end, "generators.end"),
+    },
   };
 }
 
@@ -230,6 +292,10 @@ export interface WarmStartContext {
   readonly startingState: ReportPortfolioState;
   // The scenario for the continuation window, on its own a legal input to a run.
   readonly scenario: Scenario;
+  // The state each generator stream should resume from, through
+  // `XorShift64.fromState`. The continuation report records it as its
+  // `generators.start`, which is what `mergeReports` checks.
+  readonly generatorStates: GeneratorStates;
 }
 
 // Build a WarmStartContext from a saved report and the desired new end time.
@@ -267,7 +333,35 @@ export function buildWarmStartContext(
       },
       startingCapital: report.finalState.totalValue.toString(),
     }),
+    generatorStates: { ...report.generators.end },
   };
+}
+
+// Restores every stream in a warm-start context as a generator positioned where
+// the base run stopped, keyed by the same stream ids.
+export function restoreGenerators(
+  context: WarmStartContext
+): Record<string, XorShift64> {
+  const generators: Record<string, XorShift64> = {};
+  for (const [stream, state] of Object.entries(context.generatorStates)) {
+    generators[stream] = XorShift64.fromState(state);
+  }
+  return generators;
+}
+
+// Names the first stream whose state differs between the two sets, including
+// one present in only one of them, or null when they match.
+function generatorStateMismatch(
+  expected: GeneratorStates,
+  actual: GeneratorStates
+): string | null {
+  for (const stream of Object.keys(expected)) {
+    if (actual[stream] !== expected[stream]) return stream;
+  }
+  for (const stream of Object.keys(actual)) {
+    if (!(stream in expected)) return stream;
+  }
+  return null;
 }
 
 // Asset order is part of the scenario, so a reordered set is a different one.
@@ -380,6 +474,21 @@ export function mergeReports(
     );
   }
 
+  // The merged report attributes the continuation's draws to the streams the
+  // base left off at, so a continuation that started any stream elsewhere (from
+  // the seed, or from another path's state) would describe a run that never
+  // happened.
+  const stream = generatorStateMismatch(
+    base.generators.end,
+    continuation.generators.start
+  );
+  if (stream !== null) {
+    throw new RangeError(
+      `Continuation generator state for stream "${stream}" does not match ` +
+        `the state the base run ended on`
+    );
+  }
+
   const mergeEventCounts = options.mergeEventCounts ?? true;
 
   const eventCounts: EventCounts = mergeEventCounts
@@ -424,5 +533,9 @@ export function mergeReports(
     },
     eventCounts,
     finalState: continuation.finalState,
+    generators: {
+      start: base.generators.start,
+      end: continuation.generators.end,
+    },
   };
 }

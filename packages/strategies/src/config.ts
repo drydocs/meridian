@@ -5,7 +5,7 @@ export type RateMode = "fixed" | "variable";
 
 export interface FixedRateConfig {
   readonly mode: "fixed";
-  readonly fixedRate: Decimal; // Annual or period fixed borrow rate (e.g. 0.05 = 5%)
+  readonly fixedRate: Decimal; // Period fixed borrow rate (e.g. 0.05 = 5% per period)
 }
 
 export interface VariableRateConfig {

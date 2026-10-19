@@ -15,6 +15,26 @@ export class XorShift64 {
     this.#state = masked === 0n ? 1n : masked;
   }
 
+  /**
+   * A generator positioned at a state read from `getState`, so its next draw is
+   * the one the original would have made. xorshift64 never reaches zero from a
+   * non-zero state, so only `1..2^64-1` is a state a generator can hold; anything
+   * else is rejected rather than masked, since it cannot have come from one.
+   */
+  static fromState(state: bigint): XorShift64 {
+    if (state <= 0n || state > MASK_64) {
+      throw new RangeError(
+        `Generator state must be in 1..2^64-1, received: ${state}`
+      );
+    }
+    return new XorShift64(state);
+  }
+
+  /** The current state. Reading it does not advance the stream. */
+  getState(): bigint {
+    return this.#state;
+  }
+
   next(): bigint {
     let x = this.#state;
     x ^= (x << 13n) & MASK_64;
