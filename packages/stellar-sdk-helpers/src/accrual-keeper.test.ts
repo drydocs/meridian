@@ -1593,6 +1593,35 @@ describe("runBlendAccrualKeeper cross-invocation dedup", () => {
     ).toHaveLength(1);
   });
 
+  it("keeps accruing when the lease cannot be claimed either, instead of halting every vault", async () => {
+    // A full outage: the prior read *and* the lease claim fail. Before the
+    // fail-open covered the claim path, that error pushed the adapter into
+    // `skipped`, halting accrual for exactly the outage the documented
+    // fail-open exists for.
+    const inner = await store();
+    const stateStore: KeeperStateStore = {
+      ...inner,
+      get: async () => {
+        throw new Error("KV unavailable");
+      },
+      claim: async () => {
+        throw new Error("KV unavailable");
+      },
+    };
+    const server = makeServer();
+    stellarMocks.getRpcServer.mockReturnValue(server);
+    const log = logger();
+
+    const result = await run(stateStore, log);
+
+    expect(result.skipped).toEqual([]);
+    expect(result.successes).toHaveLength(1);
+    expect(server.sendTransaction).toHaveBeenCalledOnce();
+    expect(
+      warningsMatching(log, "proceeding without a submission lease")
+    ).toHaveLength(1);
+  });
+
   it("releases the claim when nothing was ever signed", async () => {
     // A stale adapter aborts before the transaction is built; leaving the
     // claim behind would lock the adapter out for the claim's whole window

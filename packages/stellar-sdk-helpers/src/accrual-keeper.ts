@@ -37,6 +37,11 @@ export type { KeeperFailure, KeeperLogger } from "./keeper-retry";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_DELAY_MS = 1_000;
+// Matches the literal returned by SubmissionLease.acquire in keeper-state.ts
+// when the store itself cannot be reached, as opposed to a live peer already
+// holding the lease. Only the former may fail open (see the acquire call
+// below); the latter still has to skip.
+const STATE_STORE_UNAVAILABLE_ERROR = "submission state store unavailable";
 // Capped at 10_000 to match tx.ts's own hardcoded Soroban RPC timeout
 // (SOROBAN_RPC_TIMEOUT_MS): discovery's simulate() calls go through
 // simulateView, which races every call against that fixed 10s ceiling
@@ -480,18 +485,32 @@ export async function runBlendAccrualKeeper(
       logger,
       context: priorContext,
     });
+    let lease: SubmissionLease | undefined;
+    let submissionHooks: KeeperSubmissionHooks;
     if ("error" in acquired) {
-      skipped.push({
-        vaultId: adapter.vaultId,
-        vaultContractId: adapter.vaultContractId,
-        adapterId: adapter.adapterId,
-        protocol: adapter.protocol,
-        reason: `could not take the submission lease (${acquired.error}); skipped this run`,
-      });
-      continue;
+      // A lease held by a live peer still has to be respected: skipping there
+      // is duplicate prevention working as intended. An unreachable store is
+      // different — it is the outage the fail-open above exists for, and
+      // skipping on it would halt accrual exactly when the store is down.
+      if (acquired.error !== STATE_STORE_UNAVAILABLE_ERROR) {
+        skipped.push({
+          vaultId: adapter.vaultId,
+          vaultContractId: adapter.vaultContractId,
+          adapterId: adapter.adapterId,
+          protocol: adapter.protocol,
+          reason: `could not take the submission lease (${acquired.error}); skipped this run`,
+        });
+        continue;
+      }
+      logger.warn(
+        "[accrual-keeper] proceeding without a submission lease; state store unavailable",
+        { ...priorContext, reason: acquired.error }
+      );
+      submissionHooks = {};
+    } else {
+      lease = acquired.lease;
+      submissionHooks = lease.hooks;
     }
-    const lease = acquired.lease;
-    const submissionHooks = lease.hooks;
 
     // In-run tracking (priorHash) still exists alongside the lease: it's
     // what keeps a retry inside this same run rechecking one hash instead of
@@ -585,8 +604,9 @@ export async function runBlendAccrualKeeper(
     } finally {
       // A claim that never became a signed transaction (a stale adapter, a
       // simulation error) must not keep the next run out for the claim's
-      // full window.
-      await lease.releaseIfUnsent();
+      // full window. There is no claim to release when the store was
+      // unreachable and we failed open.
+      if (lease) await lease.releaseIfUnsent();
     }
   }
 
