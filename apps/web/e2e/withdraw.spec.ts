@@ -20,6 +20,33 @@ const FAKE_POSITION = {
 };
 
 test.describe("withdraw", () => {
+  test.beforeEach(async ({ page }) => {
+    // Keep the selected vault deterministic; the vault list normally hits live
+    // testnet RPC, but the transaction-build request below remains real.
+    await page.route("**/api/v1/vaults", (route) =>
+      route.fulfill({
+        json: {
+          vaults: [
+            {
+              id: "meridian-usdc",
+              protocol: "meridian",
+              asset: "USDC",
+              name: "Meridian",
+              label: "USDC Vault",
+              apy: 5.25,
+              tvl: 1_234_567,
+              userBalance: 0,
+              riskLevel: "safe",
+            },
+          ],
+          recommendedVaultId: "meridian-usdc",
+          updatedAt: new Date().toISOString(),
+          cached: false,
+        },
+      })
+    );
+  });
+
   test("builds a real withdraw transaction against the real API", async ({
     page,
     mockWallet,
