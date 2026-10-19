@@ -8,16 +8,19 @@ meridian/
 │   ├── _lib/
 │   │   └── middleware.ts         # CORS + rate-limit helpers shared by handlers
 │   └── v1/
+│       ├── admin/                # POST /api/v1/admin/:resource
+│       │   └── [resource].ts
+│       ├── keepers/              # POST /api/v1/keepers/:action
+│       │   └── [action].ts
 │       ├── vaults/               # GET /api/v1/vaults, GET /api/v1/vaults/:id
 │       │   ├── index.ts
 │       │   └── [vaultId].ts
-│       ├── tx/                   # POST /api/v1/tx/*
-│       │   ├── deposit.ts
-│       │   ├── withdraw.ts
-│       │   ├── add-trustline.ts
-│       │   └── submit.ts
+│       ├── tx/                   # POST /api/v1/tx/:action
+│       │   └── [action].ts
 │       └── positions/
-│           └── [publicKey].ts    # GET /api/v1/positions/:publicKey
+│           ├── [publicKey].ts    # GET /api/v1/positions/:publicKey
+│           └── [publicKey]/
+│               └── history.ts    # GET /api/v1/positions/:publicKey/history
 │
 ├── apps/
 │   ├── web/                      # Vite + React 19 dashboard
@@ -86,7 +89,7 @@ meridian/
 │       ├── defindex-adapter/src/lib.rs # Deposits USDC into a DeFindex vault
 │       ├── adapter-common/src/lib.rs  # Common traits and types for adapters
 │       └── musdc-token/src/lib.rs     # mUSDC yield-bearing share token
-├── scripts/                      # deploy-testnet.sh (fresh stack), redeploy-blend-adapter.sh (swap adapter on a live vault)
+├── scripts/                      # Deployment and maintenance scripts: deploy-testnet.sh, deploy-mainnet.sh, redeploy-blend-adapter.sh, deploy-external-pinger.sh, build-vercel.sh, verify-contract-addresses.ts, lib/, and load-test/
 ├── vercel.json                   # Vercel routing config
 └── turbo.json                    # Turborepo task graph
 ```
