@@ -60,6 +60,18 @@ import {
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_DELAY_MS = 1_000;
+
+// The one read failure that means "this vault has no migration snapshot yet".
+// simulateView rethrows the simulation error text, so this matches the
+// contract error identifier, the reason tx.ts maps it to, and the raw
+// contract error code (#19 in VAULT_CONTRACT_ERROR_MESSAGES). Anything else
+// that comes out of get_migration_snapshot is a read failure, not an absence.
+const MIGRATION_NOT_INITIALIZED_PATTERN =
+  /MigrationNotInitialized|Start a migration before calling migrate|Error\(Contract, #19\)/i;
+
+function isMigrationNotInitializedError(err: unknown): boolean {
+  return MIGRATION_NOT_INITIALIZED_PATTERN.test(errorMessage(err));
+}
 // Same rationale as accrual-keeper.ts's DEFAULT_RPC_TIMEOUT_MS: discovery's
 // simulate() calls are additionally capped at tx.ts's hardcoded 10s Soroban
 // RPC ceiling regardless of what's configured here.
@@ -1061,17 +1073,17 @@ export async function runMigrationKeeper(
           hasMatchingSnapshot = true;
         }
       } catch (err) {
-        // A genuine "no snapshot" (or one for a different adapter) traps
-        // with MigrationNotInitialized, which is not a transient failure by
-        // isTransientKeeperError's classification, that's the case this
-        // falls through to begin_migration for. A real RPC/network failure
-        // reading the snapshot must NOT be treated the same way: assuming
-        // "no snapshot" and firing begin_migration would reset a possibly
-        // already cooldown-elapsed snapshot's ledger_seq back to now,
-        // pushing a ready-to-migrate vault's migration back a full
-        // MIN_LEDGER_GAP for no reason. Report it as a retryable failure
-        // instead, same as this file's other on-chain read checks.
-        snapshotReadFailed = isTransientKeeperError(err);
+        // Only a confirmed MigrationNotInitialized means "this vault has no
+        // snapshot yet" — the one case that may fall through to
+        // begin_migration. Every other read failure (a decode/parse error,
+        // contract-not-found, a definitive simulation error, an HTTP 400/404)
+        // is a read *failure*, not the absence of a snapshot: treating it as
+        // "no snapshot" would fire begin_migration and reset a possibly
+        // already cooldown-elapsed snapshot's ledger_seq back to now, pushing
+        // a ready-to-migrate vault back a full MIN_LEDGER_GAP for no reason.
+        // So this does not defer to isTransientKeeperError: a non-transient
+        // but unrecognised read error is still not proof of absence.
+        snapshotReadFailed = !isMigrationNotInitializedError(err);
       }
     }
 

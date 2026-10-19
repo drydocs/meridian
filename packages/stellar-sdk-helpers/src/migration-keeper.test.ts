@@ -1465,6 +1465,49 @@ describe("runMigrationKeeper", () => {
     ]);
   });
 
+  it("reports a non-transient snapshot read error as retryable instead of assuming no snapshot", async () => {
+    // A decode error, contract-not-found or HTTP 404 is a read *failure*, not
+    // proof that the vault has no snapshot. isTransientKeeperError says false
+    // for those, and the old code took that as "no snapshot exists", fired
+    // begin_migration and reset a possibly already cooldown-elapsed
+    // snapshot's ledger_seq back to now.
+    const server = makeServer();
+    stellarMocks.getRpcServer.mockReturnValue(server);
+    stellarMocks.simulateView.mockImplementation(
+      async (_server, _contractId, _passphrase, method) => {
+        if (method === "get_migration_snapshot") {
+          throw new Error("contract not found: HTTP 404");
+        }
+        return DISCOVERED_VAULT.currentAdapterId;
+      }
+    );
+    const rateSource = vi.fn(async ({ protocol }: { protocol: string }) =>
+      protocol === "blend" ? 500 : 700
+    );
+
+    const result = await runMigrationKeeper(CONFIG, {
+      logger: logger(),
+      discoverVaults: async () => ({
+        vaults: [DISCOVERED_VAULT],
+        failures: [],
+      }),
+      rateSource,
+      resolveCandidatePool: async () => "CDEFINDEXPOOL",
+      sleep: vi.fn(),
+    });
+
+    expect(server.sendTransaction).not.toHaveBeenCalled();
+    expect(result.migrations).toEqual([]);
+    expect(result.skipped).toEqual([]);
+    expect(result.failures).toMatchObject([
+      {
+        vaultId: "meridian-usdc",
+        transient: true,
+        error: expect.stringContaining("could not read the migration snapshot"),
+      },
+    ]);
+  });
+
   it("submits begin_migration and defers migrate_adapter when the existing snapshot is for a different adapter", async () => {
     const server = makeServer();
     stellarMocks.getRpcServer.mockReturnValue(server);
