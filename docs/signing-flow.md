@@ -152,11 +152,13 @@ request access; `useWalletStore` calls `wallet.isAuthorized()` on mount and on w
 re-validate a persisted key, clearing it if the wallet is gone or access was revoked. Signing a
 transaction (this doc's flow) goes through `wallet.sign()`.
 
-Today two adapters exist in code, `FreighterWallet` and `LobstrWallet`, but only Freighter is
-currently wired up as the active `wallet` export — there is no wallet-selection UI yet, so
-LOBSTR's adapter isn't reachable from the app.
-
-<!-- TODO(#613): describe picker UI once #476/#488/#490 land -->
+The header provides a wallet picker ([#611](https://github.com/drydocs/meridian/issues/611))
+letting users choose between three wired-up adapters: `FreighterWallet`, `LobstrWallet`,
+and `XBullWallet`. An `AlbedoWallet` adapter is also implemented and tested ([#674](https://github.com/drydocs/meridian/issues/674)),
+though not yet exposed in the picker UI. The active `wallet: WalletAdapter` export dispatches
+dynamically to whichever adapter the user selected (`getWalletAdapter(getSelectedWalletId())`).
+See [`apps/docs/architecture/frontend.md`](../apps/docs/architecture/frontend.md#wallet-registry-and-picker-611)
+for the full registry and selection mechanics.
 
 The examples in this doc use Freighter as the concrete illustration since it's the wallet
 actually in use today, but nothing in the flow is Freighter-specific — any `WalletAdapter`
