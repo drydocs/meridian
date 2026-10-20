@@ -20,11 +20,15 @@ set -euo pipefail
 # only for a vault with no depositors yet (e.g. right after a fresh deploy,
 # before any real funds are at risk).
 #
-# Usage: VAULT_ID=<live vault> DEPLOYER=<key> bash scripts/redeploy-blend-adapter.sh
+# Usage: VAULT_ID=<live vault> DEPLOYER=<key> [NETWORK=testnet|mainnet] bash scripts/redeploy-blend-adapter.sh
 
-NETWORK="testnet"
+NETWORK="${NETWORK:-testnet}"
+if [ "$NETWORK" != "testnet" ] && [ "$NETWORK" != "mainnet" ]; then
+  echo "ERROR: NETWORK must be 'testnet' or 'mainnet' (got '$NETWORK')." >&2
+  exit 1
+fi
 
-# DEPLOYER must be funded via friendbot. It does not need to be the vault's
+# DEPLOYER pays deployment transaction fees. It does not need to be the vault's
 # admin to deploy the new adapter, but it DOES need to be the vault's admin to
 # run the set_adapter/migrate_adapter command this script prints at the end.
 : "${DEPLOYER:?DEPLOYER env var required (Stellar secret key)}"
@@ -34,10 +38,38 @@ NETWORK="testnet"
 # and cannot be changed afterwards. A stale default here would permanently bind
 # a fresh adapter to the wrong vault, with a redeploy as the only way out.
 : "${VAULT_ID:?VAULT_ID env var required (the live vault this adapter serves)}"
-BLEND_POOL_ID="${BLEND_POOL_ID:-CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF}"
-USDC_ID="${USDC_ID:-CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU}"
 
-echo "Building blend-adapter..."
+if [ "$NETWORK" = "mainnet" ]; then
+  # Values from packages/shared/src/constants.ts (CONTRACT_ADDRESSES.mainnet)
+  BLEND_POOL_ID="${BLEND_POOL_ID:-CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD}"
+  USDC_ID="${USDC_ID:-CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75}"
+else
+  # Values from packages/shared/src/constants.ts (CONTRACT_ADDRESSES.testnet)
+  BLEND_POOL_ID="${BLEND_POOL_ID:-CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF}"
+  USDC_ID="${USDC_ID:-CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU}"
+fi
+
+if [ "$NETWORK" = "mainnet" ]; then
+  echo "About to build and deploy a new Blend adapter to MAINNET with:"
+  echo "  VAULT_ID:      $VAULT_ID"
+  echo "  BLEND_POOL_ID: $BLEND_POOL_ID"
+  echo "  USDC_ID:       $USDC_ID"
+  echo ""
+  echo "This submits real transactions against real funds and cannot be undone:"
+  echo "adapters have no in-place upgrade path."
+  echo ""
+  CONFIRMATION=""
+  # `|| true` so a closed or non-interactive stdin (EOF) doesn't trip `set -e`
+  # and exit here with a bare shell failure instead of the clear abort message
+  # below; an empty CONFIRMATION still correctly fails the check that follows.
+  read -r -p "Type MAINNET to confirm and proceed: " CONFIRMATION || true
+  if [ "$CONFIRMATION" != "MAINNET" ]; then
+    echo "Confirmation not given. Aborting without submitting anything." >&2
+    exit 1
+  fi
+fi
+
+echo "Building blend-adapter for $NETWORK..."
 cd "$(dirname "$0")/../packages/contracts"
 stellar contract build
 
