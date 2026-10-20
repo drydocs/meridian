@@ -44,3 +44,4 @@ export * from "./regime-scenarios";
 export * from "./rebalance";
 export * from "./report";
 export * from "./registry";
+export * from "./composition/capital-allocation";
