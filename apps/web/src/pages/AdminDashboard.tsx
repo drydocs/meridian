@@ -1,4 +1,4 @@
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "react-i18n";
 import { APP_NETWORK } from "@meridian/shared";
 import { KeeperHealthPanel } from "../components/admin/KeeperHealthPanel";
 import { VaultStatePanel } from "../components/admin/VaultStatePanel";

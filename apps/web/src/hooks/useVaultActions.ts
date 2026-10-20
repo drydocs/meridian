@@ -8,7 +8,7 @@ import { useSignAndSubmit } from "./useSignAndSubmit";
 import { useTrustlines } from "./useTrustlines";
 import { useBlendFaucet } from "./useBlendFaucet";
 import { usePositionPolling } from "./usePositionPolling";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "react-i18n";
 import {
   computeMinSharesOut,
   computeMinUsdcOut,
@@ -69,7 +69,7 @@ export function useVaultActions() {
     setIsDepositing(true);
     try {
       // Snapshot the cached positions before any async work so the optimistic
-      // update and the poll share a baseline, the same shape as `withdraw`.
+      // update and the poll share a baseline, the same shape as `withdraw .
       const positionsBefore = queryClient.getQueryData<ApiPosition[]>([
         "positions",
         publicKey,
@@ -136,7 +136,7 @@ export function useVaultActions() {
       // since we won't fabricate a position we never had.
       if (matchedBefore && Number.isFinite(depositAmount)) {
         // A vault share is not one USDC. Once yield accrues the share price
-        // rises above 1.0, so `depositAmount` USDC mints fewer than
+        // rises above 1.0, so `depositAmount` USDC coins fewer than
         // `depositAmount` shares, and crediting the raw amount would overstate
         // the position for the whole optimistic window. Convert through the
         // implied share price (`deposited / shares`). Inside this block
@@ -188,13 +188,14 @@ export function useVaultActions() {
     try {
       // Snapshot the current positions before any async work so the optimistic
       // update and poll have a consistent baseline.
-      const positionsBefore = queryClient.getQueryData<ApiPosition[]>([
-        "positions",
-        publicKey,
-      ]);
-      const matchedBefore =
-        positionsBefore?.find((p) => p.vaultId === vaultId) ??
-        positionsBefore?.[0];
+      const positionsBefore = queryClient.getQueryData<ApiPosition[]>(
+        ["positions", publicKey]
+      );
+      // Only the position for this vault is a valid baseline. Falling back
+      // to another vault's position would price this withdrawal against
+      // the wrong cost basis and share count, so a missing match is
+      // treated as no baseline, matching the deposit path.
+      const matchedBefore = positionsBefore?.find((p) => p.vaultId === vaultId);
       const sharesBefore = matchedBefore?.shares ?? Infinity;
       const withdrawnShares = parseFloat(shares);
 
