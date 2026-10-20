@@ -13,7 +13,10 @@ const weight = (id: string, value: string): CapitalWeight => ({
 });
 
 const sum = (allocations: readonly { amount: FixedPointDecimal }[]): bigint =>
-  allocations.reduce((total, allocation) => total + allocation.amount.toStroops(), 0n);
+  allocations.reduce(
+    (total, allocation) => total + allocation.amount.toStroops(),
+    0n
+  );
 
 describe("allocateCapital", () => {
   it("splits an even total without losing a stroop", () => {
@@ -23,7 +26,9 @@ describe("allocateCapital", () => {
       weight("c", "1"),
     ]);
 
-    expect(allocations.map((entry) => [entry.id, entry.amount.toString()])).toEqual([
+    expect(
+      allocations.map((entry) => [entry.id, entry.amount.toString()])
+    ).toEqual([
       ["a", "33.3333334"],
       ["b", "33.3333333"],
       ["c", "33.3333333"],
@@ -38,7 +43,9 @@ describe("allocateCapital", () => {
       weight("c", "1"),
     ]);
 
-    expect(allocations.map((entry) => [entry.id, entry.amount.toString()])).toEqual([
+    expect(
+      allocations.map((entry) => [entry.id, entry.amount.toString()])
+    ).toEqual([
       ["a", "5"],
       ["b", "3.3333333"],
       ["c", "1.6666667"],
@@ -58,8 +65,12 @@ describe("allocateCapital", () => {
       weight("beta", "0.3"),
     ]);
 
-    const byId = (entries: readonly { id: string; amount: FixedPointDecimal }[]) =>
-      Object.fromEntries(entries.map((entry) => [entry.id, entry.amount.toString()]));
+    const byId = (
+      entries: readonly { id: string; amount: FixedPointDecimal }[]
+    ) =>
+      Object.fromEntries(
+        entries.map((entry) => [entry.id, entry.amount.toString()])
+      );
     expect(byId(first)).toEqual(byId(second));
     expect(sum(first)).toBe(70_000_000n);
   });
@@ -71,7 +82,11 @@ describe("allocateCapital", () => {
       weight("c", "1"),
     ]);
 
-    expect(allocations.map((entry) => entry.amount.toStroops())).toEqual([1n, 1n, 0n]);
+    expect(allocations.map((entry) => entry.amount.toStroops())).toEqual([
+      1n,
+      1n,
+      0n,
+    ]);
     expect(sum(allocations)).toBe(2n);
   });
 
@@ -81,7 +96,10 @@ describe("allocateCapital", () => {
       weight("b", "2"),
     ]);
 
-    expect(allocations.map((entry) => entry.amount.toStroops())).toEqual([0n, 0n]);
+    expect(allocations.map((entry) => entry.amount.toStroops())).toEqual([
+      0n,
+      0n,
+    ]);
   });
 
   it("rejects a negative total", () => {
@@ -91,9 +109,9 @@ describe("allocateCapital", () => {
   });
 
   it("rejects an empty weight vector", () => {
-    expect(() => allocateCapital(FixedPointDecimal.fromString("1"), [])).toThrowError(
-      CapitalAllocationError
-    );
+    expect(() =>
+      allocateCapital(FixedPointDecimal.fromString("1"), [])
+    ).toThrowError(CapitalAllocationError);
   });
 
   it("rejects duplicate ids", () => {
