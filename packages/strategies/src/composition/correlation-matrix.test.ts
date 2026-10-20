@@ -83,10 +83,7 @@ describe("correlationMatrix", () => {
   });
 
   it("returns undefined off-diagonal for series shorter than two points", () => {
-    const matrix = correlationMatrix([
-      series("a", ["1"]),
-      series("b", ["2"]),
-    ]);
+    const matrix = correlationMatrix([series("a", ["1"]), series("b", ["2"])]);
 
     expect(matrix[0]![1]).toBeUndefined();
     expectUnit(matrix[0]![0]);
