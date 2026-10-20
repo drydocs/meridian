@@ -1,0 +1,18 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "fix/issue-1055-bug-three-of-the-four-spec-files-in-packages",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "fix/issue-1055-bug-three-of-the-four-spec-files-in-packages": "main",
+    "main": null,
+    "origin": "main"
+  },
+  "order": [
+    "main",
+    "fix/issue-1055-bug-three-of-the-four-spec-files-in-packages",
+    "origin"
+  ]
+}
