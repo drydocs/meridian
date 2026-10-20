@@ -224,6 +224,42 @@ describe("runBacktest", () => {
     expect(funding("-0.0001", long, short)).toBe("0");
   });
 
+  it("makes cash interest step-invariant by carrying the sub-stroop remainder", () => {
+    // #1045: 5 units of cash idle for 3 s at 0.0000001 per second earn 15
+    // stroops in one tick. Two 1.5 s ticks truncate to 7 each unless the
+    // half-stroop remainder is carried, which used to lose a stroop.
+    const window = 3_000;
+    const run = (stepMs: number) => {
+      const { strategy } = observer();
+      return runBacktest({
+        clock: new SimulationClock({
+          start: START,
+          end: START + window,
+          stepMs,
+        }),
+        assets: [USDC],
+        prices: flat(window),
+        strategy,
+        strategyConfig: null,
+        initialCash: amount("5"),
+        accrual: { cashRatePerSecond: amount("0.0000001") },
+      });
+    };
+
+    const split = run(1_500);
+    const single = run(3_000);
+
+    expect(single.totalInterest.toString()).toBe("0.0000015");
+    expect(split.totalInterest.toString()).toBe("0.0000015");
+    expect(split.totalInterest.toStroops()).toBe(
+      single.totalInterest.toStroops()
+    );
+    const last = (result: BacktestResult) =>
+      result.snapshots[result.snapshots.length - 1]?.cash.toString();
+    expect(last(split)).toBe("5.0000015");
+    expect(last(split)).toBe(last(single));
+  });
+
   it("fills orders through the cost model after slippage", () => {
     const result = runBacktest({
       clock: hourly(1),

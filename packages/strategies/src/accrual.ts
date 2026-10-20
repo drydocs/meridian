@@ -4,16 +4,17 @@ import type { FundingPosition, FundingRate } from "./types";
 /** Basis for annualized borrow rates, a 365-day year. */
 export const YEAR_MILLISECONDS = 365n * 24n * 60n * 60n * 1000n;
 
-/** A `FundingRate` is quoted per second, so its accrual period is one second. */
-const MILLISECONDS_PER_FUNDING_PERIOD = 1_000n;
+/** A per-second rate has an accrual period of one second. */
+const MILLISECONDS_PER_SECOND = 1_000n;
 
 export interface PortfolioState {
   readonly cash: FixedPointDecimal;
   readonly debt: FixedPointDecimal;
   readonly equity: FixedPointDecimal;
   /**
-   * Fractional-stroop accrual carried between ticks, keyed `borrow:<id>` or
-   * `funding:<id>`. Only positions present on the tick keep an entry.
+   * Fractional-stroop accrual carried between ticks, keyed `borrow:<id>`,
+   * `funding:<id>` or `cash`. Only positions present on the tick keep an
+   * entry.
    */
   readonly accrualRemainders: Readonly<Record<string, bigint>>;
 }
@@ -23,6 +24,14 @@ export type PortfolioTransaction =
   | {
       /** Signed cash flow to the portfolio, so a credit is positive. */
       readonly type: "funding-payment";
+      readonly amount: FixedPointDecimal;
+    }
+  | {
+      /**
+       * Interest on idle cash, credited to the portfolio. The balance may be
+       * negative, in which case the amount is negative and interest is paid.
+       */
+      readonly type: "cash-interest";
       readonly amount: FixedPointDecimal;
     };
 
@@ -47,10 +56,21 @@ export interface FundingAccrualPosition extends FundingPosition {
   readonly rate: FundingRate;
 }
 
+export interface CashInterestAccrual {
+  /**
+   * Signed rate earned on the portfolio's cash, per second. A positive rate
+   * credits idle cash and a negative rate charges it; either way the amount
+   * is proportional to the cash balance the tick opened with.
+   */
+  readonly ratePerSecond: FixedPointDecimal;
+}
+
 export interface AccruePortfolioTickInput {
   readonly elapsedMilliseconds: number;
   readonly borrowPositions: readonly BorrowAccrualPosition[];
   readonly fundingPositions: readonly FundingAccrualPosition[];
+  /** Interest on the tick's opening cash. Omitted, no cash interest accrues. */
+  readonly cashInterest?: CashInterestAccrual | undefined;
 }
 
 export interface AccruePortfolioTickResult {
@@ -153,6 +173,30 @@ export function accruePortfolioTick(
   const transactions: PortfolioTransaction[] = [];
   let nextPortfolio = portfolio;
 
+  // Cash interest is charged on the cash the tick opened with, so its amount
+  // does not depend on where this block sits relative to the borrow and
+  // funding loops; those settle into the same cash only after this accrual.
+  if (input.cashInterest !== undefined) {
+    const key = "cash";
+    const accrued = accrue(
+      portfolio.cash.toStroops(),
+      input.cashInterest.ratePerSecond.toStroops(),
+      elapsed,
+      MILLISECONDS_PER_SECOND,
+      portfolio.accrualRemainders[key] ?? 0n
+    );
+    remainders[key] = accrued.remainder;
+
+    if (accrued.amount !== 0n) {
+      const transaction: PortfolioTransaction = {
+        type: "cash-interest",
+        amount: FixedPointDecimal.fromStroops(accrued.amount),
+      };
+      transactions.push(transaction);
+      nextPortfolio = applyPortfolioTransaction(nextPortfolio, transaction);
+    }
+  }
+
   for (const position of input.borrowPositions) {
     if (position.outstandingDebt.toStroops() < 0n) {
       throw new RangeError("outstandingDebt must be non-negative");
@@ -191,7 +235,7 @@ export function accruePortfolioTick(
       position.notional.toStroops(),
       position.rate.ratePerSecond.toStroops(),
       elapsed,
-      MILLISECONDS_PER_FUNDING_PERIOD,
+      MILLISECONDS_PER_SECOND,
       portfolio.accrualRemainders[key] ?? 0n
     );
     remainders[key] = accrued.remainder;
