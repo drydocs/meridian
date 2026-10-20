@@ -20,11 +20,16 @@ set -euo pipefail
 # only for a vault with no depositors yet (e.g. right after a fresh deploy,
 # before any real funds are at risk).
 #
-# Usage: VAULT_ID=<live vault> DEPLOYER=<key> bash scripts/redeploy-blend-adapter.sh
+# Usage: [NETWORK=testnet|mainnet] VAULT_ID=<live vault> DEPLOYER=<key> bash scripts/redeploy-blend-adapter.sh
 
-NETWORK="testnet"
+NETWORK="${NETWORK:-testnet}"
 
-# DEPLOYER must be funded via friendbot. It does not need to be the vault's
+if [ "$NETWORK" != "testnet" ] && [ "$NETWORK" != "mainnet" ]; then
+  echo "ERROR: NETWORK must be testnet or mainnet (got $NETWORK)" >&2
+  exit 1
+fi
+
+# DEPLOYER must be funded with native XLM (via friendbot on testnet, or pre-funded on mainnet). It does not need to be the vault's
 # admin to deploy the new adapter, but it DOES need to be the vault's admin to
 # run the set_adapter/migrate_adapter command this script prints at the end.
 : "${DEPLOYER:?DEPLOYER env var required (Stellar secret key)}"
@@ -34,8 +39,15 @@ NETWORK="testnet"
 # and cannot be changed afterwards. A stale default here would permanently bind
 # a fresh adapter to the wrong vault, with a redeploy as the only way out.
 : "${VAULT_ID:?VAULT_ID env var required (the live vault this adapter serves)}"
-BLEND_POOL_ID="${BLEND_POOL_ID:-CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF}"
-USDC_ID="${USDC_ID:-CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU}"
+if [ "$NETWORK" = "mainnet" ]; then
+  # Mainnet defaults from packages/shared/src/constants.ts
+  BLEND_POOL_ID="${BLEND_POOL_ID:-CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD}"
+  USDC_ID="${USDC_ID:-CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75}"
+else
+  # Testnet defaults from packages/shared/src/constants.ts
+  BLEND_POOL_ID="${BLEND_POOL_ID:-CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF}"
+  USDC_ID="${USDC_ID:-CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU}"
+fi
 
 echo "Building blend-adapter..."
 cd "$(dirname "$0")/../packages/contracts"
