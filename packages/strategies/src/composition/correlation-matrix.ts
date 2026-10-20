@@ -30,9 +30,7 @@ export type CorrelationEntry = Decimal | undefined;
 export type CorrelationMatrix = readonly (readonly CorrelationEntry[])[];
 
 export type CorrelationMatrixErrorReason =
-  | "empty-id"
-  | "duplicate-id"
-  | "length-mismatch";
+  "empty-id" | "duplicate-id" | "length-mismatch";
 
 export class CorrelationMatrixError extends Error {
   readonly reason: CorrelationMatrixErrorReason;
