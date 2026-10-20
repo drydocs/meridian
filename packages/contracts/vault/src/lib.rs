@@ -687,24 +687,13 @@ impl MeridianVault {
     /// Entry time belongs to a depositor, not to the shares: it is recorded
     /// when an address first deposits, and now (#578) is also split
     /// pro-rata on a transfer by `on_transfer` — see that function's doc
-    /// comment for the split math. An address holding no mUSDC reports 0
-    /// even if it deposited earlier and later transferred everything away,
-    /// so a record left behind by a full transfer-out is never reported as
-    /// a live position.
+    /// Returns the ledger timestamp of the address's current deposit.
     ///
-    /// `on_transfer` clears a sender's record itself the moment a full
-    /// transfer-out reaches zero, so a leftover record found here should be
-    /// unreachable in the current system; this self-heal is kept as a
-    /// defensive fallback for any balance that reached zero another way
-    /// this contract doesn't yet account for (and for state left behind by
-    /// mUSDC's pre-#578 life as a plain Stellar Asset Contract with no
-    /// transfer hook at all, before a live-holder migration if one hasn't
-    /// run yet). Clearing it here means it can never resurface as a stale
-    /// basis/entry time if this address's balance later becomes nonzero
-    /// again through an unrelated deposit or transfer-in.
+    /// An address that holds no mUSDC returns `0` because it holds no position.
+    /// Cleared on full withdrawal and full transfer-out, and cleaned up on
+    /// subsequent deposit if leftover records exist.
     pub fn get_entry_time(env: Env, address: Address) -> u64 {
         if Self::get_position(env.clone(), address.clone()) == 0 {
-            clear_position_records(&env, &address);
             return 0;
         }
         let key = DataKey::Entry(address);
@@ -726,15 +715,8 @@ impl MeridianVault {
     /// here because it holds nothing, rather than a stale basis for shares
     /// it no longer has — `on_transfer` clears both records itself the
     /// moment a full transfer-out reaches zero.
-    ///
-    /// Like `get_entry_time`, the self-heal below (clearing a zero-position
-    /// holder's leftover record) should be unreachable in the current
-    /// system; it's kept as a defensive fallback, and as a bridge for
-    /// records left over from mUSDC's pre-#578 life as a plain SAC before a
-    /// live-holder migration, if one hasn't run yet.
     pub fn get_principal(env: Env, address: Address) -> i128 {
         if Self::get_position(env.clone(), address.clone()) == 0 {
-            clear_position_records(&env, &address);
             return 0;
         }
         let key = DataKey::Principal(address);
@@ -2383,6 +2365,33 @@ mod tests {
 
         assert_eq!(vault.get_entry_time(&user), 0);
         assert_eq!(vault.get_principal(&user), 0);
+    }
+
+    #[test]
+    fn get_entry_time_and_get_principal_are_pure_views_without_storage_writes() {
+        let (env, _admin, _user, _usdc, _musdc_id, _adapter, vault) = setup();
+        let stranger = Address::generate(&env);
+
+        // A stranger with zero balance
+        assert_eq!(vault.get_position(&stranger), 0);
+
+        // Manually place Entry and Principal keys (simulating legacy leftover state)
+        let entry_key = DataKey::Entry(stranger.clone());
+        let principal_key = DataKey::Principal(stranger.clone());
+        env.as_contract(&vault.address, || {
+            env.storage().persistent().set(&entry_key, &999_u64);
+            env.storage().persistent().set(&principal_key, &123_456_i128);
+        });
+
+        // Reading views returns 0 because position is 0
+        assert_eq!(vault.get_entry_time(&stranger), 0);
+        assert_eq!(vault.get_principal(&stranger), 0);
+
+        // Neither view call should clear/mutate storage: keys remain unchanged
+        env.as_contract(&vault.address, || {
+            assert_eq!(env.storage().persistent().get::<_, u64>(&entry_key), Some(999_u64));
+            assert_eq!(env.storage().persistent().get::<_, i128>(&principal_key), Some(123_456_i128));
+        });
     }
 
     #[test]

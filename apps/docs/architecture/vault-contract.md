@@ -72,11 +72,11 @@ Returns the address's mUSDC balance, read from the share token itself. mUSDC rec
 
 ### `get_entry_time(address) -> u64`
 
-Returns the ledger timestamp of the address's current deposit, or `0` if it holds no position. Cleared on a full withdrawal so a later re-deposit starts a fresh clock, and self-heals on the next read for any address that currently holds no mUSDC, so a record left behind by a transfer-out is never shown as a live position. The one case that escapes both of these is a partial withdrawal that leaves dust; see the constraint noted under `deposit()` above. Currently read only for display; nothing on-chain or off-chain conditions behavior on it.
+Returns the ledger timestamp of the address's current deposit, or `0` if it holds no position. Cleared on a full withdrawal so a later re-deposit starts a fresh clock. An address holding no mUSDC returns `0` without modifying storage (pure read-only view). The one case that escapes both of these is a partial withdrawal that leaves dust; see the constraint noted under `deposit()` above. Currently read only for display; nothing on-chain or off-chain conditions behavior on it.
 
 ### `get_principal(address) -> i128`
 
-Returns the address's cost basis: the net USDC it has deposited and not yet withdrawn. Yield earned off-chain is computed as `current_share_value - principal`. Reported as `0` for an address holding no mUSDC. An address whose shares arrived by transfer now ([#578](https://github.com/drydocs/meridian/issues/578)) reports the pro-rata basis it inherited via `on_transfer`, not `0`. See [Transferable shares](#transferable-shares) for that split.
+Returns the address's cost basis: the net USDC it has deposited and not yet withdrawn. Yield earned off-chain is computed as `current_share_value - principal`. Reported as `0` for an address holding no mUSDC without modifying storage. An address whose shares arrived by transfer now ([#578](https://github.com/drydocs/meridian/issues/578)) reports the pro-rata basis it inherited via `on_transfer`, not `0`. See [Transferable shares](#transferable-shares) for that split.
 
 ### `get_total_assets() -> i128`
 
