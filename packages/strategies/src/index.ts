@@ -46,3 +46,4 @@ export * from "./rebalance";
 export * from "./report";
 export * from "./registry";
 export * from "./composition/capital-allocation";
+export * from "./composition/correlation-matrix";
