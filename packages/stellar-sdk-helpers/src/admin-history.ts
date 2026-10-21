@@ -168,7 +168,9 @@ export async function getAdminActionHistory(
   const pageTimeout = pageTimeoutMs ?? DEFAULT_HORIZON_PAGE_TIMEOUT_MS;
   const { baseUrl } = buildHorizonServer(network.network);
   const scanSignal =
-    scanTimeoutMs === undefined ? undefined : AbortSignal.timeout(scanTimeoutMs);
+    scanTimeoutMs === undefined
+      ? undefined
+      : AbortSignal.timeout(scanTimeoutMs);
   const actions: AdminAction[] = [];
   let cursor: string | undefined;
   let pages = 0;

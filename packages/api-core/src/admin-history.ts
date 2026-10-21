@@ -30,7 +30,7 @@ export async function handleGetAdminHistory(
     const actions = await getAdminActionHistory(APP_NETWORK, vault.contractId, {
       limit: 50,
       maxPages: ADMIN_HISTORY_MAX_PAGES,
-      timeoutMs: ADMIN_HISTORY_TIMEOUT_MS,
+      scanTimeoutMs: ADMIN_HISTORY_TIMEOUT_MS,
     });
 
     return {

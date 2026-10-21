@@ -460,7 +460,7 @@ describe("getAdminActionHistory", () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
-  it("shares one abort signal across page requests when timeoutMs is set", async () => {
+  it("sends an abort signal on every page when scanTimeoutMs is set", async () => {
     vi.mocked(fetch).mockResolvedValue(
       operationsPage(
         [],
@@ -470,7 +470,7 @@ describe("getAdminActionHistory", () => {
 
     await getAdminActionHistory(network, VAULT_ID, {
       maxPages: 2,
-      timeoutMs: 5_000,
+      scanTimeoutMs: 5_000,
     });
 
     const signals = vi
@@ -478,16 +478,16 @@ describe("getAdminActionHistory", () => {
       .mock.calls.map(([, init]) => (init as RequestInit).signal);
     expect(signals).toHaveLength(2);
     expect(signals[0]).toBeInstanceOf(AbortSignal);
-    expect(signals[1]).toBe(signals[0]);
+    expect(signals[1]).toBeInstanceOf(AbortSignal);
   });
 
-  it("sends no abort signal when timeoutMs is omitted", async () => {
+  it("still bounds each page when scanTimeoutMs is omitted", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(operationsPage([]) as never);
 
     await getAdminActionHistory(network, VAULT_ID);
 
     const [, init] = vi.mocked(fetch).mock.calls[0]!;
-    expect((init as RequestInit).signal).toBeUndefined();
+    expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
   });
 
   it("rejects when the scan exceeds its time budget", async () => {
@@ -501,7 +501,7 @@ describe("getAdminActionHistory", () => {
     );
 
     await expect(
-      getAdminActionHistory(network, VAULT_ID, { timeoutMs: 20 })
+      getAdminActionHistory(network, VAULT_ID, { scanTimeoutMs: 20 })
     ).rejects.toMatchObject({ name: "TimeoutError" });
   });
 });

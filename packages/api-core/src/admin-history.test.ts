@@ -104,7 +104,7 @@ describe("handleGetAdminHistory upstream bounds", () => {
 
     expect(getAdminActionHistory).toHaveBeenCalledTimes(1);
     const [, , options] = vi.mocked(getAdminActionHistory).mock.calls[0]!;
-    expect(options).toEqual({ limit: 50, maxPages: 5, timeoutMs: 8_000 });
+    expect(options).toEqual({ limit: 50, maxPages: 5, scanTimeoutMs: 8_000 });
   });
 
   it("returns 500 when the bounded scan times out", async () => {
