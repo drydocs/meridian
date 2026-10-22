@@ -197,7 +197,8 @@ export async function simulateView(
 /**
  * Fetch the caller's account, simulate the operation to obtain the resource
  * footprint and fee, assemble the transaction, and return the unsigned XDR
- * and minimum resource fee. Throws if simulation fails.
+ * and total fee (classic inclusion fee plus minimum resource fee). Throws
+ * if simulation fails.
  */
 export async function prepareSorobanTx(
   network: StellarNetwork,
@@ -234,7 +235,7 @@ export async function prepareSorobanTx(
   const prepared = rpc.assembleTransaction(tx, sim).build();
   return {
     xdr: prepared.toEnvelope().toXDR("base64"),
-    fee: sim.minResourceFee,
+    fee: (BigInt(prepared.fee) + BigInt(sim.minResourceFee)).toString(),
   };
 }
 

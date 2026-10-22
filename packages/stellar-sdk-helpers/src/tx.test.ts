@@ -6,6 +6,7 @@ import {
   Asset,
   Contract,
   Operation,
+  SorobanDataBuilder,
   TransactionBuilder,
   nativeToScVal,
   xdr,
@@ -245,6 +246,34 @@ describe("simErrorMessage snapshots", () => {
 
 describe("prepareSorobanTx contract errors", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("returns the total assembled fee including the inclusion fee", async () => {
+    const caller = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    vi.spyOn(rpc.Server.prototype, "getAccount").mockResolvedValue(
+      new Account(caller, "0")
+    );
+    vi.spyOn(rpc.Server.prototype, "simulateTransaction").mockResolvedValue({
+      id: "1",
+      latestLedger: 1,
+      minResourceFee: "500",
+      transactionData: new SorobanDataBuilder().build().toXDR("base64"),
+      events: [],
+      results: [{ auth: [], xdr: xdr.ScVal.scvVoid().toXDR("base64") }],
+    } as Awaited<ReturnType<rpc.Server["simulateTransaction"]>>);
+
+    const result = await prepareSorobanTx(
+      {
+        network: "testnet",
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        passphrase: "Test SDF Network ; September 2015",
+      },
+      caller,
+      new Contract(CONTRACT_ADDRESSES.testnet.vault).call("deposit")
+    );
+
+    expect(result.fee).toBe("600");
+    expect(result.xdr).toBeTruthy();
+  });
 
   it.each([
     ["HostError: Error(Contract, #18)", true],
