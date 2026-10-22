@@ -1,0 +1,18 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "fix/issue-1070-bug-scheduled-keeper-runs-fail-intermittently",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "fix/issue-1070-bug-scheduled-keeper-runs-fail-intermittently": "main",
+    "main": null,
+    "origin": "main"
+  },
+  "order": [
+    "main",
+    "fix/issue-1070-bug-scheduled-keeper-runs-fail-intermittently",
+    "origin"
+  ]
+}
