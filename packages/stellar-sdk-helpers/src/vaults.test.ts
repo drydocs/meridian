@@ -22,7 +22,12 @@ vi.mock("./vault-cache", () => ({
 
 import { simulateView } from "./tx";
 import { toBigInt } from "./internal";
-import { fetchAllVaults, clearVaultCache, isVaultCacheWarm } from "./vaults";
+import {
+  fetchAllVaults,
+  fetchVaultsWithCache,
+  clearVaultCache,
+  isVaultCacheWarm,
+} from "./vaults";
 import { getCachedVaults, setCachedVaults } from "./vault-cache";
 import { KNOWN_POOLS } from "./known-pools";
 
@@ -113,6 +118,35 @@ describe("isVaultCacheWarm", () => {
   });
 });
 
+describe("fetchVaultsWithCache", () => {
+  beforeEach(() => {
+    clearVaultCache();
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    clearVaultCache();
+  });
+
+  it("returns cached: false after fresh mainnet fetch and cached: true on subsequent warm call", async () => {
+    mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
+    stubPools([llamaPool()]);
+
+    const first = await fetchVaultsWithCache("mainnet");
+    expect(first.cached).toBe(false);
+
+    const second = await fetchVaultsWithCache("mainnet");
+    expect(second.cached).toBe(true);
+  });
+
+  it("returns cached: false on testnet calls", async () => {
+    mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
+    const res = await fetchVaultsWithCache("testnet");
+    expect(res.cached).toBe(false);
+  });
+});
+
 describe("fetchAllVaults (mainnet)", () => {
   beforeEach(() => {
     clearVaultCache();
@@ -153,7 +187,7 @@ describe("fetchAllVaults (mainnet)", () => {
     stubPools([llamaPool({ pool: "unrecognised-id" })]);
     const vaults = await fetchAllVaults("mainnet");
     expect(vaults).toHaveLength(1);
-    expect(vaults[0].id).toBe("meridian-usdc");
+    expect(vaults[0]!.id).toBe("meridian-usdc");
   });
 
   it("no longer emits a placeholder DeFindex vault", async () => {
@@ -191,6 +225,22 @@ describe("fetchAllVaults (mainnet)", () => {
     expect(simulateView).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
     expect(setCachedVaults).not.toHaveBeenCalled();
+  });
+
+  it("reports cached: true via fetchVaultsWithCache on shared L2 cache hit", async () => {
+    stubPools([llamaPool()]);
+    const first = await fetchAllVaults("mainnet");
+    clearVaultCache();
+    vi.clearAllMocks();
+    vi.mocked(getCachedVaults).mockResolvedValueOnce(first);
+
+    const res = await fetchVaultsWithCache("mainnet");
+    expect(res.cached).toBe(true);
+    expect(res.vaults).toBe(first);
+    expect(isVaultCacheWarm()).toBe(true);
+    expect(getCachedVaults).toHaveBeenCalledExactlyOnceWith("mainnet");
+    expect(simulateView).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("serves stale cache instead of dropping third-party pools when DeFiLlama returns no pools", async () => {
@@ -276,7 +326,7 @@ describe("fetchAllVaults (mainnet)", () => {
     "still caches vaults when Meridian legitimately lacks %s",
     async (missingField) => {
       const original = KNOWN_POOLS.mainnet["meridian-usdc"];
-      const incomplete = { ...original };
+      const incomplete = { ...original! };
       delete incomplete[missingField];
       KNOWN_POOLS.mainnet["meridian-usdc"] = incomplete;
 
@@ -292,7 +342,7 @@ describe("fetchAllVaults (mainnet)", () => {
         );
         expect(await fetchAllVaults("mainnet")).toBe(vaults);
       } finally {
-        KNOWN_POOLS.mainnet["meridian-usdc"] = original;
+        KNOWN_POOLS.mainnet["meridian-usdc"] = original!;
       }
     }
   );
@@ -329,7 +379,7 @@ describe("fetchAllVaults (mainnet)", () => {
     );
     const vaults = await fetchAllVaults("mainnet");
     expect(vaults).toHaveLength(1);
-    expect(vaults[0].id).toBe("meridian-usdc");
+    expect(vaults[0]!.id).toBe("meridian-usdc");
   });
 
   it("serves stale Meridian data without renewing either cache and retries immediately", async () => {
@@ -468,7 +518,7 @@ describe("fetchAllVaults (mainnet)", () => {
       const vaults = await fetchAllVaults("mainnet");
       expect(vaults).toEqual([]);
     } finally {
-      KNOWN_POOLS.mainnet["meridian-usdc"] = origMeridian;
+      KNOWN_POOLS.mainnet["meridian-usdc"] = origMeridian!;
     }
   });
 });
@@ -490,10 +540,10 @@ describe("fetchAllVaults (testnet)", () => {
 
     const vaults = await fetchAllVaults("testnet");
     expect(vaults).toHaveLength(1);
-    expect(vaults[0].id).toBe("meridian-usdc");
-    expect(vaults[0].protocol).toBe("meridian");
-    expect(vaults[0].tvl).toBe(1000);
-    expect(vaults[0].riskLevel).toBe("safe");
+    expect(vaults[0]!.id).toBe("meridian-usdc");
+    expect(vaults[0]!.protocol).toBe("meridian");
+    expect(vaults[0]!.tvl).toBe(1000);
+    expect(vaults[0]!.riskLevel).toBe("safe");
   });
 
   it("returns zero TVL when get_total_assets returns zero", async () => {
@@ -501,7 +551,7 @@ describe("fetchAllVaults (testnet)", () => {
     vi.mocked(toBigInt).mockReturnValue(0n);
 
     const vaults = await fetchAllVaults("testnet");
-    expect(vaults[0].tvl).toBe(0);
+    expect(vaults[0]!.tvl).toBe(0);
   });
 
   it("does not cache testnet results between calls", async () => {
@@ -534,7 +584,7 @@ describe("fetchAllVaults (testnet)", () => {
       expect.objectContaining({ rpc: expect.any(String) }),
       POOL_ID
     );
-    expect(vaults[0].apy).toBe(8);
+    expect(vaults[0]!.apy).toBe(8);
   });
 
   it("returns apy 0 without querying Blend when the adapter wraps an unrecognised protocol", async () => {
@@ -544,7 +594,7 @@ describe("fetchAllVaults (testnet)", () => {
 
     const vaults = await fetchAllVaults("testnet");
 
-    expect(vaults[0].apy).toBe(0);
+    expect(vaults[0]!.apy).toBe(0);
     expect(loadSpy).not.toHaveBeenCalled();
   });
 

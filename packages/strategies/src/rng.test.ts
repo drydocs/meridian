@@ -3,6 +3,12 @@ import { XorShift64, derivePathSeed } from "./rng";
 
 const MASK_64 = (1n << 64n) - 1n;
 const TWO_53 = 9_007_199_254_740_992;
+const RECORDED_42 = [
+  45454805674n,
+  11532217803599905471n,
+  10021416941527320954n,
+  2899061411254629736n,
+];
 
 function drawFloats(rng: XorShift64, count: number): number[] {
   return Array.from({ length: count }, () => rng.nextFloat());
@@ -50,6 +56,59 @@ describe("XorShift64", () => {
     expect(new XorShift64((1n << 70n) | 42n).next()).toBe(
       new XorShift64(42n).next()
     );
+  });
+});
+
+describe("XorShift64 state", () => {
+  it("reports the masked seed as the state before any draw", () => {
+    expect(new XorShift64(42n).getState()).toBe(42n);
+    expect(new XorShift64(0n).getState()).toBe(1n);
+    expect(new XorShift64((1n << 70n) | 42n).getState()).toBe(42n);
+  });
+
+  it("reports the last draw as the state, without advancing the stream", () => {
+    const rng = new XorShift64(2024n);
+    const drawn = rng.next();
+    expect(rng.getState()).toBe(drawn);
+    expect(rng.getState()).toBe(drawn);
+    expect(rng.next()).not.toBe(drawn);
+  });
+
+  it("continues a stream restored mid-way exactly as the uninterrupted one", () => {
+    const uninterrupted = new XorShift64(0xdeadbeefcafef00dn);
+    const expected = drawFloats(uninterrupted, 200);
+
+    const first = new XorShift64(0xdeadbeefcafef00dn);
+    const head = drawFloats(first, 73);
+    const resumed = XorShift64.fromState(first.getState());
+    const tail = drawFloats(resumed, 127);
+
+    expect([...head, ...tail]).toEqual(expected);
+  });
+
+  it("round-trips a state through a decimal string", () => {
+    const rng = new XorShift64(MASK_64);
+    for (let i = 0; i < 25; i += 1) rng.next();
+    const restored = XorShift64.fromState(BigInt(rng.getState().toString()));
+    expect(restored.next()).toBe(rng.next());
+  });
+
+  it("rejects a state no generator can hold", () => {
+    for (const state of [0n, -1n, MASK_64 + 1n]) {
+      expect(() => XorShift64.fromState(state)).toThrow(RangeError);
+    }
+  });
+
+  it("accepts the full non-zero 64-bit range", () => {
+    expect(XorShift64.fromState(1n).getState()).toBe(1n);
+    expect(XorShift64.fromState(MASK_64).getState()).toBe(MASK_64);
+  });
+
+  it("does not change the sequence a seed produces", () => {
+    // Recorded before the state accessors were added. A change here would move
+    // every generated path and every recorded backtest result.
+    const rng = new XorShift64(42n);
+    expect(Array.from({ length: 4 }, () => rng.next())).toEqual(RECORDED_42);
   });
 });
 

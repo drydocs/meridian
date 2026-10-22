@@ -97,6 +97,10 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
       ],
       failures: [],
     })),
+    fetchVaultsWithCache: vi.fn(async () => ({
+      vaults: [{ id: "blend-usdc-fixed", protocol: "blend" }],
+      cached: false,
+    })),
     fetchAllVaults: vi.fn(async () => [
       { id: "blend-usdc-fixed", protocol: "blend" },
     ]),
@@ -218,6 +222,7 @@ import {
   getPositionHistory,
   runPositionSnapshotKeeper,
   fetchAllVaults,
+  fetchVaultsWithCache,
 } from "@meridian/stellar-sdk-helpers";
 
 // A 56-char Stellar public key shape (only the length is validated).
@@ -617,6 +622,50 @@ describe("POST /api/v1/tx/submit", () => {
   });
 });
 
+describe("POST /api/v1/tx/[action] action validation", () => {
+  it("rejects prototype property names like constructor with 404", async () => {
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "constructor" },
+        method: "POST",
+        body: { status: 204, body: { anything: true } },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: "Unknown action" });
+  });
+
+  it("rejects prototype property names like toString with 404", async () => {
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "toString" },
+        method: "POST",
+        body: {},
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: "Unknown action" });
+  });
+
+  it("rejects unknown action names with 404", async () => {
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "unknown" },
+        method: "POST",
+        body: {},
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: "Unknown action" });
+  });
+});
+
 describe("GET /api/v1/vaults", () => {
   it("returns the vault list with the mainnet cache header (APP_NETWORK default in tests)", async () => {
     const res = makeRes();
@@ -629,6 +678,31 @@ describe("GET /api/v1/vaults", () => {
       vaults: [{ id: "blend-usdc-fixed" }],
       recommendedVaultId: "blend-usdc-fixed",
       cached: false,
+    });
+  });
+
+  it("reports cached: true when served from cache", async () => {
+    vi.mocked(fetchVaultsWithCache).mockResolvedValueOnce({
+      vaults: [
+        {
+          id: "blend-usdc-fixed",
+          protocol: "blend",
+          asset: "USDC",
+          name: "Blend USDC",
+          label: "Blend",
+          apy: 5,
+          tvl: 1000,
+          userBalance: 0,
+          riskLevel: "safe",
+        },
+      ],
+      cached: true,
+    });
+    const res = makeRes();
+    await vaultsHandler(fakeReq({ method: "GET" }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      cached: true,
     });
   });
 });
@@ -1316,6 +1390,27 @@ describe("GET /api/v1/keepers/health", () => {
     expect(body.keepers.find((k) => k.id === "migration")).toMatchObject({
       healthy: false,
       lastSuccessMs: null,
+    });
+  });
+
+  it("returns 503 when the upstream rate limiter fails", async () => {
+    vi.mocked(checkRateLimit).mockRejectedValueOnce(
+      new Error("Upstash timeout")
+    );
+
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "health" },
+        method: "GET",
+        headers: {},
+      }),
+      res
+    );
+
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({
+      error: "Rate limiter unavailable; refusing to run",
     });
   });
 });

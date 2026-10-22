@@ -1042,6 +1042,9 @@ impl MeridianVault {
         // new-adapter leg.
         old_adapter.refresh();
         let value_before = old_adapter.total_assets();
+        if value_before <= 0 {
+            return Err(ContractError::MigrationBaselineInvalid);
+        }
 
         // Baseline the target adapter's balance before landing any funds on
         // it, so a pre-existing residue (e.g. left over from a prior
@@ -1608,6 +1611,10 @@ mod tests {
                 // the actual USDC balance — exactly the scenario #567
                 // describes.
                 env.storage().instance().get(&MM_FIXED).unwrap_or(0)
+            }
+
+            pub fn total_shares(env: Env) -> i128 {
+                env.storage().instance().get(&MM_SH).unwrap_or(0)
             }
 
             pub fn refresh(env: Env) {
@@ -2976,6 +2983,50 @@ mod tests {
             snapshot_result,
             Err(Ok(ContractError::MigrationNotInitialized))
         );
+    }
+
+    #[test]
+    fn migrate_adapter_rejects_a_non_positive_old_adapter_baseline() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+        let usdc = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+
+        // The old adapter is the manipulable mock so its reported value can
+        // be driven to zero while the vault still holds adapter shares.
+        let old_id = env.register(ManipulableMockAdapter, ());
+        ManipulableMockAdapterClient::new(&env, &old_id).initialize(&usdc);
+
+        let vault_id = Address::generate(&env);
+        let musdc_id = env.register(MockMusdc, ());
+        MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
+        env.register_at(
+            &vault_id,
+            MeridianVault,
+            (&admin, &usdc, &musdc_id, &old_id, &admin),
+        );
+        let vault = MeridianVaultClient::new(&env, &vault_id);
+        let amount = 100_0000000_i128;
+        StellarAssetClient::new(&env, &usdc).mint(&user, &amount);
+        vault.deposit(&user, &amount, &0);
+
+        let new_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_id).initialize(&usdc);
+        vault.begin_migration(&new_id);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += MIN_LEDGER_GAP);
+
+        for bad in [0_i128, -1] {
+            ManipulableMockAdapterClient::new(&env, &old_id).set_total_assets(&bad);
+            let result = vault.try_migrate_adapter(&new_id, &0);
+            assert_eq!(result, Err(Ok(ContractError::MigrationBaselineInvalid)));
+        }
+
+        // Nothing moved.
+        assert_eq!(vault.get_adapter(), old_id);
     }
 
     #[test]

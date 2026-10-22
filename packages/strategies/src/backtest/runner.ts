@@ -1,5 +1,5 @@
 import { accruePortfolioTick, createPortfolioState } from "../accrual";
-import type { FundingAccrualPosition } from "../accrual";
+import type { CashInterestAccrual, FundingAccrualPosition } from "../accrual";
 import type { SimulationClock } from "../clock";
 import type { CostSchedule } from "../costs";
 import { ZERO_COSTS } from "../costs";
@@ -7,9 +7,9 @@ import { Portfolio } from "../portfolio";
 import type { Position, PriceSet } from "../portfolio";
 import { ZERO_SLIPPAGE_MODEL, applyOrderFill } from "../slippage-model";
 import type { SlippageModel } from "../slippage-model";
-import { StrategyLifecycle } from "../strategy";
+import { StrategyLifecycle, reportedEquity } from "../strategy";
 import type { Order, Strategy, StrategyContext } from "../strategy";
-import { FixedPointDecimal, STROOPS_PER_UNIT } from "../types";
+import { FixedPointDecimal } from "../types";
 import type {
   AssetSymbol,
   FundingRate,
@@ -18,7 +18,6 @@ import type {
 } from "../types";
 
 const ZERO = FixedPointDecimal.fromStroops(0n);
-const MILLISECONDS_PER_SECOND = 1_000n;
 
 /** Per-fill execution cost, applied through the #879 fill model. */
 export interface ExecutionConfig {
@@ -37,7 +36,10 @@ export interface ExecutionConfig {
 export interface AccrualConfig {
   /** Rate earned on idle cash. */
   readonly cashRatePerSecond?: FixedPointDecimal;
-  /** Funding on each open position's marked notional, signed per #864. */
+  /**
+   * Funding on each open position's marked notional, signed per #864: a
+   * positive rate is paid by longs and received by shorts.
+   */
   readonly fundingRate?: FundingRate;
 }
 
@@ -72,6 +74,19 @@ export interface BacktestResult {
   readonly snapshots: readonly BacktestSnapshot[];
   /** Value after the closing orders have been filled, so positions are shut. */
   readonly finalValue: FixedPointDecimal;
+  /**
+   * The strategy's own book equity at close — the sum of every position it
+   * tracks, including any modeled outside the runner's `Portfolio`.
+   *
+   * Equals `finalValue` for strategies that only trade through the runner's
+   * `Portfolio`. Diverges for strategies that use modeled venues (e.g.
+   * delta-neutral's `ModeledHedgeVenue`, whose short position lives outside
+   * the portfolio — see #1047).
+   *
+   * Prefer this field when measuring a strategy's actual PnL. `finalValue`
+   * reflects only the positions the runner's portfolio tracks.
+   */
+  readonly strategyEquity: FixedPointDecimal;
   readonly totalInterest: FixedPointDecimal;
   readonly totalFunding: FixedPointDecimal;
   readonly totalFees: FixedPointDecimal;
@@ -110,6 +125,8 @@ export function runBacktest<TConfig = unknown>(
   const portfolio = new Portfolio(config.initialCash);
   const snapshots: BacktestSnapshot[] = [];
   const execution = config.execution ?? {};
+  // Fractional-stroop remainders carried between ticks, keyed `funding:<id>`
+  // or `cash`, exactly as the accrual engine keys them.
   let remainders: Readonly<Record<string, bigint>> = {};
   let totalInterest = ZERO;
   let totalFunding = ZERO;
@@ -122,10 +139,11 @@ export function runBacktest<TConfig = unknown>(
     if (previous !== null) {
       const elapsed = timestamp - previous;
 
-      // Funding goes through the accrual engine so fractional-stroop accrual
-      // carries between ticks instead of being truncated away. The engine
-      // hands that carry back inside a `PortfolioState`, and the runner keeps
-      // only the remainders, because `Portfolio` owns cash and positions.
+      // Funding and cash interest both go through the accrual engine so
+      // fractional-stroop accrual carries between ticks instead of being
+      // truncated away. The engine hands that carry back inside a
+      // `PortfolioState`, and the runner keeps only the remainders, because
+      // `Portfolio` owns cash and positions.
       const accrued = accruePortfolioTick(
         {
           ...createPortfolioState(portfolio.cash),
@@ -135,17 +153,21 @@ export function runBacktest<TConfig = unknown>(
           elapsedMilliseconds: elapsed,
           borrowPositions: [],
           fundingPositions: fundingPositions(portfolio, market, config.accrual),
+          cashInterest: cashInterest(config.accrual),
         }
       );
       remainders = accrued.portfolio.accrualRemainders;
 
       let funding = ZERO;
+      let interest = ZERO;
       for (const transaction of accrued.transactions) {
-        if (transaction.type !== "funding-payment") continue;
-        funding = funding.add(transaction.amount);
+        if (transaction.type === "funding-payment") {
+          funding = funding.add(transaction.amount);
+        } else if (transaction.type === "cash-interest") {
+          interest = interest.add(transaction.amount);
+        }
       }
 
-      const interest = cashInterest(portfolio.cash, config.accrual, elapsed);
       totalFunding = totalFunding.add(funding);
       totalInterest = totalInterest.add(interest);
       portfolio.applyCashFlow(funding.add(interest));
@@ -180,11 +202,19 @@ export function runBacktest<TConfig = unknown>(
     fill(portfolio, order, closing.market.prices, execution);
   }
 
+  // Strategies that self-report equity (e.g. delta-neutral with a modeled
+  // hedge venue) surface their own book value; the rest fall back to the
+  // portfolio's value, which is correct for pure-portfolio strategies.
+  const portfolioValue = portfolio.totalValue(closing.market.prices);
+  const selfEquity = reportedEquity(config.strategy);
+  const strategyEquity = selfEquity ?? portfolioValue;
+
   return {
     strategyName: config.strategy.name,
     initialCash: config.initialCash,
     snapshots,
-    finalValue: portfolio.totalValue(closing.market.prices),
+    finalValue: portfolioValue,
+    strategyEquity,
     totalInterest,
     totalFunding,
     totalFees: portfolio.fees,
@@ -231,6 +261,9 @@ function fundingPositions(
 ): FundingAccrualPosition[] {
   const rate = accrual?.fundingRate;
   if (rate === undefined) return [];
+  // The configured rate is the market's, which longs pay when it is positive,
+  // while the accrual engine reads each rate from the position's own side.
+  const longRate: FundingRate = { ratePerSecond: ZERO.sub(rate.ratePerSecond) };
 
   const positions: FundingAccrualPosition[] = [];
   for (const position of portfolio.positions()) {
@@ -240,29 +273,27 @@ function fundingPositions(
         `runBacktest: no price for "${position.asset}" to accrue funding on`
       );
     }
-    const size = FixedPointDecimal.fromStroops(
-      abs(position.size.toStroops())
-    ).mul(price);
-    positions.push({ id: position.asset, notional: size, rate });
+    const stroops = position.size.toStroops();
+    const size = FixedPointDecimal.fromStroops(abs(stroops)).mul(price);
+    positions.push({
+      id:
+        position.memberId === undefined
+          ? position.asset
+          : `${position.memberId}:${position.asset}`,
+      notional: size,
+      rate: stroops > 0n ? longRate : rate,
+    });
   }
   return positions;
 }
 
-/**
- * `notional x ratePerSecond x elapsed`, in stroops so the truncation happens
- * once, matching the accrual engine's own path.
- */
+/** The configured cash rate, or nothing when the run earns none. */
 function cashInterest(
-  cash: FixedPointDecimal,
-  accrual: AccrualConfig | undefined,
-  elapsedMilliseconds: number
-): FixedPointDecimal {
+  accrual: AccrualConfig | undefined
+): CashInterestAccrual | undefined {
   const rate = accrual?.cashRatePerSecond;
-  if (rate === undefined) return ZERO;
-  return FixedPointDecimal.fromStroops(
-    (cash.toStroops() * rate.toStroops() * BigInt(elapsedMilliseconds)) /
-      (STROOPS_PER_UNIT * MILLISECONDS_PER_SECOND)
-  );
+  if (rate === undefined) return undefined;
+  return { ratePerSecond: rate };
 }
 
 /** Prices one order through the fill model and applies it to the portfolio. */
@@ -288,6 +319,7 @@ function fill(
 
   portfolio.applyFill({
     asset: order.asset,
+    memberId: order.memberId,
     size: order.size,
     price: adjusted.effectivePrice,
     fee: adjusted.totalCost,

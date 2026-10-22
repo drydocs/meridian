@@ -355,6 +355,45 @@ describe("getAdminActionHistory", () => {
     expect(actions.map((a) => a.id)).toEqual(["op1", "op2"]);
   });
 
+  it("bounds every paged request with an AbortSignal", async () => {
+    const page1 = operationsPage(
+      [
+        {
+          id: "op1",
+          transaction_hash: "HASH1",
+          created_at: "2026-08-27T20:00:00Z",
+          source_account: "GADMIN",
+          parameters: [
+            { type: "Address", value: VAULT_ADDRESS_B64 },
+            { type: "Sym", value: SET_PAUSED_SYM_B64 },
+          ],
+        },
+      ],
+      "https://horizon-testnet.stellar.org/operations?cursor=PAGE2"
+    );
+    const page2 = operationsPage([]);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(page1 as never)
+      .mockResolvedValueOnce(page2 as never);
+
+    await getAdminActionHistory(network, VAULT_ID);
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const call of vi.mocked(fetch).mock.calls) {
+      expect(call[1]).toMatchObject({ signal: expect.any(AbortSignal) });
+    }
+  });
+
+  it("fails fast when a Horizon page hangs instead of waiting forever", async () => {
+    vi.mocked(fetch).mockImplementationOnce(
+      () => new Promise(() => {}) as never
+    );
+
+    await expect(
+      getAdminActionHistory(network, VAULT_ID, { pageTimeoutMs: 5 })
+    ).rejects.toThrow(/Horizon operations timed out after 5ms/);
+  });
+
   it("stops paging once the requested limit is reached", async () => {
     const page1 = operationsPage(
       [
@@ -390,6 +429,80 @@ describe("getAdminActionHistory", () => {
     await expect(getAdminActionHistory(network, VAULT_ID)).rejects.toThrow(
       /Horizon operations request failed: 503/
     );
+  });
+
+  it("stops after maxPages when no page yields a match", async () => {
+    // Horizon returns network-wide operations, so a quiet vault never fills
+    // `limit`; maxPages is the only thing bounding the number of upstream calls.
+    vi.mocked(fetch).mockResolvedValue(
+      operationsPage(
+        [
+          {
+            id: "op1",
+            transaction_hash: "HASH1",
+            created_at: "2026-08-27T20:00:00Z",
+            source_account: "GUSER",
+            parameters: [
+              { type: "Address", value: OTHER_CONTRACT_B64 },
+              { type: "Sym", value: SET_PAUSED_SYM_B64 },
+            ],
+          },
+        ],
+        "https://horizon-testnet.stellar.org/operations?cursor=NEXT"
+      ) as never
+    );
+
+    const actions = await getAdminActionHistory(network, VAULT_ID, {
+      maxPages: 3,
+    });
+
+    expect(actions).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("sends an abort signal on every page when scanTimeoutMs is set", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      operationsPage(
+        [],
+        "https://horizon-testnet.stellar.org/operations?cursor=NEXT"
+      ) as never
+    );
+
+    await getAdminActionHistory(network, VAULT_ID, {
+      maxPages: 2,
+      scanTimeoutMs: 5_000,
+    });
+
+    const signals = vi
+      .mocked(fetch)
+      .mock.calls.map(([, init]) => (init as RequestInit).signal);
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).toBeInstanceOf(AbortSignal);
+  });
+
+  it("still bounds each page when scanTimeoutMs is omitted", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(operationsPage([]) as never);
+
+    await getAdminActionHistory(network, VAULT_ID);
+
+    const [, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("rejects when the scan exceeds its time budget", async () => {
+    vi.mocked(fetch).mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          (init as RequestInit).signal!.addEventListener("abort", () =>
+            reject((init as RequestInit).signal!.reason)
+          );
+        })
+    );
+
+    await expect(
+      getAdminActionHistory(network, VAULT_ID, { scanTimeoutMs: 20 })
+    ).rejects.toMatchObject({ name: "TimeoutError" });
   });
 });
 

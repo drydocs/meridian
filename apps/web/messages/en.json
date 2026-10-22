@@ -159,7 +159,7 @@
     "parameters": {
       "title": "Protocol Parameters",
       "migrationCooldown": "Migration Cooldown",
-      "migrationCooldownValue": "{{ledgers}} ledgers (~1 minute)",
+      "migrationCooldownValue": "{{ledgers}} ledgers (~1 day)",
       "note": "Fixed contract constants, not admin-configurable. Verify against the contract source directly rather than trusting this page alone."
     },
     "audit": {

@@ -197,7 +197,7 @@ function toDecimalInput(value: Decimal | number): Decimal {
 }
 
 /** Floor of the exact square root, at the argument's scale. */
-function decimalSqrt(value: Decimal): Decimal {
+export function decimalSqrt(value: Decimal): Decimal {
   if (value.isNegative()) {
     throw new RangeError("Square root is undefined for a negative value");
   }

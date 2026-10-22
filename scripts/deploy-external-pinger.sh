@@ -17,13 +17,14 @@ set -euo pipefail
 #                  e.g. https://meridian.example.com
 #   CRON_SECRET    Bearer token the keeper endpoints authenticate against.
 #
-# Configure three jobs in the external scheduler, one per keeper, each set to
+# Configure four jobs in the external scheduler, one per keeper, each set to
 # retry on failure and alert on repeated failure (Cron-job.org and UptimeRobot
 # both support this natively):
 #
 #   */5  * * * *   POST ${API_BASE_URL}/api/v1/keepers/alert
 #   */15 * * * *   POST ${API_BASE_URL}/api/v1/keepers/accrue
 #   0    * * * *   POST ${API_BASE_URL}/api/v1/keepers/rebalance
+#   0    * * * *   POST ${API_BASE_URL}/api/v1/keepers/snapshot
 #
 # Each request carries: Authorization: Bearer ${CRON_SECRET}
 #
@@ -38,11 +39,12 @@ API_BASE_URL="${API_BASE_URL:?API_BASE_URL must be set}"
 
 print_config() {
   cat <<CONFIG
-Configure these three jobs in your external scheduler:
+Configure these four jobs in your external scheduler:
 
   */5  * * * *   POST ${API_BASE_URL}/api/v1/keepers/alert
   */15 * * * *   POST ${API_BASE_URL}/api/v1/keepers/accrue
   0    * * * *   POST ${API_BASE_URL}/api/v1/keepers/rebalance
+  0    * * * *   POST ${API_BASE_URL}/api/v1/keepers/snapshot
 
 Every request must send the header:
 
@@ -57,13 +59,13 @@ CONFIG
 verify_endpoints() {
   local secret="${CRON_SECRET:?CRON_SECRET must be set for --verify}"
   local keeper
-  for keeper in alert accrue rebalance; do
+  for keeper in alert accrue rebalance snapshot; do
     echo "Pinging ${keeper} keeper..."
     curl -fsS -X POST "${API_BASE_URL}/api/v1/keepers/${keeper}" \
       -H "Authorization: Bearer ${secret}"
     echo "  ${keeper}: ok"
   done
-  echo "Connectivity verified for all three keepers."
+  echo "Connectivity verified for all four keepers."
 }
 
 print_config

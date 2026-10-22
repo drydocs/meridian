@@ -37,7 +37,7 @@ export function KeeperHealthPanel() {
   return (
     <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40">
       <div className="px-6 pt-5 pb-4 border-b border-gray-800">
-        <p className="text-sm font-semibold text-white">
+        <p className="text-sm font-semibold text-paper">
           {t("admin.keeperHealth.title")}
         </p>
       </div>
@@ -76,10 +76,10 @@ export function KeeperHealthPanel() {
                   <span
                     data-testid={`keeper-status-dot-${keeper.id}`}
                     className={`h-2.5 w-2.5 rounded-full shrink-0 ${
-                      keeper.healthy ? "bg-emerald-500" : "bg-red-500"
+                      keeper.healthy ? "bg-settled" : "bg-red-500"
                     }`}
                   />
-                  <span className="text-sm font-medium text-white truncate">
+                  <span className="text-sm font-medium text-paper truncate">
                     {t(KEEPER_LABEL_KEY[keeper.id])}
                   </span>
                 </div>

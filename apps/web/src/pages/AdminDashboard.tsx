@@ -14,7 +14,7 @@ export function AdminDashboard() {
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-10 space-y-6">
-      <h1 className="text-lg font-extrabold text-white mb-6">
+      <h1 className="text-lg font-extrabold text-paper mb-6">
         {t("admin.title")}
       </h1>
 

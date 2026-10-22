@@ -4,9 +4,15 @@ import {
   getSignedXdrs,
   USER_FIXABLE_TX_ERRORS,
   acknowledgeRiskDisclosure,
+  FAKE_VAULTS,
 } from "./fixtures";
 
 test.describe("deposit", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/api/v1/vaults", (route) =>
+      route.fulfill({ json: FAKE_VAULTS })
+    );
+  });
   test("builds a real deposit transaction against the real API", async ({
     page,
     mockWallet,

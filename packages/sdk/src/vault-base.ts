@@ -203,24 +203,37 @@ export abstract class VaultBase {
   /**
    * Deposit `assets` USDC into the vault for the `receiver` account.
    *
-   * Builds a `deposit(receiver, assets, 0)` contract call. The contract pulls
-   * USDC from `receiver` and mints the shares to `receiver` in the same call,
-   * so that address is the depositor and must be the one authorising the
-   * transaction. The third argument is `min_shares_out`; passing 0 disables
-   * slippage protection. Callers that need a minimum-shares guarantee should
-   * call `convertToShares` first and construct the operation directly.
+   * Builds a `deposit(receiver, assets, min_shares_out)` contract call. The
+   * contract pulls USDC from `receiver` and mints the shares to `receiver` in
+   * the same call, so that address is the depositor and must be the one
+   * authorising the transaction.
+   *
+   * `minSharesOut` is the contract's `min_shares_out` slippage guard: the
+   * transaction reverts with `SlippageExceeded` if the minted shares would be
+   * less than this amount. It defaults to 0n, which disables the guard; pass
+   * the smallest share amount you are willing to accept (e.g. from
+   * `convertToShares`, discounted by your tolerated slippage) to protect
+   * against share-price movement between the transaction's signing and its
+   * inclusion.
    *
    * @param assets   Amount in stroops (1 USDC = 10 000 000)
    * @param receiver Stellar G-address credited with mUSDC shares
+   * @param minSharesOut Minimum acceptable mUSDC shares in stroops
+   *                     (default 0n, which disables slippage protection)
    */
-  async deposit(assets: bigint, receiver: string): Promise<Transaction> {
+  async deposit(
+    assets: bigint,
+    receiver: string,
+    minSharesOut: bigint = 0n
+  ): Promise<Transaction> {
     if (assets <= 0n) throw new Error("assets must be positive");
+    if (minSharesOut < 0n) throw new Error("minSharesOut must be non-negative");
     return this.prepare(
       this.contract().call(
         "deposit",
         addrScVal(receiver),
         i128(assets),
-        i128(0n)
+        i128(minSharesOut)
       )
     );
   }

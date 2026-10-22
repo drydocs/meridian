@@ -70,4 +70,27 @@ describe("useWalletStore", () => {
       connected: false,
     });
   });
+
+  it("revalidate keeps a wallet connected while a stale check was in flight", async () => {
+    const OTHER_KEY =
+      "GCKFBEIYV2U22IO2BJ4KVJOIP7XPWQGQFKKWXR6DOSJBV7STMAQSMTGG";
+    let resolveCheck: (authorized: boolean) => void = () => {};
+    vi.mocked(wallet.isAuthorized).mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveCheck = resolve;
+      })
+    );
+
+    useWalletStore.setState({ publicKey: KEY, connected: true });
+    const pending = useWalletStore.getState().revalidate();
+
+    useWalletStore.getState().connect(OTHER_KEY);
+    resolveCheck(false);
+    await pending;
+
+    expect(useWalletStore.getState()).toMatchObject({
+      publicKey: OTHER_KEY,
+      connected: true,
+    });
+  });
 });

@@ -101,6 +101,45 @@ describe("Rate limit production fail-closed scoping (#621)", () => {
     );
   }, 15000);
 
+  it.each(["preview", "development"])(
+    "fails with HTTP 503 for strict routes when VERCEL_ENV=%s and Upstash is unconfigured",
+    async (vercelEnv) => {
+      process.env.VERCEL_ENV = vercelEnv;
+      delete process.env.UPSTASH_REDIS_REST_URL;
+      delete process.env.UPSTASH_REDIS_REST_TOKEN;
+      delete process.env.UPSTASH_REDIS_REST_KV_REST_API_URL;
+      delete process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN;
+
+      const mod = await import("../_lib/middleware.js");
+      const req = fakeReq("POST", { "x-vercel-forwarded-for": "1.2.3.4" });
+      const res = fakeRes();
+
+      const allowed = await mod.checkRateLimit(req, res, { strict: true });
+      expect(allowed).toBe(false);
+      expect(res.statusCode).toBe(503);
+      expect(res.body).toEqual(
+        expect.objectContaining({ code: "RATE_LIMIT_BACKEND_UNAVAILABLE" })
+      );
+    },
+    15000
+  );
+
+  it("lets strict routes use the in-memory limiter in local dev (no VERCEL_ENV)", async () => {
+    delete process.env.VERCEL_ENV;
+    delete process.env.UPSTASH_REDIS_REST_URL;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    delete process.env.UPSTASH_REDIS_REST_KV_REST_API_URL;
+    delete process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN;
+
+    const mod = await import("../_lib/middleware.js");
+    const req = fakeReq("POST", { "x-vercel-forwarded-for": "1.2.3.4" });
+    const res = fakeRes();
+
+    const allowed = await mod.checkRateLimit(req, res, { strict: true });
+    expect(allowed).toBe(true);
+    expect(res.statusCode).toBe(200);
+  }, 15000);
+
   it("allows strict routes when distributed rate limiting is configured", async () => {
     process.env.VERCEL_ENV = "production";
     process.env.UPSTASH_REDIS_REST_URL = "https://mock-redis.upstash.io";

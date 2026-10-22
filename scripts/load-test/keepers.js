@@ -1,6 +1,6 @@
 // Load/race test for GET /api/v1/keepers/:action
 // (api/v1/keepers/[action].ts). Covers `health` (public, read-only) and
-// probes the submission-lease race on `accrue`/`rebalance`/`alert`
+// probes the submission-lease race on `accrue`/`rebalance`/`alert`/`snapshot`
 // (packages/stellar-sdk-helpers/src/keeper-state.ts, SubmissionLease).
 //
 // DANGER: accrue and rebalance sign and submit REAL Stellar transactions off
@@ -29,7 +29,7 @@
 //     scripts/load-test/keepers.js
 //
 // Tunables (all optional): HEALTH_RPS, DURATION, CONCURRENCY, KEEPER_ACTION
-// (accrue | rebalance | alert, default accrue)
+// (accrue | rebalance | alert | snapshot, default accrue)
 //
 // health's default HEALTH_RPS is intentionally conservative (1 req/s =
 // 60/min) to stay under the API's 100 req/60s per-client-IP limit

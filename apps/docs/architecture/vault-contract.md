@@ -267,16 +267,16 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 
 ## Contract storage
 
-| Key                  | Storage type | Value                                                                                                                                        |
-| -------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ADMIN`              | Instance     | Admin `Address`                                                                                                                              |
-| `PEND_ADM`           | Instance     | Pending admin nominee `Address`, set by `transfer_admin` and cleared once `accept_admin` completes                                           |
-| `USDC`               | Instance     | USDC contract `Address`                                                                                                                      |
-| `MUSDC`              | Instance     | mUSDC contract `Address`                                                                                                                     |
-| `ADAPTER`            | Instance     | Active adapter contract `Address`                                                                                                            |
-| `TREASURY`           | Instance     | Constructor-fixed performance-fee recipient `Address`; no admin setter                                                                       |
-| `TOTAL_SH`           | Instance     | Total mUSDC shares outstanding (`i128`)                                                                                                      |
-| `ADPT_SH`            | Instance     | Total adapter shares outstanding. Reset to `0` on `set_adapter`; set to the new adapter's reported share count on `migrate_adapter` (`i128`) |
-| `PAUSED`             | Instance     | Deposit pause flag (`bool`)                                                                                                                  |
-| `Entry(address)`     | Persistent   | Per-address deposit entry timestamp (`u64`)                                                                                                  |
-| `Principal(address)` | Persistent   | Per-address net USDC deposited, not yet withdrawn (`i128`)                                                                                   |
+| Key                  | Storage type | Value                                                                                                                                                                            |
+| -------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ADMIN`              | Instance     | Admin `Address`                                                                                                                                                                  |
+| `PEND_ADM`           | Instance     | Pending admin nominee `Address`, set by `transfer_admin` and cleared once `accept_admin` completes                                                                               |
+| `USDC`               | Instance     | USDC contract `Address`                                                                                                                                                          |
+| `MUSDC`              | Instance     | mUSDC contract `Address`                                                                                                                                                         |
+| `ADAPTER`            | Instance     | Active adapter contract `Address`                                                                                                                                                |
+| `TREASURY`           | Instance     | Constructor-fixed performance-fee recipient `Address`; no admin setter                                                                                                           |
+| `TOTAL_SH`           | Instance     | Total mUSDC shares outstanding (`i128`)                                                                                                                                          |
+| `ADPT_SH`            | Instance     | Total adapter shares outstanding. Never reset by `set_adapter`, which requires it to already be `0`; set to the new adapter's reported share count on `migrate_adapter` (`i128`) |
+| `PAUSED`             | Instance     | Deposit pause flag (`bool`)                                                                                                                                                      |
+| `Entry(address)`     | Persistent   | Per-address deposit entry timestamp (`u64`)                                                                                                                                      |
+| `Principal(address)` | Persistent   | Per-address net USDC deposited, not yet withdrawn (`i128`)                                                                                                                       |

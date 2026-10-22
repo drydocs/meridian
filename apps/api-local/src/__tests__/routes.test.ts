@@ -10,6 +10,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
   // stubbed class would stop behaving like the error it maps to an HTTP status.
   const actual =
     await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>();
+  const fetchAllVaultsMock = vi.fn();
   return {
     ContractSimulationError: actual.ContractSimulationError,
     MissingTrustlineError: actual.MissingTrustlineError,
@@ -18,7 +19,11 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     buildWithdrawTx: vi.fn(),
     buildAddTrustlineTx: vi.fn(),
     submitTx: vi.fn(),
-    fetchAllVaults: vi.fn(),
+    fetchAllVaults: fetchAllVaultsMock,
+    fetchVaultsWithCache: vi.fn(async (...args: unknown[]) => ({
+      vaults: await fetchAllVaultsMock(...args),
+      cached: false,
+    })),
     selectBestVault: vi.fn(),
     isVaultCacheWarm: vi.fn(() => false),
     // api-core now calls this on the deposit/withdraw build path. Without a

@@ -159,7 +159,7 @@
     "parameters": {
       "title": "Paramètres du protocole",
       "migrationCooldown": "Délai de migration",
-      "migrationCooldownValue": "{{ledgers}} ledgers (~1 minute)",
+      "migrationCooldownValue": "{{ledgers}} ledgers (~1 jour)",
       "note": "Constantes fixes du contrat, non configurables par l'admin. Vérifiez directement le code source du contrat plutôt que de vous fier uniquement à cette page."
     },
     "audit": {

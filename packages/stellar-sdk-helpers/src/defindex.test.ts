@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   buildDefindexDepositTx,
   buildDefindexWithdrawTx,
@@ -220,8 +220,10 @@ describe("fetchDefindexPosition", () => {
     await fetchDefindexPosition(network, VAULT_ID, "defindex-usdc", PUBKEY);
 
     expect(capturedServerArgs).toHaveLength(1);
-    expect(capturedServerArgs[0][0]).toBe(network.rpcUrl);
-    expect(capturedServerArgs[0][1]).toMatchObject({ timeout: 12_000 });
+    expect((capturedServerArgs[0] as unknown[])[0]).toBe(network.rpcUrl);
+    expect((capturedServerArgs[0] as unknown[])[1]).toMatchObject({
+      timeout: 12_000,
+    });
   });
 
   it("returns [] when the user holds zero shares", async () => {
@@ -248,11 +250,12 @@ describe("fetchDefindexPosition", () => {
       PUBKEY
     );
     expect(result).toHaveLength(1);
-    expect(result[0].vaultId).toBe("defindex-usdc");
-    expect(result[0].shares).toBeCloseTo(0.5, 7);
-    expect(result[0].deposited).toBeCloseTo(1, 7);
-    expect(result[0].earned).toBe(0);
-    expect(result[0].entryTime).toBe(0);
+    expect(result[0]).toBeDefined();
+    expect(result[0]!.vaultId).toBe("defindex-usdc");
+    expect(result[0]!.shares).toBeCloseTo(0.5, 7);
+    expect(result[0]!.deposited).toBeCloseTo(1, 7);
+    expect(result[0]!.earned).toBe(0);
+    expect(result[0]!.entryTime).toBe(0);
   });
 
   it("sets deposited to 0 when amounts array is null", async () => {
@@ -266,7 +269,8 @@ describe("fetchDefindexPosition", () => {
       "defindex-usdc",
       PUBKEY
     );
-    expect(pos.deposited).toBe(0);
+    expect(pos).toBeDefined();
+    expect(pos!.deposited).toBe(0);
   });
 
   it("sets deposited to 0 when amounts array is empty", async () => {
@@ -280,7 +284,8 @@ describe("fetchDefindexPosition", () => {
       "defindex-usdc",
       PUBKEY
     );
-    expect(pos.deposited).toBe(0);
+    expect(pos).toBeDefined();
+    expect(pos!.deposited).toBe(0);
   });
 });
 

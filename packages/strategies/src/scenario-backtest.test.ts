@@ -78,7 +78,13 @@ describe("delta-neutral scenario backtests", () => {
       const last = strategy.deltaHistory[strategy.deltaHistory.length - 1]!;
       expect(last.tick).toBe(24);
       expect(strategy.isClosed).toBe(true);
-      expect(result.finalValue.toStroops()).toBeGreaterThan(0n);
+      // The runner reports the hedged book (strategy's own equity), and it
+      // must match the strategy's internal accounting exactly (#1047).
+      expect(result.strategyEquity.toStroops()).toBe(
+        strategy.equity.toStroops()
+      );
+      // The hedged book is positive in every regime.
+      expect(result.strategyEquity.toStroops()).toBeGreaterThan(0n);
     }
   });
 
@@ -168,6 +174,27 @@ describe("delta-neutral scenario backtests", () => {
     expect(series(second)).not.toBe(series(first));
     expect(serializeSnapshots(second.result.snapshots)).not.toBe(
       serializeSnapshots(first.result.snapshots)
+    );
+  });
+
+  it("reports the hedged strategyEquity separately from the unhedged finalValue (#1047)", () => {
+    const { strategy, result } = runRegime("trending");
+
+    // 1) strategyEquity is the strategy's own book equity (includes hedge).
+    expect(strategy.equity.toStroops()).toBe(result.strategyEquity.toStroops());
+
+    // 2) finalValue reflects only the portfolio (spot long, no hedge).
+    //    In a trending regime they MUST diverge — this is the bug #1047
+    //    catches. Before the fix they were identical (both just the long).
+    expect(result.strategyEquity.toStroops()).not.toBe(
+      result.finalValue.toStroops()
+    );
+
+    // 3) The book makes funding PnL that only appears in strategyEquity,
+    //    not in finalValue. That's the structural difference.
+    expect(strategy.fundingPnl.toStroops()).toBeGreaterThan(0n);
+    expect(strategy.totalPnl.toStroops()).not.toBe(
+      result.finalValue.toStroops() - result.initialCash.toStroops()
     );
   });
 });

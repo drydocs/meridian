@@ -4,7 +4,6 @@ import {
   fetchBlendPositions,
   buildBlendDepositTx,
   buildBlendWithdrawTx,
-  BlendAdapterClient,
   type BlendPoolConfig,
 } from "./blend";
 import { prepareSorobanTx } from "./tx";
@@ -183,10 +182,11 @@ describe("fetchBlendPositions", () => {
     vi.mocked(PoolV2.load).mockResolvedValue(pool as never);
 
     const [pos] = await fetchBlendPositions(network, POOL_ID, PUBKEY, [
-      reserves[0],
+      reserves[0]!,
     ]);
-    expect(pos.shares).toBe(30);
-    expect(pos.deposited).toBe(40);
+    expect(pos).toBeDefined();
+    expect(pos!.shares).toBe(30);
+    expect(pos!.deposited).toBe(40);
   });
 
   it("skips reserves not present in the pool", async () => {
@@ -204,7 +204,7 @@ describe("fetchBlendPositions", () => {
       reserves
     );
     expect(result).toHaveLength(1);
-    expect(result[0].vaultId).toBe("blend-usdc-fixed");
+    expect(result[0]!.vaultId).toBe("blend-usdc-fixed");
   });
 
   it("skips reserves where the user has zero total balance", async () => {
@@ -215,7 +215,7 @@ describe("fetchBlendPositions", () => {
     vi.mocked(PoolV2.load).mockResolvedValue(pool as never);
 
     const result = await fetchBlendPositions(network, POOL_ID, PUBKEY, [
-      reserves[0],
+      reserves[0]!,
     ]);
     expect(result).toEqual([]);
   });
@@ -273,163 +273,5 @@ describe("Blend transaction builders", () => {
     );
     expect(submitMock).not.toHaveBeenCalled();
     expect(prepareSorobanTx).not.toHaveBeenCalled();
-  });
-});
-
-describe("BlendAdapterClient", () => {
-  const client = new BlendAdapterClient(config);
-
-  it.each([
-    ["supply", RequestType.SupplyCollateral],
-    ["borrow", RequestType.Borrow],
-    ["repay", RequestType.Repay],
-    ["withdraw", RequestType.WithdrawCollateral],
-  ] as const)(
-    "%s maps to a %s request for the named asset",
-    async (method, requestType) => {
-      submitMock.mockClear();
-
-      await client[method](EURC_ID, 42n, PUBKEY);
-
-      expect(submitMock).toHaveBeenCalledWith({
-        from: PUBKEY,
-        spender: PUBKEY,
-        to: PUBKEY,
-        requests: [
-          { request_type: requestType, address: EURC_ID, amount: 42n },
-        ],
-      });
-    }
-  );
-
-  it.each([
-    ["supply", RequestType.SupplyCollateral],
-    ["borrow", RequestType.Borrow],
-    ["repay", RequestType.Repay],
-    ["withdraw", RequestType.WithdrawCollateral],
-  ] as const)(
-    "%s falls back to the configured reserve when the caller passes no asset",
-    async (method, requestType) => {
-      submitMock.mockClear();
-
-      await client[method]("", 7n, PUBKEY);
-
-      expect(submitMock).toHaveBeenCalledWith({
-        from: PUBKEY,
-        spender: PUBKEY,
-        to: PUBKEY,
-        requests: [
-          {
-            request_type: requestType,
-            address: USDC_ID,
-            amount: 7n,
-          },
-        ],
-      });
-    }
-  );
-
-  it("getHealthFactor returns Infinity when liabilities are zero", async () => {
-    const reserveMap = new Map<string, object>([
-      [USDC_ID, {}],
-      [EURC_ID, {}],
-    ]);
-    const fakePool = {
-      reserves: reserveMap,
-      config: { backstopRate: 0.1 },
-      loadUser: vi.fn(async () => ({
-        getCollateralFloat: () => 100,
-        getSupplyFloat: () => 0,
-        getLiabilitiesFloat: () => 0,
-      })),
-    };
-    vi.mocked(PoolV2.load).mockResolvedValue(fakePool as never);
-
-    await expect(
-      client.getHealthFactor(PUBKEY, USDC_ID, USDC_ID)
-    ).resolves.toBe(Number.POSITIVE_INFINITY);
-  });
-
-  it("getHealthFactor divides collateral by liabilities", async () => {
-    const reserveMap = new Map<string, object>([[USDC_ID, {}]]);
-    const fakePool = {
-      reserves: reserveMap,
-      config: {},
-      loadUser: vi.fn(async () => ({
-        getCollateralFloat: () => 200,
-        getSupplyFloat: () => 0,
-        getLiabilitiesFloat: () => 50,
-      })),
-    };
-    vi.mocked(PoolV2.load).mockResolvedValue(fakePool as never);
-
-    await expect(
-      client.getHealthFactor(PUBKEY, USDC_ID, USDC_ID)
-    ).resolves.toBe(4);
-  });
-
-  it("getHealthFactor treats an unknown reserve as a zero balance", async () => {
-    vi.mocked(PoolV2.load).mockResolvedValue({
-      reserves: new Map<string, object>(),
-      loadUser: vi.fn(async () => ({
-        getCollateralFloat: () => 99,
-        getSupplyFloat: () => 0,
-        getLiabilitiesFloat: () => 9,
-      })),
-    } as never);
-
-    await expect(
-      client.getHealthFactor(PUBKEY, USDC_ID, EURC_ID)
-    ).resolves.toBe(Number.POSITIVE_INFINITY);
-  });
-
-  it("getPoolInfo reports the reserve set and the backstop rate", async () => {
-    const reserveMap = new Map<string, object>([
-      [USDC_ID, {}],
-      [EURC_ID, {}],
-    ]);
-    vi.mocked(PoolV2.load).mockResolvedValue({
-      reserves: reserveMap,
-      metadata: { backstopRate: 123456n },
-    } as never);
-
-    await expect(client.getPoolInfo()).resolves.toEqual({
-      poolId: POOL_ID,
-      backstopRate: 123456,
-      reserveCount: 2,
-      reserves: [USDC_ID, EURC_ID],
-    });
-
-    // The default pool id is overridable for multi-pool callers.
-    await expect(client.getPoolInfo("COTHERPOOL")).resolves.toMatchObject({
-      poolId: "COTHERPOOL",
-    });
-  });
-
-  it("getUserPosition buckets only the non-zero balances", async () => {
-    const usdcReserve = { id: "usdc" };
-    const eurcReserve = { id: "eurc" };
-    const reserveMap = new Map<string, object>([
-      [USDC_ID, usdcReserve],
-      [EURC_ID, eurcReserve],
-    ]);
-    vi.mocked(PoolV2.load).mockResolvedValue({
-      reserves: reserveMap,
-      loadUser: vi.fn(async () => ({
-        getCollateralFloat: (reserve: object) =>
-          reserve === usdcReserve ? 12 : 0,
-        getLiabilitiesFloat: (reserve: object) =>
-          reserve === eurcReserve ? 4 : 0,
-        getSupplyFloat: (reserve: object) => (reserve === usdcReserve ? 3 : 0),
-      })),
-    } as never);
-
-    await expect(client.getUserPosition(PUBKEY)).resolves.toEqual({
-      account: PUBKEY,
-      poolId: POOL_ID,
-      collateral: { [USDC_ID]: 12 },
-      liabilities: { [EURC_ID]: 4 },
-      supply: { [USDC_ID]: 3 },
-    });
   });
 });

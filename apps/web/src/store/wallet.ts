@@ -29,9 +29,14 @@ export const useWalletStore = create<WalletStore>()(
       // Re-check the persisted key against Freighter. Clears stale state when
       // the extension is gone or the user revoked site access between sessions.
       revalidate: async () => {
-        if (!get().publicKey) return;
+        const key = get().publicKey;
+        if (!key) return;
         const authorized = await wallet.isAuthorized();
-        if (!authorized) set({ publicKey: null, connected: false });
+        // The user may have connected a different wallet while the check was
+        // in flight; a stale result must not clear the newer session.
+        if (!authorized && get().publicKey === key) {
+          set({ publicKey: null, connected: false });
+        }
       },
     }),
     {

@@ -27,8 +27,7 @@ const hourly = (steps: number) =>
 /**
  * One USDC price per tick, taken from `prices` in tick order, so a test states
  * the path it is testing rather than interpolating between endpoints. EURC is
- * carried at a flat price because the feed wants every asset, but no test here
- * trades it.
+ * carried at a flat price of 1 because the feed wants every asset.
  */
 const feed = (...prices: string[]) =>
   BacktestPriceFeed.create({
@@ -141,22 +140,22 @@ describe("runBacktest", () => {
     });
 
     // The entry fill lands at tick 0, so 1000 becomes 5 and stays there until
-    // the first interval closes. Tick 1 then credits funding of
-    // 995 * 0.0001 * 3600 = 358.2 on the position marked at 100 and interest
-    // of 5 * 0.0001 * 3600 = 1.8 on the cash, and the strategy is handed the
-    // sum. Tick 2 accrues on that larger balance instead.
-    expect(seen).toEqual(["1000", "365", "854.6"]);
-    expect(result.totalFunding.toString()).toBe("716.4");
-    expect(result.totalInterest.toString()).toBe("133.2");
+    // the first interval closes. Tick 1 then charges the long funding of
+    // 995 * 0.0001 * 3600 = 358.2 on the position marked at 100 and credits
+    // interest of 5 * 0.0001 * 3600 = 1.8 on the cash, and the strategy is
+    // handed the net. Tick 2 accrues interest on that negative balance instead.
+    expect(seen).toEqual(["1000", "-351.4", "-836.104"]);
+    expect(result.totalFunding.toString()).toBe("-716.4");
+    expect(result.totalInterest.toString()).toBe("-124.704");
     expect(result.snapshots.map((s) => s.cash.toString())).toEqual([
       "5",
-      "365",
-      "854.6",
+      "-351.4",
+      "-836.104",
     ]);
     expect(result.snapshots.map((s) => s.value.toString())).toEqual([
       "1000",
-      "1360",
-      "1849.6",
+      "643.6",
+      "158.896",
     ]);
   });
 
@@ -187,10 +186,78 @@ describe("runBacktest", () => {
     ).totalFunding;
 
     // Funding is charged on the marked notional, which does not grow, so 24
-    // hourly intervals and one daily interval accrue the identical total.
-    // 995 * 0.0001 * 86400 = 8596.8.
-    expect(dailyTotal.toString()).toBe("8596.8");
-    expect(hourlyTotal.toString()).toBe("8596.8");
+    // hourly intervals and one daily interval accrue the identical total,
+    // which the long pays: 995 * 0.0001 * 86400 = 8596.8.
+    expect(dailyTotal.toString()).toBe("-8596.8");
+    expect(hourlyTotal.toString()).toBe("-8596.8");
+  });
+
+  it("makes longs pay a positive rate and shorts a negative one, netting an equal book", () => {
+    const funding = (ratePerSecond: string, ...orders: Order[]) =>
+      runBacktest({
+        clock: hourly(1),
+        assets: [USDC, EURC],
+        prices: feed("100", "100"),
+        strategy: {
+          name: "book",
+          init: () => undefined,
+          step: () => undefined,
+          rebalance: (context) =>
+            context.market.timestamp === START ? orders : [],
+          close: () => [],
+        },
+        strategyConfig: null,
+        initialCash: amount("1000"),
+        accrual: { fundingRate: { ratePerSecond: amount(ratePerSecond) } },
+      }).totalFunding.toString();
+    const long: Order = { asset: USDC, size: amount("2") };
+    const short: Order = { asset: EURC, size: amount("-200") };
+
+    // 2 USDC at 100 and 200 EURC at 1 both mark at 200 of notional, so one
+    // hour at a positive rate moves 200 * 0.0001 * 3600 = 72 from the long to
+    // the short. A negative rate moves the same amount the other way.
+    expect(funding("0.0001", long)).toBe("-72");
+    expect(funding("0.0001", short)).toBe("72");
+    expect(funding("0.0001", long, short)).toBe("0");
+    expect(funding("-0.0001", long)).toBe("72");
+    expect(funding("-0.0001", short)).toBe("-72");
+    expect(funding("-0.0001", long, short)).toBe("0");
+  });
+
+  it("makes cash interest step-invariant by carrying the sub-stroop remainder", () => {
+    // #1045: 5 units of cash idle for 3 s at 0.0000001 per second earn 15
+    // stroops in one tick. Two 1.5 s ticks truncate to 7 each unless the
+    // half-stroop remainder is carried, which used to lose a stroop.
+    const window = 3_000;
+    const run = (stepMs: number) => {
+      const { strategy } = observer();
+      return runBacktest({
+        clock: new SimulationClock({
+          start: START,
+          end: START + window,
+          stepMs,
+        }),
+        assets: [USDC],
+        prices: flat(window),
+        strategy,
+        strategyConfig: null,
+        initialCash: amount("5"),
+        accrual: { cashRatePerSecond: amount("0.0000001") },
+      });
+    };
+
+    const split = run(1_500);
+    const single = run(3_000);
+
+    expect(single.totalInterest.toString()).toBe("0.0000015");
+    expect(split.totalInterest.toString()).toBe("0.0000015");
+    expect(split.totalInterest.toStroops()).toBe(
+      single.totalInterest.toStroops()
+    );
+    const last = (result: BacktestResult) =>
+      result.snapshots[result.snapshots.length - 1]?.cash.toString();
+    expect(last(split)).toBe("5.0000015");
+    expect(last(split)).toBe(last(single));
   });
 
   it("fills orders through the cost model after slippage", () => {
@@ -204,7 +271,6 @@ describe("runBacktest", () => {
         slippageModel: new FixedBpsSlippageModel(100n),
         costSchedule: {
           swapFeeRate: amount("0.001"),
-          borrowSpreadRate: amount("0"),
           networkFee: amount("0.1"),
         },
       },
@@ -302,7 +368,6 @@ describe("runBacktest", () => {
           slippageModel: new FixedBpsSlippageModel(25n),
           costSchedule: {
             swapFeeRate: amount("0.0005"),
-            borrowSpreadRate: amount("0"),
             networkFee: amount("0.01"),
           },
         },

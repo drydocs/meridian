@@ -12,9 +12,14 @@ import {
 
 function fakeReq(
   method: string,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
+  remoteAddress = "127.0.0.1"
 ): VercelRequest {
-  return { method, headers } as unknown as VercelRequest;
+  return {
+    method,
+    headers,
+    socket: { remoteAddress },
+  } as unknown as VercelRequest;
 }
 
 interface FakeRes {
@@ -100,9 +105,7 @@ describe("checkRateLimit", () => {
     const ip = "1.2.3.4";
     for (let i = 0; i < 100; i++) {
       const res = fakeRes();
-      expect(
-        await checkRateLimit(fakeReq("POST", { "x-forwarded-for": ip }), res)
-      ).toBe(true);
+      expect(await checkRateLimit(fakeReq("POST", {}, ip), res)).toBe(true);
       expect(res.statusCode).toBe(200);
     }
   });
@@ -110,15 +113,10 @@ describe("checkRateLimit", () => {
   it("blocks the 101st request with 429", async () => {
     const ip = "1.2.3.5";
     for (let i = 0; i < 100; i++) {
-      await checkRateLimit(
-        fakeReq("POST", { "x-forwarded-for": ip }),
-        fakeRes()
-      );
+      await checkRateLimit(fakeReq("POST", {}, ip), fakeRes());
     }
     const res = fakeRes();
-    expect(
-      await checkRateLimit(fakeReq("POST", { "x-forwarded-for": ip }), res)
-    ).toBe(false);
+    expect(await checkRateLimit(fakeReq("POST", {}, ip), res)).toBe(false);
     expect(res.statusCode).toBe(429);
   });
 
@@ -126,17 +124,12 @@ describe("checkRateLimit", () => {
     vi.useFakeTimers();
     const ip = "1.2.3.6";
     for (let i = 0; i < 100; i++) {
-      await checkRateLimit(
-        fakeReq("POST", { "x-forwarded-for": ip }),
-        fakeRes()
-      );
+      await checkRateLimit(fakeReq("POST", {}, ip), fakeRes());
     }
     // Advance past the 60 s window.
     vi.advanceTimersByTime(61_000);
     const res = fakeRes();
-    expect(
-      await checkRateLimit(fakeReq("POST", { "x-forwarded-for": ip }), res)
-    ).toBe(true);
+    expect(await checkRateLimit(fakeReq("POST", {}, ip), res)).toBe(true);
     expect(res.statusCode).toBe(200);
   });
 
@@ -144,55 +137,94 @@ describe("checkRateLimit", () => {
     const ipA = "10.0.0.1";
     const ipB = "10.0.0.2";
     for (let i = 0; i < 100; i++) {
-      await checkRateLimit(
-        fakeReq("POST", { "x-forwarded-for": ipA }),
-        fakeRes()
-      );
+      await checkRateLimit(fakeReq("POST", {}, ipA), fakeRes());
     }
     // ipA is blocked but ipB should still be allowed.
     const resA = fakeRes();
-    expect(
-      await checkRateLimit(fakeReq("POST", { "x-forwarded-for": ipA }), resA)
-    ).toBe(false);
+    expect(await checkRateLimit(fakeReq("POST", {}, ipA), resA)).toBe(false);
     const resB = fakeRes();
-    expect(
-      await checkRateLimit(fakeReq("POST", { "x-forwarded-for": ipB }), resB)
-    ).toBe(true);
+    expect(await checkRateLimit(fakeReq("POST", {}, ipB), resB)).toBe(true);
   });
 
-  it("uses x-vercel-forwarded-for over x-forwarded-for when both are present", async () => {
+  it("uses a valid x-vercel-forwarded-for before the socket address", async () => {
     const vercelIp = "5.6.7.8";
-    const fwdIp = "9.9.9.9";
     for (let i = 0; i < 100; i++) {
       await checkRateLimit(
-        fakeReq("POST", {
-          "x-vercel-forwarded-for": vercelIp,
-          "x-forwarded-for": fwdIp,
-        }),
+        fakeReq(
+          "POST",
+          {
+            "x-vercel-forwarded-for": vercelIp,
+            "x-forwarded-for": "9.9.9.9",
+          },
+          "10.0.0.1"
+        ),
         fakeRes()
       );
     }
-    // vercelIp bucket is full — requests with that header should be blocked
+
     const resBlocked = fakeRes();
     expect(
       await checkRateLimit(
-        fakeReq("POST", {
-          "x-vercel-forwarded-for": vercelIp,
-          "x-forwarded-for": fwdIp,
-        }),
+        fakeReq(
+          "POST",
+          {
+            "x-vercel-forwarded-for": vercelIp,
+            "x-forwarded-for": "8.8.8.8",
+          },
+          "10.0.0.2"
+        ),
         resBlocked
       )
     ).toBe(false);
     expect(resBlocked.statusCode).toBe(429);
 
-    // fwdIp bucket is untouched — requests without x-vercel-forwarded-for should still pass
     const resAllowed = fakeRes();
     expect(
-      await checkRateLimit(
-        fakeReq("POST", { "x-forwarded-for": fwdIp }),
-        resAllowed
-      )
+      await checkRateLimit(fakeReq("POST", {}, "10.0.0.1"), resAllowed)
     ).toBe(true);
+  });
+
+  it("ignores spoofed x-forwarded-for and uses the socket address", async () => {
+    const remoteAddress = "192.0.2.10";
+    for (let i = 0; i < 100; i++) {
+      await checkRateLimit(fakeReq("POST", {}, remoteAddress), fakeRes());
+    }
+
+    const res = fakeRes();
+    expect(
+      await checkRateLimit(
+        fakeReq("POST", { "x-forwarded-for": "198.51.100.42" }, remoteAddress),
+        res
+      )
+    ).toBe(false);
+    expect(res.statusCode).toBe(429);
+  });
+
+  it("falls back to the socket address when x-vercel-forwarded-for is invalid", async () => {
+    const remoteAddress = "192.0.2.11";
+    for (let i = 0; i < 100; i++) {
+      await checkRateLimit(
+        fakeReq(
+          "POST",
+          { "x-vercel-forwarded-for": "not-an-ip" },
+          remoteAddress
+        ),
+        fakeRes()
+      );
+    }
+
+    const res = fakeRes();
+    expect(
+      await checkRateLimit(
+        fakeReq(
+          "POST",
+          { "x-vercel-forwarded-for": "also-not-an-ip" },
+          remoteAddress
+        ),
+        res
+      )
+    ).toBe(false);
+    expect(res.statusCode).toBe(429);
   });
 });
 

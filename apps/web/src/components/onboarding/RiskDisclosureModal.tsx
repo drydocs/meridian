@@ -102,13 +102,13 @@ export function RiskDisclosureModal({
           onClick={onCancel}
           aria-label={t("riskDisclosure.cancel")}
           title={t("riskDisclosure.cancel")}
-          className="absolute right-4 top-4 text-gray-500 hover:text-white transition-colors duration-150"
+          className="absolute right-4 top-4 text-gray-500 hover:text-paper transition-colors duration-150"
         >
           <X size={18} />
         </button>
         <h3
           id="risk-disclosure-title"
-          className="text-base font-semibold text-white pr-6"
+          className="text-base font-semibold text-paper pr-6"
         >
           {t("riskDisclosure.title")}
         </h3>
@@ -134,7 +134,7 @@ export function RiskDisclosureModal({
           data-testid="risk-disclosure-accept"
           disabled={!riskChecked}
           onClick={onAccept}
-          className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
+          className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
         >
           {t("riskDisclosure.continue")}
         </button>

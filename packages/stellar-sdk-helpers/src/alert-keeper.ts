@@ -7,9 +7,10 @@
 // only noticed by whoever happened to check the app.
 //
 // This keeper polls getRpcAdminHistory per known Meridian vault, starting
-// from a persisted "last-processed ledger" cursor so a restart never
-// replays events it already alerted on, and posts one webhook message per
-// qualifying action. It deliberately reuses keeper-heartbeat.ts's
+// from a persisted ledger cursor and posts one webhook message per
+// qualifying action. A failed send replays its ledger on the next run,
+// which can repeat earlier successful alerts from that ledger.
+// It deliberately reuses keeper-heartbeat.ts's
 // KeeperHeartbeatStore for that cursor: the store is already a generic
 // last-write-wins numeric KV (see its own header comment), and a ledger
 // cursor has exactly the same consistency requirements as a heartbeat
@@ -269,11 +270,11 @@ export interface AlertKeeperDeps {
 /**
  * Runs one alerting pass over every known Meridian vault: reads each
  * vault's admin-event history since its last-processed ledger, posts a
- * webhook alert for every qualifying action, and advances the cursor only
- * as far as the last action it successfully alerted on (or that needed no
- * alert at all). A failed send stops that vault's cursor from advancing
- * past it, so the failed action (and anything after it in the same page)
- * is retried on the next scheduled run instead of being silently skipped.
+ * webhook alert for every qualifying action, and advances the cursor past
+ * successfully processed actions (including those that needed no alert).
+ * A failed send keeps the persisted cursor at or before its ledger, so the
+ * failed action and anything after it in the same page are retried on the
+ * next scheduled run. Earlier successful alerts in that ledger can repeat.
  */
 /** One vault's worth of work for a single run: resolve its start ledger,
  *  fetch admin history since it, alert on every qualifying action, and
@@ -378,6 +379,9 @@ async function processVaultAlerts(
           attempts: config.maxAttempts,
           error: errorMessage(err),
         });
+        // A preceding action (including a skipped accept) may have already
+        // advanced past this ledger. Replay it so the failed alert is retried.
+        cursor = Math.min(cursor, action.ledgerSequence);
         break;
       }
     }

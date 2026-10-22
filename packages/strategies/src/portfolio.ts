@@ -28,6 +28,7 @@ export class AccountingIdentityError extends Error {
  */
 export interface Fill {
   asset: AssetSymbol;
+  memberId?: string | undefined;
   size: FixedPointDecimal;
   price: FixedPointDecimal;
   fee?: FixedPointDecimal | undefined;
@@ -35,6 +36,7 @@ export interface Fill {
 
 export interface Position {
   asset: AssetSymbol;
+  memberId?: string;
   /** Signed size: positive long, negative short. Never zero when held. */
   size: FixedPointDecimal;
   /** Signed cost basis: sum of signed fill notionals still open. */
@@ -48,6 +50,10 @@ function notional(size: bigint, price: bigint): bigint {
 
 function abs(value: bigint): bigint {
   return value < 0n ? -value : value;
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 interface InternalPosition {
@@ -74,7 +80,7 @@ export class Portfolio {
   #cash: bigint;
   #realized = 0n;
   #fees = 0n;
-  readonly #positions = new Map<AssetSymbol, InternalPosition>();
+  readonly #positions = new Map<string, Map<AssetSymbol, InternalPosition>>();
 
   constructor(initialCash: FixedPointDecimal) {
     this.initialCash = initialCash;
@@ -98,20 +104,33 @@ export class Portfolio {
     return FixedPointDecimal.fromStroops(this.#fees);
   }
 
-  getPosition(asset: AssetSymbol): Position | undefined {
-    const p = this.#positions.get(asset);
+  getPosition(asset: AssetSymbol, memberId?: string): Position | undefined {
+    const p = this.#positions.get(memberId ?? "")?.get(asset);
     if (!p) return undefined;
     return {
       asset,
+      ...(memberId === undefined ? {} : { memberId }),
       size: FixedPointDecimal.fromStroops(p.size),
       basis: FixedPointDecimal.fromStroops(p.basis),
     };
   }
 
   positions(): Position[] {
-    return [...this.#positions.keys()]
-      .sort()
-      .map((asset) => this.getPosition(asset) as Position);
+    const positions: Position[] = [];
+    for (const [memberId, memberPositions] of this.#positions) {
+      for (const asset of memberPositions.keys()) {
+        const position = this.getPosition(
+          asset,
+          memberId === "" ? undefined : memberId
+        );
+        if (position !== undefined) positions.push(position);
+      }
+    }
+    return positions.sort(
+      (left, right) =>
+        compareStrings(left.asset, right.asset) ||
+        compareStrings(left.memberId ?? "", right.memberId ?? "")
+    );
   }
 
   /** Apply a fill: open, increase, reduce or close a position. */
@@ -124,10 +143,16 @@ export class Portfolio {
     if (fee < 0n) throw new InvalidFillError("fill fee must be >= 0");
 
     const value = notional(delta, price);
-    const current = this.#positions.get(fill.asset);
+    const memberKey = fill.memberId ?? "";
+    let memberPositions = this.#positions.get(memberKey);
+    if (memberPositions === undefined) {
+      memberPositions = new Map();
+      this.#positions.set(memberKey, memberPositions);
+    }
+    const current = memberPositions.get(fill.asset);
 
     if (!current || current.size === 0n) {
-      this.#positions.set(fill.asset, { size: delta, basis: value });
+      memberPositions.set(fill.asset, { size: delta, basis: value });
     } else if (current.size > 0n === delta > 0n) {
       current.size += delta;
       current.basis += value;
@@ -145,9 +170,10 @@ export class Portfolio {
       this.#realized += -value - released;
       current.size += delta;
       current.basis -= released;
-      if (current.size === 0n) this.#positions.delete(fill.asset);
+      if (current.size === 0n) memberPositions.delete(fill.asset);
     }
 
+    if (memberPositions.size === 0) this.#positions.delete(memberKey);
     this.#cash -= value + fee;
     this.#fees += fee;
   }
@@ -175,8 +201,10 @@ export class Portfolio {
   /** Sum of size * price over open positions. */
   positionValue(prices: PriceSet): FixedPointDecimal {
     let total = 0n;
-    for (const [asset, p] of this.#positions) {
-      total += this.#markValue(asset, p.size, prices);
+    for (const memberPositions of this.#positions.values()) {
+      for (const [asset, p] of memberPositions) {
+        total += this.#markValue(asset, p.size, prices);
+      }
     }
     return FixedPointDecimal.fromStroops(total);
   }
@@ -184,8 +212,10 @@ export class Portfolio {
   /** Mark-to-market result on open positions: value minus basis. */
   unrealized(prices: PriceSet): FixedPointDecimal {
     let total = 0n;
-    for (const [asset, p] of this.#positions) {
-      total += this.#markValue(asset, p.size, prices) - p.basis;
+    for (const memberPositions of this.#positions.values()) {
+      for (const [asset, p] of memberPositions) {
+        total += this.#markValue(asset, p.size, prices) - p.basis;
+      }
     }
     return FixedPointDecimal.fromStroops(total);
   }

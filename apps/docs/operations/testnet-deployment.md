@@ -131,7 +131,7 @@ stellar contract invoke --network testnet --source $DEPLOYER \
   --id $VAULT_ID -- set_adapter --new-adapter $NEW_ADAPTER_ID
 ```
 
-`set_adapter` is simpler but it only resets the vault's adapter-share accounting (`ADPT_SH`) to zero and moves no funds. On a vault that _does_ hold a position, anything deposited through the current adapter becomes unreachable through the vault's normal withdraw flow the moment you swap. That is why `migrate_adapter` exists and is the correct choice there.
+`set_adapter` is simpler but moves no funds: it only repoints the vault at the new adapter. The contract rejects it with `AdapterSwapUnsafe` unless both `TOTAL_SH` and the vault's adapter-share accounting (`ADPT_SH`) are already zero, and it deliberately leaves `ADPT_SH` as it is rather than resetting it, so a stranded position at the old adapter stays visible instead of being erased. On a vault that _does_ hold a position, `migrate_adapter` is the correct choice.
 
 Both commands are deliberately left for you to run by hand, and both require `admin.require_auth()`, so the `--source` key must be the vault's actual admin. The script prints them with `--source $DEPLOYER`, so if your deployer key is not the vault admin, substitute the admin key before running.
 

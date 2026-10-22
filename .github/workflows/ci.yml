@@ -79,9 +79,6 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
-      # api/ is in the pnpm workspace, but turbo skips it due to missing package
-      # scripts (tracked separately) — typecheck them explicitly.
-      - run: pnpm typecheck:api
       - name: Verify apps/api-local build output is flat
         run: |
           pnpm --filter @meridian/api-local build

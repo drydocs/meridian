@@ -42,7 +42,7 @@ already-alerted `transfer_admin` nomination, not a new risk on its own.
 
 Each known vault (`KNOWN_POOLS` entries with `protocol: "meridian"` and a
 `contractId` set for the running network, the same filter the accrual
-keeper's discovery uses) has its own last-processed-ledger cursor, stored in
+keeper's discovery uses) has its own next-ledger-to-scan cursor, stored in
 the shared Upstash Redis store under
 `meridian:keeper:alert:cursor:<network>:<vaultContractId>`. Every run reads
 that cursor, fetches admin events since it via `getRpcAdminHistory`, and
@@ -57,11 +57,14 @@ On first run, with no cursor stored yet, the keeper starts from the current
 ledger rather than replaying the vault's entire admin history as a flood of
 alerts.
 
-If a webhook send fails, the cursor stops advancing past that event, so it
-(and anything after it in the same page) is retried on the next scheduled
-run instead of being silently skipped. This can produce a duplicate alert
-for an event that actually landed but whose HTTP response was lost; it never
-loses one.
+If a webhook send fails, the persisted cursor stays at or before that event's
+ledger, even if an earlier action in the same ledger succeeded or needed no
+alert. The failed event and anything after it in the same page are retried
+on the next scheduled run instead of being silently skipped. Because the
+cursor stores only a ledger number, replaying that ledger can repeat alerts
+that were already delivered successfully before the failure. A lost HTTP
+response can also cause a duplicate alert. The cursor key and numeric store
+format are unchanged; no migration is needed.
 
 ## Retry And Failure Handling
 

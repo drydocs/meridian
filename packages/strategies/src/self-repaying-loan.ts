@@ -156,7 +156,9 @@ export class SelfRepayingLoanStrategy {
 
   /**
    * Executes a periodic amortization step:
-   * 1. Applies period borrow interest to outstanding debt.
+   * 1. Applies period borrow interest to outstanding debt, at
+   *    `borrowInterestRatePeriod` when given, otherwise at the configured
+   *    fixed rate. A variable-rate config requires `borrowInterestRatePeriod`.
    * 2. Routes accrued yield from yield source to repay debt.
    * 3. Emits harvest_yield and repay_debt orders.
    */
@@ -167,19 +169,22 @@ export class SelfRepayingLoanStrategy {
 
     const orders: StrategyOrder[] = [];
     const currentPrice = params.collateralPrice ?? params.state.collateralPrice;
-    const interestRate = params.borrowInterestRatePeriod ?? Decimal.zero();
 
     if (currentPrice.lte(Decimal.zero())) {
       throw new RangeError("Collateral price must be strictly positive");
     }
-    if (interestRate.isNegative()) {
-      throw new RangeError(
-        `Borrow interest rate cannot be negative, got ${interestRate.toString()}`
-      );
-    }
     if (params.yieldAccrued.isNegative()) {
       throw new RangeError(
         `Yield accrued cannot be negative, got ${params.yieldAccrued.toString()}`
+      );
+    }
+    // Resolved after the input checks so a bad price or yield is reported as
+    // such even on a variable-rate loan that was given no rate.
+    const interestRate =
+      params.borrowInterestRatePeriod ?? this.configuredPeriodRate();
+    if (interestRate.isNegative()) {
+      throw new RangeError(
+        `Borrow interest rate cannot be negative, got ${interestRate.toString()}`
       );
     }
 
@@ -227,6 +232,16 @@ export class SelfRepayingLoanStrategy {
     };
 
     return { nextState, orders };
+  }
+
+  private configuredPeriodRate(): Decimal {
+    const borrowRate = this.config.borrowRate;
+    if (borrowRate.mode === "fixed") {
+      return borrowRate.fixedRate;
+    }
+    throw new Error(
+      "A variable borrow rate needs pool utilization to evaluate; pass borrowInterestRatePeriod to amortize"
+    );
   }
 
   /**

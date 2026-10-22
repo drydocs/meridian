@@ -38,9 +38,14 @@ export function clearVaultCache(): void {
   vaultCache = null;
 }
 
-/** Returns true if a valid cached result exists and will be returned by fetchAllVaults. */
+/** Returns true if a valid cached result exists in L1 and will be returned by fetchAllVaults. */
 export function isVaultCacheWarm(): boolean {
   return vaultCache !== null && Date.now() < vaultCache.expiresAt;
+}
+
+export interface FetchVaultsResult {
+  vaults: ApiVault[];
+  cached: boolean;
 }
 
 /**
@@ -195,27 +200,29 @@ async function fetchTestnetVaults(): Promise<ApiVault[]> {
 }
 
 /**
- * Fetch vaults for the given network. On mainnet, pulls live APY/TVL from
- * DeFiLlama for third-party pools, reads live Meridian coordinator vault(s)
- * on-chain directly (equivalent to the testnet branch), and matches against
- * KNOWN_POOLS.mainnet. On testnet, queries pools on-chain directly
- * (DeFiLlama does not index testnet).
+ * Fetches vaults for the given network, returning both the vaults and a boolean
+ * indicating whether the result was served from cache (L1 in-process or L2 shared).
  * Mainnet results are cached for 60 s; testnet results are always fresh.
  */
-export async function fetchAllVaults(
+export async function fetchVaultsWithCache(
   network: "mainnet" | "testnet" = APP_NETWORK.network
-): Promise<ApiVault[]> {
-  if (network === "testnet") return fetchTestnetVaults();
+): Promise<FetchVaultsResult> {
+  if (network === "testnet") {
+    const vaults = await fetchTestnetVaults();
+    return { vaults, cached: false };
+  }
 
   const now = Date.now();
   // L1: warm in-process cache (same Lambda instance).
-  if (vaultCache && now < vaultCache.expiresAt) return vaultCache.vaults;
+  if (vaultCache && now < vaultCache.expiresAt) {
+    return { vaults: vaultCache.vaults, cached: true };
+  }
 
   // L2: shared Upstash cache that survives cold starts across invocations (#811).
   const shared = await getCachedVaults(network);
   if (shared && shared.length > 0) {
     vaultCache = { vaults: shared, expiresAt: now + CACHE_TTL_MS };
-    return shared;
+    return { vaults: shared, cached: true };
   }
 
   const net = getNetworkConfig("mainnet");
@@ -291,8 +298,23 @@ export async function fetchAllVaults(
       // Best-effort shared write; failures must not block the response.
       await setCachedVaults(network, vaults);
     }
-    return vaults;
+    return { vaults, cached: false };
   }
 
-  return vaultCache?.vaults ?? [];
+  return { vaults: vaultCache?.vaults ?? [], cached: false };
+}
+
+/**
+ * Fetch vaults for the given network. On mainnet, pulls live APY/TVL from
+ * DeFiLlama for third-party pools, reads live Meridian coordinator vault(s)
+ * on-chain directly (equivalent to the testnet branch), and matches against
+ * KNOWN_POOLS.mainnet. On testnet, queries pools on-chain directly
+ * (DeFiLlama does not index testnet).
+ * Mainnet results are cached for 60 s; testnet results are always fresh.
+ */
+export async function fetchAllVaults(
+  network: "mainnet" | "testnet" = APP_NETWORK.network
+): Promise<ApiVault[]> {
+  const result = await fetchVaultsWithCache(network);
+  return result.vaults;
 }

@@ -7,13 +7,8 @@ import { ErrorBoundary } from "../components/ui/ErrorBoundary";
 
 // Migration cooldown is a compile-time Rust constant
 // (packages/contracts/vault/src/storage.rs's MIN_LEDGER_GAP), not something
-// queryable on-chain, so it's hardcoded here rather than fetched. Slippage
-// tolerance and TTL thresholds are deliberately not shown yet: the vault
-// currently has no admin-configurable slippage ceiling at all (#557, open)
-// and the TTL-extension mechanism (#553) hasn't landed on a deployed
-// contract yet, so displaying either now would misrepresent what's actually
-// live. Add them here once their respective PRs merge.
-const MIGRATION_COOLDOWN_LEDGERS = 12;
+// queryable on-chain, so it's hardcoded here rather than fetched.
+const MIGRATION_COOLDOWN_LEDGERS = 17_280;
 
 const EXPLORER_CONTRACT_BASE: Record<string, string> = {
   testnet: "https://stellar.expert/explorer/testnet/contract",
@@ -88,11 +83,11 @@ export function StatusPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-night text-white">
+    <div className="min-h-screen bg-night text-paper">
       <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-lg font-extrabold text-white">
+            <h1 className="text-lg font-extrabold text-paper">
               {t("status.title")}
             </h1>
             <span className="rounded-full border border-gray-700 px-2.5 py-0.5 text-xs font-medium text-gray-400 uppercase">
@@ -121,7 +116,7 @@ export function StatusPage() {
             <span className="text-sm text-gray-400">
               {t("status.parameters.migrationCooldown")}
             </span>
-            <span className="text-sm text-white tabular-nums">
+            <span className="text-sm text-paper tabular-nums">
               {t("status.parameters.migrationCooldownValue", {
                 ledgers: MIGRATION_COOLDOWN_LEDGERS,
               })}

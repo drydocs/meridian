@@ -273,7 +273,7 @@ describe("trustline pre-validation", () => {
     expect(result.status).toBe(400);
     expect(result.body).toEqual({
       error:
-        "Missing USDC trustline. Add the trustline via POST /api/v1/tx/trustline before depositing or withdrawing.",
+        "Missing USDC trustline. Add the trustline via POST /api/v1/tx/add-trustline before depositing or withdrawing.",
     });
     expect(buildDepositTx).not.toHaveBeenCalled();
   });
@@ -290,7 +290,7 @@ describe("trustline pre-validation", () => {
     expect(result.status).toBe(400);
     expect(result.body).toEqual({
       error:
-        "Missing USDC trustline. Add the trustline via POST /api/v1/tx/trustline before depositing or withdrawing.",
+        "Missing USDC trustline. Add the trustline via POST /api/v1/tx/add-trustline before depositing or withdrawing.",
     });
     expect(buildWithdrawTx).not.toHaveBeenCalled();
   });

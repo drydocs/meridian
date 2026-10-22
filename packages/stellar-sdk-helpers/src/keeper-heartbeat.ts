@@ -197,8 +197,13 @@ export function loadKeeperHeartbeatStore(
     timeoutMs?: number;
   }
 ): KeeperHeartbeatStore {
-  const url = env.UPSTASH_REDIS_REST_URL?.trim();
-  const token = env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  // Match keeper-state's support for Vercel's store-prefixed Upstash names.
+  const url = (
+    env.UPSTASH_REDIS_REST_URL ?? env.UPSTASH_REDIS_REST_KV_REST_API_URL
+  )?.trim();
+  const token = (
+    env.UPSTASH_REDIS_REST_TOKEN ?? env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN
+  )?.trim();
   if (url && token) {
     return createUpstashKeeperHeartbeatStore({
       url,

@@ -24,11 +24,12 @@ describe("computePosition", () => {
       principal: 100_0000000n,
       entryTime: 1_700_000_000n,
     });
-    expect(p.vaultId).toBe(VAULT);
-    expect(p.shares).toBe(100);
-    expect(p.deposited).toBe(100);
-    expect(p.earned).toBe(0);
-    expect(p.entryTime).toBe(1_700_000_000);
+    expect(p).toBeDefined();
+    expect(p!.vaultId).toBe(VAULT);
+    expect(p!.shares).toBe(100);
+    expect(p!.deposited).toBe(100);
+    expect(p!.earned).toBe(0);
+    expect(p!.entryTime).toBe(1_700_000_000);
   });
 
   it("derives earned as current share value minus principal", () => {
@@ -41,8 +42,9 @@ describe("computePosition", () => {
       principal: 100_0000000n,
       entryTime: 0n,
     });
-    expect(p.deposited).toBe(110);
-    expect(p.earned).toBe(10);
+    expect(p).toBeDefined();
+    expect(p!.deposited).toBe(110);
+    expect(p!.earned).toBe(10);
   });
 
   it("falls back to zero earned when principal is unknown (pre-upgrade contract)", () => {
@@ -53,8 +55,9 @@ describe("computePosition", () => {
       principal: null,
       entryTime: 0n,
     });
-    expect(p.deposited).toBe(110);
-    expect(p.earned).toBe(0);
+    expect(p).toBeDefined();
+    expect(p!.deposited).toBe(110);
+    expect(p!.earned).toBe(0);
   });
 
   it("never reports negative earned if the share value dips below basis", () => {
@@ -65,7 +68,8 @@ describe("computePosition", () => {
       principal: 100_0000000n,
       entryTime: 0n,
     });
-    expect(p.earned).toBe(0);
+    expect(p).toBeDefined();
+    expect(p!.earned).toBe(0);
   });
 });
 

@@ -6,6 +6,7 @@ import { useVaults } from "../../hooks/useVaults";
 import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
+import { useUsdcBalance } from "../../hooks/useUsdcBalance";
 
 const refetchPositions = vi.fn();
 const deposit = vi.fn(async () => true);
@@ -41,6 +42,7 @@ vi.mock("../../hooks/useVaults", () => ({ useVaults: vi.fn() }));
 vi.mock("../../hooks/usePositions", () => ({ usePositions: vi.fn() }));
 vi.mock("../../hooks/useVaultActions", () => ({ useVaultActions: vi.fn() }));
 vi.mock("../../hooks/useWalletConnect", () => ({ useWalletConnect: vi.fn() }));
+vi.mock("../../hooks/useUsdcBalance", () => ({ useUsdcBalance: vi.fn() }));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -94,6 +96,11 @@ beforeEach(() => {
     isWithdrawing: false,
   } as unknown as ReturnType<typeof useVaultActions>);
   mockConnect({});
+  // Default: no balance information — DepositTab's guard is skipped.
+  vi.mocked(useUsdcBalance).mockReturnValue({
+    balance: undefined,
+    refetch: vi.fn(),
+  });
 });
 
 describe("VaultPanel — position load error", () => {
@@ -373,5 +380,117 @@ describe("VaultPanel — withdraw", () => {
     expect(screen.getByText("vaultPanel.position")).toBeDefined();
     expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
     expect(withdraw).not.toHaveBeenCalled();
+  });
+});
+
+describe("VaultPanel — over-balance deposit guard (#1063)", () => {
+  it("disables deposit submit and shows the error when the amount exceeds the wallet balance", () => {
+    vi.mocked(useUsdcBalance).mockReturnValue({
+      balance: 10,
+      refetch: vi.fn(),
+    });
+    render(<VaultPanel />);
+
+    const amountInput = screen.getByPlaceholderText("0.00");
+    fireEvent.change(amountInput, { target: { value: "100" } });
+
+    expect(screen.getByTestId("deposit-amount-error").textContent).toBe(
+      "vaultPanel.validation.exceedsBalance"
+    );
+
+    const depositButton = screen.getByTestId(
+      "vault-deposit-submit"
+    ) as HTMLButtonElement;
+    expect(depositButton.disabled).toBe(true);
+  });
+
+  it("keeps submit enabled when the amount is within the wallet balance", () => {
+    vi.mocked(useUsdcBalance).mockReturnValue({
+      balance: 100,
+      refetch: vi.fn(),
+    });
+    render(<VaultPanel />);
+
+    const amountInput = screen.getByPlaceholderText("0.00");
+    fireEvent.change(amountInput, { target: { value: "50" } });
+
+    const depositButton = screen.getByTestId(
+      "vault-deposit-submit"
+    ) as HTMLButtonElement;
+    expect(depositButton.disabled).toBe(false);
+  });
+
+  it("fails if VaultPanel forgets to pass availableBalance to DepositTab (regression guard)", () => {
+    // If VaultPanel stops wiring `availableBalance` into DepositTab, this
+    // test would still see the "disabled" state on a balance-less render —
+    // which is exactly the bug #1063 describes. So we assert the error
+    // message is shown when balance < amount. That can only happen if the
+    // prop is actually passed.
+    vi.mocked(useUsdcBalance).mockReturnValue({ balance: 5, refetch: vi.fn() });
+    render(<VaultPanel />);
+
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "100" },
+    });
+
+    // The presence of the error proves the balance prop was received.
+    expect(screen.getByTestId("deposit-amount-error")).toBeDefined();
+  });
+});
+
+describe("VaultPanel — refetches USDC balance after a successful deposit (#1063)", () => {
+  beforeEach(() => {
+    // Accept the risk-disclosure so `depositRiskDisclosure.requireAcceptance`
+    // runs the callback immediately instead of holding it for a modal.
+    window.localStorage.setItem("meridian-risk-disclosure-accepted", "true");
+  });
+
+  it("calls refetchBalance() when the deposit succeeds", async () => {
+    const refetch = vi.fn();
+    vi.mocked(useUsdcBalance).mockReturnValue({ balance: 100, refetch });
+    render(<VaultPanel />);
+
+    // Type a valid amount
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "50" },
+    });
+
+    // Submit
+    const depositButton = screen.getByTestId("vault-deposit-submit");
+    fireEvent.click(depositButton);
+
+    // Wait for handleDeposit's await chain to settle
+    await waitFor(() => {
+      expect(deposit).toHaveBeenCalledWith(
+        "50",
+        "meridian-usdc",
+        "USDC",
+        undefined,
+        expect.any(Boolean)
+      );
+    });
+
+    // The refetch should have fired because the deposit succeeded
+    await waitFor(() => {
+      expect(refetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not refetch when the deposit fails", async () => {
+    const refetch = vi.fn();
+    vi.mocked(useUsdcBalance).mockReturnValue({ balance: 100, refetch });
+    deposit.mockResolvedValueOnce(false);
+    render(<VaultPanel />);
+
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "50" },
+    });
+    fireEvent.click(screen.getByTestId("vault-deposit-submit"));
+
+    await waitFor(() => {
+      expect(deposit).toHaveBeenCalled();
+    });
+
+    expect(refetch).not.toHaveBeenCalled();
   });
 });

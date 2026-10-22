@@ -179,6 +179,41 @@ describe("portfolio accrual", () => {
     ).toThrow(RangeError);
   });
 
+  it("carries the sub-stroop cash remainder so two step sizes agree", () => {
+    // #1045: 5 units of idle cash at one stroop per unit-second earn 15
+    // stroops over three seconds. Two 1.5 s ticks truncate to 7 each without
+    // the carried fraction, losing a stroop against the single 3 s tick.
+    const initial = createPortfolioState(decimal("5"));
+    const tick = (elapsedMilliseconds: number, portfolio: PortfolioState) =>
+      accruePortfolioTick(portfolio, {
+        elapsedMilliseconds,
+        borrowPositions: [],
+        fundingPositions: [],
+        cashInterest: { ratePerSecond: FUNDING_RATE },
+      });
+
+    const first = tick(1500, initial);
+    const second = tick(1500, first.portfolio);
+    const single = tick(3000, initial);
+
+    const sum = (
+      transactions: readonly { readonly amount: FixedPointDecimal }[]
+    ) =>
+      transactions.reduce(
+        (total, transaction) => total + transaction.amount.toStroops(),
+        0n
+      );
+
+    expect(first.portfolio.accrualRemainders["cash"] ?? 0n).toBeGreaterThan(0n);
+    expect(first.transactions.map((t) => t.type)).toEqual(["cash-interest"]);
+    expect(sum(first.transactions.concat(second.transactions))).toBe(15n);
+    expect(sum(single.transactions)).toBe(15n);
+    expect(second.portfolio.cash.toString()).toBe(
+      single.portfolio.cash.toString()
+    );
+    expect(preservesAccountingIdentity(second.portfolio)).toBe(true);
+  });
+
   it("drops carried remainders for positions that are no longer held", () => {
     const fresh = createPortfolioState(decimal("1000"), decimal("100"));
     const subStroopTick = {

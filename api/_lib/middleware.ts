@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { APP_NETWORK, DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
 import { Ratelimit } from "@upstash/ratelimit";
@@ -102,29 +103,30 @@ export function vaultReadCacheControl(): string {
 }
 
 function clientIp(req: VercelRequest): string {
-  const vercelIp = req.headers["x-vercel-forwarded-for"];
-  if (typeof vercelIp === "string" && vercelIp)
-    return vercelIp.split(",")[0]?.trim() ?? vercelIp;
+  const vercelHeader = req.headers["x-vercel-forwarded-for"];
+  const vercelValue = Array.isArray(vercelHeader)
+    ? vercelHeader[0]
+    : vercelHeader;
+  const vercelIp = vercelValue?.split(",")[0]?.trim();
+  if (vercelIp && isIP(vercelIp)) return vercelIp;
 
-  const fwd = req.headers["x-forwarded-for"];
-  return (
-    (typeof fwd === "string" ? (fwd.split(",")[0]?.trim() ?? fwd) : null) ??
-    req.socket?.remoteAddress ??
-    "unknown"
-  );
+  return req.socket?.remoteAddress ?? "unknown";
 }
 
 /**
  * Enforces strict distributed rate limiting for fund-moving or keeper endpoints.
- * Returns false and sends a 503 HTTP response if production Redis is missing.
+ * Returns false and sends a 503 HTTP response if Redis is missing on any
+ * deployment. Only true local dev (no VERCEL_ENV at all) may fall back to the
+ * in-memory limiter: preview deployments have their own public URL, so they
+ * serve real traffic to these routes just like production.
  */
 export function enforceStrictRateLimit(res: VercelResponse): boolean {
-  const isProduction = process.env.VERCEL_ENV === "production";
+  const isLocalDev = process.env.VERCEL_ENV === undefined;
 
-  if (isProduction && !isDistributedRateLimitingConfigured()) {
+  if (!isLocalDev && !isDistributedRateLimitingConfigured()) {
     res.status(503).json({
       error:
-        "Service Unavailable: Distributed rate limiting is required in production for this route.",
+        "Service Unavailable: Distributed rate limiting is required on deployed environments for this route.",
       code: "RATE_LIMIT_BACKEND_UNAVAILABLE",
     });
     return false;
@@ -139,7 +141,7 @@ export interface RateLimitOptions {
 
 /**
  * Check rate limit for the incoming request.
- * - If strict: true (fund-moving/keeper endpoints), returns 503 if Upstash is unconfigured in production.
+ * - If strict: true (fund-moving/keeper endpoints), returns 503 if Upstash is unconfigured on any deployment (only local dev without VERCEL_ENV falls back).
  * - For non-strict routes (read-only), falls back to the in-memory rate limiter.
  * Writes a 429 or 503 response and returns false when blocked.
  */

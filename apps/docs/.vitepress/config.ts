@@ -51,6 +51,10 @@ export default defineConfig({
             text: "Delta-Neutral Strategy",
             link: "/strategies/delta-neutral",
           },
+          {
+            text: "Self-Repaying Loan Strategy",
+            link: "/strategies/self-repaying-loan",
+          },
         ],
       },
       {

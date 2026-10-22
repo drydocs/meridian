@@ -66,7 +66,7 @@ CONTRACT_ADDRESSES.mainnet.musdc = "..."; // MUSDC_CONTRACT_ID
 CONTRACT_ADDRESSES.mainnet.blend.pool = "..."; // the Blend pool actually deployed against
 ```
 
-`KNOWN_POOLS.mainnet` currently has no `protocol: "meridian"` entry at all (only per-pool Blend entries used for APY ranking). This deployment is what adds the first one, not an edit to an existing entry the way the testnet cutover in "Vault migration history" was. `STELLAR_NETWORK=mainnet` also needs to be set wherever the API/keepers are deployed. See [Environment Variables](./environment-variables.md).
+`KNOWN_POOLS.mainnet` already carries a `protocol: "meridian"` entry (`meridian-usdc`) pointing at the current deployment's vault (see "Mainnet deployment record" below), alongside the per-pool Blend entries used for APY ranking. On a future redeploy, update that entry's `contractId` rather than adding a new one, the same way the testnet cutover in "Vault migration history" edits its existing entry. `STELLAR_NETWORK=mainnet` also needs to be set wherever the API/keepers are deployed. See [Environment Variables](./environment-variables.md).
 
 ## Rollback plan
 

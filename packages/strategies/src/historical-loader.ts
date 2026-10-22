@@ -188,8 +188,9 @@ const SKIPPABLE: ReadonlySet<HistoricalLoadErrorCode> = new Set([
 
 const DECIMAL_PATTERN = /^([+-]?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/;
 
-// Bounds a hostile or accidental exponent like `1e1000000`, which would
-// otherwise try to materialise an enormous bigint.
+// Bounds a hostile or accidental exponent like `1e1000000`, and the power of
+// ten a long fraction is divided by, either of which would otherwise try to
+// materialise an enormous bigint.
 const MAX_DECIMAL_EXPONENT = 1_000;
 
 const POW10: bigint[] = [1n];
@@ -212,7 +213,8 @@ function powerOfTen(exponent: number): bigint {
  * every digit the source carries survives the trip. A value needing more than
  * `scale` decimal places is rejected rather than rounded, which is what makes
  * the loader's round-trip guarantee possible; trailing zeros beyond `scale` are
- * still exact and therefore accepted (e.g. `"1.230000000"` at scale 7).
+ * still exact and therefore accepted (e.g. `"1.230000000"` at scale 7), up to
+ * `MAX_DECIMAL_EXPONENT` digits past the scale net of the exponent.
  */
 function parseDecimal(raw: string, scale: number): Decimal {
   const text = raw.trim();
@@ -229,6 +231,15 @@ function parseDecimal(raw: string, scale: number): Decimal {
     Math.abs(exponent) > MAX_DECIMAL_EXPONENT
   ) {
     throw new Error(`decimal exponent out of range: "${raw}"`);
+  }
+  // A long fraction needs a divisor of 10^(fraction.length - exponent - scale),
+  // and every power on the way is cached in POW10 for the process lifetime.
+  if (fraction.length - exponent - scale > MAX_DECIMAL_EXPONENT) {
+    // The length, not the value: echoing a value this long would copy it into
+    // every error and log line.
+    throw new Error(
+      `decimal fraction out of range: ${fraction.length} fraction digits`
+    );
   }
 
   // value = sign * (whole.fraction) * 10^exponent
@@ -518,6 +529,15 @@ function collectStreams(
         throw new HistoricalLoadError(
           "malformed-input",
           "stream map contains an empty stream id"
+        );
+      }
+      // Assigning this key on the result object would replace its prototype
+      // instead of adding an entry, so the stream would silently vanish.
+      if (id === "__proto__") {
+        throw new HistoricalLoadError(
+          "malformed-input",
+          `stream id "${id}" is reserved`,
+          { stream: id }
         );
       }
       if (!stream || typeof stream !== "object") {

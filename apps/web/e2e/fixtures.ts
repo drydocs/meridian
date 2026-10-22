@@ -13,6 +13,25 @@ export const TEST_ADDRESS =
 export const USER_FIXABLE_TX_ERRORS =
   "Deposits are currently paused|Insufficient shares for this withdrawal|Withdrawal returned less USDC than your minimum|Slippage tolerance exceeded";
 
+export const FAKE_VAULTS = {
+  vaults: [
+    {
+      id: "meridian-usdc",
+      protocol: "meridian",
+      asset: "USDC",
+      name: "Meridian",
+      label: "USDC Vault",
+      apy: 5.25,
+      tvl: 1234567,
+      userBalance: 0,
+      riskLevel: "safe",
+    },
+  ],
+  recommendedVaultId: "meridian-usdc",
+  updatedAt: new Date().toISOString(),
+  cached: false,
+};
+
 export interface MockWalletOptions {
   installed?: boolean;
   authorized?: boolean;

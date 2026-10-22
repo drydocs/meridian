@@ -190,6 +190,35 @@ describe("loadHistoricalSeries - decimal values", () => {
     );
   });
 
+  it("rejects a multi-million-digit fraction before building its divisor", () => {
+    const price = `0.${"1".repeat(5_000_000)}`;
+    const started = performance.now();
+    expectCode(
+      () => load([{ asset: "A", timestamp: 1, price }]),
+      "invalid-value"
+    );
+    // The power-of-ten cache is module-private, so time stands in for it:
+    // unbounded, this built and kept every power of ten up to 10^4999993.
+    expect(performance.now() - started).toBeLessThan(1_000);
+    // The error names the length rather than echoing five million digits.
+    expect(() => load([{ asset: "A", timestamp: 1, price }])).toThrow(
+      /^decimal fraction out of range: 5000000 fraction digits$/
+    );
+  });
+
+  it("bounds the fraction at 1000 digits past the scale, net of the exponent", () => {
+    const parse = (price: string, scale = DEFAULT_HISTORICAL_SCALE) => {
+      const result = load([{ asset: "A", timestamp: 1, price }], { scale });
+      return result["price:A"]!.series.points[0]!.value.toString();
+    };
+    const atLimit = `1.2345678${"0".repeat(1_000)}`;
+    const pastLimit = `${atLimit}0`;
+    expect(parse(atLimit)).toBe("1.2345678");
+    expectCode(() => parse(pastLimit), "invalid-value");
+    expect(parse(`${pastLimit}e1`)).toBe("12.3456780");
+    expect(parse(pastLimit, 8)).toBe("1.23456780");
+  });
+
   it("holds every value at the configured scale", () => {
     const result = load([{ asset: "A", timestamp: 1, price: "1.23456789" }], {
       scale: 8,
@@ -626,6 +655,15 @@ describe("loadHistoricalSeries - stream map validation", () => {
         load({ streams: { "": { asset: "A", kind: "price", points: [] } } }),
       "malformed-input"
     );
+  });
+
+  it("rejects a __proto__ stream id instead of dropping the stream", () => {
+    const stream = mapOf({}).streams.s;
+    // JSON.parse keeps "__proto__" as an own key, as it would for a data file.
+    const input: unknown = JSON.parse(
+      `{"streams":{"__proto__":${JSON.stringify(stream)}}}`
+    );
+    expectCode(() => load(input), "malformed-input");
   });
 
   it("rejects a stream that is not an object", () => {
