@@ -6,6 +6,7 @@ import {
   Asset,
   Contract,
   Operation,
+  SorobanDataBuilder,
   TransactionBuilder,
   nativeToScVal,
   xdr,
@@ -245,6 +246,27 @@ describe("simErrorMessage snapshots", () => {
 
 describe("prepareSorobanTx contract errors", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("returns the assembled transaction fee, including its inclusion fee", async () => {
+    const caller = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const op = new Contract(CONTRACT_ADDRESSES.testnet.vault).call("deposit");
+    const account = new Account(caller, "0");
+
+    vi.spyOn(rpc.Server.prototype, "getAccount").mockResolvedValue(account);
+    vi.spyOn(rpc.Server.prototype, "simulateTransaction").mockResolvedValue({
+      id: "1",
+      latestLedger: 1,
+      minResourceFee: "500",
+      events: [],
+      transactionData: new SorobanDataBuilder().setResourceFee("500"),
+      result: { auth: [], retval: xdr.ScVal.scvVoid() },
+      _parsed: true,
+    });
+
+    await expect(prepareSorobanTx(TESTNET, caller, op)).resolves.toMatchObject({
+      fee: "600",
+    });
+  });
 
   it.each([
     ["HostError: Error(Contract, #18)", true],

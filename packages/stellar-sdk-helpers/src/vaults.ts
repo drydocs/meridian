@@ -156,7 +156,7 @@ async function fetchMeridianVault(
       "Meridian adapter RPC"
     ),
   ]);
-  const tvl = Math.round(Number(toBigInt(totalAssetsRaw) ?? 0n) / 1e7);
+  const tvl = Math.round(Number(toBigInt(totalAssetsRaw)) / 1e7);
   return {
     ...meta,
     asset: meta.asset ?? "USDC",

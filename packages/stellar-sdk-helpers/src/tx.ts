@@ -234,7 +234,7 @@ export async function prepareSorobanTx(
   const prepared = rpc.assembleTransaction(tx, sim).build();
   return {
     xdr: prepared.toEnvelope().toXDR("base64"),
-    fee: sim.minResourceFee,
+    fee: prepared.fee,
   };
 }
 

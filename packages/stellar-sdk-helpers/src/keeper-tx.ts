@@ -314,7 +314,7 @@ export interface KeeperTxConfig {
 // confirmed on-chain failure). Callers must persist `priorHash` across their
 // own retry attempts (see accrual-keeper.ts and migration-keeper.ts), and
 // persist it across invocations through `hooks` (see keeper-state.ts).
-// `attempt` (1-indexed, matching withKeeperRetry's own callback, see
+// `attempt` (0-indexed, matching withKeeperRetry's callback, see
 // keeperFeeForAttempt above) sets the classic inclusion fee for a
 // freshly-built transaction, escalating on each retry so a
 // `txInsufficientFee` rejection has a real chance of clearing next time;
