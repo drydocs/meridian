@@ -5,8 +5,9 @@ use adapter_common::{
     AdapterError,
 };
 use soroban_sdk::{
+    auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
     contract, contractclient, contracterror, contractimpl, panic_with_error, symbol_short,
-    token::TokenClient, vec, Address, Env, Symbol, Val, Vec,
+    token::TokenClient, vec, Address, Env, IntoVal, Symbol, Val, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -185,6 +186,20 @@ impl MeridianDefindexAdapter {
         let client = DefindexVaultClient::new(&env, &dfx);
         let shares_before = client.balance(&adapter);
         let min_amount = min_after_slippage(amount).unwrap_or_else(|e| panic_with_error!(&env, e));
+
+        let usdc = get_usdc(&env);
+        env.authorize_as_current_contract(vec![
+            &env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: usdc,
+                    fn_name: Symbol::new(&env, "transfer"),
+                    args: (adapter.clone(), dfx.clone(), amount).into_val(&env),
+                },
+                sub_invocations: Vec::new(&env),
+            }),
+        ]);
+
         let _ = client.deposit(
             &vec![&env, amount],
             &vec![&env, min_amount],
@@ -319,7 +334,7 @@ mod tests {
     use super::*;
     use soroban_sdk::{
         contract, contractimpl, symbol_short,
-        testutils::{Address as _, Events, Ledger as _},
+        testutils::{Address as _, Events, Ledger as _, MockAuth, MockAuthInvoke},
         token::{StellarAssetClient, TokenClient},
         Address, Env,
     };
@@ -495,6 +510,83 @@ mod tests {
         StellarAssetClient::new(&env, &usdc_id).mint(&vault, &10_000_000_000_i128);
 
         (env, vault, usdc_id, adapter, dfx)
+    }
+
+    fn setup_without_mock_auths() -> (
+        Env,
+        Address,
+        Address,
+        Address,
+        MeridianDefindexAdapterClient<'static>,
+        MockDefindexVaultClient<'static>,
+    ) {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let vault = Address::generate(&env);
+
+        let usdc_id = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+
+        let dfx_id = env.register(MockDefindexVault, ());
+        let dfx = MockDefindexVaultClient::new(&env, &dfx_id);
+        dfx.initialize(&usdc_id);
+
+        let adapter_id = env.register(
+            MeridianDefindexAdapter,
+            (vault.clone(), dfx_id.clone(), usdc_id.clone()),
+        );
+        let adapter = MeridianDefindexAdapterClient::new(&env, &adapter_id);
+
+        (env, admin, vault, usdc_id, adapter, dfx)
+    }
+
+    // DeFindex's real, enforcing auth-tree check run against everything
+    // `deposit()` triggers underneath, including the vault's own nested
+    // `usdc.transfer()` call, exactly like a live network would. Guards
+    // `authorize_as_current_contract()` above against silently regressing
+    // into a shape that only passes under the mocked test harness.
+    #[test]
+    fn deposit_authorization_tree_matches_the_real_defindex_call_shape() {
+        let (env, admin, vault, usdc_id, adapter, _dfx) = setup_without_mock_auths();
+
+        let mint_amount = 10_000_000_000_i128;
+        env.mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &usdc_id,
+                fn_name: "mint",
+                args: (vault.clone(), mint_amount).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        StellarAssetClient::new(&env, &usdc_id).mint(&vault, &mint_amount);
+
+        let amount = 100_0000000_i128;
+
+        env.mock_auths(&[MockAuth {
+            address: &vault,
+            invoke: &MockAuthInvoke {
+                contract: &usdc_id,
+                fn_name: "transfer",
+                args: (vault.clone(), adapter.address.clone(), amount).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+
+        env.mock_auths(&[MockAuth {
+            address: &vault,
+            invoke: &MockAuthInvoke {
+                contract: &adapter.address,
+                fn_name: "deposit",
+                args: (amount,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        let shares = adapter.deposit(&amount);
+
+        assert_eq!(shares, amount);
     }
 
     #[test]
