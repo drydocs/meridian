@@ -22,7 +22,7 @@
     "turbo": "^2.11.6",
     "tsx": "^4.23.13",
     "typescript": "^6.0.3",
-    "prettier": "^3.9.9",
+    "prettier": "^3.9.10",
     "@eslint/js": "^10.0.1",
     "eslint": "^10.11.0",
     "@typescript-eslint/eslint-plugin": "^8.71.2",
