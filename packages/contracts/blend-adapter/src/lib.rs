@@ -152,7 +152,19 @@ impl MeridianBlendAdapter {
             .collateral
             .get(index)
             .unwrap_or(0);
-        let b_tokens_credited = b_tokens_after - b_tokens_before;
+        // checked_sub alone only catches i128 overflow, not a merely
+        // negative result: on signed integers, a decreasing balance
+        // (b_tokens_after < b_tokens_before) subtracts to a valid negative
+        // number rather than overflowing, so it would silently pass through
+        // otherwise. Guard for it explicitly first.
+        if b_tokens_after < b_tokens_before {
+            panic_with_error!(&env, ContractError::Overflow);
+        }
+
+        let b_tokens_credited = match b_tokens_after.checked_sub(b_tokens_before) {
+            Some(delta) => delta,
+            None => panic_with_error!(&env, ContractError::Overflow),
+        };
 
         // Instance storage read defaults to 0 if TOTAL_KEY hasn't been set, which is safe since
         // initialize() sets this key to 0. This unwrap_or pattern is the idiomatic way to handle
@@ -208,7 +220,14 @@ impl MeridianBlendAdapter {
         );
 
         let after = usdc_client.balance(&recipient);
-        let delivered = after - before;
+        if after < before {
+            panic_with_error!(&env, ContractError::Overflow);
+        }
+
+        let delivered = match after.checked_sub(before) {
+            Some(delta) => delta,
+            None => panic_with_error!(&env, ContractError::Overflow),
+        };
 
         // Instance storage read defaults to 0 if TOTAL_KEY hasn't been set, which is safe since
         // initialize() sets this key to 0. This unwrap_or pattern is the idiomatic way to handle
@@ -379,6 +398,12 @@ mod tests {
             env.storage().instance().set(&M_REP_SCL, &scalar);
         }
 
+        pub fn set_faulty(env: Env, faulty: bool) {
+            env.storage()
+                .instance()
+                .set(&symbol_short!("M_FLT"), &faulty);
+        }
+
         pub fn submit(
             env: Env,
             from: Address,
@@ -397,6 +422,12 @@ mod tests {
             );
             let mut collateral: i128 = env.storage().instance().get(&M_COLLAT).unwrap_or(0);
 
+            let faulty: bool = env
+                .storage()
+                .instance()
+                .get(&symbol_short!("M_FLT"))
+                .unwrap_or(false);
+
             for req in requests.iter() {
                 if req.request_type == REQUEST_SUPPLY_COLLATERAL {
                     TokenClient::new(&env, &req.address).transfer(
@@ -404,14 +435,28 @@ mod tests {
                         &env.current_contract_address(),
                         &req.amount,
                     );
-                    collateral += req.amount * scalar / rate;
+                    if faulty {
+                        // Buggy pool that drops collateral below baseline
+                        collateral = 0;
+                    } else {
+                        collateral += req.amount * scalar / rate;
+                    }
                 } else if req.request_type == REQUEST_WITHDRAW_COLLATERAL {
                     collateral -= req.amount * scalar / rate;
-                    TokenClient::new(&env, &req.address).transfer(
-                        &env.current_contract_address(),
-                        &to,
-                        &req.amount,
-                    );
+                    if faulty {
+                        // Buggy pool where recipient balance decreases (e.g. transfers from recipient to pool)
+                        TokenClient::new(&env, &req.address).transfer(
+                            &to,
+                            &env.current_contract_address(),
+                            &req.amount,
+                        );
+                    } else {
+                        TokenClient::new(&env, &req.address).transfer(
+                            &env.current_contract_address(),
+                            &to,
+                            &req.amount,
+                        );
+                    }
                 }
             }
             env.storage().instance().set(&M_COLLAT, &collateral);
@@ -808,6 +853,38 @@ mod tests {
 
         pool.set_rate(&i128::MAX);
         let recipient = Address::generate(&env);
+        adapter.withdraw(&shares, &recipient);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #2)")]
+    fn deposit_panics_with_overflow_when_collateral_decreases() {
+        let (env, vault, usdc_id, adapter, pool) = setup();
+        let amount = 100_0000000_i128;
+
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        adapter.deposit(&amount);
+
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        pool.set_faulty(&true);
+
+        adapter.deposit(&amount);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #2)")]
+    fn withdraw_panics_with_overflow_when_recipient_balance_decreases() {
+        let (env, vault, usdc_id, adapter, pool) = setup();
+        let amount = 100_0000000_i128;
+
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        let shares = adapter.deposit(&amount);
+
+        let recipient = Address::generate(&env);
+        // Fund recipient so transferring from recipient to pool during faulty withdraw succeeds
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &recipient, &amount);
+
+        pool.set_faulty(&true);
         adapter.withdraw(&shares, &recipient);
     }
 
