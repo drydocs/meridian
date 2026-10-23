@@ -83,6 +83,50 @@ const hold = () => ({
 });
 
 describe("runBacktest", () => {
+  it("observes member-tagged fills after they are applied", () => {
+    const fills: Array<{
+      asset: AssetSymbol;
+      memberId?: string;
+      size: FixedPointDecimal;
+      price: FixedPointDecimal;
+      fee: FixedPointDecimal;
+    }> = [];
+    const strategy: Strategy<null> = {
+      name: "member-fill",
+      init: () => undefined,
+      step: () => undefined,
+      rebalance: () => [{ asset: USDC, memberId: "alpha", size: amount("1") }],
+      close: () => [],
+    };
+
+    runBacktest({
+      clock: hourly(1),
+      assets: [USDC],
+      prices: feed("100", "100"),
+      strategy,
+      strategyConfig: null,
+      initialCash: amount("1000"),
+      observer: { onFill: (fill) => fills.push(fill) },
+    });
+
+    expect(fills).toEqual([
+      {
+        asset: USDC,
+        memberId: "alpha",
+        size: amount("1"),
+        price: amount("100"),
+        fee: amount("0"),
+      },
+      {
+        asset: USDC,
+        memberId: "alpha",
+        size: amount("1"),
+        price: amount("100"),
+        fee: amount("0"),
+      },
+    ]);
+  });
+
   it("reproduces a hand-worked buy-and-hold run", () => {
     // The reference strategy leaves 50 bps unspent so its entry fill can
     // absorb costs, so 1000 cash buys 995 / 100 = 9.95 units at tick 0.

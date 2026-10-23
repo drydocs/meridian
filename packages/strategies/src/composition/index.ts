@@ -13,6 +13,7 @@ import type {
   StrategyContext,
   StrategyInitParams,
 } from "../strategy";
+import { allocateCapital } from "./capital-allocation";
 
 /**
  * A member of a composed strategy. `allocation` is the fraction of the
@@ -46,6 +47,10 @@ interface InitializedMember {
  */
 export class ComposedStrategy implements Strategy<unknown> {
   readonly name = "composed-strategy";
+  readonly memberAllocations: readonly {
+    readonly id: string;
+    readonly allocation: FixedPointDecimal;
+  }[];
   readonly #members: readonly InitializedMember[];
 
   constructor(members: readonly ComposedStrategyMember<unknown>[]) {
@@ -89,12 +94,31 @@ export class ComposedStrategy implements Strategy<unknown> {
       config: member.config,
       portfolio: (portfolio) => new MemberPortfolioView(portfolio, member.id),
     }));
+    this.memberAllocations = this.#members.map(({ id, allocation }) => ({
+      id,
+      allocation,
+    }));
   }
 
   init(_params: StrategyInitParams<unknown>): void {
+    const capital = _params.startingCapital.toStroops();
+    const sign = capital < 0n ? -1n : 1n;
+    const allocation = allocateCapital(
+      FixedPointDecimal.fromStroops(capital * sign),
+      this.#members.map(({ id, allocation: weight }) => ({
+        id,
+        weight,
+      }))
+    );
+    const capitalByMember = new Map(
+      allocation.map(({ id, amount }) => [
+        id,
+        FixedPointDecimal.fromStroops(amount.toStroops() * sign),
+      ])
+    );
     for (const member of this.#members) {
       member.strategy.init({
-        startingCapital: _params.startingCapital.mul(member.allocation),
+        startingCapital: capitalByMember.get(member.id)!,
         config: member.config,
       });
     }
@@ -151,6 +175,8 @@ export class ComposedStrategy implements Strategy<unknown> {
       : memberId;
   }
 }
+
+export * from "./backtest-runner";
 
 class MemberPortfolioView implements PortfolioView {
   readonly #portfolio: PortfolioView;

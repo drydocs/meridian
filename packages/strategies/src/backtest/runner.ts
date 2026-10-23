@@ -1,5 +1,9 @@
 import { accruePortfolioTick, createPortfolioState } from "../accrual";
-import type { CashInterestAccrual, FundingAccrualPosition } from "../accrual";
+import type {
+  CashInterestAccrual,
+  FundingAccrualPosition,
+  PortfolioTransaction,
+} from "../accrual";
 import type { SimulationClock } from "../clock";
 import type { CostSchedule } from "../costs";
 import { ZERO_COSTS } from "../costs";
@@ -57,6 +61,28 @@ export interface BacktestConfig<TConfig = unknown> {
   readonly initialCash: FixedPointDecimal;
   readonly execution?: ExecutionConfig;
   readonly accrual?: AccrualConfig;
+  readonly observer?: BacktestObserver;
+}
+
+/** Actual runner events exposed to specialized reporting such as composition attribution. */
+export interface BacktestObserver {
+  readonly onAccrual?: (event: {
+    readonly timestamp: SimulationTimestamp;
+    readonly cashBefore: FixedPointDecimal;
+    readonly transactions: readonly PortfolioTransaction[];
+  }) => void;
+  readonly onFill?: (fill: {
+    readonly asset: AssetSymbol;
+    readonly memberId?: string;
+    readonly size: FixedPointDecimal;
+    readonly price: FixedPointDecimal;
+    readonly fee: FixedPointDecimal;
+  }) => void;
+  readonly onSnapshot?: (snapshot: BacktestSnapshot, prices: PriceSet) => void;
+  readonly onFinal?: (state: {
+    readonly positions: readonly Position[];
+    readonly prices: PriceSet;
+  }) => void;
 }
 
 /** State recorded at the end of one tick, after that tick's fills. */
@@ -157,6 +183,11 @@ export function runBacktest<TConfig = unknown>(
         }
       );
       remainders = accrued.portfolio.accrualRemainders;
+      config.observer?.onAccrual?.({
+        timestamp,
+        cashBefore: portfolio.cash,
+        transactions: accrued.transactions,
+      });
 
       let funding = ZERO;
       let interest = ZERO;
@@ -177,7 +208,7 @@ export function runBacktest<TConfig = unknown>(
     lifecycle.step(context);
 
     for (const order of lifecycle.rebalance(context)) {
-      fill(portfolio, order, market.prices, execution);
+      fill(portfolio, order, market.prices, execution, config.observer);
     }
 
     snapshots.push({
@@ -187,6 +218,10 @@ export function runBacktest<TConfig = unknown>(
       positions: portfolio.positions(),
       value: portfolio.totalValue(market.prices),
     });
+    config.observer?.onSnapshot?.(
+      snapshots[snapshots.length - 1]!,
+      market.prices
+    );
 
     previous = timestamp;
     index += 1;
@@ -199,13 +234,17 @@ export function runBacktest<TConfig = unknown>(
     portfolio,
   };
   for (const order of lifecycle.close(closing)) {
-    fill(portfolio, order, closing.market.prices, execution);
+    fill(portfolio, order, closing.market.prices, execution, config.observer);
   }
 
   // Strategies that self-report equity (e.g. delta-neutral with a modeled
   // hedge venue) surface their own book value; the rest fall back to the
   // portfolio's value, which is correct for pure-portfolio strategies.
   const portfolioValue = portfolio.totalValue(closing.market.prices);
+  config.observer?.onFinal?.({
+    positions: portfolio.positions(),
+    prices: closing.market.prices,
+  });
   const selfEquity = reportedEquity(config.strategy);
   const strategyEquity = selfEquity ?? portfolioValue;
 
@@ -280,6 +319,9 @@ function fundingPositions(
         position.memberId === undefined
           ? position.asset
           : `${position.memberId}:${position.asset}`,
+      ...(position.memberId === undefined
+        ? {}
+        : { memberId: position.memberId }),
       notional: size,
       rate: stroops > 0n ? longRate : rate,
     });
@@ -301,7 +343,8 @@ function fill(
   portfolio: Portfolio,
   order: Order,
   prices: PriceSet,
-  execution: ExecutionConfig
+  execution: ExecutionConfig,
+  observer?: BacktestObserver
 ): void {
   const midPrice = prices.get(order.asset);
   if (midPrice === undefined) {
@@ -317,13 +360,15 @@ function fill(
     costSchedule: execution.costSchedule ?? ZERO_COSTS,
   });
 
-  portfolio.applyFill({
+  const appliedFill = {
     asset: order.asset,
-    memberId: order.memberId,
+    ...(order.memberId === undefined ? {} : { memberId: order.memberId }),
     size: order.size,
     price: adjusted.effectivePrice,
     fee: adjusted.totalCost,
-  });
+  };
+  portfolio.applyFill(appliedFill);
+  observer?.onFill?.(appliedFill);
 }
 
 function abs(value: bigint): bigint {
