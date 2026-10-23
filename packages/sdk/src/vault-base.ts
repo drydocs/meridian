@@ -100,12 +100,10 @@ export function convertAssetsToShares(
 }
 
 /**
- * Convert a share amount to assets using the vault's raw withdrawal ratio.
- * Rounds *down* (floor division), matching the contract's withdrawal payout
- * (`packages/contracts/vault/src/lib.rs`), which applies no virtual offset.
- * This is the same formula used by `computePosition` in
- * `@meridian/stellar-sdk-helpers`, so both packages report the same
- * `deposited` value for the same vault state.
+ * Convert shares to gross position value using the raw assets-to-supply ratio.
+ * Rounds down in stroops, consistently with `computePosition` in
+ * `@meridian/stellar-sdk-helpers`. This is an estimate before performance fees;
+ * the adapter's separate share-redemption rounding can also reduce the payout.
  *
  *   assets = shares * totalAssets / totalSupply
  */
@@ -236,8 +234,9 @@ export abstract class VaultBase {
    * `owner` and pays USDC to that same account, so `receiver` must equal
    * `owner` and a mismatch is rejected rather than silently ignored.
    *
-   * The share amount is rounded up, so the payout covers `assets` rather than
-   * falling a stroop short of it.
+   * Shares are rounded up against the raw gross-value ratio, without the
+   * deposit pricing offset. Adapter rounding and performance fees can still
+   * reduce the net payout; use `minUsdcOut` to enforce a payout minimum.
    *
    * `minUsdcOut` is the contract's `min_usdc_out` slippage guard: the
    * transaction reverts if the payout would be less than this amount. It
@@ -268,12 +267,10 @@ export abstract class VaultBase {
       this.totalAssets(),
       this.totalSupply(),
     ]);
-    const shares = convertAssetsToShares(
-      assets,
-      totalAssets,
-      totalSupply,
-      "up"
-    );
+    if (totalAssets <= 0n || totalSupply <= 0n) {
+      throw new Error("vault has no redeemable assets or shares");
+    }
+    const shares = (assets * totalSupply + totalAssets - 1n) / totalAssets;
     return this.prepare(
       this.contract().call(
         "withdraw",
@@ -483,8 +480,8 @@ export abstract class VaultBase {
   }
 
   /**
-   * Convert a share amount to the equivalent assets at the current exchange
-   * rate, using the vault's raw withdrawal ratio (no virtual offset).
+   * Convert a share amount to its estimated gross asset value at the current
+   * rate, before adapter rounding and performance fees.
    * ERC-4626 `convertToAssets(uint256 shares)`.
    *
    * @param shares Share amount in stroops to convert
@@ -518,9 +515,9 @@ export abstract class VaultBase {
   }
 
   /**
-   * Maximum USDC that `owner` may withdraw in a single transaction: the full
-   * redemption value of their position. A pause does not restrict this, since
-   * the contract leaves withdrawals open while paused.
+   * Maximum estimated gross USDC value of `owner`'s full position. Adapter
+   * rounding and performance fees can reduce the amount actually received. A
+   * pause does not restrict withdrawals, since the contract leaves them open.
    * ERC-4626 `maxWithdraw(address)`.
    *
    * @param owner Stellar G-address to check

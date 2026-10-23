@@ -104,10 +104,9 @@ describe("computePosition with no recorded cost basis", () => {
   });
 });
 
-describe("computePosition matches the vault withdrawal payout", () => {
-  // The vault burns adapter shares as `shares * total_assets / total_shares`
-  // with no virtual offset (see vault/src/lib.rs withdraw), so the helper
-  // must report the same value. This pins the formula against a known state.
+describe("computePosition reports gross value with the raw ratio", () => {
+  // The vault burns shares * total_adapter_shares / total_shares adapter
+  // shares. Position value is estimated before adapter rounding and fees.
   it("converts shares to assets with the raw ratio", () => {
     // 300 shares of 1,000 total own 300 of 1,200 assets.
     const [position] = computePosition(VAULT, {
@@ -117,15 +116,13 @@ describe("computePosition matches the vault withdrawal payout", () => {
       principal: 300_0000000n,
       entryTime: 0n,
     });
-    // 300 * 1200 / 1000 = 360, exactly the withdrawal payout.
+    // 300 * 1200 / 1000 = 360 before fees and adapter rounding.
     expect(position?.deposited).toBe(360);
     expect(position?.earned).toBe(60);
   });
 
-  it("rounds down and matches the withdrawal payout when totalAssets < totalShares", () => {
-    // A loss puts totalAssets below totalShares. The contract divides with
-    // integer truncation, so the helper must truncate too and never round
-    // up past the payout.
+  it("preserves fractional USDC when totalAssets < totalShares", () => {
+    // Truncation applies to stroops, not whole USDC.
     // 300 * 500 / 1000 = 150 exactly.
     const [exact] = computePosition(VAULT, {
       shares: 300_0000000n,
@@ -137,7 +134,7 @@ describe("computePosition matches the vault withdrawal payout", () => {
     expect(exact?.deposited).toBe(150);
     expect(exact?.earned).toBe(0);
 
-    // 333 * 500 / 1000 = 166.5 → truncates to 166, the contract's payout.
+    // 333 * 500 / 1000 = 166.5 USDC, with no fractional stroop.
     const [rounded] = computePosition(VAULT, {
       shares: 333_0000000n,
       totalShares: 1_000_0000000n,
@@ -145,6 +142,17 @@ describe("computePosition matches the vault withdrawal payout", () => {
       principal: 333_0000000n,
       entryTime: 0n,
     });
-    expect(rounded?.deposited).toBe(166);
+    expect(rounded?.deposited).toBe(166.5);
+  });
+
+  it("truncates a fractional stroop in the gross position value", () => {
+    const [position] = computePosition(VAULT, {
+      shares: 3n,
+      totalShares: 7n,
+      totalAssets: 10n,
+      principal: 3n,
+      entryTime: 0n,
+    });
+    expect(position?.deposited).toBe(0.0000004);
   });
 });

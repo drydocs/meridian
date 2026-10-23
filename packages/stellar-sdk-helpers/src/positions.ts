@@ -31,9 +31,9 @@ export interface RawPosition {
  *   currentValue = shares * totalAssets / totalShares   (value of the holding)
  *   earned       = max(0, currentValue − principal)     (yield accrued)
  *
- * This is the same ratio the vault contract uses for its withdrawal payout
- * (`shares * total_assets / total_shares`, with no virtual offset), so the
- * helper and the SDK report the same `deposited` value for the same state.
+ * The SDK uses the same raw ratio for gross position value. The vault burns
+ * `shares * total_adapter_shares / total_shares` adapter shares on withdrawal;
+ * adapter rounding and performance fees can reduce the actual payout.
  *
  * Returns an empty array when the address holds no shares.
  */

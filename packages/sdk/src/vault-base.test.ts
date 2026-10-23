@@ -145,30 +145,28 @@ describe("convertAssetsToShares", () => {
     );
   });
 
-  it("round-trips: convertAssetsToShares then convertSharesToAssets ≈ original", () => {
-    const ta = 50_000_000n;
-    const ts = 45_000_000n;
-    const assets = 10_000_000n;
-    const shares = convertAssetsToShares(assets, ta, ts);
-    const backToAssets = convertSharesToAssets(shares, ta, ts);
-    // Both legs floor against the offset-inflated denominators, so the round
-    // trip can lose up to a stroop per leg.
-    expect(backToAssets).toBeLessThanOrEqual(assets);
-    expect(assets - backToAssets).toBeLessThanOrEqual(2n);
+  it("keeps the deposit offset when gross share conversion uses the raw ratio", () => {
+    const shares = convertAssetsToShares(10_000_000n, 50_000_000n, 45_000_000n);
+    expect(shares).toBe(9_000_019n);
+    expect(convertSharesToAssets(shares, 50_000_000n, 45_000_000n)).toBe(
+      10_000_021n
+    );
   });
 });
 
 describe("convertSharesToAssets", () => {
-  it("empty vault: 1 share → 1 asset (offset cancels)", () => {
-    expect(convertSharesToAssets(1_000_000n, 0n, 0n)).toBe(1_000_000n);
+  it("returns zero when no shares are outstanding", () => {
+    expect(convertSharesToAssets(1_000_000n, 0n, 0n)).toBe(0n);
   });
 
-  it("2x appreciation: 1 share → ~2 assets", () => {
-    // totalAssets = 20 USDC, totalSupply = 10 shares → 2:1
-    // assets = 10_000_000 * (20_000_000 + 1_000) / (10_000_000 + 1_000)
+  it("2x appreciation: shares receive their full gross proportional value", () => {
     expect(convertSharesToAssets(10_000_000n, 20_000_000n, 10_000_000n)).toBe(
-      19_999_000n
+      20_000_000n
     );
+  });
+
+  it("truncates fractional stroops when the vault has lost value", () => {
+    expect(convertSharesToAssets(3n, 5n, 7n)).toBe(2n);
   });
 });
 
@@ -282,6 +280,42 @@ describe("VaultBase.withdraw", () => {
       .args()[1]!;
     // Flooring would burn 4_999_999 shares, which redeems 4_999_999 USDC.
     expect(shares).toEqual(nativeToScVal(5_000_000n, { type: "i128" }));
+  });
+
+  it.each([12_000_000_000n, 5_000_000_000n])(
+    "sizes maxWithdraw without the deposit offset for total assets %s",
+    async (totalAssets) => {
+      mockViewCalls({
+        get_position: 3_000_000_000n,
+        get_total_assets: totalAssets,
+        get_total_shares: 10_000_000_000n,
+        get_principal: 3_000_000_000n,
+        get_entry_time: 0n,
+      });
+      const vault = makeVault();
+      const amount = await vault.maxWithdraw(WALLET);
+      await vault.withdraw(amount, WALLET, WALLET);
+      const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+      const shares = op
+        .body()
+        .invokeHostFunctionOp()
+        .hostFunction()
+        .invokeContract()
+        .args()[1]!;
+      expect(shares).toEqual(nativeToScVal(3_000_000_000n, { type: "i128" }));
+    }
+  );
+
+  it.each([
+    [0n, 0n],
+    [0n, 10n],
+    [10n, 0n],
+  ])("rejects an empty withdrawal state (%s, %s)", async (assets, shares) => {
+    mockViewCalls({ get_total_assets: assets, get_total_shares: shares });
+    await expect(makeVault().withdraw(1n, WALLET, WALLET)).rejects.toThrow(
+      "vault has no redeemable assets or shares"
+    );
+    expect(prepareSorobanTx).not.toHaveBeenCalled();
   });
 
   it("throws when receiver differs from owner", async () => {
@@ -476,10 +510,8 @@ describe("VaultBase.getPosition", () => {
     expect(pos).not.toBeNull();
     expect(pos!.vaultId).toBe(CONTRACT_ID);
     expect(pos!.shares).toBe(10_000_000n);
-    // deposited = shares * (totalAssets + OFFSET) / (totalShares + OFFSET)
-    expect(pos!.deposited).toBe(11_999_800n);
-    // earned = deposited - principal = 11_999_800 - 10_000_000
-    expect(pos!.earned).toBe(1_999_800n);
+    expect(pos!.deposited).toBe(12_000_000n);
+    expect(pos!.earned).toBe(2_000_000n);
     expect(pos!.principal).toBe(10_000_000n);
     expect(pos!.entryTime).toBe(1_700_000_000);
   });
@@ -509,7 +541,7 @@ describe("VaultBase.getPosition", () => {
     const vault = makeVault();
     const pos = await vault.getPosition(WALLET);
     expect(pos!.earned).toBe(0n);
-    expect(pos!.deposited).toBe(8_000_199n);
+    expect(pos!.deposited).toBe(8_000_000n);
   });
 });
 
@@ -595,9 +627,8 @@ describe("VaultBase ERC-4626 view methods", () => {
       get_total_shares: 10_000_000n,
     });
     const vault = makeVault();
-    // 5_000_000 * (20_000_000 + 1_000) / (10_000_000 + 1_000) (floor)
     const assets = await vault.convertToAssets(5_000_000n);
-    expect(assets).toBe(9_999_500n);
+    expect(assets).toBe(10_000_000n);
   });
 
   describe("pause-aware ERC-4626 limits", () => {
@@ -779,6 +810,6 @@ describe("ERC-4626 inflation protection – deposit/withdraw math", () => {
       150_000_000n,
       100_000_000n
     );
-    expect(assets).toBe(74_999_750n);
+    expect(assets).toBe(75_000_000n);
   });
 });
