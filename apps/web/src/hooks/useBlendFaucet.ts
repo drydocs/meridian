@@ -11,6 +11,8 @@ const BLEND_FAUCET_URL =
   import.meta.env.VITE_BLEND_FAUCET_URL ??
   "https://ewqw4hx7oa.execute-api.us-east-1.amazonaws.com/getAssets";
 
+const BLEND_FAUCET_TIMEOUT_MS = 15_000;
+
 export async function hasBlendUsdcBalance(
   publicKey: string,
   network: string
@@ -49,7 +51,9 @@ export function useBlendFaucet() {
     if (!publicKey || !passphrase) return false;
     try {
       push("info", t("vaultActions.fundingWallet"));
-      const res = await fetch(`${BLEND_FAUCET_URL}?userId=${publicKey}`);
+      const res = await fetch(`${BLEND_FAUCET_URL}?userId=${publicKey}`, {
+        signal: AbortSignal.timeout(BLEND_FAUCET_TIMEOUT_MS),
+      });
       if (!res.ok) throw new Error(`Blend faucet returned ${res.status}`);
       const xdr = await res.text();
       assertFaucetPayment(xdr, passphrase, network, publicKey);
@@ -57,6 +61,10 @@ export function useBlendFaucet() {
       push("success", t("vaultActions.walletFunded"));
       return true;
     } catch (err) {
+      if (err instanceof Error && err.name === "TimeoutError") {
+        push("error", t("vaultActions.faucetTimeout"));
+        return false;
+      }
       push(
         "error",
         err instanceof Error ? err.message : t("vaultActions.faucetFailed")

@@ -45,7 +45,22 @@ describe("fetchBalances", () => {
       balances,
     });
     expect(fetch).toHaveBeenCalledWith(
-      `https://horizon.stellar.org/accounts/${PUBLIC_KEY}`
+      `https://horizon.stellar.org/accounts/${PUBLIC_KEY}`,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
+
+  it("uses an abort signal timeout and propagates timeout errors", async () => {
+    const abortError = new Error("The operation was aborted");
+    abortError.name = "TimeoutError";
+    vi.mocked(fetch).mockRejectedValue(abortError);
+
+    await expect(fetchBalances(PUBLIC_KEY, "testnet")).rejects.toThrow(
+      "The operation was aborted"
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      `https://horizon-testnet.stellar.org/accounts/${PUBLIC_KEY}`,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
   });
 });

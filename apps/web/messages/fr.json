@@ -74,7 +74,8 @@
     "vaultStateUnavailable": "Impossible de lire le prix actuel du coffre. Veuillez réessayer.",
     "fundingWallet": "Financement du portefeuille testnet avec des USDC de test Blend...",
     "walletFunded": "Portefeuille testnet financé",
-    "faucetFailed": "Échec du financement du portefeuille testnet"
+    "faucetFailed": "Échec du financement du portefeuille testnet",
+    "faucetTimeout": "La demande au robinet a expiré"
   },
 
   "common": {

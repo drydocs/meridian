@@ -74,7 +74,8 @@
     "vaultStateUnavailable": "Couldn't read the current vault price. Please try again.",
     "fundingWallet": "Funding testnet wallet with Blend test USDC...",
     "walletFunded": "Testnet wallet funded",
-    "faucetFailed": "Failed to fund testnet wallet"
+    "faucetFailed": "Failed to fund testnet wallet",
+    "faucetTimeout": "Faucet request timed out"
   },
 
   "common": {
