@@ -508,6 +508,8 @@ export function mergeReports(
   // continuation's volatility / sharpeProxy, since the continuation reflects
   // the most recent regime. Callers that need a mathematically combined
   // metric should recompute from raw timeseries; this merge is best-effort.
+  // `maxDrawdown` is a non-negative ratio (0 = no drawdown, 1 = total loss),
+  // so the larger value is the more severe drawdown.
   const maxDrawdown =
     base.riskMetrics.maxDrawdown.compareTo(
       continuation.riskMetrics.maxDrawdown

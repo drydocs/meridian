@@ -153,10 +153,10 @@ describe("valueAtRisk", () => {
 });
 
 describe("maxDrawdown", () => {
-  it("returns the most negative entry", () => {
+  it("returns the largest decline as a non-negative fraction", () => {
     const worst = maxDrawdown(series("0", "-0.02", "-0.05", "-0.01"));
 
-    expect(worst.toString()).toBe("-0.050000000000000000");
+    expect(worst.toString()).toBe("0.050000000000000000");
   });
 
   it("returns zero for an empty series", () => {
@@ -171,7 +171,7 @@ describe("maxDrawdown", () => {
 
   it("returns the only entry of a single-element series", () => {
     expect(maxDrawdown(series("-0.03")).toString()).toBe(
-      "-0.030000000000000000"
+      "0.030000000000000000"
     );
   });
 });
@@ -186,7 +186,7 @@ describe("computeRiskMetrics", () => {
       confidenceLevel: 0.95,
     });
 
-    expect(metrics.maxDrawdown.toString()).toBe("-0.050000000000000000");
+    expect(metrics.maxDrawdown.toString()).toBe("0.050000000000000000");
     expect(metrics.sharpeRatio.toString()).toBe("-0.200000000000000000");
     expect(metrics.valueAtRisk.toString()).toBe("0.050000000000000000");
   });

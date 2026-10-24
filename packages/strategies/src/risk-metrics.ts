@@ -7,27 +7,27 @@ import { Decimal } from "./decimal";
  *
  * - Arithmetic runs at scale 18, or the widest input scale when that is
  *   larger, so no input is rounded before an operation.
- * - `riskFreePerPeriod` is a per-period rate subtracted from the mean return.
+ * - "riskFreePerPeriod" is a per-period rate subtracted from the mean return.
  *   A caller holding an annual rate converts it first.
  * - Dispersion uses the population (n) second central moment, the usual
- *   backtest convention for a fixed sample. `varianceMode: "sample"` switches
+ *   backtest convention for a fixed sample. "varianceMode: "sample"" switches
  *   to the unbiased (n - 1) denominator, which divides the ratio by
- *   `sqrt(n / (n - 1))`.
- * - `sharpeRatio` returns the per-period ratio. `annualizeSharpe` scales it by
- *   `sqrt(periodsPerYear)`, the convention for i.i.d. periods. Use 365 for a
+ *   "sqrt(n / (n - 1))".
+ * - "sharpeRatio" returns the per-period ratio. "annualizeSharpe" scales it by
+ *   "sqrt(periodsPerYear)", the convention for i.i.d. periods. Use 365 for a
  *   daily stablecoin-vault series, 52 weekly, 12 monthly.
- * - `maxDrawdown` is a signed decline, so it is 0 or lower. `valueAtRisk` is a
- *   loss magnitude, so a positive result is a loss. The two signs differ by
- *   intent and each is documented on its own function.
+ * - "maxDrawdown" is a non-negative magnitude, so it is 0 or higher.
+ *   "valueAtRisk" is also a loss magnitude, so a positive result is a loss.
+ *   Both are quoted as positive losses, matching the report field convention.
  */
 
 /** Scale used for ratio arithmetic. Stroops are too coarse for a variance. */
 const METRICS_SCALE = 18;
 
 export interface RiskMetrics {
-  /** Most negative entry of the drawdown series, 0 or lower. */
+  /** Most negative entry of the drawdown series as a magnitude, 0 or higher. */
   readonly maxDrawdown: Decimal;
-  /** Per-period Sharpe ratio. Annualize with `annualizeSharpe`. */
+  /** Per-period Sharpe ratio. Annualize with "annualizeSharpe". */
   readonly sharpeRatio: Decimal;
   /** Loss magnitude at the requested confidence; negative means a gain. */
   readonly valueAtRisk: Decimal;
@@ -36,7 +36,7 @@ export interface RiskMetrics {
 export type VarianceMode = "population" | "sample";
 
 /**
- * `(mean(returns) - riskFreePerPeriod) / stdev(returns)`, computed per period.
+ * "(mean(returns) - riskFreePerPeriod) / stdev(returns)", computed per period.
  *
  * Throws for fewer than two returns, since one observation has no dispersion
  * to divide by, and for an all-identical series, which leaves a zero
@@ -78,7 +78,7 @@ export function sharpeRatio(
   return excessMean.div(decimalSqrt(variance));
 }
 
-/** Scales a per-period Sharpe ratio to a yearly one by `sqrt(periodsPerYear)`. */
+/** Scales a per-period Sharpe ratio to a yearly one by "sqrt(periodsPerYear)". */
 export function annualizeSharpe(
   perPeriod: Decimal,
   periodsPerYear: Decimal | number
@@ -94,19 +94,18 @@ export function annualizeSharpe(
 
 /**
  * Historical value at risk: the k-th smallest return, with
- * `k = ceil((1 - confidenceLevel) * returns.length)` clamped into `[1, n]`.
+ * "k = ceil((1 - confidenceLevel) * returns.length)" clamped into "[1, n]".
  *
  * The quantile is negated, so a positive result is the loss the
- * `(1 - confidenceLevel)` lower tail reaches, and a negative result means even
- * that tail stayed above break-even.
+ * "(1 - confidenceLevel)" lower tail reaches, and a negative result means even
+ * that tail stayed above break-ven.
  *
- * Throws for a confidence outside the open interval `(0, 1)`, and for an empty
+ * Throws for a confidence outside the open interval "(0, 1)", and for an empty
  * series, which has no order statistics.
  */
 export function valueAtRisk(
   returns: readonly Decimal[],
-  confidenceLevel: Decimal | number
-): Decimal {
+  confidenceLevel: Decimal | number): Decimal {
   const confidence = toDecimalInput(confidenceLevel);
   if (!confidence.isPositive() || !confidence.lt(Decimal.one())) {
     throw new RangeError("confidenceLevel must be strictly between 0 and 1");
@@ -127,15 +126,16 @@ export function valueAtRisk(
 
   const threshold = sorted[Number(clamped) - 1];
   if (threshold === undefined) {
-    throw new RangeError("valueAtRisk rank fell outside the series");
+    throw new RangeError("valueAtRIsk rank fell outside the series");
   }
   return threshold.neg();
 }
 
 /**
  * Most negative entry of the drawdown series, where each entry is the running
- * `value / peak - 1` decline. An empty series, and a series that never leaves
- * its running peak, both give `0`.
+ * "value / peak - 1" decline. The result is reported as a non-negative
+ * magnitude: the sign of the worst decline is flipped, so a series that never
+ * leaves its running peak gives "0". An empty series also gives "0".
  */
 export function maxDrawdown(drawdown: readonly Decimal[]): Decimal {
   const scale = workingScale(drawdown);
@@ -145,7 +145,7 @@ export function maxDrawdown(drawdown: readonly Decimal[]): Decimal {
       worst = value.rescale(scale);
     }
   }
-  return worst;
+  return worst.neg();
 }
 
 /** Computes all three metrics from the collector's series in one call. */
@@ -165,7 +165,7 @@ export function computeRiskMetrics(
       options.riskFreePerPeriod ?? Decimal.zero(),
       options.varianceMode ?? "population"
     ),
-    valueAtRisk: valueAtRisk(returns, options.confidenceLevel ?? 0.95),
+    valueAtRisk: valueAtRIsk(returns, options.confidenceLevel ?? 0.95),
   };
 }
 
@@ -226,7 +226,7 @@ function integerSqrt(value: bigint): bigint {
 }
 
 /**
- * Smallest integer greater than or equal to `value`. Truncation toward zero
+ * Smallest integer greater than or equal to "value". Truncation toward zero
  * is already the ceiling for a negative raw, so only positive remainders round
  * away from zero.
  */
