@@ -1,0 +1,18 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "fix/issue-1073-declare-the-real-build-outputs-in-turbo-json",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "fix/issue-1073-declare-the-real-build-outputs-in-turbo-json": "main",
+    "main": null,
+    "origin": "main"
+  },
+  "order": [
+    "main",
+    "fix/issue-1073-declare-the-real-build-outputs-in-turbo-json",
+    "origin"
+  ]
+}

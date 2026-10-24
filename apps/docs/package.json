@@ -11,5 +11,10 @@
   },
   "devDependencies": {
     "vitepress": "^1.6.3"
+  },
+  "turbo": {
+    "build": {
+      "outputs": [".vitepress/dist/**"]
+    }
   }
 }

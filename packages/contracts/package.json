@@ -5,5 +5,12 @@
     "lint": "cargo clippy --all-targets -- -D warnings",
     "build": "stellar contract build",
     "deploy:testnet": "bash ../../scripts/deploy-testnet.sh"
+  },
+  "turbo": {
+    "tasks": {
+      "build": {
+        "outputs": ["target/**"]
+      }
+    }
   }
 }
