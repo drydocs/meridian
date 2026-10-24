@@ -186,7 +186,7 @@ describe("handleDepositRequest", () => {
     );
   });
 
-  it("surfaces builder errors as 500 and returns the raw error for logging", async () => {
+  it("hides internal builder errors from the caller while retaining them for logging", async () => {
     const err = new Error("USDC trustline missing");
     vi.mocked(buildDepositTx).mockRejectedValueOnce(err);
     const result = await handleDepositRequest({
@@ -196,7 +196,7 @@ describe("handleDepositRequest", () => {
       riskAcknowledged: true,
     });
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: "USDC trustline missing" });
+    expect(result.body).toEqual({ error: "Failed to build deposit transaction" });
     expect(result.error).toBe(err);
   });
 });
@@ -245,7 +245,7 @@ describe("handleWithdrawRequest", () => {
     );
   });
 
-  it("surfaces builder errors as 500 and returns the raw error for logging", async () => {
+  it("hides internal builder errors from the caller while retaining them for logging", async () => {
     const err = new Error("withdraw failed");
     vi.mocked(buildWithdrawTx).mockRejectedValueOnce(err);
     const result = await handleWithdrawRequest({
@@ -254,7 +254,7 @@ describe("handleWithdrawRequest", () => {
       shares: "5",
     });
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: "withdraw failed" });
+    expect(result.body).toEqual({ error: "Failed to build withdraw transaction" });
     expect(result.error).toBe(err);
   });
 });
