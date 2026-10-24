@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { handleGetAdminHistory, handleGetVaultState } from "@meridian/api-core";
-import { applyCors, checkRateLimit } from "../../_lib/middleware.js";
+import {
+  applyCors,
+  checkRateLimit,
+  requireGetMethod,
+} from "../../_lib/middleware.js";
+
 
 const HISTORY_CACHE_CONTROL = "public, s-maxage=30, stale-while-revalidate=120";
 
@@ -25,6 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { resource } = req.query;
 
   if (resource === "vault-state") {
+    if (!requireGetMethod(req, res)) return;
     const result = await handleGetVaultState();
     if (result.error) console.error("[admin/vault-state] error:", result.error);
     res.setHeader("Cache-Control", "no-store");
@@ -32,10 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (resource === "history") {
-    if (req.method !== "GET") {
-      res.setHeader("Allow", "GET");
-      return res.status(405).json({ error: "Method not allowed" });
-    }
+    if (!requireGetMethod(req, res)) return;
     const raw = req.query["vaultId"];
     const vaultId = typeof raw === "string" ? raw : undefined;
     if (!vaultId) return res.status(400).json({ error: "vaultId is required" });

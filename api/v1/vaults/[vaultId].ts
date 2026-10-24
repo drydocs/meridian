@@ -4,6 +4,7 @@ import { handleGetVaultById } from "@meridian/api-core";
 import {
   applyCors,
   checkRateLimit,
+  requireGetMethod,
   vaultReadCacheControl,
 } from "../../_lib/middleware.js";
 
@@ -13,9 +14,9 @@ const KNOWN_VAULT_IDS = new Set(
     ...Object.values(KNOWN_POOLS.testnet),
   ].map((p) => p.id)
 );
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
+  if (requireGetMethod(req, res)) return;
   try {
     if (!(await checkRateLimit(req, res))) return;
   } catch (err) {
@@ -29,7 +30,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!vaultId) return res.status(400).json({ error: "vaultId is required" });
   if (!KNOWN_VAULT_IDS.has(vaultId))
     return res.status(404).json({ error: "vault not found", vaultId });
-
   const result = await handleGetVaultById(vaultId);
   if (result.error) {
     console.error("[vaults] fetch error:", result.error);

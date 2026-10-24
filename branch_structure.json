@@ -1,0 +1,18 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "fix/issue-1054-api-hygiene-missing-method-guards-a-stale",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "fix/issue-1054-api-hygiene-missing-method-guards-a-stale": "main",
+    "main": null,
+    "origin": "main"
+  },
+  "order": [
+    "main",
+    "fix/issue-1054-api-hygiene-missing-method-guards-a-stale",
+    "origin"
+  ]
+}
