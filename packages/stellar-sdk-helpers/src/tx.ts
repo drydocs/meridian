@@ -3,8 +3,6 @@ import {
   Address,
   Contract,
   TransactionBuilder,
-  Transaction,
-  FeeBumpTransaction,
   Asset,
   Horizon,
   Operation,
@@ -110,8 +108,7 @@ export class MissingTrustlineError extends Error {
 }
 
 /**
- * Query Horizon for the wallet's classic balances and throw
- * {@link MissingTrustlineError} if any required USDC/mUSDC trustline is
+ * Query Horizon for the wallet's classic balances and throw {@link MissingTrustlineError} if any required USDC/mUSDC trustline is
  * absent. Networks where `MUSDC_ISSUER` is empty (SEP-41 cutover) skip the
  * mUSDC check. An account that does not yet exist on Horizon is treated as
  * missing every required trustline.
@@ -156,13 +153,6 @@ export function toStroops(value: string): bigint {
   return BigInt(whole) * 10_000_000n + BigInt(fracPadded);
 }
 
-/** Resolve the protocol name ("Blend" or "DeFindex") from a vault ID prefix. Throws for unrecognised prefixes. */
-export function resolveProtocol(vaultId: string): "Blend" | "DeFindex" {
-  if (vaultId.startsWith("blend-")) return "Blend";
-  if (vaultId.startsWith("defindex-")) return "DeFindex";
-  throw new Error(`No protocol mapping for vault: ${vaultId}`);
-}
-
 /**
  * Execute a read-only Soroban contract call via simulation and return the
  * decoded native value. Returns `null` when the simulation succeeds but
@@ -176,7 +166,7 @@ export async function simulateView(
   ...args: xdr.ScVal[]
 ): Promise<unknown> {
   const dummyAccount = new Account(
-    "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    "GBBD47IF6LWK7P7MDEVMCWR7DPUWV3NY3DTQEVFL4N4HA4AQHZ3LLFLA5",
     "0"
   );
   const contract = new Contract(contractId);
@@ -338,254 +328,4 @@ export async function waitForTransaction(
     }
     await sleep(pollIntervalMs);
   }
-}
-
-/**
- * User-facing copy for recognized vault ContractError discriminants.
- * Source of truth: packages/contracts/vault/src/errors.rs.
- * Codes 2 through 14 overlap adapter, mUSDC, or Stellar Asset Contract failures
- * reachable during vault operations, so leave them raw. Vault withdrawal
- * slippage uses #15 MinAmountOutNotMet; deposit slippage uses #18.
- */
-export const VAULT_CONTRACT_ERROR_MESSAGES: Record<number, string> = {
-  1: "This contract is already initialized.",
-  15: "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
-  16: "There is no pending admin transfer to accept.",
-  17: "The adapter reported no assets while shares are still outstanding.",
-  18: "Slippage tolerance exceeded. Adjust slippage and retry.",
-  19: "Start a migration before calling migrate.",
-  20: "The migration cooldown has not elapsed yet.",
-  21: "The migration target's value moved outside the allowed slippage.",
-  22: "The migration target reported an invalid asset balance.",
-  23: "The adapter did not credit any shares for this deposit.",
-  24: "The vault hit a divide-by-zero in adapter accounting.",
-};
-
-const CONTRACT_ERROR_CODE = /Error\(\s*Contract\s*,\s*#(\d+)\s*\)/i;
-
-/**
- * The host error is the first line. A wrapped `Error(Contract,` may spill
- * onto the next line; contract codes later in the event log are not the
- * failure.
- */
-function leadingContractErrorCode(raw: string): number | undefined {
-  const lines = raw.split("\n");
-  const first = lines[0] ?? "";
-  const header = /Error\(\s*Contract\s*,?\s*$/i.test(first.trimEnd())
-    ? `${first} ${lines[1] ?? ""}`
-    : first;
-  const match = header.match(CONTRACT_ERROR_CODE);
-  if (!match?.[1]) return undefined;
-  return Number(match[1]);
-}
-
-/**
- * Extract a safe, one-line summary from a Soroban simulation error string.
- * The first line is usually just a terse error code (e.g. "Error(Contract,
- * #13)") with no actionable detail; the useful diagnostic text is buried
- * several lines down in the event log. When that log names a missing
- * trustline, surface that specific message instead so callers like
- * useVaultActions' isMissingTrustline() can detect it and prompt the user to
- * add the trustline rather than showing an opaque failure. A known vault
- * `Error(Contract, #N)` becomes the matching user-facing string (for example
- * #18 is "Slippage tolerance exceeded. Adjust slippage and retry."). Unknown
- * codes and non-contract errors fall back to the first line. Returns a
- * generic fallback when the string is empty.
- */
-export function simErrorMessage(raw: string): string {
-  const trustlineDetail = raw.match(/data:\["([^"]*trustline[^"]*)"/i)?.[1];
-  if (trustlineDetail) return trustlineDetail;
-
-  const code = leadingContractErrorCode(raw);
-  if (code !== undefined) {
-    const message = VAULT_CONTRACT_ERROR_MESSAGES[code];
-    if (message) return message;
-  }
-
-  return raw.split("\n")[0]?.trim() || "Simulation failed (no detail)";
-}
-
-// Best-effort decode of the result code the RPC returns on a rejected submit
-// (e.g. txInsufficientBalance), without letting an unexpected XDR shape throw.
-export function describeSendError(
-  res: rpc.Api.SendTransactionResponse
-): string {
-  try {
-    return res.errorResult?.result().switch().name ?? "unknown error";
-  } catch {
-    return "unknown error";
-  }
-}
-
-function allowedContractIds(network: StellarNetwork): Set<string> {
-  const key = network.network === "mainnet" ? "mainnet" : "testnet";
-  const addresses = CONTRACT_ADDRESSES[key];
-  const ids = new Set<string>();
-  const add = (id: string | undefined) => {
-    if (id) ids.add(id);
-  };
-  add(addresses.blend.pool);
-  add(addresses.defindex.vault);
-  add(addresses.vault);
-  for (const pool of Object.values(KNOWN_POOLS[key])) {
-    add(pool.contractId);
-  }
-  return ids;
-}
-
-function allowedTrustlineIssuers(network: StellarNetwork): Set<string> {
-  const issuers = new Set<string>();
-  const usdc = USDC_ISSUER[network.network];
-  if (usdc) issuers.add(usdc);
-  const musdc = MUSDC_ISSUER[network.network];
-  if (musdc) issuers.add(musdc);
-  return issuers;
-}
-
-/**
- * Guards `/tx/submit` against being used as an open relay for arbitrary
- * Stellar transactions: submitting a signed XDR that has nothing to do with
- * Meridian would otherwise cost the caller only a rate-limit slot. Every
- * operation must either invoke a known Meridian/Blend/DeFindex contract or
- * open a trustline to a known USDC/mUSDC issuer; anything else is rejected
- * before it reaches the network.
- */
-export function assertSubmittable(
-  tx: Transaction | FeeBumpTransaction,
-  network: StellarNetwork
-): void {
-  if (!(tx instanceof Transaction)) {
-    throw new Error("Fee-bump transactions are not supported");
-  }
-  if (tx.operations.length === 0) {
-    throw new Error("Transaction has no operations");
-  }
-
-  const contractIds = allowedContractIds(network);
-  const trustlineIssuers = allowedTrustlineIssuers(network);
-
-  for (const op of tx.operations) {
-    if (op.type === "invokeHostFunction") {
-      if (op.func.switch().name !== "hostFunctionTypeInvokeContract") {
-        throw new Error("Transaction invokes a disallowed host function");
-      }
-      const contractId = Address.fromScAddress(
-        op.func.invokeContract().contractAddress()
-      ).toString();
-      if (!contractIds.has(contractId)) {
-        throw new Error("Transaction targets an unrecognised contract");
-      }
-    } else if (op.type === "changeTrust") {
-      if (!(op.line instanceof Asset)) {
-        throw new Error("Transaction establishes an unrecognised trustline");
-      }
-      if (!trustlineIssuers.has(op.line.getIssuer())) {
-        throw new Error(
-          "Transaction establishes a trustline to an unrecognised issuer"
-        );
-      }
-    } else {
-      throw new Error(
-        `Transaction contains a disallowed operation type: ${op.type}`
-      );
-    }
-  }
-}
-
-/**
- * Submit a signed transaction and wait for it to actually land. Rejection at
- * submission time (ERROR / TRY_AGAIN_LATER) throws immediately; PENDING and
- * DUPLICATE are polled to a final on-chain status so a resolved promise always
- * means the transaction succeeded.
- */
-export async function submitTx(
-  signedXdr: string,
-  network: StellarNetwork,
-  opts: ConfirmOptions = {}
-): Promise<SubmitResult> {
-  const passphrase = passphraseFor(network);
-  const server = getRpcServer(network.rpcUrl, 8_000);
-  const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
-  assertSubmittable(tx, network);
-
-  const sent = await withSorobanTimeout(() => server.sendTransaction(tx));
-  if (sent.status === "ERROR") {
-    throw new Error(
-      `Transaction rejected at submission: ${describeSendError(sent)}`
-    );
-  }
-  if (sent.status === "TRY_AGAIN_LATER") {
-    throw new Error("Transaction could not be submitted yet (try again later)");
-  }
-
-  // PENDING or DUPLICATE: the transaction is in (or already passed through) the
-  // mempool under this hash, so wait for the ledger to record its outcome.
-  const confirmed = await waitForTransaction(server, sent.hash, opts);
-  return { hash: sent.hash, status: "SUCCESS", ledger: confirmed.ledger };
-}
-
-// A faucet grant well above anything a real testnet request would need.
-// Bounds the payment amount as a defence-in-depth check; the operation-type
-// and destination checks below are what actually stop an unrelated transaction.
-const FAUCET_MAX_AMOUNT = 100_000;
-
-/**
- * Validates a transaction returned by a third-party testnet faucet before it
- * is handed to the wallet for signing. The faucet is an HTTP endpoint outside
- * Meridian's control; without this check, a compromised or rotated URL could
- * return an arbitrary transaction and the caller would sign it blind. Every
- * operation must either be a `payment` crediting `expectedPublicKey` in the
- * known USDC asset within a sane amount, or a `changeTrust` to the known
- * USDC/mUSDC issuer. Anything else throws before the caller ever sees it.
- */
-export function assertFaucetPayment(
-  faucetXdr: string,
-  passphrase: string,
-  networkKey: string,
-  expectedPublicKey: string
-): Transaction {
-  const tx = TransactionBuilder.fromXDR(faucetXdr, passphrase);
-  if (!(tx instanceof Transaction)) {
-    throw new Error("Faucet response is not a supported transaction type");
-  }
-  if (tx.operations.length === 0) {
-    throw new Error("Faucet response has no operations");
-  }
-
-  const usdcIssuer = USDC_ISSUER[networkKey];
-  const musdcIssuer = MUSDC_ISSUER[networkKey];
-
-  for (const op of tx.operations) {
-    if (op.type === "payment") {
-      if (op.destination !== expectedPublicKey) {
-        throw new Error("Faucet response sends funds to an unexpected address");
-      }
-      if (op.asset.isNative() || op.asset.getIssuer() !== usdcIssuer) {
-        throw new Error("Faucet response funds an unrecognised asset");
-      }
-      if (Number(op.amount) > FAUCET_MAX_AMOUNT) {
-        throw new Error(
-          "Faucet response requests an unexpectedly large amount"
-        );
-      }
-    } else if (op.type === "changeTrust") {
-      if (!(op.line instanceof Asset)) {
-        throw new Error(
-          "Faucet response establishes an unrecognised trustline"
-        );
-      }
-      const issuer = op.line.getIssuer();
-      if (issuer !== usdcIssuer && issuer !== musdcIssuer) {
-        throw new Error(
-          "Faucet response establishes a trustline to an unrecognised issuer"
-        );
-      }
-    } else {
-      throw new Error(
-        `Faucet response contains a disallowed operation type: ${op.type}`
-      );
-    }
-  }
-
-  return tx;
 }
