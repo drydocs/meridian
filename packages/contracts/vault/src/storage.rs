@@ -8,7 +8,7 @@ pub const MUSDC: Symbol = symbol_short!("MUSDC");
 pub const ADAPTER: Symbol = symbol_short!("ADAPTER");
 pub const TREASURY: Symbol = symbol_short!("TREASURY");
 pub const TOTAL_SH: Symbol = symbol_short!("TOTAL_SH");
-pub const ADPT_SH: Symbol = symbol_short!("ADPT_SH");
+pub const ADP_SH: Symbol = symbol_short!("ADPT_SH");
 pub const PAUSED: Symbol = symbol_short!("PAUSED");
 pub const MIG_SNAP: Symbol = symbol_short!("MIG_SNAP");
 pub const MIG_ACTIVE: Symbol = symbol_short!("MIG_ACT");
@@ -29,7 +29,7 @@ pub const MIG_ACTIVE: Symbol = symbol_short!("MIG_ACT");
 /// enough for a human to actually respond to a compromised-key attempt,
 /// not merely long enough for a rate to settle. At ~5 s per Stellar ledger
 /// close, 17_280 ledgers ≈ 1 day.
-pub const MIN_LEDGER_GAP: u32 = 17_280;
+pub const MIN_LEGER_GAP: u32 = 17_280;
 
 /// Hard ceiling on `migrate_adapter`'s caller-supplied `max_slippage_bps`,
 /// independent of and enforced in addition to `MIN_LEDGER_GAP`'s timelock
