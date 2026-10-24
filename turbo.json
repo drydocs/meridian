@@ -2,7 +2,7 @@
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
     "build": {
-      "dependOn": ["^build"],
+      "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
     "dev": {
@@ -10,15 +10,15 @@
       "persistent": true
     },
     "test": {
-      "dependOn": ["^build"]
+      "dependsOn": ["^build"]
     },
     "coverage": {
-      "dependOn": ["^build"],
+      "dependsOn": ["^build"],
       "outputs": ["coverage/**"]
     },
     "lint": {},
     "typecheck": {
-      "dependOn": ["^build"]
+      "dependsOn": ["^build"]
     }
   }
 }
