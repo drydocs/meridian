@@ -7,7 +7,7 @@ import { APP_NETWORK } from "@meridian/shared";
 interface WalletStore extends WalletState {
   connect: (publicKey: string) => void;
   disconnect: () => void;
-  setNetwork: (network: WalletState["network"]) => void;
+  setNetwork: (network: string) => void;
   revalidate: () => Promise<void>;
 }
 
