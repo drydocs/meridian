@@ -86,8 +86,13 @@
 
   "admin": {
     "title": "Tableau de bord admin",
+    "access": "Accès administrateur",
     "connectPrompt": "Connectez un portefeuille administrateur autorisé pour voir le tableau de bord.",
     "notAuthorized": "Ce portefeuille n'est pas autorisé à voir le tableau de bord admin.",
+    "switchWallet": "Changer de portefeuille",
+    "connected": "Connecté",
+    "readError": "Échec de la vérification du statut administrateur.",
+    "loading": "Chargement...",
     "keeperHealth": {
       "title": "État des keepers",
       "accrual": "Keeper d'accumulation",

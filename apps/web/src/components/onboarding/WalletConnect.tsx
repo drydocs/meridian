@@ -230,7 +230,7 @@ export function WalletConnect() {
         <div
           ref={menuRef}
           role="menu"
-          aria-label={t("common.connectWallet")}
+          aria-label={t("walletConnect.chooseWallet")}
           onKeyDown={handleMenuKeyDown}
           data-testid="wallet-picker-menu"
           className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-gray-800 bg-deep shadow-xl shadow-black/40 overflow-hidden z-10"

@@ -216,7 +216,9 @@ describe("WalletConnect — picker accessibility", () => {
     render(<WalletConnect />);
     fireEvent.click(screen.getByTestId("wallet-picker-toggle"));
 
-    expect(screen.getByRole("menu")).toBeDefined();
+    expect(
+      screen.getByRole("menu", { name: "walletConnect.chooseWallet" })
+    ).toBeDefined();
     const items = screen.getAllByRole("menuitem");
     expect(items.map((i) => i.getAttribute("data-testid"))).toEqual([
       "wallet-picker-option-freighter",
