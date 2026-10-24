@@ -43,7 +43,9 @@ describe("keeperFeeConfig", () => {
 
   it("derives maxFeeAttempt from the configured curve", () => {
     const { baseFee, multiplier, maxFee } = keeperFeeConfig;
-    const expected = Math.ceil(Math.log(maxFee / baseFee) / Math.log(multiplier));
+    const expected = Math.ceil(
+      Math.log(maxFee / baseFee) / Math.log(multiplier),
+    );
     expect(maxFeeAttempt).toBe(expected);
   });
 });

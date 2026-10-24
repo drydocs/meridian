@@ -11,8 +11,8 @@ describe("Blend adapter client", () => {
 
   describe("User position parsing", () => {
     it("parses the recorded vault state fixture", () => {
-      expect(VAUL_STATE.id).toBe("vault-0");
-      expect(VAUL_STATE.totalAssets).toBe(10000000);
+      expect(VAULT_STATE.id).toBe("vault-0");
+      expect(VAULT_STATE.totalAssets).toBe(10000000);
       expect(VAULT_STATE.active).toBe(true);
     });
   });
