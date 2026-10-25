@@ -92,14 +92,22 @@ that moves against the hedge, loses money even when the net delta is zero.
 
 A backtest is driven by a scenario plus the strategy configuration. Money and
 rate values are fixed-point decimal strings, never JavaScript numbers, and
-carry at most seven decimal places. The strategy configuration exposes:
+carry at most seven decimal places. The strategy configuration (`DeltaNeutralConfig`)
+exposes:
 
-| Option                 | Meaning                                     | Safe range                      |
-| ---------------------- | ------------------------------------------- | ------------------------------- |
-| `initialCapitalQuote`  | Starting quote capital, as a decimal string | Greater than zero               |
-| `targetLeverage`       | Gross leverage applied to each leg          | `1` to `20` inclusive           |
-| `neutralityBandBps`    | Allowed net-delta drift, in basis points    | Positive; commonly `20` to `50` |
-| `rebalanceSlippageBps` | Cost applied to each rebalance fill         | Small and non-negative          |
+| Option             | Meaning                                                 | Safe range / Type               |
+| ------------------ | ------------------------------------------------------- | ------------------------------- |
+| `asset`            | Base asset held long on spot                            | Valid asset symbol (e.g. `XLM`) |
+| `targetLeverage`   | Gross leverage applied to each leg                      | `1` to `20` inclusive           |
+| `rebalanceBandBps` | Rebalance threshold in basis points of total equity     | Positive; commonly `20` to `50` |
+| `fundingRate`      | Per-second funding rate applied to the short hedge      | `FundingRate` instance          |
+| `priceFeed`        | Spot marks feed for the long leg and hedge venue        | `PriceFeed` instance            |
+| `hedgeFeed`        | Optional perp marks for hedge (defaults to `priceFeed`) | `PriceFeed` instance (optional) |
+| `hedgeVenue`       | Optional modeled hedge execution venue                  | `HedgeVenue` (optional)         |
+| `id`               | Optional stable identifier recorded in the snapshot     | String (optional)               |
+
+Scenario-level parameters (e.g. `startingCapital`, time steps, and seeds)
+configure the overall backtest runner environment rather than the strategy itself.
 
 The scenario that carries them is the single input a run is reproduced from:
 the same scenario and seed always yield the same run. A scenario describes a
@@ -133,23 +141,26 @@ runs. When the run ends, the metrics collector summarizes it.
 
 ## Reading the run summary
 
-The summary is the output to read. It reports the metrics the strategy is
-judged on:
+The summary is the output to read. The runner outputs a `RunReport` object
+exposing standard risk metrics, discrete event counters, and portfolio state:
 
-| Metric                 | Meaning                                                       |
-| ---------------------- | ------------------------------------------------------------- |
-| `netPnl`               | Total change in equity over the window                        |
-| `carryPnl`             | Equity earned from funding and carry                          |
-| `pricePnl`             | Equity from price moves, which should stay small when neutral |
-| `maxNetDeltaBps`       | Largest net-delta drift seen, in basis points                 |
-| `withinNeutralityBand` | Whether every step stayed inside `neutralityBandBps`          |
-| `totalRebalances`      | How many times the strategy traded back to neutral            |
+| Metric / Field                     | Meaning                                                        | Status         |
+| ---------------------------------- | -------------------------------------------------------------- | -------------- |
+| `riskMetrics.maxDrawdown`          | Maximum drawdown from peak portfolio value as a ratio (0 to 1) | On `RunReport` |
+| `riskMetrics.sharpeProxy`          | Sharpe-ratio proxy: mean excess return in stroops per step     | On `RunReport` |
+| `riskMetrics.volatility`           | Standard deviation of per-step returns                         | On `RunReport` |
+| `eventCounts.rebalances`           | How many times the strategy traded back to neutral             | On `RunReport` |
+| `finalState.totalValue`            | Final total portfolio valuation in reference asset (USDC)      | On `RunReport` |
+| `netPnl` _(planned)_               | Total change in equity over the window                         | Planned        |
+| `carryPnl` _(planned)_             | Equity earned from funding and carry                           | Planned        |
+| `pricePnl` _(planned)_             | Equity from price moves, which should stay small when neutral  | Planned        |
+| `maxNetDeltaBps` _(planned)_       | Largest net-delta drift seen, in basis points                  | Planned        |
+| `withinNeutralityBand` _(planned)_ | Whether every step stayed inside `rebalanceBandBps`            | Planned        |
 
-A healthy run keeps `maxNetDeltaBps` inside the band, shows `carryPnl` as the
-dominant contributor to `netPnl`, and keeps `pricePnl` close to zero. A run
-where `pricePnl` dominates means the hedge stopped tracking; a run with a
-large `totalRebalances` means the band is too narrow for the volatility and
-fees are eating the carry.
+A healthy run keeps net delta inside `rebalanceBandBps`, minimizes drawdown,
+and limits excessive rebalance counts so trading costs do not erode returns.
+Attribution metrics like `carryPnl` and `pricePnl` are planned analytical extensions
+to break down the components of total PnL.
 
 ## Risks and limits
 
