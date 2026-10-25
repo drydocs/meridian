@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import { WalletConnect } from "../../components/onboarding/WalletConnect";
 import { useWalletStore } from "../../store/wallet";
 import { useToastStore } from "../../store/toast";
@@ -365,6 +371,31 @@ describe("WalletConnect — copy address", () => {
       );
     });
 
+    vi.unstubAllGlobals();
+  });
+
+  it("clears the copied reset timer on unmount", async () => {
+    vi.useFakeTimers();
+    useWalletStore.setState({
+      publicKey: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      connected: true,
+    });
+    vi.stubGlobal("navigator", {
+      clipboard: { writeText: vi.fn(async () => {}) },
+    });
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
+    const { unmount } = render(<WalletConnect />);
+
+    fireEvent.click(screen.getByLabelText("walletConnect.copyAddress"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText("walletConnect.copied")).toBeDefined();
+
+    unmount();
+    expect(clearSpy).toHaveBeenCalled();
+
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 });

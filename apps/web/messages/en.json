@@ -3,6 +3,11 @@
     "title": "Meridian"
   },
 
+  "toasts": {
+    "notifications": "Notifications",
+    "dismiss": "Dismiss {{kind}} notification"
+  },
+
   "walletConnect": {
     "disconnect": "Disconnect",
     "copyAddress": "Copy Address",

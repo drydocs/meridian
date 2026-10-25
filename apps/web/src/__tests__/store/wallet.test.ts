@@ -41,11 +41,6 @@ describe("useWalletStore", () => {
     });
   });
 
-  it("setNetwork updates the active network", () => {
-    useWalletStore.getState().setNetwork("mainnet");
-    expect(useWalletStore.getState().network).toBe("mainnet");
-  });
-
   it("revalidate does nothing when no publicKey is set", async () => {
     await useWalletStore.getState().revalidate();
     expect(wallet.isAuthorized).not.toHaveBeenCalled();

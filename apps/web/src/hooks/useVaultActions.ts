@@ -192,9 +192,11 @@ export function useVaultActions() {
         "positions",
         publicKey,
       ]);
-      const matchedBefore =
-        positionsBefore?.find((p) => p.vaultId === vaultId) ??
-        positionsBefore?.[0];
+      // Only this vault's position is a valid baseline. Falling back to
+      // another vault would price the withdrawal against the wrong cost
+      // basis and share count, so a missing match is treated as no baseline,
+      // matching the deposit path.
+      const matchedBefore = positionsBefore?.find((p) => p.vaultId === vaultId);
       const sharesBefore = matchedBefore?.shares ?? Infinity;
       const withdrawnShares = parseFloat(shares);
 

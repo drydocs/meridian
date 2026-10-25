@@ -30,7 +30,6 @@ export function AdminDashboard() {
       <AdminActionHistory
         vaultId="meridian-usdc"
         network={APP_NETWORK.network}
-        isAdmin
       />
     </div>
   );

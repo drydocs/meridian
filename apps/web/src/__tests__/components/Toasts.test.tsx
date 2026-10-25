@@ -1,12 +1,34 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { createInstance } from "i18next";
+import { I18nextProvider } from "react-i18next";
 import { Toasts } from "../../components/ui/Toasts";
 import { TOAST_DURATION_MS, useToastStore } from "../../store/toast";
+import en from "../../../messages/en.json";
+import fr from "../../../messages/fr.json";
+
+function renderToasts(lng: "en" | "fr" = "en") {
+  const i18n = createInstance();
+  void i18n.init({
+    resources: { en: { translation: en }, fr: { translation: fr } },
+    lng,
+    fallbackLng: "en",
+    initAsync: false,
+    interpolation: { escapeValue: false },
+  });
+  return render(
+    <I18nextProvider i18n={i18n}>
+      <Toasts />
+    </I18nextProvider>
+  );
+}
+
+let unmountToasts: () => void;
 
 beforeEach(() => {
   vi.useFakeTimers();
   useToastStore.setState({ toasts: [] });
-  render(<Toasts />);
+  unmountToasts = renderToasts().unmount;
 });
 afterEach(() => vi.useRealTimers());
 
@@ -22,6 +44,26 @@ function pushToast(kind: "success" | "error" | "info", message: string) {
 }
 
 describe("Toasts", () => {
+  it("labels the region and dismiss buttons from the catalogue", () => {
+    expect(screen.getByRole("status", { name: "Notifications" })).toBeDefined();
+    pushToast("info", "Network switched");
+    expect(
+      screen.getByRole("button", { name: "Dismiss info notification" })
+    ).toBeDefined();
+  });
+
+  it("uses the French catalogue for the dismiss label", () => {
+    unmountToasts();
+    renderToasts("fr");
+    pushToast("info", "Réseau changé");
+
+    expect(
+      screen.getByRole("button", {
+        name: "Fermer la notification info",
+      })
+    ).toBeDefined();
+  });
+
   it("dismisses on its own when left alone", () => {
     pushToast("success", "Deposited");
     advance(TOAST_DURATION_MS.success);

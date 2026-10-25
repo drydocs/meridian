@@ -131,7 +131,6 @@ export function StatusPage() {
           <AdminActionHistory
             vaultId="meridian-usdc"
             network={APP_NETWORK.network}
-            isAdmin
           />
         </ErrorBoundary>
 

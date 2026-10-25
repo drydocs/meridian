@@ -53,22 +53,14 @@ function formatTimestamp(iso: string, t: TFunction, locale: string): string {
 interface AdminActionHistoryProps {
   vaultId: string;
   network: "testnet" | "mainnet";
-  isAdmin?: boolean;
 }
 
 export function AdminActionHistory({
   vaultId,
   network,
-  isAdmin,
 }: AdminActionHistoryProps) {
   const { t, i18n } = useTranslation();
-  const { data, isLoading, isError } = useAdminHistory(
-    isAdmin ? vaultId : null
-  );
-
-  if (!isAdmin) {
-    return null;
-  }
+  const { data, isLoading, isError } = useAdminHistory(vaultId);
 
   const actions = data?.actions ?? [];
 

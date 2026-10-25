@@ -453,6 +453,28 @@ describe("useVaultActions — fresh vault state slippage", () => {
     });
   });
 
+  it("does not price a withdrawal against another vault's cached position", async () => {
+    getQueryData.mockImplementation((key: unknown[]) =>
+      key[0] === "positions"
+        ? [{ vaultId: "other-vault", shares: 99, deposited: 1, earned: 0 }]
+        : undefined
+    );
+    const { result } = renderHook(() => useVaultActions());
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.withdraw("10", "blend-usdc-fixed", "USDC");
+    });
+
+    expect(ok).toBe(true);
+    expect(api.buildWithdraw).toHaveBeenCalledWith({
+      walletAddress: KEY,
+      vaultId: "blend-usdc-fixed",
+      shares: "10",
+      min_usdc_out: "17.9100000",
+    });
+  });
+
   it("keeps an explicit minSharesOut override without re-fetching price math", async () => {
     const { result } = renderHook(() => useVaultActions());
 

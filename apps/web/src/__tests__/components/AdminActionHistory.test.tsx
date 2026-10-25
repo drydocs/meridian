@@ -48,7 +48,7 @@ function mockActions(actions: ReturnType<typeof action>[]) {
 // Real catalogues so the assertions cover the shipped en.json / fr.json.
 function renderHistory(
   lng: "en" | "fr" = "en",
-  props: { isAdmin?: boolean; network?: "testnet" | "mainnet" } = {}
+  props: { network?: "testnet" | "mainnet" } = {}
 ) {
   const i18n = createInstance();
   void i18n.init({
@@ -63,7 +63,6 @@ function renderHistory(
       <AdminActionHistory
         vaultId="blend-usdc-fixed"
         network={props.network ?? "testnet"}
-        isAdmin={props.isAdmin ?? true}
       />
     </I18nextProvider>
   );
@@ -78,15 +77,7 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("AdminActionHistory", () => {
-  it("renders nothing and skips the fetch when the user is not an admin", () => {
-    mockActions([action()]);
-    const { container } = renderHistory("en", { isAdmin: false });
-
-    expect(container.firstChild).toBeNull();
-    expect(useAdminHistory).toHaveBeenCalledWith(null);
-  });
-
-  it("requests history for the vault when the user is an admin", () => {
+  it("requests history for the vault", () => {
     mockActions([]);
     renderHistory();
 
