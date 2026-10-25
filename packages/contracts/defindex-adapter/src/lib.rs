@@ -7,7 +7,8 @@ use adapter_common::{
 use soroban_sdk::{
     auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
     contract, contractclient, contracterror, contractimpl, panic_with_error, symbol_short,
-    token::TokenClient, vec, Address, Env, IntoVal, Symbol, Val, Vec,
+    token::TokenClient,
+    vec, Address, Env, IntoVal, Symbol, Val, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -257,6 +258,26 @@ impl MeridianDefindexAdapter {
             None => panic_with_error!(&env, ContractError::MalformedProtocolResponse),
         };
         let min_out = min_after_slippage(expected).unwrap_or_else(|e| panic_with_error!(&env, e));
+
+        // DeFindex's withdraw burns the adapter's dfTokens and calls
+        // `from.require_auth()` before doing so. Register that authorization
+        // as the current contract, matching the deposit path's nested-auth
+        // handling. This must be the last thing before `withdraw()`: the
+        // tracker is torn down once any sub-invocation returns, so an
+        // intervening call like `get_asset_amounts_per_shares()` above would
+        // expire it before `withdraw()` consumes it.
+        env.authorize_as_current_contract(vec![
+            &env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: dfx.clone(),
+                    fn_name: Symbol::new(&env, "withdraw"),
+                    args: (shares, vec![&env, min_out], adapter.clone()).into_val(&env),
+                },
+                sub_invocations: Vec::new(&env),
+            }),
+        ]);
+
         let amounts = client.withdraw(&shares, &vec![&env, min_out], &adapter);
 
         let usdc_out: i128 = match amounts.get(0) {
@@ -429,6 +450,11 @@ mod tests {
             min_amounts_out: Vec<i128>,
             from: Address,
         ) -> Vec<i128> {
+            // DeFindex's real withdraw burns the caller's dfTokens and calls
+            // `from.require_auth()` before doing so. Include that check in the
+            // mock so the auth-tree test exercises the same authorization
+            // requirement instead of passing on a mock that never asks for it.
+            from.require_auth();
             env.storage()
                 .instance()
                 .set(&MDV_WMIN, &min_amounts_out.get(0).unwrap_or(0));
@@ -587,6 +613,67 @@ mod tests {
         let shares = adapter.deposit(&amount);
 
         assert_eq!(shares, amount);
+    }
+
+    // DeFindex's real, enforcing auth-tree check run against everything
+    // `withdraw()` triggers underneath, including the vault's burn of the
+    // adapter's dfTokens, exactly like a live network would. Guards
+    // `authorize_as_current_contract()` above against silently regressing
+    // into a shape that only passes under the mocked test harness.
+    #[test]
+    fn withdraw_authorization_tree_matches_the_real_defindex_call_shape() {
+        let (env, admin, vault, usdc_id, adapter, _dfx) = setup_without_mock_auths();
+
+        let mint_amount = 10_000_000_000_i128;
+        env.mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &usdc_id,
+                fn_name: "mint",
+                args: (vault.clone(), mint_amount).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        StellarAssetClient::new(&env, &usdc_id).mint(&vault, &mint_amount);
+
+        let amount = 100_0000000_i128;
+
+        env.mock_auths(&[MockAuth {
+            address: &vault,
+            invoke: &MockAuthInvoke {
+                contract: &usdc_id,
+                fn_name: "transfer",
+                args: (vault.clone(), adapter.address.clone(), amount).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+
+        env.mock_auths(&[MockAuth {
+            address: &vault,
+            invoke: &MockAuthInvoke {
+                contract: &adapter.address,
+                fn_name: "deposit",
+                args: (amount,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        adapter.deposit(&amount);
+
+        let recipient = Address::generate(&env);
+        env.mock_auths(&[MockAuth {
+            address: &vault,
+            invoke: &MockAuthInvoke {
+                contract: &adapter.address,
+                fn_name: "withdraw",
+                args: (amount, recipient.clone()).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        let usdc_out = adapter.withdraw(&amount, &recipient);
+
+        assert_eq!(usdc_out, amount);
+        assert_eq!(TokenClient::new(&env, &usdc_id).balance(&recipient), amount);
     }
 
     #[test]
