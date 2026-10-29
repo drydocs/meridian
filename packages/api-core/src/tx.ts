@@ -16,6 +16,7 @@ import {
   assertRequiredTrustlines,
   MissingTrustlineError,
 } from "@meridian/stellar-sdk-helpers";
+import { trackPositionHistoryUser } from "./position-tracking";
 import type { RouteResult } from "./types";
 
 /**
@@ -88,6 +89,7 @@ export async function handleDepositRequest(
       APP_NETWORK,
       min_shares_out
     );
+    await trackPositionHistoryUser(walletAddress);
     return { status: 200, body: result };
   } catch (err) {
     if (err instanceof MissingTrustlineError) {
@@ -115,6 +117,7 @@ export async function handleWithdrawRequest(
       APP_NETWORK,
       min_usdc_out
     );
+    await trackPositionHistoryUser(walletAddress);
     return { status: 200, body: result };
   } catch (err) {
     if (err instanceof MissingTrustlineError) {

@@ -14,6 +14,10 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
   assertRequiredTrustlines: vi.fn(async () => undefined),
 }));
 
+vi.mock("./position-tracking", () => ({
+  trackPositionHistoryUser: vi.fn(async () => undefined),
+}));
+
 import {
   handleDepositRequest,
   handleWithdrawRequest,
@@ -29,6 +33,7 @@ import {
   assertRequiredTrustlines,
   MissingTrustlineError,
 } from "@meridian/stellar-sdk-helpers";
+import { trackPositionHistoryUser } from "./position-tracking";
 
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
@@ -166,6 +171,7 @@ describe("handleDepositRequest", () => {
       expect.anything(),
       "0"
     );
+    expect(trackPositionHistoryUser).toHaveBeenCalledWith(PUBKEY);
   });
 
   it("passes min_shares_out when provided in deposit request", async () => {
@@ -198,6 +204,7 @@ describe("handleDepositRequest", () => {
     expect(result.status).toBe(500);
     expect(result.body).toEqual({ error: "USDC trustline missing" });
     expect(result.error).toBe(err);
+    expect(trackPositionHistoryUser).not.toHaveBeenCalled();
   });
 });
 
@@ -227,6 +234,7 @@ describe("handleWithdrawRequest", () => {
       expect.anything(),
       "0"
     );
+    expect(trackPositionHistoryUser).toHaveBeenCalledWith(PUBKEY);
   });
 
   it("forwards an explicit min_usdc_out to buildWithdrawTx", async () => {
@@ -258,6 +266,7 @@ describe("handleWithdrawRequest", () => {
       error: "Failed to build withdraw transaction",
     });
     expect(result.error).toBe(err);
+    expect(trackPositionHistoryUser).not.toHaveBeenCalled();
   });
 });
 
