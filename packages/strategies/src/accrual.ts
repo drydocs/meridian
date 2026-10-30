@@ -64,7 +64,13 @@ export interface CashInterestAccrual {
    * credits idle cash and a negative rate charges it; either way the amount
    * is proportional to the cash balance the tick opened with.
    */
-  readonly ratePerSecond: FixedPointDecimal;
+  readonly ratePerSecond?: FixedPointDecimal;
+  /**
+   * Signed annualized rate earned on the portfolio's cash (e.g. 0.0525 for 5.25%).
+   * Accrued against YEAR_MILLISECONDS to preserve precision without per-second
+   * integer truncation.
+   */
+  readonly annualRate?: FixedPointDecimal;
 }
 
 export interface AccruePortfolioTickInput {
@@ -180,13 +186,22 @@ export function accruePortfolioTick(
   // funding loops; those settle into the same cash only after this accrual.
   if (input.cashInterest !== undefined) {
     const key = "cash";
-    const accrued = accrue(
-      portfolio.cash.toStroops(),
-      input.cashInterest.ratePerSecond.toStroops(),
-      elapsed,
-      MILLISECONDS_PER_SECOND,
-      portfolio.accrualRemainders[key] ?? 0n
-    );
+    const accrued =
+      input.cashInterest.annualRate !== undefined
+        ? accrue(
+            portfolio.cash.toStroops(),
+            input.cashInterest.annualRate.toStroops(),
+            elapsed,
+            YEAR_MILLISECONDS,
+            portfolio.accrualRemainders[key] ?? 0n
+          )
+        : accrue(
+            portfolio.cash.toStroops(),
+            input.cashInterest.ratePerSecond!.toStroops(),
+            elapsed,
+            MILLISECONDS_PER_SECOND,
+            portfolio.accrualRemainders[key] ?? 0n
+          );
     remainders[key] = accrued.remainder;
 
     if (accrued.amount !== 0n) {

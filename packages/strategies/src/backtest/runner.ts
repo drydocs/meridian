@@ -41,6 +41,11 @@ export interface AccrualConfig {
   /** Rate earned on idle cash. */
   readonly cashRatePerSecond?: FixedPointDecimal;
   /**
+   * Annualized rate earned on idle cash (e.g. 0.0525 for 5.25% APY).
+   * Accrues against a 365-day year to avoid fractional stroop truncation.
+   */
+  readonly cashRateAnnual?: FixedPointDecimal;
+  /**
    * Funding on each open position's marked notional, signed per #864: a
    * positive rate is paid by longs and received by shorts.
    */
@@ -333,7 +338,11 @@ function fundingPositions(
 function cashInterest(
   accrual: AccrualConfig | undefined
 ): CashInterestAccrual | undefined {
-  const rate = accrual?.cashRatePerSecond;
+  if (accrual === undefined) return undefined;
+  if (accrual.cashRateAnnual !== undefined) {
+    return { annualRate: accrual.cashRateAnnual };
+  }
+  const rate = accrual.cashRatePerSecond;
   if (rate === undefined) return undefined;
   return { ratePerSecond: rate };
 }

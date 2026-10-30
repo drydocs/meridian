@@ -48,3 +48,5 @@ export * from "./registry";
 export * from "./composition/capital-allocation";
 export * from "./composition/correlation-matrix";
 export * from "./composition/constraint-engine";
+
+export * from "./scenario-sources";
