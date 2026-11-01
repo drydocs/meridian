@@ -590,4 +590,30 @@ describe("useVaultActions — fresh vault state slippage", () => {
       message: "Vault state unavailable",
     });
   });
+
+  it("aborts deposit and surfaces an error when the trustline check fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 }))
+    );
+    const { result } = renderHook(() => useVaultActions());
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.deposit(
+        "10",
+        "blend-usdc-fixed",
+        "USDC",
+        "5",
+        true
+      );
+    });
+
+    expect(ok).toBe(false);
+    expect(api.buildDeposit).not.toHaveBeenCalled();
+    expect(useToastStore.getState().toasts[0]).toMatchObject({
+      kind: "error",
+      message: "Unable to check wallet trustlines",
+    });
+  });
 });

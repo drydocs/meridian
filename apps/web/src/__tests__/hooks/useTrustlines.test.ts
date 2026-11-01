@@ -128,6 +128,28 @@ describe("useTrustlines", () => {
     expect(result).toBe(false);
   });
 
+  it("throws when Horizon cannot read the account", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 }))
+    );
+    await expect(hasRequiredTrustlines(KEY, "testnet")).rejects.toThrow(
+      "Unable to check wallet trustlines"
+    );
+  });
+
+  it("throws when Horizon fetch fails with a network error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("Network request failed");
+      })
+    );
+    await expect(hasRequiredTrustlines(KEY, "testnet")).rejects.toThrow(
+      "Unable to check wallet trustlines"
+    );
+  });
+
   it("establishes a missing trustline via addTrustline", async () => {
     const { result } = renderHook(() => useTrustlines());
 
