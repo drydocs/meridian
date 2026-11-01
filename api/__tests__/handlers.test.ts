@@ -14,6 +14,13 @@ vi.mock("../_lib/middleware.js", async () => {
   };
 });
 
+// The route tests cover HTTP dispatch and response handling. Authentication
+// itself is covered by packages/api-core/src/admin-auth.test.ts; keep these
+// tests independent of session-secret and on-chain-admin state.
+vi.mock("../../packages/api-core/dist/admin-auth.js", () => ({
+  verifyAdmin: vi.fn(async () => null),
+}));
+
 // Stub the workspace builders/readers — these tests exercise the HTTP handler
 // contract (method guards, field validation, status codes, payload shape), not
 // the Soroban transaction building, which is unit-tested in the helpers package.
