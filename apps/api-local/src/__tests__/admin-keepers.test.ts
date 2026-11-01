@@ -12,9 +12,11 @@ vi.mock("@meridian/api-core", () => ({
 }));
 
 import {
+  createAdminChallenge,
   handleGetAdminHistory,
   handleGetVaultState,
   handleGetKeeperHealth,
+  verifyAdminChallenge,
 } from "@meridian/api-core";
 
 function buildApp() {
@@ -123,9 +125,134 @@ describe("GET /api/v1/admin/vault-state", () => {
       const post = await app.inject({ method: "POST", url });
       expect(post.statusCode).toBe(405);
       expect(post.headers.allow).toBe("GET");
+      for (const method of ["PUT", "PATCH", "DELETE"] as const) {
+        const res = await app.inject({ method, url });
+        expect(res.statusCode).toBe(405);
+        expect(res.headers.allow).toBe("GET");
+      }
     }
     expect(handleGetVaultState).not.toHaveBeenCalled();
     expect(handleGetAdminHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/v1/admin/challenge", () => {
+  it("requires a wallet address", async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/challenge",
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "address is required" });
+    expect(createAdminChallenge).not.toHaveBeenCalled();
+  });
+
+  it("returns the challenge result and logs failures", async () => {
+    const app = buildApp();
+    const logError = vi.spyOn(app.log, "error");
+    const err = new Error("challenge store unavailable");
+    vi.mocked(createAdminChallenge).mockResolvedValue({
+      status: 503,
+      body: { error: "Admin authentication unavailable" },
+      error: err,
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/challenge",
+      payload: { address: "GADMIN" },
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toEqual({ error: "Admin authentication unavailable" });
+    expect(createAdminChallenge).toHaveBeenCalledWith("GADMIN");
+    expect(logError).toHaveBeenCalledWith(
+      err,
+      "[admin] challenge creation failed"
+    );
+  });
+
+  it("returns a successful challenge without logging", async () => {
+    const app = buildApp();
+    const logError = vi.spyOn(app.log, "error");
+    vi.mocked(createAdminChallenge).mockResolvedValue({
+      status: 200,
+      body: { challenge: "challenge", expiresAt: 123 },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/challenge",
+      payload: { address: "GADMIN" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ challenge: "challenge", expiresAt: 123 });
+    expect(logError).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/v1/admin/verify", () => {
+  it("requires all signed-proof fields", async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/verify",
+      payload: { address: "GADMIN" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({
+      error: "address, challenge and signature are required",
+    });
+    expect(verifyAdminChallenge).not.toHaveBeenCalled();
+  });
+
+  it("returns the verification result and logs failures", async () => {
+    const app = buildApp();
+    const logError = vi.spyOn(app.log, "error");
+    const err = new Error("invalid signature");
+    vi.mocked(verifyAdminChallenge).mockResolvedValue({
+      status: 401,
+      body: { error: "Invalid admin proof" },
+      error: err,
+    });
+
+    const proof = {
+      address: "GADMIN",
+      challenge: "challenge",
+      signature: "signature",
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/verify",
+      payload: proof,
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual({ error: "Invalid admin proof" });
+    expect(verifyAdminChallenge).toHaveBeenCalledWith(proof);
+    expect(logError).toHaveBeenCalledWith(err, "[admin] verify failed");
+  });
+
+  it("returns a successful verification without logging", async () => {
+    const app = buildApp();
+    const logError = vi.spyOn(app.log, "error");
+    vi.mocked(verifyAdminChallenge).mockResolvedValue({
+      status: 200,
+      body: { token: "session-token", expiresAt: 123 },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/verify",
+      payload: {
+        address: "GADMIN",
+        challenge: "challenge",
+        signature: "signature",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ token: "session-token", expiresAt: 123 });
+    expect(logError).not.toHaveBeenCalled();
   });
 });
 
