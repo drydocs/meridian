@@ -102,6 +102,28 @@ describe("useBlendFaucet", () => {
     expect(result).toBe(false);
   });
 
+  it("throws when Horizon cannot read the account", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 }))
+    );
+    await expect(hasBlendUsdcBalance(KEY, "testnet")).rejects.toThrow(
+      "Unable to check USDC balance"
+    );
+  });
+
+  it("throws when Horizon fetch fails with a network error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("Network request failed");
+      })
+    );
+    await expect(hasBlendUsdcBalance(KEY, "testnet")).rejects.toThrow(
+      "Unable to check USDC balance"
+    );
+  });
+
   it("signs a faucet transaction that credits the caller's own address", async () => {
     const legitimate = faucetTextResponse(
       Operation.payment({

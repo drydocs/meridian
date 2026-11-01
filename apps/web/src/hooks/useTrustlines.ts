@@ -20,7 +20,7 @@ export async function hasRequiredTrustlines(
   const musdcIssuer = MUSDC_ISSUER[network];
   try {
     const account = await fetchBalances(publicKey, network);
-    if (!account) return true;
+    if (!account) throw new Error("Unable to check wallet trustlines");
     const hasTrustline = (code: string, issuer: string) =>
       account.balances.some(
         (b) => b.asset_code === code && b.asset_issuer === issuer
@@ -29,7 +29,7 @@ export async function hasRequiredTrustlines(
     const hasMusdc = !musdcIssuer || hasTrustline("MUSDC", musdcIssuer);
     return hasUsdc && hasMusdc;
   } catch {
-    return true;
+    throw new Error("Unable to check wallet trustlines");
   }
 }
 

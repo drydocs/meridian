@@ -21,7 +21,7 @@ export async function hasBlendUsdcBalance(
   if (!issuer) return true;
   try {
     const account = await fetchBalances(publicKey, network);
-    if (!account) return true;
+    if (!account) throw new Error("Unable to check USDC balance");
     return account.balances.some(
       (b) =>
         b.asset_code === "USDC" &&
@@ -29,7 +29,7 @@ export async function hasBlendUsdcBalance(
         parseFloat(b.balance) > 0
     );
   } catch {
-    return true;
+    throw new Error("Unable to check USDC balance");
   }
 }
 

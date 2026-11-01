@@ -47,7 +47,7 @@ test.describe("deposit", () => {
     await expect(
       page.getByText(
         new RegExp(
-          `User declined access|Simulation failed|Missing USDC trustline|${USER_FIXABLE_TX_ERRORS}`
+          `User declined access|Simulation failed|Missing USDC trustline|Unable to check wallet trustlines|${USER_FIXABLE_TX_ERRORS}`
         )
       )
     ).toBeVisible({ timeout: 25_000 });
