@@ -120,7 +120,7 @@ describe("scenario-sources resolver (#1025)", () => {
     expect(resolved.prices).toBeDefined();
     expect(resolved.accrual).toBeDefined();
     expect(resolved.accrual?.cashRateAnnual).toBeDefined();
-    expect(resolved.accrual?.cashRatePerSecond).toBeDefined();
+    expect(resolved.accrual?.cashRatePerSecond).toBeUndefined();
     // Blend and DeFindex are lending/vault rate sources that accrue cash interest,
     // not perpetual funding rates, so fundingRate is omitted.
     expect(resolved.accrual?.fundingRate).toBeUndefined();
@@ -483,12 +483,12 @@ describe("scenario-sources resolver (#1025)", () => {
   });
 
   it("does not perform network calls at module load time", async () => {
+    vi.resetModules?.();
     const originalFetch = globalThis.fetch;
     const fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy;
     try {
-      // Dynamic import with cache buster forces fresh module graph load
-      const mod = await import(`./scenario-sources?loadTest=${Date.now()}`);
+      const mod = await import("./scenario-sources");
       expect(mod.resolveScenarioSources).toBeDefined();
       expect(mod.MissingSourceDataError).toBeDefined();
       expect(fetchSpy).not.toHaveBeenCalled();

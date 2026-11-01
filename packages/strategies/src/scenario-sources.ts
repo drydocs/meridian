@@ -21,7 +21,6 @@ import {
   type LoadedStream,
 } from "./historical-loader";
 import type { AccrualConfig } from "./backtest/runner";
-import { YEAR_MILLISECONDS } from "./accrual";
 import type { DefiLlamaPool } from "@meridian/stellar-sdk-helpers";
 
 /**
@@ -95,18 +94,6 @@ export interface ResolveScenarioSourcesOptions {
    * Whether the returned BacktestPriceFeed requires exact timestamp hits (strict mode).
    */
   readonly strict?: boolean;
-}
-
-const SECONDS_PER_YEAR = YEAR_MILLISECONDS / 1000n; // 31,536,000
-
-/**
- * Converts an annualized rate (e.g. 0.0525 for 5.25%) into a per-second rate as FixedPointDecimal.
- */
-function annualizedRateToPerSecond(
-  annualRate: FixedPointDecimal
-): FixedPointDecimal {
-  const stroopsPerSecond = annualRate.toStroops() / SECONDS_PER_YEAR;
-  return FixedPointDecimal.fromStroops(stroopsPerSecond);
 }
 
 /**
@@ -234,10 +221,8 @@ export async function resolveScenarioSources(
 
   // If rate data was found from historical series, configure accrual without touching pool network
   if (ratePointDecimal) {
-    const perSecondRate = annualizedRateToPerSecond(ratePointDecimal);
     accrualConfig = {
       cashRateAnnual: ratePointDecimal,
-      cashRatePerSecond: perSecondRate,
     };
   } else {
     // Check DeFiLlama pool APY if available
@@ -262,10 +247,8 @@ export async function resolveScenarioSources(
     if (pool && typeof pool.apy === "number") {
       const annualFraction = (pool.apy / 100).toFixed(7);
       const annualDecimal = FixedPointDecimal.fromString(annualFraction);
-      const perSecondRate = annualizedRateToPerSecond(annualDecimal);
       accrualConfig = {
         cashRateAnnual: annualDecimal,
-        cashRatePerSecond: perSecondRate,
       };
     }
   }
