@@ -23,18 +23,29 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
   };
 });
 
+// Stub admin-auth so these tests are isolated to the handler contract and do
+// not exercise the challenge/verify flow (which has its own test file).
+vi.mock("./admin-auth", () => ({
+  verifyAdmin: vi.fn(async () => null),
+}));
+
 import { STELLAR_NETWORKS } from "@meridian/shared";
 import {
   getAdminActionHistory,
   KNOWN_POOLS,
 } from "@meridian/stellar-sdk-helpers";
 import { handleGetAdminHistory } from "./admin-history";
+import { verifyAdmin } from "./admin-auth";
 
 function useNetwork(name: "mainnet" | "testnet") {
   Object.assign(appNetwork, STELLAR_NETWORKS[name]);
 }
 
 const MAINNET_BLEND_KEY = "ecf788e3-d2ef-4fdd-9ece-8a2d96226ddf";
+
+// A placeholder authorization value — verifyAdmin is stubbed to always pass,
+// so the actual token content does not matter here.
+const AUTH = "Bearer test-token";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -43,7 +54,7 @@ beforeEach(() => {
 
 describe("handleGetAdminHistory vault resolution", () => {
   it("resolves meridian-usdc from the mainnet map on mainnet", async () => {
-    const result = await handleGetAdminHistory("meridian-usdc");
+    const result = await handleGetAdminHistory("meridian-usdc", AUTH);
 
     expect(result.status).toBe(200);
     expect(getAdminActionHistory).toHaveBeenCalledWith(
@@ -58,7 +69,7 @@ describe("handleGetAdminHistory vault resolution", () => {
     // testnet contract unreachable.
     useNetwork("testnet");
 
-    const result = await handleGetAdminHistory("meridian-usdc");
+    const result = await handleGetAdminHistory("meridian-usdc", AUTH);
 
     const testnetContract = KNOWN_POOLS.testnet["meridian-usdc"]!.contractId;
     expect(testnetContract).not.toBe(
@@ -78,7 +89,7 @@ describe("handleGetAdminHistory vault resolution", () => {
   it("does not fall back to a mainnet-only vault on testnet", async () => {
     useNetwork("testnet");
 
-    const result = await handleGetAdminHistory(MAINNET_BLEND_KEY);
+    const result = await handleGetAdminHistory(MAINNET_BLEND_KEY, AUTH);
 
     expect(result.status).toBe(404);
     expect(getAdminActionHistory).not.toHaveBeenCalled();
@@ -88,7 +99,7 @@ describe("handleGetAdminHistory vault resolution", () => {
     const original = KNOWN_POOLS.testnet["meridian-usdc"]!;
     KNOWN_POOLS.testnet["testnet-only"] = { ...original, id: "testnet-only" };
     try {
-      const result = await handleGetAdminHistory("testnet-only");
+      const result = await handleGetAdminHistory("testnet-only", AUTH);
 
       expect(result.status).toBe(404);
       expect(getAdminActionHistory).not.toHaveBeenCalled();
@@ -98,9 +109,23 @@ describe("handleGetAdminHistory vault resolution", () => {
   });
 });
 
+describe("handleGetAdminHistory authorization", () => {
+  it("returns the auth error before reading action history", async () => {
+    vi.mocked(verifyAdmin).mockResolvedValueOnce({
+      status: 401,
+      body: { error: "Admin authentication required" },
+    });
+
+    const result = await handleGetAdminHistory("meridian-usdc", AUTH);
+
+    expect(result.status).toBe(401);
+    expect(getAdminActionHistory).not.toHaveBeenCalled();
+  });
+});
+
 describe("handleGetAdminHistory upstream bounds", () => {
   it("caps pages and sets a time budget on the Horizon scan", async () => {
-    await handleGetAdminHistory("meridian-usdc");
+    await handleGetAdminHistory("meridian-usdc", AUTH);
 
     expect(getAdminActionHistory).toHaveBeenCalledTimes(1);
     const [, , options] = vi.mocked(getAdminActionHistory).mock.calls[0]!;
@@ -111,7 +136,7 @@ describe("handleGetAdminHistory upstream bounds", () => {
     const timeout = new DOMException("signal timed out", "TimeoutError");
     vi.mocked(getAdminActionHistory).mockRejectedValueOnce(timeout);
 
-    const result = await handleGetAdminHistory("meridian-usdc");
+    const result = await handleGetAdminHistory("meridian-usdc", AUTH);
 
     expect(result.status).toBe(500);
     expect(result.error).toBe(timeout);

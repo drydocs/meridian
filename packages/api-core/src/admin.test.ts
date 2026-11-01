@@ -17,12 +17,20 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
   };
 });
 
+// Stub admin-auth so these tests are isolated to the handler contract and do
+// not exercise the challenge/verify flow (which has its own test file).
+vi.mock("./admin-auth", () => ({
+  verifyAdmin: vi.fn(async () => null),
+}));
+
 import { handleGetKeeperHealth, handleGetVaultState } from "./admin";
+import { APP_NETWORK } from "@meridian/shared";
 import {
   fetchCoordinatorState,
   getKeeperHeartbeat,
   KNOWN_POOLS,
 } from "@meridian/stellar-sdk-helpers";
+import { verifyAdmin } from "./admin-auth";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -73,8 +81,19 @@ describe("handleGetKeeperHealth", () => {
 });
 
 describe("handleGetVaultState", () => {
-  it("returns the coordinator vault's state for the configured network", async () => {
-    const result = await handleGetVaultState();
+  it("resolves the coordinator vault from the alternate network map", async () => {
+    const originalNetwork = APP_NETWORK.network;
+    APP_NETWORK.network = originalNetwork === "testnet" ? "mainnet" : "testnet";
+    try {
+      const result = await handleGetVaultState("Bearer valid-token");
+      expect(result.status).toBe(200);
+    } finally {
+      APP_NETWORK.network = originalNetwork;
+    }
+  });
+
+  it("returns the coordinator vault state for an authorized caller", async () => {
+    const result = await handleGetVaultState("Bearer valid-token");
     expect(result.status).toBe(200);
     expect(result.body).toEqual({
       protocol: "blend",
@@ -83,39 +102,74 @@ describe("handleGetVaultState", () => {
       totalAssets: 1050,
       paused: false,
     });
+    expect(verifyAdmin).toHaveBeenCalledWith(
+      expect.any(String),
+      "Bearer valid-token"
+    );
+  });
+
+  it("returns the auth error when verifyAdmin rejects the caller", async () => {
+    vi.mocked(verifyAdmin).mockResolvedValueOnce({
+      status: 401,
+      body: { error: "Admin authentication required" },
+    });
+    const result = await handleGetVaultState(undefined);
+    expect(result.status).toBe(401);
+    expect(fetchCoordinatorState).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 when the caller is no longer the current admin", async () => {
+    vi.mocked(verifyAdmin).mockResolvedValueOnce({
+      status: 403,
+      body: { error: "Admin access required" },
+    });
+    const result = await handleGetVaultState("Bearer stale-token");
+    expect(result.status).toBe(403);
+    expect(fetchCoordinatorState).not.toHaveBeenCalled();
   });
 
   it("returns 503 when the on-chain read fails", async () => {
     const err = new Error("rpc unavailable");
     vi.mocked(fetchCoordinatorState).mockRejectedValueOnce(err);
-    const result = await handleGetVaultState();
+    const result = await handleGetVaultState("Bearer valid-token");
     expect(result.status).toBe(503);
     expect(result.error).toBe(err);
   });
 
   it("returns 404 when no Meridian coordinator vault is configured for this network", async () => {
     // No mocking hook exists for "no configured vault" today, so simulate it
-    // directly: temporarily strip the one field handleGetVaultState's find()
-    // requires (a "meridian" protocol entry with a contractId) and restore
-    // it after, so this test doesn't leak state into any other test.
-    // Targets mainnet, not testnet: APP_NETWORK defaults to mainnet (the
-    // live deployment) unless STELLAR_NETWORK=testnet is set at import
-    // time, which it isn't in this test run.
-    const entry = Object.values(KNOWN_POOLS.mainnet).find(
-      (p) => p.protocol === "meridian"
-    );
-    if (!entry) throw new Error("expected a mainnet meridian pool to exist");
-    const originalContractId = entry.contractId;
-    delete entry.contractId;
+    // directly: temporarily remove all Meridian entries from the mainnet pool
+    // map so the handler's find() returns undefined and triggers the 404 path.
+    // Removing the key (not just mutating a property) bypasses the Vitest ESM
+    // module isolation issue where property mutations on spread objects are not
+    // visible across module boundaries.
+    //
+    // Targets mainnet: APP_NETWORK defaults to mainnet (the live deployment)
+    // unless STELLAR_NETWORK=testnet is set at import time, which it isn't.
+    const pools = KNOWN_POOLS.mainnet;
+    const removed: Record<string, (typeof pools)[string]> = {};
+    for (const [key, val] of Object.entries(pools)) {
+      if (val.protocol === "meridian") {
+        removed[key] = val;
+        delete pools[key];
+      }
+    }
+    if (Object.keys(removed).length === 0) {
+      throw new Error("expected at least one mainnet meridian pool to exist");
+    }
 
     try {
-      const result = await handleGetVaultState();
+      const result = await handleGetVaultState("Bearer valid-token");
       expect(result.status).toBe(404);
       expect(result.body).toEqual({
         error: "No Meridian coordinator vault configured for this network",
       });
+      // verifyAdmin is never reached when vault lookup fails.
+      expect(verifyAdmin).not.toHaveBeenCalled();
     } finally {
-      entry.contractId = originalContractId!;
+      for (const [key, val] of Object.entries(removed)) {
+        pools[key] = val;
+      }
     }
   });
 });
