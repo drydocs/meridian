@@ -7,6 +7,8 @@ vi.mock("@meridian/api-core", () => ({
   handleGetAdminHistory: vi.fn(),
   handleGetVaultState: vi.fn(),
   handleGetKeeperHealth: vi.fn(),
+  createAdminChallenge: vi.fn(),
+  verifyAdminChallenge: vi.fn(),
 }));
 
 import {
@@ -142,7 +144,12 @@ describe("GET /api/v1/admin/history", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ vaultId: "meridian-usdc", actions });
-    expect(handleGetAdminHistory).toHaveBeenCalledWith("meridian-usdc");
+    // The handler is called with the vaultId and the authorization header
+    // (undefined when no Authorization header is present in the request).
+    expect(handleGetAdminHistory).toHaveBeenCalledWith(
+      "meridian-usdc",
+      undefined
+    );
   });
 
   it("returns 400 without calling the handler when vaultId is missing", async () => {
