@@ -23,7 +23,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
 // not exercise the challenge/verify flow (which has its own test file).
 // handleGetAdminHistory imports verifyAdmin from "./admin-auth" inside the
 // api-core package; mocking by the package-relative path intercepts the binding.
-vi.mock("../packages/api-core/src/admin-auth", () => ({
+vi.mock("../../packages/api-core/dist/admin-auth.js", () => ({
   verifyAdmin: vi.fn(async () => null),
 }));
 
@@ -55,4 +55,3 @@ describe("handleGetAdminHistory", () => {
     expect(body.actions[0]!.type).toBe("set_paused");
   });
 });
-
