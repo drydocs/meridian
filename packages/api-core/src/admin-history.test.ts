@@ -35,6 +35,7 @@ import {
   KNOWN_POOLS,
 } from "@meridian/stellar-sdk-helpers";
 import { handleGetAdminHistory } from "./admin-history";
+import { verifyAdmin } from "./admin-auth";
 
 function useNetwork(name: "mainnet" | "testnet") {
   Object.assign(appNetwork, STELLAR_NETWORKS[name]);
@@ -105,6 +106,20 @@ describe("handleGetAdminHistory vault resolution", () => {
     } finally {
       delete KNOWN_POOLS.testnet["testnet-only"];
     }
+  });
+});
+
+describe("handleGetAdminHistory authorization", () => {
+  it("returns the auth error before reading action history", async () => {
+    vi.mocked(verifyAdmin).mockResolvedValueOnce({
+      status: 401,
+      body: { error: "Admin authentication required" },
+    });
+
+    const result = await handleGetAdminHistory("meridian-usdc", AUTH);
+
+    expect(result.status).toBe(401);
+    expect(getAdminActionHistory).not.toHaveBeenCalled();
   });
 });
 

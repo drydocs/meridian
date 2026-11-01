@@ -24,6 +24,7 @@ vi.mock("./admin-auth", () => ({
 }));
 
 import { handleGetKeeperHealth, handleGetVaultState } from "./admin";
+import { APP_NETWORK } from "@meridian/shared";
 import {
   fetchCoordinatorState,
   getKeeperHeartbeat,
@@ -80,6 +81,17 @@ describe("handleGetKeeperHealth", () => {
 });
 
 describe("handleGetVaultState", () => {
+  it("resolves the coordinator vault from the alternate network map", async () => {
+    const originalNetwork = APP_NETWORK.network;
+    APP_NETWORK.network = originalNetwork === "testnet" ? "mainnet" : "testnet";
+    try {
+      const result = await handleGetVaultState("Bearer valid-token");
+      expect(result.status).toBe(200);
+    } finally {
+      APP_NETWORK.network = originalNetwork;
+    }
+  });
+
   it("returns the coordinator vault state for an authorized caller", async () => {
     const result = await handleGetVaultState("Bearer valid-token");
     expect(result.status).toBe(200);

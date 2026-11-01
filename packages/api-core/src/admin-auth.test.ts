@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createHmac } from "node:crypto";
 import { Keypair } from "@stellar/stellar-sdk";
 
 // ---------------------------------------------------------------------------
@@ -92,7 +93,21 @@ afterEach(() => {
   delete process.env.MERIDIAN_ADMIN_SESSION_SECRET;
   delete process.env.MERIDIAN_VAULT_CONTRACT_ID;
   delete process.env.VERCEL_ENV;
+  delete process.env.UPSTASH_REDIS_REST_URL;
+  delete process.env.UPSTASH_REDIS_REST_TOKEN;
+  vi.unstubAllGlobals();
 });
+
+function signedAuthorization(payload: string): string {
+  const encoded = Buffer.from(payload, "utf8").toString("base64url");
+  const signature = createHmac(
+    "sha256",
+    process.env.MERIDIAN_ADMIN_SESSION_SECRET!
+  )
+    .update(encoded)
+    .digest("base64url");
+  return `Bearer ${encoded}.${signature}`;
+}
 
 // ---------------------------------------------------------------------------
 // createAdminChallenge
@@ -129,6 +144,51 @@ describe("createAdminChallenge", () => {
     expect((result.body as { error: string }).error).toBe(
       "Admin authentication unavailable"
     );
+  });
+
+  it("uses Redis when a shared challenge store is configured", async () => {
+    process.env.UPSTASH_REDIS_REST_URL = "https://redis.example.com";
+    process.env.UPSTASH_REDIS_REST_TOKEN = "redis-token";
+    const commands: unknown[][] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const command = JSON.parse(String(init.body)) as unknown[];
+        commands.push(command);
+        const result =
+          command[0] === "GETDEL"
+            ? JSON.stringify({
+                address: ADMIN_ADDRESS,
+                challenge: JSON.parse(String(commands[0]![2])).challenge,
+                expiresAt: Math.floor(Date.now() / 1000) + 60,
+              })
+            : "OK";
+        return { ok: true, json: async () => ({ result }) } as Response;
+      })
+    );
+
+    const result = await createAdminChallenge(ADMIN_ADDRESS);
+    const challenge = (result.body as { challenge: string }).challenge;
+    const verified = await verifyAdminChallenge({
+      address: ADMIN_ADDRESS,
+      challenge,
+      signature: signChallenge(challenge),
+    });
+    expect(result.status).toBe(200);
+    expect(verified.status).toBe(200);
+    expect(commands.map((command) => command[0])).toEqual(["SET", "GETDEL"]);
+  });
+
+  it("returns 503 when Redis rejects a challenge write", async () => {
+    process.env.UPSTASH_REDIS_REST_URL = "https://redis.example.com";
+    process.env.UPSTASH_REDIS_REST_TOKEN = "redis-token";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false }) as Response)
+    );
+
+    const result = await createAdminChallenge(ADMIN_ADDRESS);
+    expect(result.status).toBe(503);
   });
 });
 
@@ -211,6 +271,40 @@ describe("verifyAdminChallenge", () => {
     expect(result.status).toBe(401);
   });
 
+  it("returns 401 for a challenge without a nonce", async () => {
+    const result = await verifyAdminChallenge({
+      address: ADMIN_ADDRESS,
+      challenge: "meridian-admin-v1",
+      signature: "signature",
+    });
+    expect(result.status).toBe(401);
+  });
+
+  it("returns 401 when the decoded signature is not 64 bytes", async () => {
+    const challengeResult = await createAdminChallenge(ADMIN_ADDRESS);
+    const { challenge } = challengeResult.body as { challenge: string };
+    const result = await verifyAdminChallenge({
+      address: ADMIN_ADDRESS,
+      challenge,
+      signature: Buffer.from("short").toString("base64"),
+    });
+    expect(result.status).toBe(401);
+  });
+
+  it("returns 401 when the admin lookup fails during verification", async () => {
+    const challengeResult = await createAdminChallenge(ADMIN_ADDRESS);
+    const { challenge } = challengeResult.body as { challenge: string };
+    const error = new Error("RPC unavailable");
+    vi.mocked(fetchVaultAdmin).mockRejectedValueOnce(error);
+    const result = await verifyAdminChallenge({
+      address: ADMIN_ADDRESS,
+      challenge,
+      signature: signChallenge(challenge),
+    });
+    expect(result.status).toBe(401);
+    expect(result.error).toBe(error);
+  });
+
   it("returns 403 when the wallet is not the current vault admin", async () => {
     const notAdmin = Keypair.random();
     vi.mocked(fetchVaultAdmin).mockResolvedValueOnce(ADMIN_ADDRESS);
@@ -274,6 +368,37 @@ describe("verifyAdmin", () => {
     const tampered =
       payload!.slice(0, -1) + (payload!.endsWith("A") ? "B" : "A");
     const result = await verifyAdmin(CONTRACT_ID, `Bearer ${tampered}.${sig}`);
+    expect(result?.status).toBe(401);
+  });
+
+  it("accepts a valid token without the Bearer prefix", async () => {
+    const authorization = await buildValidToken();
+    const result = await verifyAdmin(CONTRACT_ID, authorization.slice(7));
+    expect(result).toBeNull();
+  });
+
+  it("rejects an expired token", async () => {
+    const authorization = signedAuthorization(
+      JSON.stringify({ sub: ADMIN_ADDRESS, exp: 1 })
+    );
+    const result = await verifyAdmin(CONTRACT_ID, authorization);
+    expect(result?.status).toBe(401);
+  });
+
+  it("rejects a token whose signed payload is not JSON", async () => {
+    const result = await verifyAdmin(CONTRACT_ID, signedAuthorization("nope"));
+    expect(result?.status).toBe(401);
+  });
+
+  it.each([
+    JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 60 }),
+    JSON.stringify({ sub: ADMIN_ADDRESS }),
+    JSON.stringify({
+      sub: "not-a-stellar-address",
+      exp: Math.floor(Date.now() / 1000) + 60,
+    }),
+  ])("rejects an invalid session payload: %s", async (payload) => {
+    const result = await verifyAdmin(CONTRACT_ID, signedAuthorization(payload));
     expect(result?.status).toBe(401);
   });
 
