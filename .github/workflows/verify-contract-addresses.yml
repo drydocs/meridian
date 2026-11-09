@@ -56,7 +56,7 @@ jobs:
       - name: No verification changes
         if: github.event_name == 'pull_request' && steps.changes.outputs.verification == 'false'
         run: echo "No contract address or verification changes; verification is not needed."
-      - uses: pnpm/action-setup@v6.1.0
+      - uses: pnpm/action-setup@v6.1.1
         if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.verification == 'true'
       - uses: actions/setup-node@v7
         if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.verification == 'true'
