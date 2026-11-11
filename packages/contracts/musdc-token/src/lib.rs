@@ -28,6 +28,25 @@ const NAME: Symbol = symbol_short!("NAME");
 const SYMBOL: Symbol = symbol_short!("SYMBOL");
 const TOTAL_SUP: Symbol = symbol_short!("TOTAL_SUP");
 
+// ---------------------------------------------------------------------------
+// TTL constants — instance window matches `adapter-common` (30d bump / 29d
+// threshold) and persistent balance window matches `MeridianVault`'s
+// `POSITION_BUMP` / `POSITION_THRESHOLD` (120d bump / 113d threshold) so a
+// holder's mUSDC share balance never archives before the vault position
+// records (`Entry`/`Principal`) it backs (#1037).
+// ---------------------------------------------------------------------------
+
+/// Approximate number of ledgers in a 24-hour period (at ~5 s/ledger).
+pub const DAY_IN_LEDGERS: u32 = 17_280;
+/// Instance TTL extension amount: 30 days in ledgers.
+pub const INSTANCE_BUMP: u32 = 30 * DAY_IN_LEDGERS;
+/// Extend instance TTL when remaining lifetime drops below 29 days.
+pub const INSTANCE_THRESHOLD: u32 = INSTANCE_BUMP - DAY_IN_LEDGERS;
+/// Persistent balance TTL extension amount: 120 days in ledgers.
+pub const BALANCE_BUMP: u32 = 120 * DAY_IN_LEDGERS;
+/// Extend persistent balance TTL when remaining lifetime drops below 113 days.
+pub const BALANCE_THRESHOLD: u32 = BALANCE_BUMP - 7 * DAY_IN_LEDGERS;
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -140,6 +159,7 @@ impl MusdcToken {
         env.storage().instance().set(&NAME, &name);
         env.storage().instance().set(&SYMBOL, &symbol);
         env.storage().instance().set(&TOTAL_SUP, &0_i128);
+        Self::extend_instance_ttl(env);
     }
 
     /// Admin-only (the vault). Mints new shares — called from
@@ -155,6 +175,7 @@ impl MusdcToken {
         if let Err(err) = Self::require_admin(&env) {
             panic_with_error!(&env, err);
         }
+        Self::extend_instance_ttl(&env);
         if amount <= 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
         }
@@ -176,19 +197,51 @@ impl MusdcToken {
     }
 
     pub fn total_supply(env: Env) -> i128 {
+        Self::extend_instance_ttl(&env);
         env.storage().instance().get(&TOTAL_SUP).unwrap_or(0)
     }
 
     pub fn admin(env: Env) -> Result<Address, ContractError> {
-        env.storage()
+        let admin = env
+            .storage()
             .instance()
             .get(&ADMIN)
-            .ok_or(ContractError::NotInitialized)
+            .ok_or(ContractError::NotInitialized)?;
+        Self::extend_instance_ttl(&env);
+        Ok(admin)
+    }
+
+    /// Permissionless TTL refresh for keepers and holders (#1037), mirroring
+    /// `MeridianVault::extend_position_ttl`. Always extends the token's own
+    /// instance storage, and when `holder` is `Some(addr)` with an existing
+    /// balance entry, extends that persistent `Balance(addr)` record as well.
+    /// Supplying an address that has never held mUSDC is a safe no-op on
+    /// persistent storage rather than trapping on a non-existent key.
+    pub fn extend_ttl(env: Env, holder: Option<Address>) {
+        Self::extend_instance_ttl(&env);
+        if let Some(addr) = holder {
+            Self::extend_balance_ttl(&env, &addr);
+        }
     }
 
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    fn extend_instance_ttl(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+    }
+
+    fn extend_balance_ttl(env: &Env, id: &Address) {
+        let key = DataKey::Balance(id.clone());
+        if env.storage().persistent().has(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, BALANCE_THRESHOLD, BALANCE_BUMP);
+        }
+    }
 
     fn require_admin(env: &Env) -> Result<(), ContractError> {
         let admin: Address = env
@@ -201,16 +254,28 @@ impl MusdcToken {
     }
 
     fn read_balance(env: &Env, id: &Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Balance(id.clone()))
-            .unwrap_or(0)
+        let key = DataKey::Balance(id.clone());
+        if let Some(balance) = env.storage().persistent().get::<_, i128>(&key) {
+            // Only extend when the persistent entry actually exists (mirrors
+            // the native SAC): calling `extend_ttl` on a missing key traps in
+            // `soroban-env-host`, which would break SEP-41's `0` default for
+            // never-funded addresses and trap the first mint/transfer to a
+            // fresh recipient.
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, BALANCE_THRESHOLD, BALANCE_BUMP);
+            balance
+        } else {
+            0
+        }
     }
 
     fn write_balance(env: &Env, id: &Address, amount: i128) {
+        let key = DataKey::Balance(id.clone());
+        env.storage().persistent().set(&key, &amount);
         env.storage()
             .persistent()
-            .set(&DataKey::Balance(id.clone()), &amount);
+            .extend_ttl(&key, BALANCE_THRESHOLD, BALANCE_BUMP);
     }
 
     fn read_allowance(env: &Env, from: &Address, spender: &Address) -> AllowanceValue {
@@ -242,6 +307,15 @@ impl MusdcToken {
                 expiration_ledger,
             },
         );
+        if amount > 0 {
+            if let Some(live_for) = expiration_ledger.checked_sub(env.ledger().sequence()) {
+                if live_for > 0 {
+                    env.storage()
+                        .temporary()
+                        .extend_ttl(&key, live_for, live_for);
+                }
+            }
+        }
     }
 
     fn spend_allowance(env: &Env, from: &Address, spender: &Address, amount: i128) {
@@ -323,11 +397,13 @@ impl MusdcToken {
 #[contractimpl]
 impl TokenInterface for MusdcToken {
     fn allowance(env: Env, from: Address, spender: Address) -> i128 {
+        Self::extend_instance_ttl(&env);
         Self::read_allowance(&env, &from, &spender).amount
     }
 
     fn approve(env: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
         from.require_auth();
+        Self::extend_instance_ttl(&env);
         if amount < 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
         }
@@ -345,16 +421,19 @@ impl TokenInterface for MusdcToken {
     }
 
     fn balance(env: Env, id: Address) -> i128 {
+        Self::extend_instance_ttl(&env);
         Self::read_balance(&env, &id)
     }
 
     fn transfer(env: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
+        Self::extend_instance_ttl(&env);
         Self::do_transfer(&env, &from, &to, amount);
     }
 
     fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
         spender.require_auth();
+        Self::extend_instance_ttl(&env);
         if amount <= 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
         }
@@ -364,6 +443,7 @@ impl TokenInterface for MusdcToken {
 
     fn burn(env: Env, from: Address, amount: i128) {
         from.require_auth();
+        Self::extend_instance_ttl(&env);
         if amount <= 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
         }
@@ -387,6 +467,7 @@ impl TokenInterface for MusdcToken {
 
     fn burn_from(env: Env, spender: Address, from: Address, amount: i128) {
         spender.require_auth();
+        Self::extend_instance_ttl(&env);
         if amount <= 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
         }
@@ -410,10 +491,12 @@ impl TokenInterface for MusdcToken {
     }
 
     fn decimals(env: Env) -> u32 {
+        Self::extend_instance_ttl(&env);
         env.storage().instance().get(&DECIMALS).unwrap_or(7)
     }
 
     fn name(env: Env) -> String {
+        Self::extend_instance_ttl(&env);
         env.storage()
             .instance()
             .get(&NAME)
@@ -421,6 +504,7 @@ impl TokenInterface for MusdcToken {
     }
 
     fn symbol(env: Env) -> String {
+        Self::extend_instance_ttl(&env);
         env.storage()
             .instance()
             .get(&SYMBOL)
@@ -437,7 +521,10 @@ mod tests {
     use super::*;
     use soroban_sdk::{
         contract, contractimpl,
-        testutils::{Address as _, Events as _, Ledger as _},
+        testutils::{
+            storage::{Instance as _, Persistent as _, Temporary as _},
+            Address as _, Events as _, Ledger as _,
+        },
         vec, Env, IntoVal,
     };
 
@@ -531,9 +618,10 @@ mod tests {
 
     #[test]
     fn initialize_sets_metadata() {
-        let (_env, _vault, _token_id, token) = setup();
+        let (_env, vault_id, _token_id, token) = setup();
         assert_eq!(token.decimals(), 7);
         assert_eq!(token.total_supply(), 0);
+        assert_eq!(token.admin(), vault_id);
     }
 
     #[test]
@@ -817,5 +905,298 @@ mod tests {
         let (env, _vault, _token_id, token) = setup();
         assert_eq!(token.name(), String::from_str(&env, "Meridian USDC"));
         assert_eq!(token.symbol(), String::from_str(&env, "mUSDC"));
+    }
+
+    // -----------------------------------------------------------------------
+    // TTL management (#1037)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn balance_for_never_funded_address_returns_zero_without_trapping() {
+        let (env, _vault, token_id, token) = setup();
+        let stranger = Address::generate(&env);
+
+        assert_eq!(token.balance(&stranger), 0);
+        env.as_contract(&token_id, || {
+            assert!(!env.storage().persistent().has(&DataKey::Balance(stranger)));
+        });
+    }
+
+    #[test]
+    fn constructor_and_entrypoints_extend_instance_ttl() {
+        let (env, _vault, token_id, token) = setup();
+        let instance_ttl = env.as_contract(&token_id, || env.storage().instance().get_ttl());
+        assert_eq!(instance_ttl, INSTANCE_BUMP);
+
+        // Advance 20 days so remaining instance TTL drops below
+        // INSTANCE_THRESHOLD (29 days); any entry point must bump it back to
+        // INSTANCE_BUMP (30 days).
+        env.ledger()
+            .with_mut(|li| li.sequence_number += 20 * DAY_IN_LEDGERS);
+        assert!(
+            env.as_contract(&token_id, || env.storage().instance().get_ttl()) < INSTANCE_THRESHOLD
+        );
+
+        let _ = token.decimals();
+        assert_eq!(
+            env.as_contract(&token_id, || env.storage().instance().get_ttl()),
+            INSTANCE_BUMP
+        );
+
+        env.ledger()
+            .with_mut(|li| li.sequence_number += 20 * DAY_IN_LEDGERS);
+        let _ = token.total_supply();
+        assert_eq!(
+            env.as_contract(&token_id, || env.storage().instance().get_ttl()),
+            INSTANCE_BUMP
+        );
+
+        env.ledger()
+            .with_mut(|li| li.sequence_number += 20 * DAY_IN_LEDGERS);
+        let _ = token.admin();
+        assert_eq!(
+            env.as_contract(&token_id, || env.storage().instance().get_ttl()),
+            INSTANCE_BUMP
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn unbumped_persistent_balance_entry_traps_once_archived() {
+        let (env, _vault, token_id, token) = setup();
+        let unbumped_holder = Address::generate(&env);
+
+        // Simulate the pre-#1037 behavior: write a persistent balance entry
+        // directly without calling `extend_ttl`, then advance past the default
+        // persistent lifetime while keeping the token instance itself alive.
+        env.as_contract(&token_id, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Balance(unbumped_holder.clone()), &100_i128);
+        });
+        for _ in 0..4 {
+            env.ledger()
+                .with_mut(|li| li.sequence_number += 25 * DAY_IN_LEDGERS);
+            token.extend_ttl(&None);
+        }
+
+        // Reading the archived persistent key traps in `soroban-env-host`.
+        let _ = token.balance(&unbumped_holder);
+    }
+
+    #[test]
+    fn balance_entries_extend_on_write_and_read_and_survive_past_initial_ttl() {
+        let (env, vault_id, token_id, token) = setup();
+        let alice = Address::generate(&env);
+        let bob = Address::generate(&env);
+
+        token.mint(&alice, &250);
+        let alice_ttl = env.as_contract(&token_id, || {
+            env.storage()
+                .persistent()
+                .get_ttl(&DataKey::Balance(alice.clone()))
+        });
+        assert_eq!(alice_ttl, BALANCE_BUMP);
+
+        // Bump MockVault's test instance before the first 25-day jump (Soroban's
+        // default test min_persistent_entry_ttl is 4,096 ledgers) and keep only
+        // contract instances alive across 100 days so Alice's balance relies
+        // solely on `mint`'s 120-day bump.
+        env.as_contract(&vault_id, || {
+            env.storage()
+                .instance()
+                .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+        });
+        for _ in 0..4 {
+            env.ledger()
+                .with_mut(|li| li.sequence_number += 25 * DAY_IN_LEDGERS);
+            token.extend_ttl(&None);
+            env.as_contract(&vault_id, || {
+                env.storage()
+                    .instance()
+                    .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+            });
+        }
+
+        // After 100 days (20 days remaining < BALANCE_THRESHOLD = 113 days),
+        // reading `balance(&alice)` refreshes her persistent entry back to the
+        // full 120-day window.
+        assert_eq!(token.balance(&alice), 250);
+        let refreshed_ttl = env.as_contract(&token_id, || {
+            env.storage()
+                .persistent()
+                .get_ttl(&DataKey::Balance(alice.clone()))
+        });
+        assert_eq!(refreshed_ttl, BALANCE_BUMP);
+
+        // Advance another 100 days (200 days total since mint!) and verify
+        // Alice can still transfer and burn without trapping.
+        for _ in 0..4 {
+            env.ledger()
+                .with_mut(|li| li.sequence_number += 25 * DAY_IN_LEDGERS);
+            token.extend_ttl(&None);
+            env.as_contract(&vault_id, || {
+                env.storage()
+                    .instance()
+                    .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+            });
+        }
+        token.transfer(&alice, &bob, &100);
+        token.burn(&alice, &50);
+        assert_eq!(token.balance(&alice), 100);
+        assert_eq!(token.balance(&bob), 100);
+    }
+
+    #[test]
+    fn extend_ttl_is_permissionless_and_guards_missing_holder_entries() {
+        let (env, _vault, token_id, token) = setup();
+        let alice = Address::generate(&env);
+        let never_funded = Address::generate(&env);
+        token.mint(&alice, &500);
+
+        // Advance 20 days so both instance TTL and Alice's balance TTL fall
+        // below their respective thresholds (29d and 113d).
+        env.ledger()
+            .with_mut(|li| li.sequence_number += 20 * DAY_IN_LEDGERS);
+
+        // Clear all mocked authorizations to prove `extend_ttl` requires zero
+        // signatures from admin or holder.
+        env.mock_auths(&[]);
+
+        // 1) Keeper call for an unknown address: bumps instance TTL and safely
+        //    skips persistent storage instead of trapping.
+        token.extend_ttl(&Some(never_funded.clone()));
+        assert_eq!(
+            env.as_contract(&token_id, || env.storage().instance().get_ttl()),
+            INSTANCE_BUMP
+        );
+        assert!(!env.as_contract(&token_id, || {
+            env.storage()
+                .persistent()
+                .has(&DataKey::Balance(never_funded))
+        }));
+
+        // Alice's balance TTL was untouched by the unknown-holder call (still
+        // 100 days < BALANCE_THRESHOLD = 113 days), and is now refreshed to
+        // 120 days when her address is passed.
+        assert_eq!(
+            env.as_contract(&token_id, || {
+                env.storage()
+                    .persistent()
+                    .get_ttl(&DataKey::Balance(alice.clone()))
+            }),
+            BALANCE_BUMP - 20 * DAY_IN_LEDGERS
+        );
+        token.extend_ttl(&Some(alice.clone()));
+        assert_eq!(
+            env.as_contract(&token_id, || {
+                env.storage()
+                    .persistent()
+                    .get_ttl(&DataKey::Balance(alice.clone()))
+            }),
+            BALANCE_BUMP
+        );
+    }
+
+    #[test]
+    fn approve_extends_temporary_allowance_ttl_and_supports_zero_revoke() {
+        let (env, _vault, token_id, token) = setup();
+        let alice = Address::generate(&env);
+        let spender = Address::generate(&env);
+        token.mint(&alice, &100);
+
+        let expiration = env.ledger().sequence() + 2 * DAY_IN_LEDGERS;
+        token.approve(&alice, &spender, &80, &expiration);
+
+        let ttl = env.as_contract(&token_id, || {
+            env.storage()
+                .temporary()
+                .get_ttl(&DataKey::Allowance(alice.clone(), spender.clone()))
+        });
+        assert_eq!(ttl, 2 * DAY_IN_LEDGERS);
+
+        // Advance 1 day (past Soroban's default minimum temporary TTL) — the
+        // allowance remains live and spendable, then revoking with 0 clears it.
+        env.ledger()
+            .with_mut(|li| li.sequence_number += DAY_IN_LEDGERS);
+        assert_eq!(token.allowance(&alice, &spender), 80);
+
+        token.approve(&alice, &spender, &0, &0);
+        assert_eq!(token.allowance(&alice, &spender), 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn approve_rejects_negative_amount() {
+        let (env, _vault, _token_id, token) = setup();
+        let alice = Address::generate(&env);
+        let spender = Address::generate(&env);
+        token.approve(&alice, &spender, &-1, &100);
+    }
+
+    #[test]
+    #[should_panic]
+    fn approve_rejects_past_expiration_for_positive_amount() {
+        let (env, _vault, _token_id, token) = setup();
+        let alice = Address::generate(&env);
+        let spender = Address::generate(&env);
+        env.ledger().with_mut(|li| li.sequence_number = 50);
+        token.approve(&alice, &spender, &10, &49);
+    }
+
+    #[test]
+    #[should_panic]
+    fn burn_rejects_non_positive_amount() {
+        let (env, _vault, _token_id, token) = setup();
+        let alice = Address::generate(&env);
+        token.burn(&alice, &0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn burn_rejects_insufficient_balance() {
+        let (env, _vault, _token_id, token) = setup();
+        let alice = Address::generate(&env);
+        token.mint(&alice, &10);
+        token.burn(&alice, &11);
+    }
+
+    #[test]
+    #[should_panic]
+    fn burn_from_rejects_non_positive_amount() {
+        let (env, _vault, _token_id, token) = setup();
+        let alice = Address::generate(&env);
+        let spender = Address::generate(&env);
+        token.burn_from(&spender, &alice, &0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn burn_from_rejects_insufficient_balance() {
+        let (env, _vault, _token_id, token) = setup();
+        let alice = Address::generate(&env);
+        let spender = Address::generate(&env);
+        token.mint(&alice, &10);
+        token.approve(&alice, &spender, &20, &1000);
+        token.burn_from(&spender, &alice, &15);
+    }
+
+    #[test]
+    #[should_panic]
+    fn transfer_rejects_non_positive_amount() {
+        let (env, _vault, _token_id, token) = setup();
+        let alice = Address::generate(&env);
+        let bob = Address::generate(&env);
+        token.transfer(&alice, &bob, &0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn transfer_from_rejects_non_positive_amount() {
+        let (env, _vault, _token_id, token) = setup();
+        let alice = Address::generate(&env);
+        let bob = Address::generate(&env);
+        let spender = Address::generate(&env);
+        token.transfer_from(&spender, &alice, &bob, &0);
     }
 }
