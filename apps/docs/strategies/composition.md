@@ -296,3 +296,15 @@ The composed backtest separates positions cleanly under `usdc-reserve` and
 the largest-remainder allocator guarantees zero cash dust during capital allocation,
 while snapshot tracking attributes asset equity and return trajectories to each
 member independently.
+
+## 6. Executable example & CLI
+
+For a minimal standalone `Strategy<TConfig>` implementation paired with a
+validated `Scenario` and deterministic CLI runner, see
+[`packages/strategies/examples/threshold-rebalance-strategy.ts`](https://github.com/drydocs/meridian/blob/main/packages/strategies/examples/threshold-rebalance-strategy.ts),
+[`packages/strategies/examples/scenario.json`](https://github.com/drydocs/meridian/blob/main/packages/strategies/examples/scenario.json),
+and [`packages/strategies/scripts/run-example.ts`](https://github.com/drydocs/meridian/blob/main/packages/strategies/scripts/run-example.ts):
+
+```bash
+pnpm --filter @meridian/strategies example
+```

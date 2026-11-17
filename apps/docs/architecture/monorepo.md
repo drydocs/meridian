@@ -76,6 +76,8 @@ meridian/
 │   │       └── utils.ts          # Pure utility functions
 │   │
 │   ├── strategies/               # Strategy simulation engine (@meridian/strategies)
+│   │   ├── examples/             # Runnable custom strategy & deterministic scenario
+│   │   ├── scripts/              # CLI entry point (run-example.ts)
 │   │   └── src/
 │   │       ├── decimal.ts        # Fixed-point Decimal math
 │   │       ├── guard.ts          # Simulation boundary guard
@@ -112,3 +114,5 @@ test  → depends on ^build
 ```
 
 Run any task across all packages with `pnpm <task>` (e.g. `pnpm typecheck`, `pnpm test`). Run for a single package with `pnpm --filter @meridian/<package> <task>`.
+
+To execute the standalone deterministic strategy example (`packages/strategies/examples/` and `packages/strategies/scripts/run-example.ts`) end-to-end without live network calls, run `pnpm --filter @meridian/strategies example`.

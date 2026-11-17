@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "window": {
+    "start": "2024-01-01T00:00:00Z",
+    "end": "2024-01-02T00:00:00Z",
+    "step": "PT1H"
+  },
+  "assets": ["XLM"],
+  "source": {
+    "price": "horizon",
+    "rate": "blend"
+  },
+  "startingCapital": "1000",
+  "strategy": {
+    "id": "threshold-rebalance",
+    "version": "1.0.0",
+    "params": {
+      "asset": "XLM",
+      "targetWeight": "0.5",
+      "driftBps": "100",
+      "market.startPrice": "0.20",
+      "market.drift": "0.002",
+      "market.volatility": "0.015"
+    }
+  },
+  "seed": "example-1262"
+}

@@ -55,6 +55,16 @@ To regenerate it after an intentional change, run
 before committing. The suite refuses to regenerate under `CI`, so a stale
 fixture can never be blessed by a pipeline run.
 
+## Runnable example
+
+`examples/threshold-rebalance-strategy.ts` and `examples/scenario.json` provide
+a minimal custom `Strategy<TConfig>` and matching deterministic scenario driven
+by `scripts/run-example.ts`:
+
+```bash
+pnpm --filter @meridian/strategies example
+```
+
 ## Installation
 
 ```bash

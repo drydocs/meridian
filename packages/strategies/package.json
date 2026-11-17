@@ -23,9 +23,10 @@
   ],
   "scripts": {
     "build": "tsc",
+    "example": "tsx scripts/run-example.ts",
     "test": "vitest run --passWithNoTests",
     "coverage": "vitest run --coverage --passWithNoTests",
-    "lint": "eslint src",
+    "lint": "eslint src examples scripts",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {

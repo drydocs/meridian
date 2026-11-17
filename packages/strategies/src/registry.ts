@@ -48,7 +48,7 @@ export interface StrategyDefinition<
   ): ResolvedStrategy<TConfig>;
 }
 
-function defineStrategy<TConfig>(
+export function defineStrategy<TConfig>(
   spec: StrategyDefinitionSpec<TConfig>
 ): StrategyDefinition<TConfig> {
   return {

@@ -21,6 +21,7 @@ jobs:
       test: ${{ steps.filter.outputs.test }}
       e2e: ${{ steps.filter.outputs.e2e }}
       contracts: ${{ steps.filter.outputs.contracts }}
+      strategies: ${{ steps.filter.outputs.strategies }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -63,6 +64,12 @@ jobs:
               - "scripts/deploy-*.sh"
               - "scripts/redeploy-*.sh"
               - "scripts/lib/**"
+              - "!**/*.md"
+            strategies:
+              - *workspace
+              - "packages/shared/**"
+              - "packages/stellar-sdk-helpers/**"
+              - "packages/strategies/**"
               - "!**/*.md"
 
   lint-typecheck:
@@ -121,6 +128,19 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm coverage
+      - name: Run strategies example smoke check
+        if: needs.changes.outputs.strategies == 'true'
+        run: |
+          pnpm --filter @meridian/strategies... build
+          output="$(pnpm --silent --filter @meridian/strategies example)"
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -Eq '^strategy: [a-z0-9-]+@[0-9]+\.[0-9]+\.[0-9]+$'
+          printf '%s\n' "$output" | grep -Eq '^window: .+ \(.+\)$'
+          printf '%s\n' "$output" | grep -Eq '^ticks: [1-9][0-9]*$'
+          printf '%s\n' "$output" | grep -Eq '^initialCash: [0-9]+(\.[0-9]{1,7})?$'
+          printf '%s\n' "$output" | grep -Eq '^finalValue: [0-9]+(\.[0-9]{1,7})?$'
+          printf '%s\n' "$output" | grep -Eq '^pnl: -?[0-9]+(\.[0-9]{1,7})?$'
+          printf '%s\n' "$output" | grep -Eq '^totalFees: [0-9]+(\.[0-9]{1,7})?$'
 
   commitlint:
     name: Commit Messages
