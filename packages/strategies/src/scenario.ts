@@ -1,12 +1,24 @@
 import { z } from "zod";
+import type { ExecutionConfig } from "./backtest/runner";
+import type { CostSchedule } from "./costs";
+import { ZERO_COSTS } from "./costs";
+import { FixedPointDecimal } from "./types";
 
 /**
  * Validated, declarative description of a backtest scenario.
  *
  * A scenario is the *single* input a run is reproduced from: given the same
- * scenario, the same window/assets/sources/capital/strategy config, a run is
- * deterministic. Nothing here is a live lookup or an ambient default — every
+ * scenario, the same window/assets/sources/capital/costs/strategy config, a run
+ * is deterministic. Nothing here is a live lookup or an ambient default — every
  * value that could change the outcome is written down explicitly.
+ *
+ * Schema migration (v1 -> v2):
+ * - Version 1 had no top-level `costs` field and ran with {@link ZERO_COSTS}.
+ * - Version 2 adds the optional `costs` block (`swapFeeRate`, `networkFee`).
+ * - Version 1 inputs without `costs` continue to parse so existing scenarios
+ *   and saved reports remain readable and evaluate with {@link ZERO_COSTS}. To
+ *   migrate a v1 scenario to v2, bump `schemaVersion` to `2` (or omit it) and
+ *   declare `costs` when non-zero fees apply.
  *
  * Money and rate fields are fixed-point decimal *strings*, never JS `number`
  * (see #856). A `number` is IEEE-754 binary floating point: `0.1 + 0.2` is not
@@ -22,8 +34,11 @@ import { z } from "zod";
  * @meridian/strategies test` works without first building `@meridian/shared`.
  */
 
-/** Schema revision. Bump when the shape changes in a breaking way. */
-export const SCENARIO_SCHEMA_VERSION = 1;
+/**
+ * Schema revision. Bumped from 1 to 2 when adding the optional `costs` block;
+ * version 1 scenarios without `costs` still parse and default to `ZERO_COSTS`.
+ */
+export const SCENARIO_SCHEMA_VERSION = 2;
 
 /**
  * Fractional digits allowed in monetary/rate fields. Matches the vault's
@@ -246,14 +261,32 @@ export const StrategyConfigSchema = z
   .strict();
 
 /**
+ * Optional per-scenario fee and gas schedule. Both rates are non-negative
+ * fixed-point decimal strings with at most {@link SCENARIO_DECIMAL_PLACES}
+ * fractional digits; omitting `costs` on a scenario means {@link ZERO_COSTS}.
+ */
+export const CostScheduleSchema = z
+  .object({
+    swapFeeRate: nonNegativeDecimal("costs.swapFeeRate"),
+    networkFee: nonNegativeDecimal("costs.networkFee"),
+  })
+  .strict();
+
+/**
  * The full scenario schema. `.strict()` at every level means an unknown key is
  * a validation error rather than a silently dropped value, so the scenario
  * really is the only input that determines a run.
+ *
+ * Version 1 scenarios (no `costs` block) remain accepted for backwards
+ * compatibility and evaluate with {@link ZERO_COSTS}; declaring `costs`
+ * requires `schemaVersion` 2 (the default when omitted).
  */
 export const ScenarioSchema = z
   .object({
     schemaVersion: z
-      .literal(SCENARIO_SCHEMA_VERSION)
+      .union([z.literal(1), z.literal(SCENARIO_SCHEMA_VERSION)], {
+        message: `schemaVersion must be 1 or ${SCENARIO_SCHEMA_VERSION}`,
+      })
       .default(SCENARIO_SCHEMA_VERSION),
     window: ScenarioWindowSchema,
     assets: ScenarioAssetsSchema,
@@ -262,15 +295,54 @@ export const ScenarioSchema = z
       (value) => !ZERO.test(value),
       { message: "startingCapital must be greater than zero" }
     ),
+    costs: CostScheduleSchema.optional(),
     strategy: StrategyConfigSchema,
     seed: z.string().min(1, {
       message: "seed must be a non-empty string so the run is reproducible",
     }),
   })
-  .strict();
+  .strict()
+  .superRefine((scenario, ctx) => {
+    if (scenario.schemaVersion === 1 && scenario.costs !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["costs"],
+        message: `costs requires schemaVersion ${SCENARIO_SCHEMA_VERSION}`,
+      });
+    }
+  });
 
 /** A fully validated, fully typed scenario. */
 export type Scenario = z.infer<typeof ScenarioSchema>;
+
+/**
+ * Converts a scenario's optional `costs` block into a {@link CostSchedule},
+ * defaulting to {@link ZERO_COSTS} when `costs` is omitted (including version 1
+ * scenarios).
+ */
+export function scenarioCostSchedule(scenario: Scenario): CostSchedule {
+  if (scenario.costs === undefined) {
+    return ZERO_COSTS;
+  }
+  return {
+    swapFeeRate: FixedPointDecimal.fromString(scenario.costs.swapFeeRate),
+    networkFee: FixedPointDecimal.fromString(scenario.costs.networkFee),
+  };
+}
+
+/**
+ * Builds an {@link ExecutionConfig} from a scenario's cost schedule while
+ * preserving explicit programmatic overrides when supplied.
+ */
+export function scenarioExecutionConfig(
+  scenario: Scenario,
+  overrides: ExecutionConfig = {}
+): ExecutionConfig {
+  return {
+    ...overrides,
+    costSchedule: overrides.costSchedule ?? scenarioCostSchedule(scenario),
+  };
+}
 
 /**
  * Thrown by {@link parseScenario} when the input is not a valid scenario. The

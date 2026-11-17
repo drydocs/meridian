@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { runBacktest, serializeSnapshots } from "./backtest";
-import type { BacktestResult } from "./backtest";
-import { DeltaNeutralStrategy } from "./delta-neutral";
-import type { DeltaNeutralConfig } from "./delta-neutral";
+import { serializeSnapshots } from "./backtest";
 import {
   MARKET_REGIMES,
   buildRegimeScenario,
-  scenarioClock,
-  scenarioDeltaNeutralConfig,
+  runRegimeScenario,
   scenarioPriceFeed,
 } from "./regime-scenarios";
-import type { MarketRegime, RegimeScenarioOptions } from "./regime-scenarios";
+import type {
+  MarketRegime,
+  RegimeScenarioOptions,
+  ScenarioRunResult,
+} from "./regime-scenarios";
 import { FixedPointDecimal } from "./types";
 
 /**
@@ -24,32 +24,13 @@ import { FixedPointDecimal } from "./types";
  * does not move with it.
  */
 
-interface RegimeRun {
-  readonly strategy: DeltaNeutralStrategy;
-  readonly result: BacktestResult;
-  readonly config: DeltaNeutralConfig;
-}
+type RegimeRun = ScenarioRunResult;
 
 function runRegime(
   regime: MarketRegime,
   options: RegimeScenarioOptions = {}
 ): RegimeRun {
-  const scenario = buildRegimeScenario(regime, options);
-  const clock = scenarioClock(scenario);
-  const prices = scenarioPriceFeed(scenario);
-  const config = scenarioDeltaNeutralConfig(scenario, prices);
-  const strategy = new DeltaNeutralStrategy();
-
-  const result = runBacktest({
-    clock,
-    assets: [config.asset],
-    prices,
-    strategy,
-    strategyConfig: config,
-    initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
-  });
-
-  return { strategy, result, config };
+  return runRegimeScenario(buildRegimeScenario(regime, options));
 }
 
 function abs(value: bigint): bigint {
@@ -207,6 +188,47 @@ describe("delta-neutral scenario backtests", () => {
     expect(strategy.fundingPnl.toStroops()).toBeGreaterThan(0n);
     expect(strategy.totalPnl.toStroops()).not.toBe(
       result.finalValue.toStroops() - result.initialCash.toStroops()
+    );
+  });
+
+  it("changes finalValue and totalFees when scenario declares swapFeeRate or networkFee (#1249)", () => {
+    const baseline = runRegime("trending", { targetLeverage: "1" });
+    const withSwapFee = runRegime("trending", {
+      targetLeverage: "1",
+      costs: { swapFeeRate: "0.003", networkFee: "0" },
+    });
+    const withNetworkFee = runRegime("trending", {
+      targetLeverage: "1",
+      costs: { swapFeeRate: "0", networkFee: "2.5" },
+    });
+
+    expect(baseline.result.totalFees.toStroops()).toBe(0n);
+    expect(withSwapFee.result.totalFees.toStroops()).toBeGreaterThan(0n);
+    expect(withNetworkFee.result.totalFees.toStroops()).toBeGreaterThan(0n);
+
+    expect(withSwapFee.result.finalValue.toStroops()).toBeLessThan(
+      baseline.result.finalValue.toStroops()
+    );
+    expect(withNetworkFee.result.finalValue.toStroops()).toBeLessThan(
+      baseline.result.finalValue.toStroops()
+    );
+  });
+
+  it("keeps programmatic ExecutionConfig overrides working on runRegimeScenario (#1249)", () => {
+    const scenario = buildRegimeScenario("trending", {
+      targetLeverage: "1",
+      costs: { swapFeeRate: "0", networkFee: "0" },
+    });
+    const programmatic = runRegimeScenario(scenario, {
+      costSchedule: {
+        swapFeeRate: FixedPointDecimal.fromString("0.005"),
+        networkFee: FixedPointDecimal.fromString("1"),
+      },
+    });
+
+    expect(programmatic.result.totalFees.toStroops()).toBeGreaterThan(0n);
+    expect(programmatic.result.finalValue.toStroops()).toBeLessThan(
+      runRegimeScenario(scenario).result.finalValue.toStroops()
     );
   });
 });

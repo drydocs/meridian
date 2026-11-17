@@ -1,6 +1,7 @@
 import {
   durationToMilliseconds,
   parseScenario,
+  scenarioCostSchedule,
   toIsoInstant,
 } from "./scenario";
 import type { Scenario } from "./scenario";
@@ -167,6 +168,7 @@ function copyScenario(scenario: Scenario): Scenario {
     assets: [...scenario.assets],
     source: { ...scenario.source },
     startingCapital: scenario.startingCapital,
+    ...(scenario.costs === undefined ? {} : { costs: { ...scenario.costs } }),
     strategy: { ...scenario.strategy, params: { ...scenario.strategy.params } },
     seed: scenario.seed,
   };
@@ -401,6 +403,20 @@ function runConfigMismatch(
     return "strategy.params";
   }
   if (!sameAssets(base.assets, continuation.assets)) return "assets";
+  const baseCosts = scenarioCostSchedule(base);
+  const continuationCosts = scenarioCostSchedule(continuation);
+  if (
+    baseCosts.swapFeeRate.toStroops() !==
+    continuationCosts.swapFeeRate.toStroops()
+  ) {
+    return "costs.swapFeeRate";
+  }
+  if (
+    baseCosts.networkFee.toStroops() !==
+    continuationCosts.networkFee.toStroops()
+  ) {
+    return "costs.networkFee";
+  }
   if (
     durationToMilliseconds(base.window.step) !==
     durationToMilliseconds(continuation.window.step)

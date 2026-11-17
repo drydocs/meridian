@@ -1,4 +1,7 @@
 import { SimulationClock } from "./clock";
+import { runBacktest } from "./backtest";
+import type { BacktestResult, ExecutionConfig } from "./backtest";
+import { DeltaNeutralStrategy } from "./delta-neutral";
 import type { DeltaNeutralConfig } from "./delta-neutral";
 import { BacktestPriceFeed } from "./feeds";
 import { generateGbmPath } from "./gbm";
@@ -6,6 +9,7 @@ import {
   durationToMilliseconds,
   millisecondsToDuration,
   parseScenario,
+  scenarioExecutionConfig,
   toIsoInstant,
 } from "./scenario";
 import type { Scenario } from "./scenario";
@@ -101,6 +105,8 @@ export interface RegimeScenarioOptions {
   readonly targetLeverage?: string;
   /** Overrides the regime's own generated market parameters. */
   readonly market?: Partial<RegimeParameters>;
+  /** Optional per-scenario fee and gas schedule (#1249). */
+  readonly costs?: Scenario["costs"];
 }
 
 /**
@@ -140,6 +146,7 @@ export function buildRegimeScenario(
     assets: [options.asset ?? DEFAULT_REGIME_ASSET],
     source: { price: "horizon", rate: "blend" },
     startingCapital: options.capital ?? DEFAULT_REGIME_CAPITAL,
+    ...(options.costs === undefined ? {} : { costs: options.costs }),
     strategy: {
       id: "delta-neutral",
       version: "1",
@@ -245,4 +252,35 @@ export function scenarioDeltaNeutralConfig(
     fundingRate: scenarioFundingRate(scenario),
     priceFeed: prices,
   };
+}
+
+export interface ScenarioRunResult {
+  readonly strategy: DeltaNeutralStrategy;
+  readonly result: BacktestResult;
+  readonly config: DeltaNeutralConfig;
+}
+
+/**
+ * Executes a regime scenario end-to-end through `runBacktest`, threading the
+ * scenario's parsed `costs` schedule into `execution.costSchedule` unless an
+ * explicit programmatic `execution` override is supplied.
+ */
+export function runRegimeScenario(
+  scenario: Scenario,
+  execution?: ExecutionConfig
+): ScenarioRunResult {
+  const clock = scenarioClock(scenario);
+  const prices = scenarioPriceFeed(scenario);
+  const config = scenarioDeltaNeutralConfig(scenario, prices);
+  const strategy = new DeltaNeutralStrategy();
+  const result = runBacktest({
+    clock,
+    assets: [config.asset],
+    prices,
+    strategy,
+    strategyConfig: config,
+    initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
+    execution: scenarioExecutionConfig(scenario, execution),
+  });
+  return { strategy, result, config };
 }

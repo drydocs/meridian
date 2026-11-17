@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { ZERO_COSTS } from "./costs";
+import { FixedBpsSlippageModel } from "./slippage-model";
 import {
+  CostScheduleSchema,
   SCENARIO_SCHEMA_VERSION,
   PRICE_SOURCES,
   RATE_SOURCES,
@@ -8,6 +11,8 @@ import {
   formatScenarioError,
   parseScenario,
   safeParseScenario,
+  scenarioCostSchedule,
+  scenarioExecutionConfig,
 } from "./scenario";
 import type { Scenario } from "./scenario";
 
@@ -385,5 +390,142 @@ describe("formatScenarioError", () => {
     expect(result.success).toBe(false);
     if (result.success) throw new Error("expected parse to fail");
     expect(formatScenarioError(result.error)).toContain("(root)");
+  });
+});
+
+describe("CostScheduleSchema and scenario v1 -> v2 migration (#1249)", () => {
+  it("sets SCENARIO_SCHEMA_VERSION to 2", () => {
+    expect(SCENARIO_SCHEMA_VERSION).toBe(2);
+  });
+
+  it("parses costs.swapFeeRate and costs.networkFee as fixed-point decimal strings", () => {
+    const scenario = parseScenario({
+      ...VALID_INPUT,
+      costs: {
+        swapFeeRate: "0.003",
+        networkFee: "0.0000100",
+      },
+    });
+
+    expect(scenario.schemaVersion).toBe(2);
+    expect(scenario.costs).toEqual({
+      swapFeeRate: "0.003",
+      networkFee: "0.0000100",
+    });
+
+    const schedule = scenarioCostSchedule(scenario);
+    expect(schedule.swapFeeRate.toStroops()).toBe(30_000n);
+    expect(schedule.networkFee.toStroops()).toBe(100n);
+  });
+
+  it("produces ZERO_COSTS when costs is omitted on a v2 scenario", () => {
+    const scenario = parseScenario(VALID_INPUT);
+    expect(scenario.costs).toBeUndefined();
+    expect(scenarioCostSchedule(scenario)).toBe(ZERO_COSTS);
+    expect(scenarioCostSchedule(scenario).swapFeeRate.toStroops()).toBe(0n);
+    expect(scenarioCostSchedule(scenario).networkFee.toStroops()).toBe(0n);
+  });
+
+  it("accepts a version 1 scenario and produces ZERO_COSTS", () => {
+    const scenario = parseScenario({
+      ...VALID_INPUT,
+      schemaVersion: 1,
+    });
+
+    expect(scenario.schemaVersion).toBe(1);
+    expect(scenario.costs).toBeUndefined();
+    expect(scenarioCostSchedule(scenario)).toBe(ZERO_COSTS);
+  });
+
+  it("rejects costs on a version 1 scenario naming costs", () => {
+    const message = failureTextFor({
+      ...VALID_INPUT,
+      schemaVersion: 1,
+      costs: { swapFeeRate: "0.003", networkFee: "0" },
+    });
+    expect(message).toContain("costs:");
+    expect(message).toContain("schemaVersion 2");
+  });
+
+  it("rejects unsupported schemaVersion values naming schemaVersion", () => {
+    for (const schemaVersion of [0, 3, -1, 1.5, "2"]) {
+      const message = failureTextFor({ ...VALID_INPUT, schemaVersion });
+      expect(message).toContain("schemaVersion");
+    }
+  });
+
+  it("rejects floats, negatives, >7 fractional digits, and unknown keys in costs with field-qualified errors", () => {
+    expect(
+      failureTextFor({
+        ...VALID_INPUT,
+        costs: { swapFeeRate: 0.003, networkFee: "0" },
+      })
+    ).toContain("costs.swapFeeRate");
+
+    expect(
+      failureTextFor({
+        ...VALID_INPUT,
+        costs: { swapFeeRate: "0", networkFee: 0.01 },
+      })
+    ).toContain("costs.networkFee");
+
+    expect(
+      failureTextFor({
+        ...VALID_INPUT,
+        costs: { swapFeeRate: "-0.001", networkFee: "0" },
+      })
+    ).toContain("costs.swapFeeRate");
+
+    expect(
+      failureTextFor({
+        ...VALID_INPUT,
+        costs: { swapFeeRate: "0", networkFee: "-1" },
+      })
+    ).toContain("costs.networkFee");
+
+    expect(
+      failureTextFor({
+        ...VALID_INPUT,
+        costs: { swapFeeRate: "0.12345678", networkFee: "0" },
+      })
+    ).toContain("costs.swapFeeRate");
+
+    expect(
+      failureTextFor({
+        ...VALID_INPUT,
+        costs: { swapFeeRate: "0", networkFee: "0.00000001" },
+      })
+    ).toContain("costs.networkFee");
+
+    const unknownKeyMessage = failureTextFor({
+      ...VALID_INPUT,
+      costs: { swapFeeRate: "0", networkFee: "0", extraFee: "1" },
+    });
+    expect(unknownKeyMessage).toContain("costs");
+    expect(unknownKeyMessage).toContain("extraFee");
+
+    expect(
+      CostScheduleSchema.safeParse({ swapFeeRate: "0", networkFee: "0" })
+        .success
+    ).toBe(true);
+  });
+
+  it("builds ExecutionConfig from scenario while honoring programmatic overrides", () => {
+    const scenario = parseScenario({
+      ...VALID_INPUT,
+      costs: { swapFeeRate: "0.0025", networkFee: "0.05" },
+    });
+
+    const fromScenario = scenarioExecutionConfig(scenario);
+    expect(fromScenario.costSchedule?.swapFeeRate.toString()).toBe("0.0025");
+    expect(fromScenario.costSchedule?.networkFee.toString()).toBe("0.05");
+
+    const slippage = new FixedBpsSlippageModel(10);
+    const overridden = scenarioExecutionConfig(scenario, {
+      slippageModel: slippage,
+      costSchedule: ZERO_COSTS,
+    });
+    expect(overridden.slippageModel).toBe(slippage);
+    expect(overridden.costSchedule).toBe(ZERO_COSTS);
   });
 });

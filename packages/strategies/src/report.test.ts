@@ -3,8 +3,10 @@ import {
   SCENARIO_SCHEMA_VERSION,
   ScenarioValidationError,
   durationToMilliseconds,
+  scenarioCostSchedule,
   toIsoInstant,
 } from "./scenario";
+import { ZERO_COSTS } from "./costs";
 import type { Scenario } from "./scenario";
 import { FixedPointDecimal } from "./types";
 import type { AssetSymbol, SimulationTimestamp } from "./types";
@@ -1079,6 +1081,8 @@ describe("warm-start equivalence", () => {
     ],
     ["assets", { assets: [USDC] }],
     ["assets", { assets: [EURC, USDC] }],
+    ["costs.swapFeeRate", { costs: { swapFeeRate: "0.003", networkFee: "0" } }],
+    ["costs.networkFee", { costs: { swapFeeRate: "0", networkFee: "0.05" } }],
   ];
 
   it.each(CONFIG_MISMATCHES)(
@@ -1193,5 +1197,45 @@ describe("report completeness", () => {
       withdrawals: 2,
       priceFeedMisses: 4,
     });
+  });
+
+  it("round-trips scenario.costs without sharing references and parses saved v1 scenarios", () => {
+    const costs = { swapFeeRate: "0.003", networkFee: "0.0000100" };
+    const reportWithCosts: RunReport = {
+      ...makeReport(),
+      scenario: {
+        ...makeScenario(T0, T1),
+        costs,
+      },
+    };
+
+    const wire = serializeReport(reportWithCosts);
+    expect(wire.scenario.costs).toEqual(costs);
+    expect(wire.scenario.costs).not.toBe(costs);
+
+    const restored = deserializeReport(wire);
+    expect(restored.scenario.costs).toEqual(costs);
+    expect(
+      scenarioCostSchedule(restored.scenario).swapFeeRate.toStroops()
+    ).toBe(30_000n);
+    expect(scenarioCostSchedule(restored.scenario).networkFee.toStroops()).toBe(
+      100n
+    );
+
+    const warmCtx = buildWarmStartContext(restored, { newEndTimestamp: T2 });
+    expect(warmCtx.scenario.costs).toEqual(costs);
+
+    // Saved report whose scenario predates v2 (schemaVersion: 1, no costs)
+    const v1Wire = serializeReport({
+      ...makeReport(),
+      scenario: {
+        ...makeScenario(T0, T1),
+        schemaVersion: 1,
+      },
+    });
+    const restoredV1 = deserializeReport(v1Wire);
+    expect(restoredV1.scenario.schemaVersion).toBe(1);
+    expect(restoredV1.scenario.costs).toBeUndefined();
+    expect(scenarioCostSchedule(restoredV1.scenario)).toBe(ZERO_COSTS);
   });
 });

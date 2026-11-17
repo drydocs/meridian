@@ -184,12 +184,42 @@ describe("scenario-sources resolver (#1025)", () => {
       strategy,
       strategyConfig: config,
       initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
+      execution: resolved.execution,
       ...(resolved.accrual ? { accrual: resolved.accrual } : {}),
     });
 
     expect(result.strategyName).toBe("delta-neutral");
     expect(result.snapshots.length).toBeGreaterThan(0);
     expect(result.finalValue).toBeInstanceOf(FixedPointDecimal);
+    expect(result.totalFees.toStroops()).toBe(0n);
+
+    const feeScenario = parseScenario({
+      ...BASE_SCENARIO_INPUT,
+      assets: ["USDC"],
+      source: { price: "horizon", rate: "blend" },
+      costs: { swapFeeRate: "0.003", networkFee: "1" },
+    });
+    const feeResolved = await resolveScenarioSources(feeScenario, {
+      historicalData: rows,
+    });
+    const feeResult = runBacktest({
+      clock: scenarioClock(feeScenario),
+      assets: ["USDC"] as AssetSymbol[],
+      prices: feeResolved.prices,
+      strategy: new DeltaNeutralStrategy(),
+      strategyConfig: scenarioDeltaNeutralConfig(
+        feeScenario,
+        feeResolved.prices
+      ),
+      initialCash: FixedPointDecimal.fromString(feeScenario.startingCapital),
+      execution: feeResolved.execution,
+      ...(feeResolved.accrual ? { accrual: feeResolved.accrual } : {}),
+    });
+
+    expect(feeResult.totalFees.toStroops()).toBeGreaterThan(0n);
+    expect(feeResult.finalValue.toStroops()).toBeLessThan(
+      result.finalValue.toStroops()
+    );
   });
 
   it("guarantees deterministic resolution and backtest replay over a fixed window", async () => {
