@@ -181,8 +181,8 @@ importers:
         specifier: ^0.4.0
         version: 0.4.0
       '@lobstrco/signer-extension-api':
-        specifier: ^2.1.0
-        version: 2.1.0
+        specifier: ^3.0.0
+        version: 3.0.0
       '@meridian/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -1292,8 +1292,9 @@ packages:
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
 
-  '@lobstrco/signer-extension-api@2.1.0':
-    resolution: {integrity: sha512-UpqTprNZBxU5ng5HOFBTMuM+oc5tAk/MU5yt/nzjvD0n/YMkiOYG5ywO8p+OxOP6MgACLrw1wU/BFbvGg9IygQ==}
+  '@lobstrco/signer-extension-api@3.0.0':
+    resolution: {integrity: sha512-jtA3/pqouaKUZo9V4/SZ6l/9sJK9nzDCd4v2cR9VFDbXLQhJie/2kZd8uP0XL//V8g70DX4h/gWrKbBdZHaK8w==}
+    engines: {node: '>=18.0.0'}
 
   '@lukeed/ms@2.0.2':
     resolution: {integrity: sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA==}
@@ -5100,7 +5101,7 @@ snapshots:
 
   '@keyv/serialize@1.1.1': {}
 
-  '@lobstrco/signer-extension-api@2.1.0': {}
+  '@lobstrco/signer-extension-api@3.0.0': {}
 
   '@lukeed/ms@2.0.2': {}
 

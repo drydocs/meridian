@@ -17,7 +17,7 @@
   "dependencies": {
     "@albedo-link/intent": "^0.13.0",
     "@creit.tech/xbull-wallet-connect": "^0.4.0",
-    "@lobstrco/signer-extension-api": "^2.1.0",
+    "@lobstrco/signer-extension-api": "^3.0.0",
     "@meridian/shared": "workspace:*",
     "@meridian/stellar-sdk-helpers": "workspace:*",
     "@stellar/freighter-api": "^6.0.1",
