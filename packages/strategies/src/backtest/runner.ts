@@ -12,7 +12,12 @@ import type { Position, PriceSet } from "../portfolio";
 import { ZERO_SLIPPAGE_MODEL, applyOrderFill } from "../slippage-model";
 import type { SlippageModel } from "../slippage-model";
 import { StrategyLifecycle, reportedEquity } from "../strategy";
-import type { Order, Strategy, StrategyContext } from "../strategy";
+import type {
+  EngineOrder,
+  Order,
+  Strategy,
+  StrategyContext,
+} from "../strategy";
 import { FixedPointDecimal } from "../types";
 import type {
   AssetSymbol,
@@ -20,6 +25,8 @@ import type {
   PriceFeed,
   SimulationTimestamp,
 } from "../types";
+import { isVenueOrder } from "../venue";
+import type { VenueId, VenuePosition, VenueYieldRate } from "../venue";
 
 const ZERO = FixedPointDecimal.fromStroops(0n);
 
@@ -37,6 +44,8 @@ export interface ExecutionConfig {
  * the same window. Both rates are per second and both are optional; an omitted
  * rate accrues nothing.
  */
+export type { VenueYieldRate };
+
 export interface AccrualConfig {
   /** Rate earned on idle cash. */
   readonly cashRatePerSecond?: FixedPointDecimal;
@@ -50,9 +59,14 @@ export interface AccrualConfig {
    * positive rate is paid by longs and received by shorts.
    */
   readonly fundingRate?: FundingRate;
+  /** Yield rates keyed by `VenueId` for capital deployed to simulated venues. */
+  readonly venueRates?: Readonly<Record<VenueId, VenueYieldRate>>;
 }
 
-export interface BacktestConfig<TConfig = unknown> {
+export interface BacktestConfig<
+  TConfig = unknown,
+  TOrder extends EngineOrder = EngineOrder,
+> {
   /** Authoritative time source. Every tick it yields is visited, in order. */
   readonly clock: SimulationClock;
   /**
@@ -61,7 +75,7 @@ export interface BacktestConfig<TConfig = unknown> {
    */
   readonly assets: readonly AssetSymbol[];
   readonly prices: PriceFeed;
-  readonly strategy: Strategy<TConfig>;
+  readonly strategy: Strategy<TConfig, TOrder>;
   readonly strategyConfig: TConfig;
   readonly initialCash: FixedPointDecimal;
   readonly execution?: ExecutionConfig;
@@ -96,6 +110,7 @@ export interface BacktestSnapshot {
   readonly timestamp: SimulationTimestamp;
   readonly cash: FixedPointDecimal;
   readonly positions: readonly Position[];
+  readonly venues: readonly VenuePosition[];
   readonly value: FixedPointDecimal;
 }
 
@@ -143,9 +158,10 @@ export interface BacktestResult {
  * After the final tick, `close` is called once and its orders are filled the
  * same way, which is what leaves `finalValue` in cash.
  */
-export function runBacktest<TConfig = unknown>(
-  config: BacktestConfig<TConfig>
-): BacktestResult {
+export function runBacktest<
+  TConfig = unknown,
+  TOrder extends EngineOrder = EngineOrder,
+>(config: BacktestConfig<TConfig, TOrder>): BacktestResult {
   const { clock, prices: priceFeed } = config;
   const lifecycle = new StrategyLifecycle(config.strategy);
   lifecycle.init({
@@ -207,13 +223,18 @@ export function runBacktest<TConfig = unknown>(
       totalFunding = totalFunding.add(funding);
       totalInterest = totalInterest.add(interest);
       portfolio.applyCashFlow(funding.add(interest));
+      remainders = portfolio.venueLedger.accrueTick(
+        elapsed,
+        config.accrual?.venueRates,
+        remainders
+      );
     }
 
-    const context: StrategyContext = { market, portfolio };
+    const context: StrategyContext = { market, portfolio, venues: portfolio };
     lifecycle.step(context);
 
     for (const order of lifecycle.rebalance(context)) {
-      fill(portfolio, order, market.prices, execution, config.observer);
+      executeOrder(portfolio, order, market.prices, execution, config.observer);
     }
 
     snapshots.push({
@@ -221,6 +242,7 @@ export function runBacktest<TConfig = unknown>(
       timestamp,
       cash: portfolio.cash,
       positions: portfolio.positions(),
+      venues: portfolio.venues(),
       value: portfolio.totalValue(market.prices),
     });
     config.observer?.onSnapshot?.(
@@ -237,9 +259,16 @@ export function runBacktest<TConfig = unknown>(
   const closing: StrategyContext = {
     market: marketAt(priceFeed, config.assets, clock.end),
     portfolio,
+    venues: portfolio,
   };
   for (const order of lifecycle.close(closing)) {
-    fill(portfolio, order, closing.market.prices, execution, config.observer);
+    executeOrder(
+      portfolio,
+      order,
+      closing.market.prices,
+      execution,
+      config.observer
+    );
   }
 
   // Strategies that self-report equity (e.g. delta-neutral with a modeled
@@ -279,6 +308,16 @@ export function serializeSnapshots(
         size: position.size.toString(),
         basis: position.basis.toString(),
       })),
+      ...(snapshot.venues.length === 0
+        ? {}
+        : {
+            venues: snapshot.venues.map((venue) => ({
+              venueId: venue.venueId,
+              asset: venue.asset,
+              deployedPrincipal: venue.deployedPrincipal.toString(),
+              accruedYield: venue.accruedYield.toString(),
+            })),
+          }),
       value: snapshot.value.toString(),
     }))
   );
@@ -345,6 +384,27 @@ function cashInterest(
   const rate = accrual.cashRatePerSecond;
   if (rate === undefined) return undefined;
   return { ratePerSecond: rate };
+}
+
+function executeOrder(
+  portfolio: Portfolio,
+  order: EngineOrder,
+  prices: PriceSet,
+  execution: ExecutionConfig,
+  observer?: BacktestObserver
+): void {
+  if (isVenueOrder(order)) {
+    if (!prices.has(order.asset)) {
+      throw new RangeError(`runBacktest: no price for "${order.asset}"`);
+    }
+    portfolio.applyVenueOrder(
+      order,
+      prices,
+      (execution.costSchedule ?? ZERO_COSTS).networkFee
+    );
+    return;
+  }
+  fill(portfolio, order, prices, execution, observer);
 }
 
 /** Prices one order through the fill model and applies it to the portfolio. */
