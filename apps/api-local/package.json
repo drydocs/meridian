@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
-    "@fastify/cors": "^11.3.0",
+    "@fastify/cors": "^11.4.1",
     "@fastify/rate-limit": "^11.2.1",
     "@meridian/api-core": "workspace:*",
     "@meridian/shared": "workspace:*",
