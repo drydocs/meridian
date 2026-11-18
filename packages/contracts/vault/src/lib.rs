@@ -1199,7 +1199,10 @@ mod tests {
         let fee_stroops = estimate.fee().total;
         std::println!(
             "SOROBAN_BENCHMARK|{}|{}|{}|{}",
-            name, resources.instructions, memory_bytes, fee_stroops
+            name,
+            resources.instructions,
+            memory_bytes,
+            fee_stroops
         );
     }
 
