@@ -340,6 +340,19 @@ impl MeridianBlendAdapter {
         )
     }
 
+    /// Returns the vault configured in this adapter's constructor.
+    pub fn get_vault(env: Env) -> Address {
+        adapter_common::get_or_not_initialized::<_, ContractError>(
+            &env,
+            adapter_common::get_vault(&env),
+        )
+    }
+
+    /// Returns the USDC token configured in this adapter's constructor.
+    pub fn get_usdc(env: Env) -> Address {
+        get_usdc(&env)
+    }
+
     /// Returns "blend", identifying which protocol this adapter wraps.
     pub fn get_protocol(env: Env) -> Symbol {
         Symbol::new(&env, "blend")
@@ -962,6 +975,8 @@ mod tests {
         // No initialize() call happened in setup(): every one of these was
         // written by __constructor during registration.
         assert_eq!(adapter.get_pool(), pool.address);
+        assert_eq!(adapter.get_vault(), vault);
+        assert_eq!(adapter.get_usdc(), usdc_id);
         assert_eq!(
             env.as_contract(&adapter.address, || adapter_common::get_vault(&env)),
             Some(vault)

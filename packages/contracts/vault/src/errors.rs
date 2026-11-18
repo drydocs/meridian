@@ -94,4 +94,36 @@ pub enum ContractError {
     /// baseline collapses the floor to zero (or below) so the loss guard
     /// would always pass.
     MigrationBaselineInvalid = 25,
+    /// The vault constructor received the zero admin address.
+    ZeroAdminAddress = 26,
+    /// The vault constructor received the zero USDC address.
+    ZeroUsdcAddress = 27,
+    /// The vault constructor received the zero mUSDC address.
+    ZeroMusdcAddress = 28,
+    /// The vault constructor received the zero adapter address.
+    ZeroAdapterAddress = 29,
+    /// The vault constructor received the zero treasury address.
+    ZeroTreasuryAddress = 30,
+    /// The admin address cannot be the vault itself.
+    AdminIsVault = 31,
+    /// The USDC address cannot be the vault itself.
+    UsdcIsVault = 32,
+    /// The mUSDC address cannot be the vault itself.
+    MusdcIsVault = 33,
+    /// The adapter address cannot be the vault itself.
+    AdapterIsVault = 34,
+    /// The treasury address cannot be the vault itself.
+    TreasuryIsVault = 35,
+    /// USDC and mUSDC must be separate contracts.
+    UsdcIsMusdc = 36,
+    /// USDC and the adapter must be separate contracts.
+    UsdcIsAdapter = 37,
+    /// mUSDC and the adapter must be separate contracts.
+    MusdcIsAdapter = 38,
+    /// The mUSDC token's admin must be the vault.
+    MusdcAdminMismatch = 39,
+    /// The adapter's USDC token must match the vault's USDC token.
+    AdapterUsdcMismatch = 40,
+    /// The adapter must be bound to this vault.
+    AdapterVaultMismatch = 41,
 }

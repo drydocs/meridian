@@ -70,7 +70,52 @@ deploy() {
   fi
 }
 
+is_zero_address() {
+  case "$1" in
+    GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF|CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+preflight_vault_wiring() {
+  local name address
+  for name in ADMIN_ADDRESS USDC_ID TREASURY_ADDRESS; do
+    address="${!name}"
+    if is_zero_address "$address"; then
+      echo "ERROR: $name cannot be the zero address." >&2
+      exit 1
+    fi
+    if [ "$address" = "$VAULT_ID" ]; then
+      echo "ERROR: $name cannot alias the vault address ($VAULT_ID)." >&2
+      exit 1
+    fi
+  done
+}
+
+preflight_deployed_component() {
+  local name="$1"
+  local address="$2"
+  if is_zero_address "$address"; then
+    echo "ERROR: $name resolved to the zero address." >&2
+    exit 1
+  fi
+  if [ "$address" = "$VAULT_ID" ]; then
+    echo "ERROR: $name resolved to the vault address ($VAULT_ID)." >&2
+    exit 1
+  fi
+}
+
 deploy_vault_stack() {
+  local vault_salt="${VAULT_SALT:-$(openssl rand -hex 32)}"
+  VAULT_ID=$(stellar contract id wasm "${STELLAR_NETWORK_FLAGS[@]}" --source-account "$ADMIN_ADDRESS" --salt "$vault_salt")
+  preflight_vault_wiring
+  echo "VAULT_SALT (save this: re-run with VAULT_SALT=$vault_salt to resume at the same address if this run fails partway): $vault_salt"
+  echo "Reserved vault contract ID: $VAULT_ID"
+
   cd "$(dirname "${BASH_SOURCE[0]}")/../../packages/contracts"
   # SKIP_BUILD lets a caller drop in WASM already verified elsewhere (e.g. a
   # genuine Linux CI build, downloaded to sidestep `stellar contract build`'s
@@ -120,11 +165,6 @@ deploy_vault_stack() {
   # and mUSDC deploys already on-chain from the failed run stay usable
   # instead of being orphaned. Always echoed below so it can be recovered
   # from terminal scrollback even if the caller didn't set it.
-  local vault_salt="${VAULT_SALT:-$(openssl rand -hex 32)}"
-  VAULT_ID=$(stellar contract id wasm "${STELLAR_NETWORK_FLAGS[@]}" --source-account "$ADMIN_ADDRESS" --salt "$vault_salt")
-  echo "VAULT_SALT (save this: re-run with VAULT_SALT=$vault_salt to resume at the same address if this run fails partway): $vault_salt"
-  echo "Reserved vault contract ID: $VAULT_ID"
-
   # The adapter's vault/pool/USDC wiring is passed as constructor arguments,
   # so it is set inside this same CreateContract operation. There is
   # deliberately no separate initialize() step: that gap was front-runnable
@@ -146,6 +186,9 @@ deploy_vault_stack() {
   MUSDC_ID=$(deploy "$musdc_token_hash" "" "$DEPLOYER" \
     -- --admin "$VAULT_ID" --decimals 7 --name "Meridian USDC" --symbol mUSDC)
   echo "mUSDC contract ID: $MUSDC_ID"
+
+  preflight_deployed_component "BLEND_ADAPTER_ID" "$BLEND_ADAPTER_ID"
+  preflight_deployed_component "MUSDC_ID" "$MUSDC_ID"
 
   # Deploying with the same salt used to reserve VAULT_ID above lands the
   # vault at that exact address. Its constructor sets

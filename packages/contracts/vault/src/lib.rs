@@ -11,7 +11,8 @@ pub use storage::{
 };
 
 use soroban_sdk::{
-    contract, contractclient, contractimpl, symbol_short, token::TokenClient, Address, Env, Symbol,
+    contract, contractclient, contractimpl, panic_with_error, symbol_short, token::TokenClient,
+    Address, Env, Symbol,
 };
 
 // ---------------------------------------------------------------------------
@@ -66,6 +67,10 @@ pub trait YieldAdapterInterface {
     /// never drift out of sync if the adapter is later swapped via
     /// `set_adapter`.
     fn get_pool(env: Env) -> Address;
+    /// Returns the vault configured in this adapter's constructor.
+    fn get_vault(env: Env) -> Address;
+    /// Returns the USDC token configured in this adapter's constructor.
+    fn get_usdc(env: Env) -> Address;
     /// Returns a stable, lowercase identifier for the protocol this adapter
     /// wraps (e.g. "blend", "defindex"). A constant per adapter deployment;
     /// lets off-chain callers pick the right protocol-specific logic to
@@ -78,7 +83,7 @@ pub trait YieldAdapterInterface {
 // mUSDC admin interface (#578)
 // ---------------------------------------------------------------------------
 
-/// The subset of the mUSDC token's admin-only surface the vault calls into.
+/// The subset of the mUSDC token's surface the vault calls into.
 /// Kept minimal and local to this crate, mirroring `YieldAdapterInterface`
 /// above: the vault never depends on `meridian-musdc-token` directly, in
 /// production or in tests — `MockMusdc` in the test module below stands in
@@ -96,6 +101,7 @@ pub trait YieldAdapterInterface {
 #[contractclient(name = "MusdcAdminClient")]
 pub trait MusdcAdminInterface {
     fn mint(env: Env, to: Address, amount: i128);
+    fn get_admin(env: Env) -> Address;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +140,11 @@ impl MeridianVault {
         adapter: Address,
         treasury: Address,
     ) {
+        if let Err(error) =
+            Self::validate_wiring(&env, &admin, &usdc, &musdc, &adapter, &treasury)
+        {
+            panic_with_error!(&env, error);
+        }
         admin.require_auth();
         Self::init_state(&env, &admin, &usdc, &musdc, &adapter, &treasury);
     }
@@ -156,6 +167,7 @@ impl MeridianVault {
         if env.storage().instance().has(&ADMIN) {
             return Err(ContractError::AlreadyInitialized);
         }
+        Self::validate_wiring(&env, &admin, &usdc, &musdc, &adapter, &treasury)?;
         admin.require_auth();
         Self::init_state(&env, &admin, &usdc, &musdc, &adapter, &treasury);
         Ok(())
@@ -179,6 +191,80 @@ impl MeridianVault {
         env.storage().instance().set(&TREASURY, treasury);
         env.storage().instance().set(&TOTAL_SH, &0_i128);
         env.storage().instance().set(&ADPT_SH, &0_i128);
+    }
+
+    fn validate_wiring(
+        env: &Env,
+        admin: &Address,
+        usdc: &Address,
+        musdc: &Address,
+        adapter: &Address,
+        treasury: &Address,
+    ) -> Result<(), ContractError> {
+        if Self::is_zero_address(env, admin) {
+            return Err(ContractError::ZeroAdminAddress);
+        }
+        if Self::is_zero_address(env, usdc) {
+            return Err(ContractError::ZeroUsdcAddress);
+        }
+        if Self::is_zero_address(env, musdc) {
+            return Err(ContractError::ZeroMusdcAddress);
+        }
+        if Self::is_zero_address(env, adapter) {
+            return Err(ContractError::ZeroAdapterAddress);
+        }
+        if Self::is_zero_address(env, treasury) {
+            return Err(ContractError::ZeroTreasuryAddress);
+        }
+
+        let vault = env.current_contract_address();
+        if admin == &vault {
+            return Err(ContractError::AdminIsVault);
+        }
+        if usdc == &vault {
+            return Err(ContractError::UsdcIsVault);
+        }
+        if musdc == &vault {
+            return Err(ContractError::MusdcIsVault);
+        }
+        if adapter == &vault {
+            return Err(ContractError::AdapterIsVault);
+        }
+        if treasury == &vault {
+            return Err(ContractError::TreasuryIsVault);
+        }
+        if usdc == musdc {
+            return Err(ContractError::UsdcIsMusdc);
+        }
+        if usdc == adapter {
+            return Err(ContractError::UsdcIsAdapter);
+        }
+        if musdc == adapter {
+            return Err(ContractError::MusdcIsAdapter);
+        }
+
+        if MusdcAdminClient::new(env, musdc).get_admin() != vault {
+            return Err(ContractError::MusdcAdminMismatch);
+        }
+        let adapter_client = AdapterClient::new(env, adapter);
+        if adapter_client.get_usdc() != *usdc {
+            return Err(ContractError::AdapterUsdcMismatch);
+        }
+        if adapter_client.get_vault() != vault {
+            return Err(ContractError::AdapterVaultMismatch);
+        }
+        Ok(())
+    }
+
+    fn is_zero_address(env: &Env, address: &Address) -> bool {
+        address == &Address::from_str(
+            env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        ) || address
+            == &Address::from_str(
+                env,
+                "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+            )
     }
 
     /// Deposit `amount` USDC into the vault. USDC is forwarded to the yield
@@ -1289,6 +1375,14 @@ mod tests {
                 env.storage().instance().set(&MM_ADMIN, &admin);
             }
 
+            pub fn get_admin(env: Env) -> Address {
+                env.storage().instance().get(&MM_ADMIN).unwrap()
+            }
+
+            pub fn set_admin(env: Env, admin: Address) {
+                env.storage().instance().set(&MM_ADMIN, &admin);
+            }
+
             pub fn mint(env: Env, to: Address, amount: i128) {
                 // Real Stellar Asset Contracts do not archive in practice;
                 // extending here keeps this mock alive across a migration
@@ -1362,6 +1456,7 @@ mod tests {
 
     const MA_USDC: Symbol = symbol_short!("MA_USDC");
     const MA_SH: Symbol = symbol_short!("MA_SH");
+    const MA_VAULT: Symbol = symbol_short!("MA_VAULT");
 
     #[contract]
     pub struct MockAdapter;
@@ -1371,6 +1466,22 @@ mod tests {
         pub fn initialize(env: Env, usdc: Address) {
             env.storage().instance().set(&MA_USDC, &usdc);
             env.storage().instance().set(&MA_SH, &0_i128);
+        }
+
+        pub fn set_usdc(env: Env, usdc: Address) {
+            env.storage().instance().set(&MA_USDC, &usdc);
+        }
+
+        pub fn set_vault(env: Env, vault: Address) {
+            env.storage().instance().set(&MA_VAULT, &vault);
+        }
+
+        pub fn get_vault(env: Env) -> Address {
+            env.storage().instance().get(&MA_VAULT).unwrap()
+        }
+
+        pub fn get_usdc(env: Env) -> Address {
+            get_or_not_initialized(&env, env.storage().instance().get(&MA_USDC))
         }
 
         pub fn deposit(env: Env, amount: i128) -> i128 {
@@ -1431,6 +1542,7 @@ mod tests {
 
         const LA_USDC: Symbol = symbol_short!("LA_USDC");
         const LA_SH: Symbol = symbol_short!("LA_SH");
+        const LA_VAULT: Symbol = symbol_short!("LA_VAULT");
 
         #[contract]
         pub struct LossyMockAdapter;
@@ -1440,6 +1552,18 @@ mod tests {
             pub fn initialize(env: Env, usdc: Address) {
                 env.storage().instance().set(&LA_USDC, &usdc);
                 env.storage().instance().set(&LA_SH, &0_i128);
+            }
+
+            pub fn set_vault(env: Env, vault: Address) {
+                env.storage().instance().set(&LA_VAULT, &vault);
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                env.storage().instance().get(&LA_VAULT).unwrap()
+            }
+
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&LA_USDC))
             }
 
             pub fn deposit(env: Env, amount: i128) -> i128 {
@@ -1498,6 +1622,7 @@ mod tests {
 
         const ZS_USDC: Symbol = symbol_short!("ZS_USDC");
         const ZS_SH: Symbol = symbol_short!("ZS_SH");
+        const ZS_VAULT: Symbol = symbol_short!("ZS_VAULT");
 
         #[contract]
         pub struct ZeroShareMockAdapter;
@@ -1507,6 +1632,18 @@ mod tests {
             pub fn initialize(env: Env, usdc: Address) {
                 env.storage().instance().set(&ZS_USDC, &usdc);
                 env.storage().instance().set(&ZS_SH, &0_i128);
+            }
+
+            pub fn set_vault(env: Env, vault: Address) {
+                env.storage().instance().set(&ZS_VAULT, &vault);
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                env.storage().instance().get(&ZS_VAULT).unwrap()
+            }
+
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&ZS_USDC))
             }
 
             pub fn deposit(_env: Env, _amount: i128) -> i128 {
@@ -1554,6 +1691,7 @@ mod tests {
         const MM_USDC: Symbol = symbol_short!("MM_USDC");
         const MM_SH: Symbol = symbol_short!("MM_SH");
         const MM_FIXED: Symbol = symbol_short!("MM_FIXED");
+        const MM_VAULT: Symbol = symbol_short!("MM_VAULT");
 
         #[contract]
         pub struct ManipulableMockAdapter;
@@ -1564,6 +1702,18 @@ mod tests {
                 env.storage().instance().set(&MM_USDC, &usdc);
                 env.storage().instance().set(&MM_SH, &0_i128);
                 env.storage().instance().set(&MM_FIXED, &0_i128);
+            }
+
+            pub fn set_vault(env: Env, vault: Address) {
+                env.storage().instance().set(&MM_VAULT, &vault);
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                env.storage().instance().get(&MM_VAULT).unwrap()
+            }
+
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&MM_USDC))
             }
 
             /// Override the self-reported total_assets() value. This lets
@@ -1636,6 +1786,7 @@ mod tests {
         const CM_USDC: Symbol = symbol_short!("CM_USDC");
         const CM_SH: Symbol = symbol_short!("CM_SH");
         const CM_TOTAL: Symbol = symbol_short!("CM_TOTAL");
+        const CM_VAULT: Symbol = symbol_short!("CM_VAULT");
 
         #[contract]
         pub struct CachedMockAdapter;
@@ -1646,6 +1797,18 @@ mod tests {
                 env.storage().instance().set(&CM_USDC, &usdc);
                 env.storage().instance().set(&CM_SH, &0_i128);
                 env.storage().instance().set(&CM_TOTAL, &0_i128);
+            }
+
+            pub fn set_vault(env: Env, vault: Address) {
+                env.storage().instance().set(&CM_VAULT, &vault);
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                env.storage().instance().get(&CM_VAULT).unwrap()
+            }
+
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&CM_USDC))
             }
 
             pub fn deposit(env: Env, amount: i128) -> i128 {
@@ -1735,6 +1898,7 @@ mod tests {
         // pre-generated and reserved via register_at rather than registered
         // directly (#551).
         let vault_id = Address::generate(&env);
+        CachedMockAdapterClient::new(&env, &adapter_id).set_vault(&vault_id);
 
         let musdc_id = env.register(MockMusdc, ());
         MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
@@ -1790,6 +1954,7 @@ mod tests {
         // vault's address up front so mUSDC can be told about it before the
         // vault itself is actually registered.
         let vault_id = Address::generate(&env);
+        MockAdapterClient::new(&env, &adapter_id).set_vault(&vault_id);
 
         let musdc_id = env.register(MockMusdc, ());
         MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
@@ -2605,6 +2770,112 @@ mod tests {
     }
 
     #[test]
+    fn constructor_wiring_rejects_invalid_addresses_and_bindings() {
+        let (env, admin, _user, usdc, musdc, adapter, vault) = setup();
+        let vault_id = vault.address.clone();
+        let treasury = admin.clone();
+        let zero = Address::from_str(
+            &env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        );
+        let zero_contract = Address::from_str(
+            &env,
+            "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+        );
+        let other = Address::generate(&env);
+        let validate = |admin: &Address,
+                        usdc: &Address,
+                        musdc: &Address,
+                        adapter: &Address,
+                        treasury: &Address| {
+            env.as_contract(&vault_id, || {
+                MeridianVault::validate_wiring(&env, admin, usdc, musdc, adapter, treasury)
+            })
+        };
+
+        assert_eq!(
+            validate(&admin, &usdc, &musdc, &adapter, &treasury),
+            Ok(())
+        );
+        assert_eq!(
+            validate(&zero, &usdc, &musdc, &adapter, &treasury),
+            Err(ContractError::ZeroAdminAddress)
+        );
+        assert_eq!(
+            validate(&zero_contract, &usdc, &musdc, &adapter, &treasury),
+            Err(ContractError::ZeroAdminAddress)
+        );
+        assert_eq!(
+            validate(&admin, &zero, &musdc, &adapter, &treasury),
+            Err(ContractError::ZeroUsdcAddress)
+        );
+        assert_eq!(
+            validate(&admin, &usdc, &zero, &adapter, &treasury),
+            Err(ContractError::ZeroMusdcAddress)
+        );
+        assert_eq!(
+            validate(&admin, &usdc, &musdc, &zero, &treasury),
+            Err(ContractError::ZeroAdapterAddress)
+        );
+        assert_eq!(
+            validate(&admin, &usdc, &musdc, &adapter, &zero),
+            Err(ContractError::ZeroTreasuryAddress)
+        );
+        assert_eq!(
+            validate(&vault_id, &usdc, &musdc, &adapter, &treasury),
+            Err(ContractError::AdminIsVault)
+        );
+        assert_eq!(
+            validate(&admin, &vault_id, &musdc, &adapter, &treasury),
+            Err(ContractError::UsdcIsVault)
+        );
+        assert_eq!(
+            validate(&admin, &usdc, &vault_id, &adapter, &treasury),
+            Err(ContractError::MusdcIsVault)
+        );
+        assert_eq!(
+            validate(&admin, &usdc, &musdc, &vault_id, &treasury),
+            Err(ContractError::AdapterIsVault)
+        );
+        assert_eq!(
+            validate(&admin, &usdc, &musdc, &adapter, &vault_id),
+            Err(ContractError::TreasuryIsVault)
+        );
+        assert_eq!(
+            validate(&admin, &usdc, &usdc, &adapter, &treasury),
+            Err(ContractError::UsdcIsMusdc)
+        );
+        assert_eq!(
+            validate(&admin, &usdc, &musdc, &usdc, &treasury),
+            Err(ContractError::UsdcIsAdapter)
+        );
+        assert_eq!(
+            validate(&admin, &usdc, &adapter, &adapter, &treasury),
+            Err(ContractError::MusdcIsAdapter)
+        );
+
+        MockMusdcClient::new(&env, &musdc).set_admin(&other);
+        assert_eq!(
+            validate(&admin, &usdc, &musdc, &adapter, &treasury),
+            Err(ContractError::MusdcAdminMismatch)
+        );
+        MockMusdcClient::new(&env, &musdc).set_admin(&vault_id);
+
+        MockAdapterClient::new(&env, &adapter).set_usdc(&other);
+        assert_eq!(
+            validate(&admin, &usdc, &musdc, &adapter, &treasury),
+            Err(ContractError::AdapterUsdcMismatch)
+        );
+        MockAdapterClient::new(&env, &adapter).set_usdc(&usdc);
+
+        MockAdapterClient::new(&env, &adapter).set_vault(&other);
+        assert_eq!(
+            validate(&admin, &usdc, &musdc, &adapter, &treasury),
+            Err(ContractError::AdapterVaultMismatch)
+        );
+    }
+
+    #[test]
     fn reinitializing_fails() {
         let (_env, admin, _user, usdc_id, musdc_id, adapter_id, vault) = setup();
         let result = vault.try_initialize(&admin, &usdc_id, &musdc_id, &adapter_id, &admin);
@@ -2902,10 +3173,12 @@ mod tests {
         ZeroShareMockAdapterClient::new(&env, &zero_share_adapter_id).initialize(&usdc);
 
         // Deploy a vault configured with the zero-share adapter
-        let musdc_id = env
-            .register_stellar_asset_contract_v2(admin.clone())
-            .address();
-        let vault_id = env.register(
+        let vault_id = Address::generate(&env);
+        ZeroShareMockAdapterClient::new(&env, &zero_share_adapter_id).set_vault(&vault_id);
+        let musdc_id = env.register(MockMusdc, ());
+        MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
+        env.register_at(
+            &vault_id,
             MeridianVault,
             (&admin, &usdc, &musdc_id, &zero_share_adapter_id, &admin),
         );
@@ -3029,6 +3302,7 @@ mod tests {
         ManipulableMockAdapterClient::new(&env, &old_id).initialize(&usdc);
 
         let vault_id = Address::generate(&env);
+        ManipulableMockAdapterClient::new(&env, &old_id).set_vault(&vault_id);
         let musdc_id = env.register(MockMusdc, ());
         MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
         env.register_at(
@@ -3255,10 +3529,18 @@ mod tests {
     // refresh_panics_when_pool_key_is_unset).
     fn register_uninitialized_vault(env: &Env) -> Address {
         let admin = Address::generate(env);
-        let usdc = Address::generate(env);
-        let musdc = Address::generate(env);
-        let adapter = Address::generate(env);
-        let vault_id = env.register(MeridianVault, (&admin, &usdc, &musdc, &adapter, &admin));
+        let usdc = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        let adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(env, &adapter).initialize(&usdc);
+        let vault_id = Address::generate(env);
+        MockAdapterClient::new(env, &adapter).set_vault(&vault_id);
+        let musdc = env.register(MockMusdc, ());
+        MockMusdcClient::new(env, &musdc).initialize(&vault_id);
+        env.register_at(
+            &vault_id,
+            MeridianVault,
+            (&admin, &usdc, &musdc, &adapter, &admin),
+        );
         env.as_contract(&vault_id, || {
             env.storage().instance().remove(&ADMIN);
             env.storage().instance().remove(&USDC);
@@ -3706,6 +3988,7 @@ mod tests {
             // pre-generated and reserved via register_at rather than
             // registered directly (#551).
             let vault_id = Address::generate(&env);
+            MockAdapterClient::new(&env, &adapter_id).set_vault(&vault_id);
 
             let musdc_id = env.register(MockMusdc, ());
             MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);

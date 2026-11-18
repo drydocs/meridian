@@ -186,6 +186,10 @@ impl MusdcToken {
             .ok_or(ContractError::NotInitialized)
     }
 
+    pub fn get_admin(env: Env) -> Address {
+        env.storage().instance().get(&ADMIN).unwrap()
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
@@ -531,9 +535,10 @@ mod tests {
 
     #[test]
     fn initialize_sets_metadata() {
-        let (_env, _vault, _token_id, token) = setup();
+        let (_env, vault, _token_id, token) = setup();
         assert_eq!(token.decimals(), 7);
         assert_eq!(token.total_supply(), 0);
+        assert_eq!(token.get_admin(), vault);
     }
 
     #[test]
