@@ -1189,6 +1189,17 @@ mod tests {
         Address, Env, Symbol,
     };
 
+    fn report_benchmark(env: &Env, name: &str) {
+        let estimate = env.cost_estimate();
+        let resources = estimate.resources();
+        let memory_bytes = estimate.budget().memory_bytes_cost();
+        let fee_stroops = estimate.fee().total;
+        println!(
+            "SOROBAN_BENCHMARK|{}|{}|{}|{}",
+            name, resources.instructions, memory_bytes, fee_stroops
+        );
+    }
+
     // Reads an instance-storage value, panicking with the typed
     // NotInitialized error instead of an opaque unwrap trap if it's unset.
     // Collapses what was previously a repeated 6-line
@@ -3536,6 +3547,88 @@ mod tests {
             "deposit() instruction count {} exceeds sanity ceiling",
             resources.instructions
         );
+    }
+
+    #[test]
+    fn benchmark_vault_deposit() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+        report_benchmark(&env, "vault.deposit");
+    }
+
+    #[test]
+    fn benchmark_vault_withdraw() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0_i128);
+        vault.withdraw(&user, &amount, &0_i128);
+        report_benchmark(&env, "vault.withdraw");
+    }
+
+    #[test]
+    fn benchmark_vault_transfer() {
+        let (env, _admin, user, _usdc, musdc, _adapter, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0_i128);
+        let recipient = Address::generate(&env);
+        MockMusdcClient::new(&env, &musdc).transfer(&user, &recipient, &(amount / 2));
+        report_benchmark(&env, "vault.transfer");
+    }
+
+    #[test]
+    fn benchmark_vault_begin_migration() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        vault.begin_migration(&new_adapter);
+        report_benchmark(&env, "vault.begin_migration");
+    }
+
+    #[test]
+    fn benchmark_vault_migrate_adapter() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0_i128);
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        vault.begin_migration(&new_adapter);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += MIN_LEDGER_GAP);
+        vault.migrate_adapter(&new_adapter, &0);
+        report_benchmark(&env, "vault.migrate_adapter");
+    }
+
+    #[test]
+    fn benchmark_vault_set_paused() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.set_paused(&true);
+        report_benchmark(&env, "vault.set_paused");
+    }
+
+    #[test]
+    fn benchmark_vault_set_adapter() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        vault.set_adapter(&new_adapter);
+        report_benchmark(&env, "vault.set_adapter");
+    }
+
+    #[test]
+    fn benchmark_vault_transfer_admin() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let new_admin = Address::generate(&env);
+        vault.transfer_admin(&new_admin);
+        report_benchmark(&env, "vault.transfer_admin");
+    }
+
+    #[test]
+    fn benchmark_vault_accept_admin() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let new_admin = Address::generate(&env);
+        vault.transfer_admin(&new_admin);
+        vault.accept_admin();
+        report_benchmark(&env, "vault.accept_admin");
     }
 
     // -----------------------------------------------------------------------

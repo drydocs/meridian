@@ -1,0 +1,73 @@
+{
+  "baseline_policy": "Conservative starting limits; refresh from measured output with --update.",
+  "rustc_version": "stable",
+  "soroban_sdk_version": "22.0.11",
+  "tolerance_percent": 15,
+  "benchmarks": {
+    "vault.deposit": {
+      "cpu_instructions": 1000000,
+      "fee_stroops": 10000000,
+      "memory_bytes": 1000000
+    },
+    "vault.withdraw": {
+      "cpu_instructions": 2000000,
+      "fee_stroops": 10000000,
+      "memory_bytes": 1000000
+    },
+    "vault.transfer": {
+      "cpu_instructions": 1000000,
+      "fee_stroops": 10000000,
+      "memory_bytes": 1000000
+    },
+    "vault.begin_migration": {
+      "cpu_instructions": 1000000,
+      "fee_stroops": 10000000,
+      "memory_bytes": 1000000
+    },
+    "vault.migrate_adapter": {
+      "cpu_instructions": 5000000,
+      "fee_stroops": 20000000,
+      "memory_bytes": 2000000
+    },
+    "vault.set_paused": {
+      "cpu_instructions": 500000,
+      "fee_stroops": 5000000,
+      "memory_bytes": 500000
+    },
+    "vault.set_adapter": {
+      "cpu_instructions": 500000,
+      "fee_stroops": 5000000,
+      "memory_bytes": 500000
+    },
+    "vault.transfer_admin": {
+      "cpu_instructions": 500000,
+      "fee_stroops": 5000000,
+      "memory_bytes": 500000
+    },
+    "vault.accept_admin": {
+      "cpu_instructions": 500000,
+      "fee_stroops": 5000000,
+      "memory_bytes": 500000
+    },
+    "blend_adapter.deposit": {
+      "cpu_instructions": 2000000,
+      "fee_stroops": 10000000,
+      "memory_bytes": 1000000
+    },
+    "blend_adapter.withdraw": {
+      "cpu_instructions": 2000000,
+      "fee_stroops": 10000000,
+      "memory_bytes": 1000000
+    },
+    "defindex_adapter.deposit": {
+      "cpu_instructions": 2000000,
+      "fee_stroops": 10000000,
+      "memory_bytes": 1000000
+    },
+    "defindex_adapter.withdraw": {
+      "cpu_instructions": 2000000,
+      "fee_stroops": 10000000,
+      "memory_bytes": 1000000
+    }
+  }
+}
