@@ -5533,6 +5533,8 @@ mod tests {
         assert_eq!(earliest_ledger, current_ledger + MIN_LEDGER_GAP);
     }
 
+    mod accounting_properties;
+
     #[test]
     fn migrate_publishes_event_with_old_and_new_adapter() {
         let (env, _admin, user, usdc, _musdc, old_adapter, vault) = setup();
