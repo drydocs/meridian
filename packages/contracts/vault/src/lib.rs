@@ -143,9 +143,7 @@ impl MeridianVault {
         adapter: Address,
         treasury: Address,
     ) {
-        if let Err(error) =
-            Self::validate_wiring(&env, &admin, &usdc, &musdc, &adapter, &treasury)
-        {
+        if let Err(error) = Self::validate_wiring(&env, &admin, &usdc, &musdc, &adapter, &treasury) {
             panic_with_error!(&env, error);
         }
         admin.require_auth();
