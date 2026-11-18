@@ -240,6 +240,7 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.100.0
           targets: wasm32v1-none
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
@@ -269,6 +270,11 @@ jobs:
           --workspace
           --summary-only
           --fail-under-lines 97.5
+      - name: Run Soroban resource benchmarks
+        working-directory: packages/contracts
+        run: |
+          set -o pipefail
+          cargo test --workspace -- --nocapture 2>&1 | tee benchmark-output.log
       - name: Build wasm
         working-directory: packages/contracts
         run: cargo build --target wasm32v1-none --release
@@ -286,3 +292,18 @@ jobs:
         env:
           WASM_SIZE_BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: pnpm check:wasm-size
+      - name: Gate Soroban resource benchmarks
+        run: >
+          pnpm check:contract-benchmarks
+          --input packages/contracts/benchmark-output.log
+          --baseline packages/contracts/benchmarks/baselines.json
+          --output packages/contracts/benchmark-results.json
+      - name: Upload Soroban benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soroban-resource-benchmarks
+          path: |
+            packages/contracts/benchmark-results.json
+            packages/contracts/benchmark-output.log
+          if-no-files-found: warn
