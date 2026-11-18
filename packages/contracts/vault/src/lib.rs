@@ -74,6 +74,14 @@ pub trait YieldAdapterInterface {
     /// interpret the address returned by `get_pool()`, without a manually
     /// maintained config mapping that could drift out of sync.
     fn get_protocol(env: Env) -> Symbol;
+    /// Returns the vault this adapter is bound to. Called through the
+    /// non-panicking `try_get_vault` in `validate_adapter_target`, because
+    /// adapters deployed before this view existed do not export it.
+    fn get_vault(env: Env) -> Address;
+    /// Returns the USDC token this adapter holds. Called through the
+    /// non-panicking `try_get_usdc` for the same legacy-adapter reason as
+    /// `get_vault`.
+    fn get_usdc(env: Env) -> Address;
 }
 
 // ---------------------------------------------------------------------------
@@ -1070,6 +1078,13 @@ impl MeridianVault {
     /// bug, and clearing it would delete the observability that bug needs
     /// to be diagnosed, not fix it. In the normal case (both counters
     /// already zero) leaving `ADPT_SH` alone is a no-op.
+    ///
+    /// The target is also validated (#1270): it must use this vault's USDC
+    /// (`AdapterUsdcMismatch`), be bound to this vault
+    /// (`AdapterVaultMismatch`), and hold no position of its own
+    /// (`AdapterResidualPosition`, nonzero `total_shares()` or
+    /// `total_assets()`). Adapters without the `get_usdc`/`get_vault` views
+    /// skip those two identity checks; the residue check always applies.
     pub fn set_adapter(env: Env, new_adapter: Address) -> Result<(), ContractError> {
         Self::require_admin(&env)?;
         Self::extend_instance(&env);
@@ -1077,9 +1092,49 @@ impl MeridianVault {
         if Self::get_total_shares(env.clone()) > 0 || total_adapter_shares > 0 {
             return Err(ContractError::AdapterSwapUnsafe);
         }
+        Self::validate_adapter_target(&env, &new_adapter)?;
+        let new_adapter_client = AdapterClient::new(&env, &new_adapter);
+        if new_adapter_client.total_shares() != 0 || new_adapter_client.total_assets() != 0 {
+            return Err(ContractError::AdapterResidualPosition);
+        }
         env.storage().instance().set(&ADAPTER, &new_adapter);
         env.events()
             .publish((ADMIN_EVT, symbol_short!("adapter")), new_adapter.clone());
+        Ok(())
+    }
+
+    /// Checks that `target` is an adapter this vault can actually operate:
+    /// it must use the vault's own USDC and be bound to this vault. Shared
+    /// by `set_adapter` and `begin_migration` so the two admin paths cannot
+    /// drift apart (#1270).
+    ///
+    /// Both facts are read through the `get_usdc`/`get_vault` views and
+    /// compared against this vault's own state. Adapters deployed before
+    /// those views existed do not export them, so each view is called via
+    /// its non-panicking `try_` client method and a failed call is treated
+    /// as "legacy adapter": that individual check is skipped rather than the
+    /// adapter rejected, which keeps existing deployments usable. A view
+    /// that is present but disagrees is always rejected. Not part of the
+    /// contract ABI (no `pub`).
+    fn validate_adapter_target(env: &Env, target: &Address) -> Result<(), ContractError> {
+        let client = AdapterClient::new(env, target);
+
+        let vault_usdc = Self::usdc(env)?;
+        match client.try_get_usdc() {
+            Ok(Ok(adapter_usdc)) if adapter_usdc == vault_usdc => {}
+            // Present but wrong: a different asset, or an unreadable value.
+            Ok(_) => return Err(ContractError::AdapterUsdcMismatch),
+            // Legacy adapter without `get_usdc`: documented fallback.
+            Err(_) => {}
+        }
+
+        match client.try_get_vault() {
+            Ok(Ok(adapter_vault)) if adapter_vault == env.current_contract_address() => {}
+            Ok(_) => return Err(ContractError::AdapterVaultMismatch),
+            // Legacy adapter without `get_vault`: documented fallback.
+            Err(_) => {}
+        }
+
         Ok(())
     }
 
@@ -1106,6 +1161,14 @@ impl MeridianVault {
     /// vault's entire position moving to an address the attacker
     /// controls.
     ///
+    /// The target must also use this vault's USDC and be bound to this vault
+    /// (`AdapterUsdcMismatch` / `AdapterVaultMismatch`, #1270); legacy
+    /// adapters without those views skip the respective check. Residue is
+    /// deliberately not checked here: a migration target is expected to
+    /// start empty, but the post-migration stability and slippage checks
+    /// already cover value drift, and rejecting a funded target would break
+    /// re-running `begin_migration` after a partial attempt.
+    ///
     /// Can be called repeatedly for the same or different adapters; each
     /// call overwrites the previous snapshot. The admin must then wait for
     /// the ledger gap to elapse before calling `migrate_adapter`.
@@ -1126,6 +1189,7 @@ impl MeridianVault {
         if new_adapter == old_adapter_addr {
             return Err(ContractError::SameAdapter);
         }
+        Self::validate_adapter_target(&env, &new_adapter)?;
 
         let new_adapter_client = AdapterClient::new(&env, &new_adapter);
         new_adapter_client.refresh();
@@ -1758,6 +1822,68 @@ mod tests {
                     .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // CompatMockAdapter: a set_adapter()/begin_migration() target that, unlike
+    // every other mock here, exports the `get_usdc`/`get_vault` views and
+    // lets a test choose what they (and its residual position) report. The
+    // other mocks deliberately lack the views and so double as the "legacy
+    // adapter" case. Exercises validate_adapter_target (#1270).
+    // -----------------------------------------------------------------------
+    mod compat_mock {
+        use super::*;
+
+        const CM_USDC: Symbol = symbol_short!("CM_USDC");
+        const CM_VAULT: Symbol = symbol_short!("CM_VAULT");
+        const CM_SH: Symbol = symbol_short!("CM_SH");
+        const CM_ASSETS: Symbol = symbol_short!("CM_ASSET");
+
+        #[contract]
+        pub struct CompatMockAdapter;
+
+        #[contractimpl]
+        impl CompatMockAdapter {
+            pub fn initialize(env: Env, usdc: Address, vault: Address, shares: i128, assets: i128) {
+                env.storage().instance().set(&CM_USDC, &usdc);
+                env.storage().instance().set(&CM_VAULT, &vault);
+                env.storage().instance().set(&CM_SH, &shares);
+                env.storage().instance().set(&CM_ASSETS, &assets);
+            }
+
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&CM_USDC))
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&CM_VAULT))
+            }
+
+            pub fn total_shares(env: Env) -> i128 {
+                env.storage().instance().get(&CM_SH).unwrap_or(0)
+            }
+
+            pub fn total_assets(env: Env) -> i128 {
+                env.storage().instance().get(&CM_ASSETS).unwrap_or(0)
+            }
+
+            pub fn refresh(_env: Env) {}
+        }
+    }
+    use compat_mock::{CompatMockAdapter, CompatMockAdapterClient};
+
+    /// Registers a `CompatMockAdapter` reporting the given USDC, vault and
+    /// residual position.
+    fn register_compat_adapter(
+        env: &Env,
+        usdc: &Address,
+        vault: &Address,
+        shares: i128,
+        assets: i128,
+    ) -> Address {
+        let id = env.register(CompatMockAdapter, ());
+        CompatMockAdapterClient::new(env, &id).initialize(usdc, vault, &shares, &assets);
+        id
     }
 
     // -----------------------------------------------------------------------
@@ -3262,6 +3388,136 @@ mod tests {
 
         let result = vault.try_begin_migration(&adapter);
         assert_eq!(result, Err(Ok(ContractError::SameAdapter)));
+    }
+
+    // -----------------------------------------------------------------------
+    // #1270: adapter compatibility validation in set_adapter / begin_migration
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn set_adapter_rejects_a_target_with_a_different_usdc() {
+        let (env, _admin, _user, _usdc, _musdc, original, vault) = setup();
+        let other_usdc = Address::generate(&env);
+        let target = register_compat_adapter(&env, &other_usdc, &vault.address, 0, 0);
+
+        let result = vault.try_set_adapter(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
+        assert_eq!(vault.get_adapter(), original);
+    }
+
+    #[test]
+    fn set_adapter_rejects_a_target_bound_to_a_different_vault() {
+        let (env, _admin, _user, usdc, _musdc, original, vault) = setup();
+        let other_vault = Address::generate(&env);
+        let target = register_compat_adapter(&env, &usdc, &other_vault, 0, 0);
+
+        let result = vault.try_set_adapter(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterVaultMismatch)));
+        assert_eq!(vault.get_adapter(), original);
+    }
+
+    #[test]
+    fn set_adapter_rejects_a_target_holding_residual_shares() {
+        let (env, _admin, _user, usdc, _musdc, original, vault) = setup();
+        let target = register_compat_adapter(&env, &usdc, &vault.address, 1, 0);
+
+        let result = vault.try_set_adapter(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterResidualPosition)));
+        assert_eq!(vault.get_adapter(), original);
+    }
+
+    #[test]
+    fn set_adapter_rejects_a_target_holding_residual_assets() {
+        let (env, _admin, _user, usdc, _musdc, original, vault) = setup();
+        let target = register_compat_adapter(&env, &usdc, &vault.address, 0, 1);
+
+        let result = vault.try_set_adapter(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterResidualPosition)));
+        assert_eq!(vault.get_adapter(), original);
+    }
+
+    #[test]
+    fn set_adapter_accepts_a_valid_target() {
+        let (env, _admin, _user, usdc, _musdc, _original, vault) = setup();
+        let target = register_compat_adapter(&env, &usdc, &vault.address, 0, 0);
+
+        assert_eq!(vault.try_set_adapter(&target), Ok(Ok(())));
+        assert_eq!(vault.get_adapter(), target);
+    }
+
+    // A legacy adapter exports neither view. The identity checks are skipped
+    // (documented fallback) so existing deployments stay usable.
+    #[test]
+    fn set_adapter_accepts_a_legacy_adapter_without_the_views() {
+        let (env, _admin, _user, usdc, _musdc, _original, vault) = setup();
+        let legacy = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &legacy).initialize(&usdc);
+
+        assert_eq!(vault.try_set_adapter(&legacy), Ok(Ok(())));
+        assert_eq!(vault.get_adapter(), legacy);
+    }
+
+    // The fallback only covers the *identity* views. A legacy adapter that
+    // holds a position is still rejected, since total_shares()/total_assets()
+    // are part of the required interface.
+    #[test]
+    fn set_adapter_still_rejects_a_legacy_adapter_holding_residue() {
+        let (env, _admin, _user, usdc, _musdc, original, vault) = setup();
+        let legacy = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &legacy).initialize(&usdc);
+        StellarAssetClient::new(&env, &usdc).mint(&legacy, &5);
+
+        let result = vault.try_set_adapter(&legacy);
+        assert_eq!(result, Err(Ok(ContractError::AdapterResidualPosition)));
+        assert_eq!(vault.get_adapter(), original);
+    }
+
+    #[test]
+    fn begin_migration_rejects_a_target_with_a_different_usdc() {
+        let (env, _admin, _user, _usdc, _musdc, _original, vault) = setup();
+        let other_usdc = Address::generate(&env);
+        let target = register_compat_adapter(&env, &other_usdc, &vault.address, 0, 0);
+
+        let result = vault.try_begin_migration(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
+        // A rejected target must not leave a snapshot behind.
+        assert_eq!(
+            vault.try_get_migration_snapshot(),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+    }
+
+    #[test]
+    fn begin_migration_rejects_a_target_bound_to_a_different_vault() {
+        let (env, _admin, _user, usdc, _musdc, _original, vault) = setup();
+        let other_vault = Address::generate(&env);
+        let target = register_compat_adapter(&env, &usdc, &other_vault, 0, 0);
+
+        let result = vault.try_begin_migration(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterVaultMismatch)));
+        assert_eq!(
+            vault.try_get_migration_snapshot(),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+    }
+
+    #[test]
+    fn begin_migration_accepts_a_valid_target() {
+        let (env, _admin, _user, usdc, _musdc, _original, vault) = setup();
+        let target = register_compat_adapter(&env, &usdc, &vault.address, 0, 0);
+
+        assert_eq!(vault.try_begin_migration(&target), Ok(Ok(())));
+        assert_eq!(vault.get_migration_snapshot().adapter, target);
+    }
+
+    #[test]
+    fn begin_migration_accepts_a_legacy_adapter_without_the_views() {
+        let (env, _admin, _user, usdc, _musdc, _original, vault) = setup();
+        let legacy = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &legacy).initialize(&usdc);
+
+        assert_eq!(vault.try_begin_migration(&legacy), Ok(Ok(())));
+        assert_eq!(vault.get_migration_snapshot().adapter, legacy);
     }
 
     #[test]

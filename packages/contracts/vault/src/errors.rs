@@ -102,4 +102,21 @@ pub enum ContractError {
     /// `ADAPTER` or migration state is not yet final. The reentrant call is
     /// rejected and the outer call is unaffected.
     ReentrancyDetected = 26,
+    /// `set_adapter` or `begin_migration` was given a target adapter whose
+    /// `get_usdc()` differs from the vault's own USDC. Such an adapter would
+    /// hold and price a different asset than the vault accounts in, so every
+    /// later deposit, withdrawal and migration against it would fail or
+    /// misprice. Not raised for legacy adapters that do not expose
+    /// `get_usdc()` (see `MeridianVault::validate_adapter_target`).
+    AdapterUsdcMismatch = 27,
+    /// `set_adapter` or `begin_migration` was given a target adapter whose
+    /// `get_vault()` is not this vault. Such an adapter only accepts calls
+    /// authorized by another vault, so this vault could never operate it.
+    /// Not raised for legacy adapters that do not expose `get_vault()`.
+    AdapterVaultMismatch = 28,
+    /// `set_adapter` was given a target adapter that already holds a
+    /// position (nonzero `total_shares()` or `total_assets()`). The vault is
+    /// empty at that point, so any residue would be unaccounted for in
+    /// `ADPT_SH` and would skew the share price of the first depositors.
+    AdapterResidualPosition = 29,
 }
