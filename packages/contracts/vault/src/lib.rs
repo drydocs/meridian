@@ -3858,4 +3858,6 @@ mod tests {
         assert_eq!(target_adapter, new_adapter_id);
         assert_eq!(earliest_ledger, current_ledger + MIN_LEDGER_GAP);
     }
+
+    mod accounting_properties;
 }
