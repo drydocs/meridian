@@ -143,7 +143,8 @@ impl MeridianVault {
         adapter: Address,
         treasury: Address,
     ) {
-        if let Err(error) = Self::validate_wiring(&env, &admin, &usdc, &musdc, &adapter, &treasury) {
+        if let Err(error) = Self::validate_wiring(&env, &admin, &usdc, &musdc, &adapter, &treasury)
+        {
             panic_with_error!(&env, error);
         }
         admin.require_auth();
@@ -258,9 +259,16 @@ impl MeridianVault {
     }
 
     fn is_zero_address(env: &Env, address: &Address) -> bool {
-        address == &Address::from_str(env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")
+        address
+            == &Address::from_str(
+                env,
+                "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            )
             || address
-                == &Address::from_str(env, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
+                == &Address::from_str(
+                    env,
+                    "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+                )
     }
 
     /// Deposit `amount` USDC into the vault. USDC is forwarded to the yield
@@ -1278,7 +1286,10 @@ mod tests {
         let fee_stroops = estimate.fee().total;
         std::println!(
             "SOROBAN_BENCHMARK|{}|{}|{}|{}",
-            name, resources.instructions, memory_bytes, fee_stroops
+            name,
+            resources.instructions,
+            memory_bytes,
+            fee_stroops
         );
     }
 
