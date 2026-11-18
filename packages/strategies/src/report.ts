@@ -166,6 +166,7 @@ function copyScenario(scenario: Scenario): Scenario {
     window: { ...scenario.window },
     assets: [...scenario.assets],
     source: { ...scenario.source },
+    costs: { ...scenario.costs },
     startingCapital: scenario.startingCapital,
     strategy: { ...scenario.strategy, params: { ...scenario.strategy.params } },
     seed: scenario.seed,

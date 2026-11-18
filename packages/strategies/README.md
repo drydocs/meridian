@@ -44,6 +44,25 @@ Rounding rules:
 A `bigint` operand is raw units at the receiver's scale. A `string` operand is
 a decimal literal, taken at its exact value.
 
+## Scenario costs
+
+Scenarios may include run-wide execution assumptions as non-negative,
+fixed-point decimal strings with at most seven fractional digits:
+
+```json
+{
+  "schemaVersion": 2,
+  "costs": {
+    "swapFeeRate": "0.003",
+    "networkFee": "0.0000100"
+  }
+}
+```
+
+Omitting `costs` applies zero costs. Version 1 scenarios remain valid and
+receive the same zero-cost default; scenarios created with the current schema
+use version 2.
+
 ## Golden scenario fixture
 
 `test-fixtures/scenario-golden.json` pins the full state and order sequence of
