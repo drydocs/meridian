@@ -1,6 +1,7 @@
 #![no_std]
 
 mod errors;
+pub mod pricing;
 mod storage;
 
 pub use errors::ContractError;
@@ -11,7 +12,8 @@ pub use storage::{
 };
 
 use soroban_sdk::{
-    contract, contractclient, contractimpl, symbol_short, token::TokenClient, Address, Env, Symbol,
+    contract, contractclient, contractimpl, contracttype, symbol_short, token::TokenClient,
+    Address, Env, Symbol,
 };
 
 // ---------------------------------------------------------------------------
@@ -101,6 +103,22 @@ pub trait MusdcAdminInterface {
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
+
+/// Result of [`MeridianVault::preview_withdraw`]: what `withdraw` would do for
+/// a given holder and share count at the current vault state.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WithdrawPreview {
+    /// USDC the adapter would redeem for the burned shares, before any fee.
+    pub gross_assets: i128,
+    /// Performance fee on the gain over the retired cost basis (0 if none).
+    pub fee: i128,
+    /// mUSDC minted to the treasury for the fee (0 if no fee, or if the fee
+    /// is too small to mint one share and is returned to the caller instead).
+    pub treasury_shares: i128,
+    /// USDC the caller receives, exactly what `withdraw` returns.
+    pub assets_out: i128,
+}
 
 #[contract]
 pub struct MeridianVault;
@@ -225,19 +243,7 @@ impl MeridianVault {
         // shares_to_mint = amount * (total_shares + OFFSET) / (total_assets + OFFSET)
         // The virtual offset makes the first-deposit price 1 share = 1 stroop while
         // neutralising the inflation attack on every subsequent deposit.
-        let shares_to_mint = amount
-            .checked_mul(
-                total_shares
-                    .checked_add(OFFSET)
-                    .ok_or(ContractError::Overflow)?,
-            )
-            .ok_or(ContractError::Overflow)?
-            .checked_div(
-                total_assets
-                    .checked_add(OFFSET)
-                    .ok_or(ContractError::Overflow)?,
-            )
-            .ok_or(ContractError::DivisionByZero)?;
+        let shares_to_mint = pricing::shares_for_assets(amount, total_shares, total_assets)?;
 
         if shares_to_mint <= 0 {
             return Err(ContractError::DepositTooSmall);
@@ -370,11 +376,8 @@ impl MeridianVault {
 
         // Proportional adapter-share burn: caller_shares/total_shares of the
         // total adapter shares are redeemed.
-        let adapter_shares_to_burn = shares
-            .checked_mul(total_adapter_shares)
-            .ok_or(ContractError::Overflow)?
-            .checked_div(total_shares)
-            .ok_or(ContractError::DivisionByZero)?;
+        let adapter_shares_to_burn =
+            pricing::adapter_shares_for_shares(shares, total_shares, total_adapter_shares)?;
 
         // Adapter redeems protocol shares, delivers USDC to vault, returns amount.
         let adapter_client = AdapterClient::new(&env, &adapter_addr);
@@ -390,23 +393,13 @@ impl MeridianVault {
         // and loss recovery are never charged.
         let principal_key = DataKey::Principal(caller.clone());
         let principal: i128 = env.storage().persistent().get(&principal_key).unwrap_or(0);
-        let principal_out = principal
-            .checked_mul(shares)
-            .ok_or(ContractError::Overflow)?
-            .checked_div(caller_shares)
-            .ok_or(ContractError::DivisionByZero)?;
-        let gain = if usdc_out > principal_out {
-            usdc_out
-                .checked_sub(principal_out)
-                .ok_or(ContractError::Overflow)?
-        } else {
-            0
-        };
-        let fee = gain
-            .checked_mul(PERFORMANCE_FEE_BPS)
-            .ok_or(ContractError::Overflow)?
-            .checked_div(BPS_DENOMINATOR)
-            .ok_or(ContractError::DivisionByZero)?;
+        let principal_out = pricing::principal_retired(principal, shares, caller_shares)?;
+        let (gain, fee) = pricing::performance_fee(
+            usdc_out,
+            principal_out,
+            PERFORMANCE_FEE_BPS,
+            BPS_DENOMINATOR,
+        )?;
         let net_usdc_out = usdc_out.checked_sub(fee).ok_or(ContractError::Overflow)?;
         let mut actual_usdc_out = net_usdc_out;
 
@@ -443,19 +436,7 @@ impl MeridianVault {
             // Price the treasury mint exactly like a deposit against the
             // post-withdrawal vault. OFFSET also gives a full-exit fee a
             // well-defined 1:1 price when no user shares/assets remain.
-            treasury_shares = fee
-                .checked_mul(
-                    remaining_shares
-                        .checked_add(OFFSET)
-                        .ok_or(ContractError::Overflow)?,
-                )
-                .ok_or(ContractError::Overflow)?
-                .checked_div(
-                    remaining_assets
-                        .checked_add(OFFSET)
-                        .ok_or(ContractError::Overflow)?,
-                )
-                .ok_or(ContractError::DivisionByZero)?;
+            treasury_shares = pricing::shares_for_assets(fee, remaining_shares, remaining_assets)?;
 
             if treasury_shares > 0 {
                 TokenClient::new(&env, &usdc).transfer(
@@ -760,6 +741,183 @@ impl MeridianVault {
     /// Returns the fee compiled into this vault deployment, in basis points.
     pub fn get_performance_fee_bps(_env: Env) -> i128 {
         PERFORMANCE_FEE_BPS
+    }
+
+    // -----------------------------------------------------------------------
+    // Preview and conversion views (#1265)
+    //
+    // All of these run the same `pricing` helpers as `deposit`/`withdraw`, so
+    // a quote and the execution that follows it cannot drift apart.
+    //
+    // `convert_to_*` and `get_share_price` read the adapter's *reported*
+    // state. `preview_deposit` and `preview_withdraw` additionally call the
+    // adapter's `refresh()` first, exactly as `deposit`/`withdraw` do, so they
+    // price against the same refreshed totals. That makes them intended for
+    // off-chain simulation, not for committing in a transaction.
+    //
+    // Zero and negative inputs: a zero amount quotes zero; a negative amount
+    // returns `ZeroAmount`, the error the entry points use for non-positive
+    // input.
+    // -----------------------------------------------------------------------
+
+    /// Shares `assets` USDC would buy at the current price (rounded down),
+    /// without the deposit-only guards (pause, minimum size).
+    ///
+    /// * Empty vault: 1 share per stroop (the virtual offset cancels).
+    /// * `assets == 0`: `0`.
+    /// * Shares outstanding but the adapter reports no assets:
+    ///   `AdapterReportedNoAssets`, as `deposit` would.
+    pub fn convert_to_shares(env: Env, assets: i128) -> Result<i128, ContractError> {
+        if assets < 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+        if assets == 0 {
+            return Ok(0);
+        }
+        let (total_shares, total_assets) = Self::pricing_state(&env)?;
+        if total_shares > 0 && total_assets <= 0 {
+            return Err(ContractError::AdapterReportedNoAssets);
+        }
+        pricing::shares_for_assets(assets, total_shares, total_assets)
+    }
+
+    /// Gross USDC value of `shares` at the current price (rounded down),
+    /// before any performance fee. Equals `preview_withdraw(..).gross_assets`.
+    ///
+    /// Returns `0` for `shares == 0`, an empty vault, or when the adapter
+    /// holds no shares or no assets.
+    pub fn convert_to_assets(env: Env, shares: i128) -> Result<i128, ContractError> {
+        if shares < 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+        if shares == 0 {
+            return Ok(0);
+        }
+        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        if total_shares <= 0 {
+            return Ok(0);
+        }
+        let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
+        let (_, total_assets) = Self::pricing_state(&env)?;
+        let adapter_shares =
+            pricing::adapter_shares_for_shares(shares, total_shares, total_adapter_shares)?;
+        pricing::assets_for_adapter_shares(adapter_shares, total_assets, total_adapter_shares)
+    }
+
+    /// Price of one share in USDC, scaled by `pricing::PRICE_SCALE` (1e7, so
+    /// `10_000_000` is 1.0). Uses the deposit pricing (virtual offset), so an
+    /// empty vault is exactly `10_000_000` and a vault with shares but no
+    /// assets prices near zero instead of erroring.
+    pub fn get_share_price(env: Env) -> Result<i128, ContractError> {
+        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let (_, total_assets) = Self::pricing_state(&env)?;
+        pricing::share_price(total_assets, total_shares)
+    }
+
+    /// Shares `deposit(amount)` would mint right now, or the error it would
+    /// revert with (`DepositsPaused`, `AdapterReportedNoAssets`,
+    /// `DepositTooSmall`). `amount == 0` quotes `0`.
+    pub fn preview_deposit(env: Env, amount: i128) -> Result<i128, ContractError> {
+        if Self::is_paused(env.clone()) {
+            return Err(ContractError::DepositsPaused);
+        }
+        if amount < 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+        if amount == 0 {
+            return Ok(0);
+        }
+        let adapter = Self::adapter(&env)?;
+        AdapterClient::new(&env, &adapter).refresh();
+        let (total_shares, total_assets) = Self::pricing_state(&env)?;
+        if total_shares > 0 && total_assets <= 0 {
+            return Err(ContractError::AdapterReportedNoAssets);
+        }
+        let shares = pricing::shares_for_assets(amount, total_shares, total_assets)?;
+        if shares <= 0 {
+            return Err(ContractError::DepositTooSmall);
+        }
+        Ok(shares)
+    }
+
+    /// What `withdraw(holder, shares, _)` would do right now: gross redemption,
+    /// performance fee on the holder's own cost basis (including basis moved
+    /// by mUSDC transfers), treasury shares minted and the net payout. Returns
+    /// the error `withdraw` would revert with (`NoSharesOutstanding`,
+    /// `InsufficientShares`, `WithdrawalTooSmall`). `shares == 0` quotes zeros.
+    ///
+    /// The redemption assumes the adapter pays out proportionally to its
+    /// reported assets; an adapter with extra redemption rounding can pay a
+    /// few stroops less. The treasury mint is priced against the vault after
+    /// the redemption.
+    pub fn preview_withdraw(
+        env: Env,
+        holder: Address,
+        shares: i128,
+    ) -> Result<WithdrawPreview, ContractError> {
+        if shares < 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+        if shares == 0 {
+            return Ok(WithdrawPreview {
+                gross_assets: 0,
+                fee: 0,
+                treasury_shares: 0,
+                assets_out: 0,
+            });
+        }
+        let musdc = Self::musdc(&env)?;
+        let adapter = Self::adapter(&env)?;
+        AdapterClient::new(&env, &adapter).refresh();
+
+        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
+        if total_shares <= 0 {
+            return Err(ContractError::NoSharesOutstanding);
+        }
+        let holder_shares = TokenClient::new(&env, &musdc).balance(&holder);
+        if holder_shares < shares {
+            return Err(ContractError::InsufficientShares);
+        }
+
+        let total_assets = AdapterClient::new(&env, &adapter).total_assets();
+        let adapter_shares =
+            pricing::adapter_shares_for_shares(shares, total_shares, total_adapter_shares)?;
+        let gross =
+            pricing::assets_for_adapter_shares(adapter_shares, total_assets, total_adapter_shares)?;
+        if gross <= 0 {
+            return Err(ContractError::WithdrawalTooSmall);
+        }
+
+        let principal: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Principal(holder))
+            .unwrap_or(0);
+        let principal_out = pricing::principal_retired(principal, shares, holder_shares)?;
+        let (_, fee) =
+            pricing::performance_fee(gross, principal_out, PERFORMANCE_FEE_BPS, BPS_DENOMINATOR)?;
+
+        let mut treasury_shares = 0_i128;
+        let mut assets_out = gross.checked_sub(fee).ok_or(ContractError::Overflow)?;
+        if fee > 0 {
+            let remaining_shares = total_shares
+                .checked_sub(shares)
+                .ok_or(ContractError::Overflow)?;
+            let remaining_assets = total_assets.saturating_sub(gross);
+            treasury_shares = pricing::shares_for_assets(fee, remaining_shares, remaining_assets)?;
+            if treasury_shares == 0 {
+                // Dust fee: returned to the holder, as `withdraw` does.
+                assets_out = gross;
+            }
+        }
+
+        Ok(WithdrawPreview {
+            gross_assets: gross,
+            fee,
+            treasury_shares,
+            assets_out,
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -1141,6 +1299,23 @@ impl MeridianVault {
             .instance()
             .get(&USDC)
             .ok_or(ContractError::NotInitialized)
+    }
+
+    fn adapter(env: &Env) -> Result<Address, ContractError> {
+        env.storage()
+            .instance()
+            .get(&ADAPTER)
+            .ok_or(ContractError::NotInitialized)
+    }
+
+    /// `(total_shares, total_assets)` as the adapter currently reports them.
+    fn pricing_state(env: &Env) -> Result<(i128, i128), ContractError> {
+        let adapter = Self::adapter(env)?;
+        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        Ok((
+            total_shares,
+            AdapterClient::new(env, &adapter).total_assets(),
+        ))
     }
 
     fn musdc(env: &Env) -> Result<Address, ContractError> {
@@ -3857,5 +4032,248 @@ mod tests {
             soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
         assert_eq!(target_adapter, new_adapter_id);
         assert_eq!(earliest_ledger, current_ledger + MIN_LEDGER_GAP);
+    }
+
+    // -----------------------------------------------------------------------
+    // Preview and conversion views (#1265)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn views_on_an_empty_vault_return_documented_values() {
+        let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+
+        // Empty vault: 1 share per stroop, price exactly 1.0.
+        assert_eq!(vault.convert_to_shares(&1_234_567), 1_234_567);
+        assert_eq!(vault.convert_to_assets(&1_234_567), 0);
+        assert_eq!(vault.get_share_price(), pricing::PRICE_SCALE);
+        assert_eq!(vault.preview_deposit(&1_234_567), 1_234_567);
+
+        // Zero quotes zero; negative is the entry points' ZeroAmount.
+        assert_eq!(vault.convert_to_shares(&0), 0);
+        assert_eq!(vault.convert_to_assets(&0), 0);
+        assert_eq!(vault.preview_deposit(&0), 0);
+        assert_eq!(
+            vault.try_convert_to_shares(&-1),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.try_convert_to_assets(&-1),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.try_preview_deposit(&-1),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.try_preview_withdraw(&user, &-1),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.preview_withdraw(&user, &0),
+            WithdrawPreview {
+                gross_assets: 0,
+                fee: 0,
+                treasury_shares: 0,
+                assets_out: 0
+            }
+        );
+        assert_eq!(
+            vault.try_preview_withdraw(&user, &1),
+            Err(Ok(ContractError::NoSharesOutstanding))
+        );
+    }
+
+    #[test]
+    fn preview_deposit_reflects_pause_and_dust() {
+        let (env, _admin, user, usdc_id, _musdc, adapter_id, vault) = setup();
+        vault.deposit(&user, &100_0000000, &0);
+        // Donate so one stroop prices below one share.
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &10_000_000_000_i128);
+        assert_eq!(
+            vault.try_preview_deposit(&1),
+            Err(Ok(ContractError::DepositTooSmall))
+        );
+        vault.set_paused(&true);
+        assert_eq!(
+            vault.try_preview_deposit(&1_0000000),
+            Err(Ok(ContractError::DepositsPaused))
+        );
+    }
+
+    #[test]
+    fn views_report_shares_outstanding_with_no_assets() {
+        let (env, _admin, user, usdc_id, _musdc, adapter_id, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0);
+        let sink = Address::generate(&env);
+        TokenClient::new(&env, &usdc_id).transfer(&adapter_id, &sink, &amount);
+
+        assert_eq!(
+            vault.try_convert_to_shares(&1_0000000),
+            Err(Ok(ContractError::AdapterReportedNoAssets))
+        );
+        assert_eq!(
+            vault.try_preview_deposit(&1_0000000),
+            Err(Ok(ContractError::AdapterReportedNoAssets))
+        );
+        // Value of the held shares is zero, and the price is near zero but
+        // defined: no panic, no error.
+        assert_eq!(vault.convert_to_assets(&amount), 0);
+        assert!(vault.get_share_price() < pricing::PRICE_SCALE / 1_000);
+        assert_eq!(
+            vault.try_preview_withdraw(&user, &amount),
+            Err(Ok(ContractError::WithdrawalTooSmall))
+        );
+    }
+
+    #[test]
+    fn preview_withdraw_matches_withdraw_with_fee_and_treasury_mint() {
+        let (env, treasury, user, usdc_id, musdc_id, adapter_id, vault) = setup();
+        vault.deposit(&user, &100_0000000, &0);
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &10_0000000_i128);
+
+        let shares = vault.get_position(&user);
+        let preview = vault.preview_withdraw(&user, &shares);
+        assert_eq!(vault.convert_to_assets(&shares), preview.gross_assets);
+        assert_eq!(preview.fee, 1_0000000);
+
+        let usdc = TokenClient::new(&env, &usdc_id);
+        let musdc = TokenClient::new(&env, &musdc_id);
+        let usdc_before = usdc.balance(&user);
+        let treasury_before = musdc.balance(&treasury);
+        let received = vault.withdraw(&user, &shares, &0);
+
+        assert_eq!(received, preview.assets_out);
+        assert_eq!(usdc.balance(&user) - usdc_before, preview.assets_out);
+        assert_eq!(
+            musdc.balance(&treasury) - treasury_before,
+            preview.treasury_shares
+        );
+    }
+
+    #[test]
+    fn preview_withdraw_uses_basis_moved_by_transfer() {
+        let (env, treasury, user, usdc_id, musdc_id, adapter_id, vault) = setup();
+        vault.deposit(&user, &100_0000000, &0);
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &20_0000000_i128);
+
+        // Half the position, and half its basis, moves to a receiver.
+        let receiver = Address::generate(&env);
+        let half = vault.get_position(&user) / 2;
+        TokenClient::new(&env, &musdc_id).transfer(&user, &receiver, &half);
+
+        let shares = vault.get_position(&receiver);
+        let preview = vault.preview_withdraw(&receiver, &shares);
+        assert!(preview.fee > 0);
+        let treasury_before = TokenClient::new(&env, &musdc_id).balance(&treasury);
+        let received = vault.withdraw(&receiver, &shares, &0);
+        assert_eq!(received, preview.assets_out);
+        assert_eq!(
+            TokenClient::new(&env, &musdc_id).balance(&treasury) - treasury_before,
+            preview.treasury_shares
+        );
+    }
+
+    #[test]
+    fn preview_withdraw_dust_fee_is_returned_to_holder() {
+        let (env, treasury, user, usdc_id, musdc_id, adapter_id, vault) = setup();
+        vault.deposit(&user, &100_0000000, &0);
+        // Gain of 9 stroops -> fee 0 (rounds down): payout is the gross.
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &9_i128);
+        let shares = vault.get_position(&user);
+        let preview = vault.preview_withdraw(&user, &shares);
+        assert_eq!(preview.fee, 0);
+        assert_eq!(preview.assets_out, preview.gross_assets);
+        let received = vault.withdraw(&user, &shares, &0);
+        assert_eq!(received, preview.assets_out);
+        assert_eq!(TokenClient::new(&env, &musdc_id).balance(&treasury), 0);
+    }
+
+    // Deterministic pseudo-random scenarios (no extra dev-dependency): every
+    // preview must equal what the real call mints or pays, or fail with the
+    // same error.
+    #[test]
+    fn previews_match_execution_across_random_scenarios() {
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = move |lo: i128, hi: i128| -> i128 {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            lo + ((state >> 33) as i128) % (hi - lo + 1)
+        };
+
+        for _ in 0..40 {
+            let (env, treasury, user, usdc_id, musdc_id, adapter_id, vault) = setup();
+            let usdc_admin = StellarAssetClient::new(&env, &usdc_id);
+            let usdc = TokenClient::new(&env, &usdc_id);
+            let musdc = TokenClient::new(&env, &musdc_id);
+            let user2 = Address::generate(&env);
+            usdc_admin.mint(&user2, &10_000_000_000_i128);
+
+            // Deposits: preview == minted shares.
+            for depositor in [&user, &user2] {
+                let amount = next(1, 3_000_000_000);
+                let quoted = vault.try_preview_deposit(&amount);
+                let actual = vault.try_deposit(depositor, &amount, &0);
+                assert_eq!(quoted, actual);
+                if let Ok(Ok(minted)) = actual {
+                    assert_eq!(vault.convert_to_shares(&amount), minted);
+                }
+                if next(0, 1) == 1 {
+                    usdc_admin.mint(&adapter_id, &next(0, 1_500_000_000));
+                }
+            }
+
+            // Optionally move part of user's position (and basis) to a third party.
+            let user3 = Address::generate(&env);
+            let user_shares = vault.get_position(&user);
+            if user_shares > 1 && next(0, 1) == 1 {
+                musdc.transfer(&user, &user3, &next(1, user_shares - 1));
+            }
+
+            // Withdrawals: preview == payout and treasury mint.
+            for holder in [&user, &user2, &user3] {
+                let balance = musdc.balance(holder);
+                if balance == 0 {
+                    continue;
+                }
+                let shares = next(1, balance);
+                let quoted = vault.try_preview_withdraw(holder, &shares);
+                let usdc_before = usdc.balance(holder);
+                let treasury_before = musdc.balance(&treasury);
+                let actual = vault.try_withdraw(holder, &shares, &0);
+                match (quoted, actual) {
+                    (Ok(Ok(p)), Ok(Ok(received))) => {
+                        assert_eq!(received, p.assets_out);
+                        assert_eq!(usdc.balance(holder) - usdc_before, p.assets_out);
+                        assert_eq!(
+                            musdc.balance(&treasury) - treasury_before,
+                            p.treasury_shares
+                        );
+                    }
+                    (Err(q), Err(a)) => assert_eq!(q, a),
+                    (q, a) => panic!("preview {q:?} disagrees with execution {a:?}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pricing_helpers_preserve_checked_error_mapping() {
+        assert_eq!(
+            pricing::shares_for_assets(i128::MAX, 1, 0),
+            Err(ContractError::Overflow)
+        );
+        assert_eq!(pricing::shares_for_assets(5, 0, 0), Ok(5));
+        assert_eq!(
+            pricing::adapter_shares_for_shares(1, 0, 1),
+            Err(ContractError::DivisionByZero)
+        );
+        assert_eq!(pricing::assets_for_adapter_shares(5, 100, 0), Ok(0));
+        assert_eq!(pricing::performance_fee(90, 100, 1_000, 10_000), Ok((0, 0)));
+        assert_eq!(
+            pricing::performance_fee(200, 100, 1_000, 10_000),
+            Ok((100, 10))
+        );
     }
 }
