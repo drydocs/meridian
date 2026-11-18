@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 use adapter_common::{
     extend_instance, get_usdc, require_not_initialized, require_vault_auth, store_vault_and_usdc,
     AdapterError,
@@ -365,7 +368,7 @@ mod tests {
         let resources = estimate.resources();
         let memory_bytes = estimate.budget().memory_bytes_cost();
         let fee_stroops = estimate.fee().total;
-        println!(
+        std::println!(
             "SOROBAN_BENCHMARK|{}|{}|{}|{}",
             name, resources.instructions, memory_bytes, fee_stroops
         );

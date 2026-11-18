@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 mod errors;
 mod types;
 
@@ -365,7 +368,7 @@ mod tests {
         let resources = estimate.resources();
         let memory_bytes = estimate.budget().memory_bytes_cost();
         let fee_stroops = estimate.fee().total;
-        println!(
+        std::println!(
             "SOROBAN_BENCHMARK|{}|{}|{}|{}",
             name, resources.instructions, memory_bytes, fee_stroops
         );
