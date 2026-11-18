@@ -10,6 +10,7 @@ set -euo pipefail
 # Usage: bash scripts/deploy-testnet.sh
 
 NETWORK="testnet"
+DEPLOYMENT_NETWORK="testnet"
 
 # DEPLOYER must be set in the environment and funded via friendbot. It only
 # pays fees and signs setup transactions; it does not need to be kept around
