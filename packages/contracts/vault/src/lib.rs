@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 mod errors;
 mod storage;
 
@@ -257,14 +260,9 @@ impl MeridianVault {
     }
 
     fn is_zero_address(env: &Env, address: &Address) -> bool {
-        address == &Address::from_str(
-            env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-        ) || address
-            == &Address::from_str(
-                env,
-                "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
-            )
+        address == &Address::from_str(env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")
+            || address
+                == &Address::from_str(env, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
     }
 
     /// Deposit `amount` USDC into the vault. USDC is forwarded to the yield
@@ -1280,7 +1278,7 @@ mod tests {
         let resources = estimate.resources();
         let memory_bytes = estimate.budget().memory_bytes_cost();
         let fee_stroops = estimate.fee().total;
-        println!(
+        std::println!(
             "SOROBAN_BENCHMARK|{}|{}|{}|{}",
             name, resources.instructions, memory_bytes, fee_stroops
         );
@@ -2793,10 +2791,7 @@ mod tests {
             })
         };
 
-        assert_eq!(
-            validate(&admin, &usdc, &musdc, &adapter, &treasury),
-            Ok(())
-        );
+        assert_eq!(validate(&admin, &usdc, &musdc, &adapter, &treasury), Ok(()));
         assert_eq!(
             validate(&zero, &usdc, &musdc, &adapter, &treasury),
             Err(ContractError::ZeroAdminAddress)
@@ -3529,7 +3524,9 @@ mod tests {
     // refresh_panics_when_pool_key_is_unset).
     fn register_uninitialized_vault(env: &Env) -> Address {
         let admin = Address::generate(env);
-        let usdc = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        let usdc = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
         let adapter = env.register(MockAdapter, ());
         MockAdapterClient::new(env, &adapter).initialize(&usdc);
         let vault_id = Address::generate(env);
