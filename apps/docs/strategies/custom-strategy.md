@@ -55,9 +55,7 @@ export interface ThresholdSpotConfig {
 const BPS_DENOMINATOR = 10_000n;
 const ENTRY_HEADROOM_BPS = 50n;
 
-export class ThresholdSpotStrategy
-  implements Strategy<ThresholdSpotConfig>
-{
+export class ThresholdSpotStrategy implements Strategy<ThresholdSpotConfig> {
   readonly name = "threshold-spot";
   #asset: AssetSymbol | null = null;
   #entryPrice: FixedPointDecimal | null = null;
@@ -92,8 +90,7 @@ export class ThresholdSpotStrategy
     const spendable =
       (this.#startingCapital * (BPS_DENOMINATOR - ENTRY_HEADROOM_BPS)) /
       BPS_DENOMINATOR;
-    const size =
-      (spendable * STROOPS_PER_UNIT) / price.toStroops();
+    const size = (spendable * STROOPS_PER_UNIT) / price.toStroops();
     if (size === 0n) return [];
 
     this.#entered = true;
@@ -148,11 +145,7 @@ const thresholdSpotDefinition = defineStrategy<ThresholdSpotConfig>({
   parseParams(params) {
     rejectUnknownKeys(THRESHOLD_SPOT_ID, params, ["asset", "entryPrice"]);
     const asset = readAsset(THRESHOLD_SPOT_ID, params, "asset");
-    const entryPrice = readDecimal(
-      THRESHOLD_SPOT_ID,
-      params,
-      "entryPrice"
-    );
+    const entryPrice = readDecimal(THRESHOLD_SPOT_ID, params, "entryPrice");
     if (entryPrice.toStroops() <= 0n) {
       throw new StrategyParamsError(
         THRESHOLD_SPOT_ID,
