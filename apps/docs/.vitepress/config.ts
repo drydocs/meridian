@@ -48,6 +48,10 @@ export default defineConfig({
         text: "Strategies",
         items: [
           {
+            text: "Strategies App Guide",
+            link: "/strategies/app",
+          },
+          {
             text: "Architecture Overview",
             link: "/strategies/architecture",
           },
