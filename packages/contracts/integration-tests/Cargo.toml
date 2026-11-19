@@ -1,0 +1,15 @@
+[package]
+name = "meridian-integration-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Cross-contract integration tests: real vault + real mUSDC + real Blend adapter + a controllable mock Blend pool."
+
+[lib]
+crate-type = ["rlib"]
+
+[dev-dependencies]
+soroban-sdk = { version = "22.0.0", features = ["testutils", "alloc"] }
+meridian-vault = { path = "../vault" }
+meridian-musdc-token = { path = "../musdc-token" }
+meridian-blend-adapter = { path = "../blend-adapter" }
