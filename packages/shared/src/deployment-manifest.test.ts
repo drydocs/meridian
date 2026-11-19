@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deploymentManifestSchema,
   deploymentStateMismatches,
+  replaceNetworkDeployment,
   type DeploymentManifest,
   type LiveDeploymentSnapshot,
 } from "./deployment-manifest";
@@ -11,9 +12,11 @@ const address = (prefix: "C" | "G", fill: string) =>
 
 const vault = address("C", "A");
 const blendAdapter = address("C", "B");
+const defindexAdapter = address("C", "C");
 const musdc = address("C", "D");
 const usdc = address("C", "E");
 const pool = address("C", "F");
+const defindexVault = address("C", "G");
 const admin = address("G", "A");
 const hash = "a".repeat(64);
 
@@ -89,6 +92,42 @@ const live = {
   musdc: { wasmHash: hash, storage: { ADMIN: vault } },
 } satisfies LiveDeploymentSnapshot;
 
+const deploymentWithDefindex =
+  (): DeploymentManifest["contracts"]["testnet"] => ({
+    ...structuredClone(deployment),
+    vault: {
+      ...structuredClone(deployment.vault),
+      constructorArgs: {
+        ...deployment.vault.constructorArgs,
+        adapter: defindexAdapter,
+      },
+    },
+    defindexAdapter: {
+      address: defindexAdapter,
+      wasmHash: hash,
+      salt: null,
+      deploymentTransaction: null,
+      sourceCommit: null,
+      constructorArgs: { vault, defindexVault, usdc },
+    },
+    expectedState: {
+      ...deployment.expectedState,
+      activeAdapter: defindexAdapter,
+    },
+  });
+
+const liveWithDefindex = (): LiveDeploymentSnapshot => ({
+  ...structuredClone(live),
+  vault: {
+    ...structuredClone(live.vault),
+    storage: { ...live.vault.storage, ADAPTER: defindexAdapter },
+  },
+  defindexAdapter: {
+    wasmHash: hash,
+    storage: { VAULT: vault, USDC: usdc, DFXVAULT: defindexVault },
+  },
+});
+
 describe("deploymentManifestSchema", () => {
   it("accepts explicit nulls for unavailable legacy metadata", () => {
     expect(deploymentManifestSchema.parse(manifest)).toEqual(manifest);
@@ -113,6 +152,30 @@ describe("deploymentManifestSchema", () => {
 
     expect(() => deploymentManifestSchema.parse(inconsistent)).toThrow(
       "Deployment relationship does not match the recorded stack"
+    );
+  });
+
+  it("accepts a DeFindex adapter wired into the recorded stack", () => {
+    const withDefindex = {
+      ...structuredClone(manifest),
+      contracts: {
+        ...structuredClone(manifest.contracts),
+        testnet: deploymentWithDefindex(),
+      },
+    } satisfies DeploymentManifest;
+
+    expect(deploymentManifestSchema.parse(withDefindex)).toEqual(withDefindex);
+  });
+
+  it("rejects an active adapter that is not recorded in the deployment", () => {
+    const inconsistent = structuredClone(manifest);
+    const unknownAdapter = address("C", "H");
+    inconsistent.contracts.testnet.vault.constructorArgs.adapter =
+      unknownAdapter;
+    inconsistent.contracts.testnet.expectedState.activeAdapter = unknownAdapter;
+
+    expect(() => deploymentManifestSchema.parse(inconsistent)).toThrow(
+      "Active adapter is not recorded in this deployment"
     );
   });
 
@@ -148,5 +211,34 @@ describe("deploymentStateMismatches", () => {
       `blendAdapter.usdc: expected ${usdc}, found ${address("C", "H")}`,
       `musdc.wasmHash: expected ${hash}, found ${"b".repeat(64)}`,
     ]);
+  });
+
+  it("reports an unexpected live DeFindex deployment", () => {
+    expect(deploymentStateMismatches(deployment, liveWithDefindex())).toContain(
+      "defindexAdapter: expected no deployment, found one"
+    );
+  });
+
+  it("reports a missing live DeFindex deployment", () => {
+    expect(deploymentStateMismatches(deploymentWithDefindex(), live)).toContain(
+      "defindexAdapter: expected a deployment, found none"
+    );
+  });
+
+  it("accepts matching live DeFindex state", () => {
+    expect(
+      deploymentStateMismatches(deploymentWithDefindex(), liveWithDefindex())
+    ).toEqual([]);
+  });
+});
+
+describe("replaceNetworkDeployment", () => {
+  it("replaces only the requested network and validates the result", () => {
+    const replacement = deploymentWithDefindex();
+
+    expect(replaceNetworkDeployment(manifest, "testnet", replacement)).toEqual({
+      ...manifest,
+      contracts: { testnet: replacement, mainnet: deployment },
+    });
   });
 });
