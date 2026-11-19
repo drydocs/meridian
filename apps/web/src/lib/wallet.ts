@@ -1,16 +1,3 @@
-import {
-  isConnected,
-  isAllowed,
-  requestAccess,
-  signTransaction as freighterSign,
-} from "@stellar/freighter-api";
-import {
-  isConnected as lobstrIsConnected,
-  getPublicKey as lobstrGetPublicKey,
-  signTransaction as lobstrSign,
-} from "@lobstrco/signer-extension-api";
-import { xBullWalletConnect } from "@creit.tech/xbull-wallet-connect";
-
 // Closing the Albedo popup does not reject the request the way a genuine
 // failure does: @albedo-link/intent's transportCloseHandler() resolves every
 // pending request with intentErrors.actionRejectedByUser
@@ -20,6 +7,64 @@ import { xBullWalletConnect } from "@creit.tech/xbull-wallet-connect";
 // presence (specifically -4) is what distinguishes a user cancellation from
 // a real failure on an otherwise-empty result.
 const ALBEDO_USER_REJECTED_CODE = -4;
+
+type FreighterModule = {
+  isConnected: () => Promise<{ isConnected: boolean }>;
+  isAllowed: () => Promise<{ isAllowed: boolean }>;
+  requestAccess: () => Promise<{
+    address: string;
+    error?: { message: string };
+  }>;
+  signTransaction: (
+    xdr: string,
+    opts?: { networkPassphrase?: string }
+  ) => Promise<{ signedTxXdr?: string; error?: { message: string } }>;
+};
+
+async function getFreighter(): Promise<FreighterModule> {
+  const mod = await import("@stellar/freighter-api");
+  if ("isConnected" in mod && typeof mod.isConnected === "function") {
+    return mod as unknown as FreighterModule;
+  }
+  return (mod as unknown as { default: FreighterModule }).default;
+}
+
+type LobstrModule = {
+  isConnected: () => Promise<boolean>;
+  getPublicKey: () => Promise<string>;
+  signTransaction: (xdr: string) => Promise<string>;
+};
+
+async function getLobstr(): Promise<LobstrModule> {
+  const mod = await import("@lobstrco/signer-extension-api");
+  if ("isConnected" in mod && typeof mod.isConnected === "function") {
+    return mod as unknown as LobstrModule;
+  }
+  return (mod as unknown as { default: LobstrModule }).default;
+}
+
+type XBullModule = {
+  xBullWalletConnect: new () => {
+    connect: () => Promise<string>;
+    sign: (params: {
+      xdr: string;
+      network?: string;
+      publicKey?: string;
+    }) => Promise<string>;
+    closeConnections: () => void;
+  };
+};
+
+async function getXBull(): Promise<XBullModule> {
+  const mod = await import("@creit.tech/xbull-wallet-connect");
+  if (
+    "xBullWalletConnect" in mod &&
+    typeof mod.xBullWalletConnect === "function"
+  ) {
+    return mod as unknown as XBullModule;
+  }
+  return (mod as unknown as { default: XBullModule }).default;
+}
 
 type AlbedoModule = {
   publicKey: (params: Record<string, unknown>) => Promise<{
@@ -119,6 +164,7 @@ class FreighterWallet implements WalletAdapter {
     return withMockWallet(
       (mock) => mock.installed,
       async () => {
+        const { isConnected } = await getFreighter();
         const result = await isConnected();
         return result.isConnected;
       }
@@ -131,6 +177,7 @@ class FreighterWallet implements WalletAdapter {
       async () => {
         const installed = await this.isInstalled();
         if (!installed) return false;
+        const { isAllowed } = await getFreighter();
         const result = await isAllowed();
         return result.isAllowed;
       }
@@ -141,6 +188,7 @@ class FreighterWallet implements WalletAdapter {
     return withMockWallet(
       (mock) => mock.address,
       async () => {
+        const { requestAccess } = await getFreighter();
         const result = await requestAccess();
         if (result.error) throw new Error(result.error.message);
         return result.address;
@@ -152,7 +200,8 @@ class FreighterWallet implements WalletAdapter {
     return withMockWallet(
       (mock) => mock.sign(xdr, networkPassphrase),
       async () => {
-        const result = await freighterSign(xdr, { networkPassphrase });
+        const { signTransaction } = await getFreighter();
+        const result = await signTransaction(xdr, { networkPassphrase });
         if (result.error) throw new Error(result.error.message);
         if (!result.signedTxXdr) throw new Error("Signing cancelled");
         return result.signedTxXdr;
@@ -191,7 +240,13 @@ const LOBSTR_PUBLIC_KEY_STORAGE_KEY = "meridian-lobstr-public-key";
 //      from its own pairing with the mobile app.
 export class LobstrWallet implements WalletAdapter {
   async isInstalled(): Promise<boolean> {
-    return withMockWallet((mock) => mock.installed, lobstrIsConnected);
+    return withMockWallet(
+      (mock) => mock.installed,
+      async () => {
+        const { isConnected } = await getLobstr();
+        return isConnected();
+      }
+    );
   }
 
   // LOBSTR's API offers no passive "is site authorized" query like Freighter's
@@ -217,7 +272,8 @@ export class LobstrWallet implements WalletAdapter {
     return withMockWallet(
       (mock) => mock.address,
       async () => {
-        const publicKey = await lobstrGetPublicKey();
+        const { getPublicKey } = await getLobstr();
+        const publicKey = await getPublicKey();
         if (!publicKey) throw new Error("LOBSTR wallet returned no public key");
         storePublicKey(LOBSTR_PUBLIC_KEY_STORAGE_KEY, publicKey);
         return publicKey;
@@ -231,7 +287,8 @@ export class LobstrWallet implements WalletAdapter {
       async () => {
         // LOBSTR's signTransaction does not accept a networkPassphrase; the
         // extension uses the network already configured in the paired mobile app.
-        const signedXdr = await lobstrSign(xdr);
+        const { signTransaction } = await getLobstr();
+        const signedXdr = await signTransaction(xdr);
         if (!signedXdr) throw new Error("Signing cancelled");
         return signedXdr;
       }
@@ -289,6 +346,7 @@ export class XBullWallet implements WalletAdapter {
     return withMockWallet(
       (mock) => mock.address,
       async () => {
+        const { xBullWalletConnect } = await getXBull();
         const bridge = new xBullWalletConnect();
         try {
           const publicKey = await bridge.connect();
@@ -307,6 +365,7 @@ export class XBullWallet implements WalletAdapter {
     return withMockWallet(
       (mock) => mock.sign(xdr, networkPassphrase),
       async () => {
+        const { xBullWalletConnect } = await getXBull();
         const bridge = new xBullWalletConnect();
         try {
           const signedXdr = await bridge.sign({
