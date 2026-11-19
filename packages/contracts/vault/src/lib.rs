@@ -13,7 +13,7 @@ pub use storage::{
 
 use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, symbol_short, token::TokenClient,
-    Address, Env, Symbol,
+    xdr::ScErrorType, Address, Env, Symbol,
 };
 
 // ---------------------------------------------------------------------------
@@ -1085,7 +1085,16 @@ impl MeridianVault {
     /// (`AdapterResidualPosition`, nonzero `total_shares()` or
     /// `total_assets()`). Adapters without the `get_usdc`/`get_vault` views
     /// skip those two identity checks; the residue check always applies.
+    ///
+    /// Guarded against reentrancy: it calls out to the target adapter before
+    /// writing the new adapter address.
     pub fn set_adapter(env: Env, new_adapter: Address) -> Result<(), ContractError> {
+        Self::with_lock(&env, || {
+            Self::set_adapter_unlocked(env.clone(), new_adapter)
+        })
+    }
+
+    fn set_adapter_unlocked(env: Env, new_adapter: Address) -> Result<(), ContractError> {
         Self::require_admin(&env)?;
         Self::extend_instance(&env);
         let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
@@ -1111,11 +1120,24 @@ impl MeridianVault {
     /// Both facts are read through the `get_usdc`/`get_vault` views and
     /// compared against this vault's own state. Adapters deployed before
     /// those views existed do not export them, so each view is called via
-    /// its non-panicking `try_` client method and a failed call is treated
-    /// as "legacy adapter": that individual check is skipped rather than the
-    /// adapter rejected, which keeps existing deployments usable. A view
-    /// that is present but disagrees is always rejected. Not part of the
-    /// contract ABI (no `pub`).
+    /// its non-panicking `try_` client method, and the outcome decides:
+    ///
+    /// - the view returns this vault's value: the check passes;
+    /// - the view returns anything else, or a value that is not an
+    ///   `Address`: rejected (`AdapterUsdcMismatch` / `AdapterVaultMismatch`);
+    /// - the view exists but fails with a *typed contract error* (for
+    ///   example an adapter whose state is not initialized): rejected with
+    ///   the same error, so a broken view cannot be used to skip the check;
+    /// - any other failure: treated as a legacy adapter without the view,
+    ///   and that single check is skipped, keeping existing deployments
+    ///   usable.
+    ///
+    /// Known limit of the last case: when a contract calls another through
+    /// `try_call`, the host narrows every non-contract failure down to one
+    /// error (`Context`/`InvalidAction`). A missing export and an untyped
+    /// panic or trap in the view are therefore indistinguishable to the
+    /// vault, and both take the legacy path. Not part of the contract ABI
+    /// (no `pub`).
     fn validate_adapter_target(env: &Env, target: &Address) -> Result<(), ContractError> {
         let client = AdapterClient::new(env, target);
 
@@ -1124,14 +1146,21 @@ impl MeridianVault {
             Ok(Ok(adapter_usdc)) if adapter_usdc == vault_usdc => {}
             // Present but wrong: a different asset, or an unreadable value.
             Ok(_) => return Err(ContractError::AdapterUsdcMismatch),
-            // Legacy adapter without `get_usdc`: documented fallback.
+            // Present but failing with a typed error: never a legacy skip.
+            Err(Ok(err)) if err.is_type(ScErrorType::Contract) => {
+                return Err(ContractError::AdapterUsdcMismatch)
+            }
+            // No `get_usdc` export (legacy adapter): documented fallback.
             Err(_) => {}
         }
 
         match client.try_get_vault() {
             Ok(Ok(adapter_vault)) if adapter_vault == env.current_contract_address() => {}
             Ok(_) => return Err(ContractError::AdapterVaultMismatch),
-            // Legacy adapter without `get_vault`: documented fallback.
+            Err(Ok(err)) if err.is_type(ScErrorType::Contract) => {
+                return Err(ContractError::AdapterVaultMismatch)
+            }
+            // No `get_vault` export (legacy adapter): documented fallback.
             Err(_) => {}
         }
 
@@ -1871,6 +1900,108 @@ mod tests {
         }
     }
     use compat_mock::{CompatMockAdapter, CompatMockAdapterClient};
+
+    // -----------------------------------------------------------------------
+    // Adapters whose `get_usdc`/`get_vault` views exist but fail, one module
+    // per kind (contractimpl helper items are not namespaced per type, so
+    // same-named methods need separate modules). `typed_failing_views` fails
+    // both views with a typed contract error; `usdc_ok_vault_fails` answers
+    // `get_usdc` correctly and fails only `get_vault`; `trapping_views`
+    // panics untyped. All report an empty position so only the view failure
+    // is under test.
+    // -----------------------------------------------------------------------
+    mod typed_failing_views {
+        use super::*;
+
+        #[contract]
+        pub struct TypedFailingViewsAdapter;
+
+        #[contractimpl]
+        impl TypedFailingViewsAdapter {
+            pub fn get_usdc(env: Env) -> Address {
+                panic_with_error!(&env, ContractError::NotInitialized)
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                panic_with_error!(&env, ContractError::NotInitialized)
+            }
+
+            pub fn total_shares(_env: Env) -> i128 {
+                0
+            }
+
+            pub fn total_assets(_env: Env) -> i128 {
+                0
+            }
+
+            pub fn refresh(_env: Env) {}
+        }
+    }
+    use typed_failing_views::TypedFailingViewsAdapter;
+
+    mod usdc_ok_vault_fails {
+        use super::*;
+
+        const UV_USDC: Symbol = symbol_short!("UV_USDC");
+
+        #[contract]
+        pub struct UsdcOkVaultFailsAdapter;
+
+        #[contractimpl]
+        impl UsdcOkVaultFailsAdapter {
+            pub fn initialize(env: Env, usdc: Address) {
+                env.storage().instance().set(&UV_USDC, &usdc);
+            }
+
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&UV_USDC))
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                panic_with_error!(&env, ContractError::NotInitialized)
+            }
+
+            pub fn total_shares(_env: Env) -> i128 {
+                0
+            }
+
+            pub fn total_assets(_env: Env) -> i128 {
+                0
+            }
+
+            pub fn refresh(_env: Env) {}
+        }
+    }
+    use usdc_ok_vault_fails::{UsdcOkVaultFailsAdapter, UsdcOkVaultFailsAdapterClient};
+
+    mod trapping_views {
+        use super::*;
+
+        #[contract]
+        pub struct TrappingViewsAdapter;
+
+        #[contractimpl]
+        impl TrappingViewsAdapter {
+            pub fn get_usdc(_env: Env) -> Address {
+                panic!("get_usdc trapped")
+            }
+
+            pub fn get_vault(_env: Env) -> Address {
+                panic!("get_vault trapped")
+            }
+
+            pub fn total_shares(_env: Env) -> i128 {
+                0
+            }
+
+            pub fn total_assets(_env: Env) -> i128 {
+                0
+            }
+
+            pub fn refresh(_env: Env) {}
+        }
+    }
+    use trapping_views::TrappingViewsAdapter;
 
     /// Registers a `CompatMockAdapter` reporting the given USDC, vault and
     /// residual position.
@@ -3510,6 +3641,75 @@ mod tests {
         assert_eq!(vault.get_migration_snapshot().adapter, target);
     }
 
+    // A view that exists but fails with a typed contract error must not be
+    // mistaken for a missing one: that would let a broken adapter skip the
+    // USDC and vault checks.
+    #[test]
+    fn set_adapter_rejects_a_target_whose_get_usdc_fails_with_a_typed_error() {
+        let (env, _admin, _user, _usdc, _musdc, original, vault) = setup();
+        let target = env.register(TypedFailingViewsAdapter, ());
+
+        let result = vault.try_set_adapter(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
+        assert_eq!(vault.get_adapter(), original);
+    }
+
+    #[test]
+    fn set_adapter_rejects_a_target_whose_get_vault_fails_with_a_typed_error() {
+        let (env, _admin, _user, usdc, _musdc, original, vault) = setup();
+        let target = env.register(UsdcOkVaultFailsAdapter, ());
+        UsdcOkVaultFailsAdapterClient::new(&env, &target).initialize(&usdc);
+
+        let result = vault.try_set_adapter(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterVaultMismatch)));
+        assert_eq!(vault.get_adapter(), original);
+    }
+
+    #[test]
+    fn begin_migration_rejects_a_target_whose_get_usdc_fails_with_a_typed_error() {
+        let (env, _admin, _user, _usdc, _musdc, _original, vault) = setup();
+        let target = env.register(TypedFailingViewsAdapter, ());
+
+        let result = vault.try_begin_migration(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
+        assert_eq!(
+            vault.try_get_migration_snapshot(),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+    }
+
+    #[test]
+    fn begin_migration_rejects_a_target_whose_get_vault_fails_with_a_typed_error() {
+        let (env, _admin, _user, usdc, _musdc, _original, vault) = setup();
+        let target = env.register(UsdcOkVaultFailsAdapter, ());
+        UsdcOkVaultFailsAdapterClient::new(&env, &target).initialize(&usdc);
+
+        let result = vault.try_begin_migration(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterVaultMismatch)));
+        assert_eq!(
+            vault.try_get_migration_snapshot(),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+    }
+
+    // Documents a limit rather than a goal. When a contract calls another
+    // through `try_call`, the host narrows every non-contract failure to a
+    // single error (`Context`/`InvalidAction`; see soroban-env-host's
+    // `try_call`), so an untyped panic in a view looks exactly like a missing
+    // export and takes the legacy path. If the host ever exposes the
+    // difference, this test should flip to expecting a rejection.
+    #[test]
+    fn an_untyped_trap_in_a_view_is_indistinguishable_from_a_missing_export() {
+        let (env, _admin, _user, usdc, _musdc, _original, vault) = setup();
+        let trapping = env.register(TrappingViewsAdapter, ());
+        let legacy = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &legacy).initialize(&usdc);
+
+        let view = |a: &Address| AdapterClient::new(&env, a).try_get_usdc();
+        assert_eq!(view(&trapping), view(&legacy));
+        assert_eq!(vault.try_begin_migration(&trapping), Ok(Ok(())));
+    }
+
     #[test]
     fn begin_migration_accepts_a_legacy_adapter_without_the_views() {
         let (env, _admin, _user, usdc, _musdc, _original, vault) = setup();
@@ -5004,6 +5204,10 @@ mod tests {
             Err(Ok(ContractError::ReentrancyDetected))
         );
         assert_eq!(
+            r.vault.try_set_adapter(&new_adapter),
+            Err(Ok(ContractError::ReentrancyDetected))
+        );
+        assert_eq!(
             r.vault.try_begin_migration(&new_adapter),
             Err(Ok(ContractError::ReentrancyDetected))
         );
@@ -5291,6 +5495,29 @@ mod tests {
             assert_eq!(r.vault.get_adapter(), r.adapter);
             assert!(!is_locked(&r));
         }
+    }
+
+    // #1270: set_adapter now calls out to its target (identity views and the
+    // residue check), so it runs under the same lock as the other admin entry
+    // points. A call while the lock is held must be refused before anything
+    // else, and the lock must be released on both outcomes.
+    #[test]
+    fn set_adapter_releases_the_lock_on_success_and_on_rejection() {
+        let r = rig(false, false, false);
+
+        // Rejected: the target holds a residual position.
+        let funded = register_compat_adapter(&r.env, &r.usdc, &r.vault.address, 1, 0);
+        assert_eq!(
+            r.vault.try_set_adapter(&funded),
+            Err(Ok(ContractError::AdapterResidualPosition))
+        );
+        assert!(!is_locked(&r), "rejected set_adapter left the lock held");
+
+        // Accepted.
+        let target = new_mock_adapter(&r);
+        r.vault.set_adapter(&target);
+        assert_eq!(r.vault.get_adapter(), target);
+        assert!(!is_locked(&r), "set_adapter left the lock held");
     }
 
     /// Checks shared by the migrate_adapter tests: the migration completed
