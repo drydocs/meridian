@@ -11,6 +11,7 @@ export const keepersRoute: FastifyPluginAsync = async (app) => {
     if (result.error) {
       app.log.error(result.error, "[keepers] failed to read keeper health");
     }
+    reply.header("Cache-Control", "no-store");
     return reply.code(result.status).send(result.body);
   });
 };
