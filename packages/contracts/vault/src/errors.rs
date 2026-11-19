@@ -94,4 +94,12 @@ pub enum ContractError {
     /// baseline collapses the floor to zero (or below) so the loss guard
     /// would always pass.
     MigrationBaselineInvalid = 25,
+    /// A guarded entry point (`deposit`, `withdraw`, `begin_migration`,
+    /// `migrate_adapter`, or the mUSDC `on_transfer` callback) was called
+    /// while another guarded call was still in progress. This happens when a
+    /// malicious or compromised adapter or token calls back into the vault
+    /// in the middle of an external call, while `TOTAL_SH`, `ADPT_SH`,
+    /// `ADAPTER` or migration state is not yet final. The reentrant call is
+    /// rejected and the outer call is unaffected.
+    ReentrancyDetected = 26,
 }

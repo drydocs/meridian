@@ -197,6 +197,13 @@ jobs:
       - name: Run clippy
         working-directory: packages/contracts
         run: cargo clippy --all-targets -- -D warnings
+      # Real vault + real mUSDC + real Blend adapter + a mock Blend pool,
+      # under enforcing authorization (packages/contracts/integration-tests).
+      # The coverage step below also runs these, but a named step makes a
+      # cross-contract regression attributable at a glance.
+      - name: Run cross-contract integration tests
+        working-directory: packages/contracts
+        run: cargo test --locked -p meridian-integration-tests
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Install LLVM coverage tools

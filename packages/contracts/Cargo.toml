@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["vault", "blend-adapter", "defindex-adapter", "adapter-common", "musdc-token"]
+members = ["vault", "blend-adapter", "defindex-adapter", "adapter-common", "musdc-token", "integration-tests"]
 
 [profile.release]
 opt-level = "z"
