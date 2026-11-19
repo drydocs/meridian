@@ -1,0 +1,201 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mapError } from "../../lib/errorMapper";
+import type { TFunction } from "i18next";
+
+// Minimal t() that returns the key (and optionally the interpolation params
+// for the unknownWithRef case), so tests are independent of translation file content.
+const t = ((key: string, opts?: Record<string, unknown>) => {
+  if (opts && Object.keys(opts).length) {
+    return `${key}(${JSON.stringify(opts)})`;
+  }
+  return key;
+}) as unknown as TFunction;
+
+describe("mapError", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // ---- non-Error values -------------------------------------------------------
+
+  it("returns fallbackKey for a non-Error throw when fallbackKey is given", () => {
+    const result = mapError("oops", t, "vaultActions.depositFailed");
+    expect(result.message).toBe("vaultActions.depositFailed");
+  });
+
+  it("returns errors.unknown for a non-Error throw without a fallbackKey", () => {
+    const result = mapError(42, t);
+    expect(result.message).toBe("errors.unknown");
+  });
+
+  // ---- known server messages --------------------------------------------------
+
+  const knownCases: Array<[string, string]> = [
+    [
+      "Deposits are currently paused. Try again later.",
+      "errors.depositsPaused",
+    ],
+    ["Insufficient shares for this withdrawal.", "errors.insufficientShares"],
+    [
+      "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
+      "errors.withdrawalSlippage",
+    ],
+    [
+      "Slippage tolerance exceeded. Adjust slippage and retry.",
+      "errors.slippageExceeded",
+    ],
+    [
+      "Missing USDC trustline. Add the trustline via POST /api/v1/tx/add-trustline before depositing or withdrawing.",
+      "errors.missingUsdcTrustline",
+    ],
+    [
+      "Missing MUSDC trustline. Add the trustline via POST /api/v1/tx/add-trustline before depositing or withdrawing.",
+      "errors.missingTrustline",
+    ],
+    [
+      "Missing required trustlines: USDC, MUSDC. Add them via POST /api/v1/tx/add-trustline before depositing or withdrawing.",
+      "errors.missingTrustline",
+    ],
+    ["USDC trustline missing", "errors.missingUsdcTrustline"],
+    ["All required trustlines already exist", "errors.trustlinesAlreadyExist"],
+    ["Failed to build deposit transaction", "errors.depositBuildFailed"],
+    ["Failed to build withdraw transaction", "errors.withdrawBuildFailed"],
+    ["Failed to build trustline transaction", "errors.trustlineBuildFailed"],
+    ["Failed to submit transaction", "errors.submitFailed"],
+    ["Wallet Disconnected", "errors.walletDisconnected"],
+  ];
+
+  knownCases.forEach(([serverMessage, expectedKey]) => {
+    it(`maps known message "${serverMessage.slice(0, 50)}…" → ${expectedKey}`, () => {
+      const result = mapError(new Error(serverMessage), t);
+      expect(result.message).toBe(expectedKey);
+      expect(result.referenceCode).toBeUndefined();
+    });
+  });
+
+  it("does not log to console.error for a known mapped message", () => {
+    mapError(new Error("Deposits are currently paused. Try again later."), t);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  // ---- MissingTrustlineError dynamic variants ---------------------------------
+
+  it("maps dynamic MissingTrustlineError message with extra assets", () => {
+    const result = mapError(
+      new Error(
+        "Missing USDC, MUSDC trustlines. Add them via POST /api/v1/tx/add-trustline before depositing or withdrawing."
+      ),
+      t
+    );
+    expect(result.message).toBe("errors.missingTrustline");
+  });
+
+  // ---- named fallback ---------------------------------------------------------
+
+  it("uses the named fallback for unrecognised Error messages", () => {
+    const result = mapError(
+      new Error("Transaction ${hash} failed on-chain"),
+      t,
+      "vaultActions.depositFailed"
+    );
+    expect(result.message).toBe("vaultActions.depositFailed");
+    expect(result.referenceCode).toBeUndefined();
+    expect(console.error).toHaveBeenCalledOnce();
+  });
+
+  it("logs the raw error when falling back to the named key", () => {
+    const err = new Error("some internal message");
+    mapError(err, t, "vaultActions.withdrawalFailed");
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("unmapped error"),
+      expect.stringContaining("vaultActions.withdrawalFailed"),
+      err
+    );
+  });
+
+  // ---- fully unknown ----------------------------------------------------------
+
+  it("returns unknownWithRef with a reference code for an unrecognised Error without a fallback", () => {
+    const result = mapError(new Error("HostError: some internal detail"), t);
+    expect(result.message).toMatch(/errors\.unknownWithRef/);
+    expect(result.referenceCode).toMatch(/^[0-9A-F]{6}$/);
+  });
+
+  it("produces the same reference code for the same message text", () => {
+    const err = new Error("Simulation failed: HostError");
+    const a = mapError(err, t);
+    const b = mapError(err, t);
+    expect(a.referenceCode).toBe(b.referenceCode);
+  });
+
+  it("produces different reference codes for different messages", () => {
+    const a = mapError(new Error("error alpha"), t);
+    const b = mapError(new Error("error beta"), t);
+    expect(a.referenceCode).not.toBe(b.referenceCode);
+  });
+
+  it("logs the raw error for unknown errors", () => {
+    const err = new Error("HostError: opaque");
+    mapError(err, t);
+    // console.error is called as:
+    //   console.error("[Meridian] unknown error (ref=%s):", code, err)
+    // The second argument is the reference code string itself, not a
+    // "ref=…" formatted string; the format specifier lives in arg 1.
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("unknown error"),
+      expect.stringMatching(/^[0-9A-F]{6}$/),
+      err
+    );
+  });
+
+  it("does not expose the raw message in the returned message string", () => {
+    const raw = "Simulation failed: HostError. Contract(123)";
+    const result = mapError(new Error(raw), t);
+    expect(result.message).not.toContain(raw);
+    expect(result.message).not.toContain("HostError");
+  });
+});
+
+// ---- locale key parity -------------------------------------------------------
+// These tests verify the new keys exist in both translation files, mirroring
+// the structure already enforced by apps/web/src/__tests__/i18n.test.ts.
+
+import en from "../../../messages/en.json";
+import fr from "../../../messages/fr.json";
+
+describe("errors i18n keys", () => {
+  const errorKeys = [
+    "depositsPaused",
+    "insufficientShares",
+    "withdrawalSlippage",
+    "slippageExceeded",
+    "missingUsdcTrustline",
+    "missingTrustline",
+    "trustlinesAlreadyExist",
+    "depositBuildFailed",
+    "withdrawBuildFailed",
+    "trustlineBuildFailed",
+    "submitFailed",
+    "walletDisconnected",
+    "unknown",
+    "unknownWithRef",
+  ];
+
+  errorKeys.forEach((key) => {
+    it(`en has errors.${key}`, () => {
+      expect(
+        typeof (en as Record<string, Record<string, string>>)["errors"]?.[key]
+      ).toBe("string");
+    });
+
+    it(`fr has errors.${key}`, () => {
+      expect(
+        typeof (fr as Record<string, Record<string, string>>)["errors"]?.[key]
+      ).toBe("string");
+    });
+  });
+});
