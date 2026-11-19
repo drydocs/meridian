@@ -4,6 +4,8 @@ import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
 import { useToastStore } from "../../store/toast";
 
+const mockLocale = vi.hoisted(() => ({ value: "en" }));
+
 const invalidateQueries = vi.fn();
 const setQueryData = vi.fn();
 const getQueryData = vi.fn<(key: unknown[]) => unknown>(() => undefined);
@@ -103,6 +105,11 @@ vi.mock("react-i18next", () => {
   return {
     useTranslation: () => ({
       t: (key: string) => translations[key] ?? key,
+      i18n: {
+        get language() {
+          return mockLocale.value;
+        },
+      },
     }),
   };
 });
@@ -153,6 +160,7 @@ function bothTrustlinesHorizonResponse() {
 }
 
 beforeEach(() => {
+  mockLocale.value = "en";
   useWalletStore.setState({
     publicKey: KEY,
     connected: true,
@@ -235,6 +243,25 @@ describe("useVaultActions — deposit", () => {
       min_shares_out: "9.5",
       riskAcknowledged: true,
     });
+  });
+
+  it("canonicalizes French input before building the API request", async () => {
+    mockLocale.value = "fr";
+    const { result } = renderHook(() => useVaultActions());
+
+    await act(async () => {
+      await result.current.deposit(
+        "1 234,56",
+        "blend-usdc-fixed",
+        "USDC",
+        "9.5",
+        true
+      );
+    });
+
+    expect(api.buildDeposit).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: "1234.56" })
+    );
   });
 
   it("returns false without calling the API when risk has not been acknowledged", async () => {

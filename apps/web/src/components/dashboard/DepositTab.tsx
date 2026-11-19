@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AmountInput } from "../ui/AmountInput";
 import type { ApiPosition, ApiVault } from "../../lib/api";
-import { formatUsd } from "../../lib/format";
+import { formatUsd, parseMoneyInput } from "../../lib/format";
 
 type DepositAmountError =
   "required" | "invalid" | "nonPositive" | "exceedsBalance";
@@ -11,11 +11,15 @@ type DepositAmountError =
 // the balance check only runs when the caller knows the spendable balance.
 function validateDepositAmount(
   amount: string,
-  availableBalance?: number
+  availableBalance: number | undefined,
+  locale: string
 ): DepositAmountError | null {
   if (amount.trim() === "") return "required";
-  const value = Number(amount);
-  if (Number.isNaN(value) || !Number.isFinite(value)) return "invalid";
+  if (amount.trim().startsWith("-")) return "nonPositive";
+  const canonical = parseMoneyInput(amount, locale);
+  if (canonical === null || canonical === "") return "invalid";
+  const value = Number(canonical);
+  if (!Number.isFinite(value)) return "invalid";
   if (value <= 0) return "nonPositive";
   if (availableBalance !== undefined && value > availableBalance) {
     return "exceedsBalance";
@@ -52,7 +56,7 @@ export function DepositTab({
   // True only when the user emptied the field themselves. A completed deposit
   // also clears it, and that must not surface the required message.
   const [clearedByUser, setClearedByUser] = useState(false);
-  const error = validateDepositAmount(amount, availableBalance);
+  const error = validateDepositAmount(amount, availableBalance, i18n.language);
   const showError = error !== null && (amount !== "" || clearedByUser);
 
   function handleMax() {

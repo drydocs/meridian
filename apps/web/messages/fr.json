@@ -47,7 +47,8 @@
       "required": "Saisissez un montant à déposer.",
       "invalid": "Saisissez un nombre valide.",
       "nonPositive": "Le montant doit être supérieur à zéro.",
-      "exceedsBalance": "Le montant dépasse votre solde disponible."
+      "exceedsBalance": "Le montant dépasse votre solde disponible.",
+      "exceedsPosition": "Le montant dépasse votre position disponible."
     }
   },
 
