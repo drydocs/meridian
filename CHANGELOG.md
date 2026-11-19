@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **MeridianVault: add a reentrancy guard to the vault entry points
+  ([#1264](https://github.com/drydocs/meridian/issues/1264)).** `deposit`,
+  `withdraw`, `begin_migration`, `migrate_adapter` and the mUSDC `on_transfer`
+  callback now run under an instance-storage lock (`LOCKED`). A guarded call made
+  while the lock is held fails with the new `ReentrancyDetected` (26) error and
+  changes nothing; the lock is released on both success and failure. `deposit` also
+  now writes `TOTAL_SH` and the caller's position records before its external calls.
+  **Breaking:** adds a storage key and an error variant, so it needs a vault
+  redeploy. Covered by `guarded_entry_points_reject_calls_while_the_lock_is_held`,
+  `lock_is_released_after_successful_calls`, `lock_is_released_after_failed_calls`,
+  `with_lock_releases_on_error_and_refuses_nesting`, and the reentrant adapter/token
+  tests for deposit, withdraw, `begin_migration` and `migrate_adapter`.
 - **MeridianVault: add admin safety rails.** New `set_paused`/`is_paused` emergency
   switch halts deposits during an incident, while withdrawals stay open so a pause can
   never trap user funds. Added `set_admin`/`get_admin` for admin key rotation without
