@@ -59,6 +59,7 @@ export default defineConfig({
             text: "Strategy Composition Guide",
             link: "/strategies/composition",
           },
+          { text: "Risk Metrics", link: "/strategies/risk-metrics" },
         ],
       },
       {
