@@ -36,6 +36,7 @@
     "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.63.0",
     "@sentry/vite-plugin": "^11.16.0",
     "@tailwindcss/postcss": "^4.3.3",

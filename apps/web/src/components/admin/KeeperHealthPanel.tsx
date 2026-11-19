@@ -85,7 +85,7 @@ export function KeeperHealthPanel() {
                         : "admin.keeperHealth.stalled"
                     )}
                   </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
+                  <p className="text-xs text-gray-400 mt-0.5">
                     {keeper.lastSuccessMs === null
                       ? t("admin.keeperHealth.never")
                       : keeper.healthy

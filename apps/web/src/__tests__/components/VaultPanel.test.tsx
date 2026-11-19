@@ -194,6 +194,37 @@ describe("VaultPanel — tab switcher", () => {
       "vaultPanel.withdraw"
     );
   });
+
+  it("exposes proper WAI-ARIA tab semantics and supports arrow key navigation", () => {
+    render(<VaultPanel />);
+
+    const tablist = screen.getByRole("tablist");
+    expect(tablist).toBeDefined();
+
+    const depositTab = screen.getByRole("tab", { name: "vaultPanel.deposit" });
+    const withdrawTab = screen.getByRole("tab", {
+      name: "vaultPanel.withdraw",
+    });
+
+    expect(depositTab.getAttribute("aria-selected")).toBe("true");
+    expect(depositTab.getAttribute("tabindex")).toBe("0");
+    expect(withdrawTab.getAttribute("aria-selected")).toBe("false");
+    expect(withdrawTab.getAttribute("tabindex")).toBe("-1");
+
+    const tabpanel = screen.getByRole("tabpanel");
+    expect(tabpanel.getAttribute("id")).toBe("vault-tabpanel-deposit");
+    expect(tabpanel.getAttribute("aria-labelledby")).toBe("vault-tab-deposit");
+
+    // Arrow navigation from deposit to withdraw
+    fireEvent.keyDown(depositTab, { key: "ArrowRight" });
+
+    expect(withdrawTab.getAttribute("aria-selected")).toBe("true");
+    expect(withdrawTab.getAttribute("tabindex")).toBe("0");
+    expect(depositTab.getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tabpanel").getAttribute("id")).toBe(
+      "vault-tabpanel-withdraw"
+    );
+  });
 });
 
 describe("VaultPanel — deposit", () => {

@@ -39,13 +39,13 @@ function AddressList({ rows }: { rows: AddressRow[] }) {
               href={`${explorerBase}/${row.address}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm text-blue-400 hover:text-blue-300 transition-colors duration-150 font-mono truncate"
+              className="text-sm text-blue-400 hover:text-blue-300 transition-colors duration-150 font-mono truncate focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none rounded"
               title={row.address}
             >
               {row.address.slice(0, 6)}...{row.address.slice(-6)}
             </a>
           ) : (
-            <span className="text-sm text-gray-600">
+            <span className="text-sm text-gray-400">
               {t("status.addresses.notDeployed")}
             </span>
           )}
@@ -84,7 +84,11 @@ export function StatusPage() {
 
   return (
     <div className="min-h-screen bg-night text-paper">
-      <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="max-w-2xl mx-auto px-6 py-10 space-y-6 outline-none"
+      >
         <div>
           <div className="flex items-center gap-3 mb-2">
             <h1 className="text-lg font-extrabold text-paper">
@@ -94,7 +98,7 @@ export function StatusPage() {
               {APP_NETWORK.network}
             </span>
           </div>
-          <p className="text-sm text-gray-500">{t("status.subtitle")}</p>
+          <p className="text-sm text-gray-400">{t("status.subtitle")}</p>
         </div>
 
         <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40 px-6">
@@ -122,7 +126,7 @@ export function StatusPage() {
               })}
             </span>
           </div>
-          <p className="text-xs text-gray-600 mt-4">
+          <p className="text-xs text-gray-400 mt-4">
             {t("status.parameters.note")}
           </p>
         </div>
@@ -138,11 +142,11 @@ export function StatusPage() {
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">
             {t("status.audit.title")}
           </h2>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-400">
             {t("status.audit.notYetAvailable")}
           </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

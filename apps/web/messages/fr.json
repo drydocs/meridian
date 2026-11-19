@@ -28,6 +28,11 @@
   "vaultPanel": {
     "deposit": "Déposer",
     "withdraw": "Retirer",
+    "tabs": {
+      "deposit": "Déposer",
+      "withdraw": "Retirer",
+      "actions": "Actions du coffre"
+    },
     "network": "Réseau",
     "apy": "Rendement annuel",
     "tvl": "TVL",
@@ -44,7 +49,7 @@
     "waiting": "En attente de signature...",
     "positionsError": "Impossible de charger votre position. Les dépôts et retraits fonctionnent toujours.",
     "balanceError": "Impossible de charger votre solde.",
-    "retryBalance": "Recharger le solde",
+    "retryBalance": "Réessayer de charger le solde",
     "validation": {
       "required": "Saisissez un montant à déposer.",
       "invalid": "Saisissez un nombre valide.",
@@ -73,7 +78,12 @@
     "earned": "Gains cumulés",
     "loadError": "Impossible de charger l'historique de votre rendement.",
     "empty": "Pas encore d'historique. La valeur de votre position est enregistrée au fil du temps ; le graphique se remplira après quelques relevés.",
-    "chartLabel": "Valeur de la position dans le temps, par protocole"
+    "chartLabel": "Valeur de la position dans le temps, par protocole",
+    "viewTable": "Afficher les données sous forme de tableau",
+    "hideTable": "Masquer les données du tableau",
+    "tableCaption": "Points de données de l'historique de rendement",
+    "date": "Date",
+    "total": "Total"
   },
 
   "riskDisclosure": {
@@ -102,6 +112,7 @@
   },
 
   "common": {
+    "skipToContent": "Aller au contenu principal",
     "connectWallet": "Connecter le portefeuille",
     "connecting": "Connexion...",
     "installWallet": "Installer {{name}}",
