@@ -151,12 +151,12 @@ export function VaultPanel() {
               />
             </svg>
             <div>
-              <p className="text-xs text-gray-500">Meridian</p>
+              <p className="text-xs text-gray-400">Meridian</p>
               <p className="text-sm font-semibold text-paper">USDC Vault</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-gray-500 mb-0.5">
+            <p className="text-xs text-gray-400 mb-0.5">
               {t("vaultPanel.network")}
             </p>
             <p className="text-xs font-semibold text-gray-300">Stellar</p>
@@ -176,7 +176,7 @@ export function VaultPanel() {
         ) : bestVault ? (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-xs text-gray-500 mb-1.5">
+              <p className="text-xs text-gray-400 mb-1.5">
                 {t("vaultPanel.apy")}
               </p>
               <div className="flex items-baseline gap-0.5">
@@ -187,7 +187,7 @@ export function VaultPanel() {
               </div>
             </div>
             <div className="pb-1 sm:text-center">
-              <p className="text-xs text-gray-500 mb-1.5">
+              <p className="text-xs text-gray-400 mb-1.5">
                 {t("vaultPanel.tvl")}
               </p>
               <p className="text-lg font-bold text-paper">
@@ -195,7 +195,7 @@ export function VaultPanel() {
               </p>
             </div>
             <div className="pb-1 sm:text-right">
-              <p className="text-xs text-gray-500 mb-1.5">
+              <p className="text-xs text-gray-400 mb-1.5">
                 {t("vaultPanel.route")}
               </p>
               <p className="text-lg font-bold text-paper">
@@ -204,7 +204,7 @@ export function VaultPanel() {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-400">
             {t("vaultPanel.noLiveRateData")}
           </p>
         )}
@@ -229,7 +229,7 @@ export function VaultPanel() {
           </p>
           <button
             onClick={() => void refetchPositions()}
-            className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
+            className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
           >
             {t("common.retry")}
           </button>
@@ -238,16 +238,34 @@ export function VaultPanel() {
 
       {/* Tab switcher */}
       {connected && (
-        <div className="flex border-b border-gray-800">
+        <div
+          role="tablist"
+          aria-label={t("vaultPanel.tabs.actions", "Vault actions")}
+          className="flex border-b border-gray-800"
+        >
           {(["deposit", "withdraw"] as Tab[]).map((tabId) => (
             <button
               key={tabId}
+              role="tab"
+              id={`vault-tab-${tabId}`}
+              aria-selected={tab === tabId}
+              aria-controls={`vault-tabpanel-${tabId}`}
+              tabIndex={tab === tabId ? 0 : -1}
               data-testid={`vault-tab-${tabId}`}
               onClick={() => handleTabChange(tabId)}
-              className={`flex-1 py-3 text-sm font-semibold transition-colors duration-150 ${
+              onKeyDown={(e) => {
+                if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  const nextTab: Tab =
+                    tabId === "deposit" ? "withdraw" : "deposit";
+                  handleTabChange(nextTab);
+                  document.getElementById(`vault-tab-${nextTab}`)?.focus();
+                }
+              }}
+              className={`flex-1 py-3 text-sm font-semibold transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-settled focus-visible:outline-none ${
                 tab === tabId
                   ? "text-paper border-b-2 border-settled"
-                  : "text-gray-600 hover:text-gray-400"
+                  : "text-gray-400 hover:text-gray-200"
               }`}
             >
               {t(`vaultPanel.${tabId}`)}
@@ -274,7 +292,7 @@ export function VaultPanel() {
                 href={getWalletMeta(attemptedWalletId).installUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center w-full rounded-xl border border-amber-800/70 bg-amber-950/20 hover:border-amber-700 text-amber-400 hover:text-amber-300 text-sm font-medium py-3 transition-colors duration-150"
+                className="flex items-center justify-center w-full rounded-xl border border-amber-800/70 bg-amber-950/20 hover:border-amber-700 text-amber-400 hover:text-amber-300 text-sm font-medium py-3 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
               >
                 {t("common.installWallet", {
                   name: getWalletMeta(attemptedWalletId).name,
@@ -284,7 +302,7 @@ export function VaultPanel() {
               <button
                 onClick={() => void handleConnect()}
                 disabled={connectStatus === "connecting"}
-                className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
+                className="w-full rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-500 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
                 {connectStatus === "connecting"
                   ? t("common.connecting")
@@ -292,29 +310,39 @@ export function VaultPanel() {
               </button>
             )}
           </div>
-        ) : tab === "deposit" ? (
-          <DepositTab
-            amount={amount}
-            onAmountChange={setAmount}
-            onAmountKeyDown={onAmountKeyDown}
-            bestVault={bestVault}
-            position={position}
-            hasPosition={!!hasPosition}
-            isDepositing={isDepositing}
-            onSubmit={handleDeposit}
-            availableBalance={availableBalance}
-          />
         ) : (
-          <WithdrawTab
-            amount={amount}
-            onAmountChange={setAmount}
-            onAmountKeyDown={onAmountKeyDown}
-            bestVault={bestVault}
-            position={position}
-            hasPosition={!!hasPosition}
-            isWithdrawing={isWithdrawing}
-            onSubmit={handleWithdraw}
-          />
+          <div
+            role="tabpanel"
+            id={`vault-tabpanel-${tab}`}
+            aria-labelledby={`vault-tab-${tab}`}
+            tabIndex={0}
+            className="outline-none"
+          >
+            {tab === "deposit" ? (
+              <DepositTab
+                amount={amount}
+                onAmountChange={setAmount}
+                onAmountKeyDown={onAmountKeyDown}
+                bestVault={bestVault}
+                position={position}
+                hasPosition={!!hasPosition}
+                isDepositing={isDepositing}
+                onSubmit={handleDeposit}
+                availableBalance={availableBalance}
+              />
+            ) : (
+              <WithdrawTab
+                amount={amount}
+                onAmountChange={setAmount}
+                onAmountKeyDown={onAmountKeyDown}
+                bestVault={bestVault}
+                position={position}
+                hasPosition={!!hasPosition}
+                isWithdrawing={isWithdrawing}
+                onSubmit={handleWithdraw}
+              />
+            )}
+          </div>
         )}
         {depositRiskDisclosure.show && (
           <RiskDisclosureModal
