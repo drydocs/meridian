@@ -27,11 +27,28 @@ Retained as a hand-initialization path for undeployed legacy flows. Its argument
 
 ### `deposit(caller, amount, min_shares_out) -> Result<i128, ContractError>`
 
-Transfers `amount` USDC from the caller into the vault, forwards it to the active adapter, and mints proportional mUSDC shares. Fails with `DepositsPaused` if `set_paused(true)` is in effect, `ZeroAmount` if `amount <= 0`, `DepositTooSmall` if the amount rounds down to zero shares at the current price, or `SlippageExceeded` if the minted shares would fall below `min_shares_out`. Callers wishing to opt out of minimum-output enforcement pass `0`.
+Transfers `amount` USDC from the caller into the vault, forwards it to the active adapter, and mints mUSDC shares for the value the adapter actually credited. Fails with `DepositsPaused` if `set_paused(true)` is in effect, `ZeroAmount` if `amount <= 0`, `DepositTooSmall` if the deposit rounds down to zero shares at the current price, `AdapterCreditedNothing` if the adapter credits zero shares, `DepositValueMismatch` if the adapter's reported credit is not backed by its own post-deposit ledger (see below), or `SlippageExceeded` if the minted shares would fall below `min_shares_out`. Callers wishing to opt out of minimum-output enforcement pass `0`.
+
+The mint is priced from the adapter's credit, not from `amount` ([#1263](https://github.com/drydocs/meridian/issues/1263)). A partial fill, a supply cap or a fee taken on deposit can leave the adapter holding less value than the caller sent; pricing from `amount` would still mint the full quote and dilute existing holders. After the adapter's `deposit()` returns the shares it credited, the vault calls `refresh()` and reads the adapter's post-deposit `total_assets()` and `total_shares()` once, and prices everything from those reads:
 
 ```
-shares_minted = amount * (total_shares + OFFSET) / (adapter_total_assets + OFFSET)
+quoted_shares   = amount * (total_shares + OFFSET) / (assets_before + OFFSET)
+credited_value  = adapter_shares_credited * assets_after / adapter_shares_after
+backing         = min(amount, assets_after - assets_before)
+tolerance       = amount * DEPOSIT_VALUE_TOLERANCE_BPS / 10_000 + DEPOSIT_VALUE_TOLERANCE_STROOPS
+                  -> DepositValueMismatch if credited_value > backing + tolerance
+credited_value  = min(credited_value, backing)
+existing_value  = assets_after - credited_value
+shares_minted   = min(credited_value * (total_shares + OFFSET) / (existing_value + OFFSET), quoted_shares)
 ```
+
+`credited_value` and `existing_value` are both taken at the adapter's post-deposit rate, so the depositor's share of the vault matches their credit's share of the adapter's position, which is also the share `withdraw` redeems for them. The mint is never larger than `quoted_shares`, the pre-deposit quote for `amount`, and `min_shares_out` is checked against the final mint. A credit worth less than `amount` is accepted and minted at its real value. Reverting on every partial fill was rejected because some protocols legitimately credit less than requested.
+
+`DEPOSIT_VALUE_TOLERANCE_BPS` is 10 (0.1% of `amount`) and `DEPOSIT_VALUE_TOLERANCE_STROOPS` is 100 (0.00001 USDC). The valuation is built from integer reads that each round down, so an honest adapter's credit can land a few stroops above its exact value. The tolerance only decides whether such an excess counts as rounding or as a broken adapter: within it, the credit is still capped at `backing` before pricing, so the tolerance never lets a deposit mint more than it delivered. A credit larger than the adapter's whole post-deposit share balance is also a `DepositValueMismatch`.
+
+USDC an adapter receives but does not invest (for example the unfilled part of a supply-capped deposit) is not part of its `total_assets()` and is not minted for. The vault has no way to pull it back, so it stays on the adapter.
+
+On success the vault emits a `deposit` event with data `(caller, amount, adapter_shares_credited, shares_minted)`: the USDC requested, the adapter shares the adapter reported crediting, and the mUSDC minted. Before [#1263](https://github.com/drydocs/meridian/issues/1263) the data was the three-element `(caller, amount, shares_minted)`.
 
 `OFFSET` is a virtual liquidity constant (1,000 stroops) that makes the first-deposit price 1 share = 1 stroop while neutralising the first-depositor inflation attack: an attacker who donates USDC directly to the adapter to inflate the share price before a victim deposits recovers only a negligible fraction of the donation, making the skim strictly unprofitable (see the `inflation_attack_is_unprofitable` test). Returns the number of shares minted.
 
@@ -236,7 +253,7 @@ USDC on Stellar uses 7 decimal places. 1 USDC = `10_000_000` stroops. All contra
 
 Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is deliberate, so a pause can never trap user funds.
 
-`deposit`, `withdraw`, `begin_migration`, `migrate_adapter` and `on_transfer` run under a reentrancy lock ([#1264](https://github.com/drydocs/meridian/issues/1264)). Each of them makes external calls (to the adapter, to USDC or mUSDC), or is reached from one, and so could be called back into while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or the migration state is not final. While the lock is held, a second guarded call returns `ReentrancyDetected` and changes nothing. The lock is released on both success and failure. This is defense in depth: the Soroban host already refuses to re-enter a contract that is on the call stack, and the lock keeps the vault safe if that ever changes. `deposit` also writes `TOTAL_SH` and the caller's position records before its external calls; `withdraw` and `migrate_adapter` cannot, because what they write depends on what those calls return.
+`deposit`, `withdraw`, `begin_migration`, `migrate_adapter` and `on_transfer` run under a reentrancy lock ([#1264](https://github.com/drydocs/meridian/issues/1264)). Each of them makes external calls (to the adapter, to USDC or mUSDC), or is reached from one, and so could be called back into while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or the migration state is not final. While the lock is held, a second guarded call returns `ReentrancyDetected` and changes nothing. The lock is released on both success and failure. This is defense in depth: the Soroban host already refuses to re-enter a contract that is on the call stack, and the lock keeps the vault safe if that ever changes. `deposit` also writes the caller's position records, and `TOTAL_SH` at the pre-deposit quote (the most the deposit can mint), before its external calls, then reconciles `TOTAL_SH` and `ADPT_SH` from the adapter's post-deposit reads before the mUSDC mint; `withdraw` and `migrate_adapter` cannot write ahead, because what they write depends on what those calls return.
 
 ## Error codes
 
@@ -267,6 +284,7 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `MigrationStabilityDrift`        | 21   | `migrate_adapter`'s target adapter's pre-deposit balance fell outside `max_slippage_bps` of the `begin_migration` snapshot, indicating the target was drained or manipulated during the cooldown. |
 | `MigrationSnapshotAssetsInvalid` | 22   | `begin_migration` was called against a target adapter reporting a negative `total_assets()`.                                                                                                      |
 | `ReentrancyDetected`             | 26   | `deposit`, `withdraw`, `begin_migration`, `migrate_adapter` or `on_transfer` was called while another guarded call was still running.                                                             |
+| `DepositValueMismatch`           | 27   | `deposit`'s adapter reported a credit worth more than the USDC it was given or more than its `total_assets()` grew by, beyond the documented tolerance.                                           |
 
 ## Contract storage
 

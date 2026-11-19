@@ -5,9 +5,10 @@ mod storage;
 
 pub use errors::ContractError;
 pub use storage::{
-    clear_position_records, DataKey, MigrationSnapshot, ADAPTER, ADMIN, ADPT_SH, LOCKED,
-    MAX_ADMIN_SLIPPAGE_BPS, MIG_ACTIVE, MIG_SNAP, MIN_LEDGER_GAP, MUSDC, OFFSET, PAUSED, PEND_ADM,
-    TOTAL_SH, TREASURY, USDC,
+    clear_position_records, DataKey, MigrationSnapshot, ADAPTER, ADMIN, ADPT_SH,
+    DEPOSIT_VALUE_TOLERANCE_BPS, DEPOSIT_VALUE_TOLERANCE_STROOPS, LOCKED, MAX_ADMIN_SLIPPAGE_BPS,
+    MIG_ACTIVE, MIG_SNAP, MIN_LEDGER_GAP, MUSDC, OFFSET, PAUSED, PEND_ADM, TOTAL_SH, TREASURY,
+    USDC,
 };
 
 use soroban_sdk::{
@@ -184,7 +185,21 @@ impl MeridianVault {
     /// Deposit `amount` USDC into the vault. USDC is forwarded to the yield
     /// adapter, which deploys it to the underlying protocol.
     ///
+    /// The mint is priced from what the adapter actually credited, not from
+    /// `amount` (#1263). After the adapter's `deposit` returns, the vault
+    /// refreshes the adapter and values the credited adapter shares at the
+    /// post-deposit `total_assets() / total_shares()` rate, then prices the
+    /// mint against the value of the position that already existed. A
+    /// partial fill, supply cap or fee-on-deposit therefore mints fewer
+    /// shares instead of diluting existing holders. The mint is also never
+    /// larger than the pre-deposit quote for `amount`.
+    ///
     /// Returns the number of mUSDC shares minted to the caller.
+    ///
+    /// Fails with `DepositValueMismatch` if the adapter reports a credit
+    /// worth more than the USDC it was given, or more than its own
+    /// `total_assets()` grew by, beyond `deposit_value_tolerance(amount)`.
+    /// `min_shares_out` is checked against the final, valued mint.
     ///
     /// Guarded against reentrancy: a call back into any guarded entry point
     /// while this one is running fails with `ReentrancyDetected`.
@@ -221,43 +236,31 @@ impl MeridianVault {
             .instance()
             .get(&ADAPTER)
             .ok_or(ContractError::NotInitialized)?;
+        let adapter_client = AdapterClient::new(&env, &adapter_addr);
         let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
 
         // Refresh the adapter's cached total before pricing so this
         // depositor's own transaction is priced with up-to-date yield.
-        AdapterClient::new(&env, &adapter_addr).refresh();
+        adapter_client.refresh();
 
         // Share price is based on the adapter's total assets (includes yield).
-        let total_assets = AdapterClient::new(&env, &adapter_addr).total_assets();
+        let assets_before = adapter_client.total_assets();
 
         // A held position that cannot be valued is an error, not a zero price.
         // Minting here would dilute every existing holder.
-        if total_shares > 0 && total_assets <= 0 {
+        if total_shares > 0 && assets_before <= 0 {
             return Err(ContractError::AdapterReportedNoAssets);
         }
 
-        // shares_to_mint = amount * (total_shares + OFFSET) / (total_assets + OFFSET)
-        // The virtual offset makes the first-deposit price 1 share = 1 stroop while
-        // neutralising the inflation attack on every subsequent deposit.
-        let shares_to_mint = amount
-            .checked_mul(
-                total_shares
-                    .checked_add(OFFSET)
-                    .ok_or(ContractError::Overflow)?,
-            )
-            .ok_or(ContractError::Overflow)?
-            .checked_div(
-                total_assets
-                    .checked_add(OFFSET)
-                    .ok_or(ContractError::Overflow)?,
-            )
-            .ok_or(ContractError::DivisionByZero)?;
-
-        if shares_to_mint <= 0 {
+        // The pre-deposit quote for `amount`. It is the most this deposit can
+        // ever mint: the final mint is priced from the adapter's credit below
+        // and capped at this value. Checking it here fails a deposit that
+        // could never succeed before any funds move.
+        let quoted_shares = Self::price_shares(amount, total_shares, assets_before)?;
+        if quoted_shares <= 0 {
             return Err(ContractError::DepositTooSmall);
         }
-
-        if shares_to_mint < min_shares_out {
+        if quoted_shares < min_shares_out {
             return Err(ContractError::SlippageExceeded);
         }
 
@@ -279,11 +282,16 @@ impl MeridianVault {
         // calls never observe a stale TOTAL_SH or missing position records.
         // This is safe to do early because a failure in any later step
         // returns `Err` and the whole invocation, these writes included, is
-        // rolled back. ADPT_SH is the exception: it is read back from the
+        // rolled back. TOTAL_SH is written here with the quote, the upper
+        // bound of this deposit's mint, and reconciled to the valued mint
+        // right after the adapter call. ADPT_SH is read back from the
         // adapter, so it can only be written after the adapter call.
-        env.storage()
-            .instance()
-            .set(&TOTAL_SH, &(total_shares + shares_to_mint));
+        env.storage().instance().set(
+            &TOTAL_SH,
+            &total_shares
+                .checked_add(quoted_shares)
+                .ok_or(ContractError::Overflow)?,
+        );
 
         // Stamp the entry time on the caller's first deposit; top-ups keep
         // the original time. Keyed off whether an entry record exists rather
@@ -297,7 +305,9 @@ impl MeridianVault {
                 .set(&entry_key, &env.ledger().timestamp());
         }
 
-        // Accumulate cost basis so the UI can display yield earned.
+        // Accumulate cost basis so the UI can display yield earned. This is
+        // what the caller paid, so it is `amount` even when the adapter
+        // credits less: any shortfall shows up as a loss against basis.
         let principal_key = DataKey::Principal(caller.clone());
         let prev_principal: i128 = env.storage().persistent().get(&principal_key).unwrap_or(0);
         env.storage()
@@ -310,25 +320,69 @@ impl MeridianVault {
         TokenClient::new(&env, &usdc).transfer(&caller, &adapter_addr, &amount);
 
         // Adapter deploys USDC to the underlying protocol and returns its own shares.
-        let adapter_client = AdapterClient::new(&env, &adapter_addr);
-        let adapter_shares = adapter_client.deposit(&amount);
-        if adapter_shares <= 0 {
+        let adapter_shares_credited = adapter_client.deposit(&amount);
+        if adapter_shares_credited <= 0 {
             return Err(ContractError::AdapterCreditedNothing);
         }
+
+        // Read the adapter's post-deposit state once and price everything
+        // below from it. The refresh matters for cache-backed adapters
+        // (BlendAdapter's deposit() books `amount` into its cache, not what
+        // the pool actually credited).
+        adapter_client.refresh();
+        let assets_after = adapter_client.total_assets();
+        let adapter_shares_after = adapter_client.total_shares();
+
+        let credited_value = Self::value_deposit_credit(
+            amount,
+            adapter_shares_credited,
+            assets_before,
+            assets_after,
+            adapter_shares_after,
+        )?;
+
+        // The position that existed before this deposit, valued at the same
+        // post-deposit rate as the credit. Pricing the mint against it gives
+        // the depositor the same fraction of the vault as their credit is of
+        // the adapter's shares, which is also the fraction `withdraw` redeems
+        // for them (`shares * ADPT_SH / TOTAL_SH`).
+        let existing_value = assets_after
+            .checked_sub(credited_value)
+            .ok_or(ContractError::Overflow)?;
+        if existing_value < 0 || (total_shares > 0 && existing_value == 0) {
+            return Err(ContractError::AdapterReportedNoAssets);
+        }
+
+        let shares_to_mint =
+            Self::price_shares(credited_value, total_shares, existing_value)?.min(quoted_shares);
+        if shares_to_mint <= 0 {
+            return Err(ContractError::DepositTooSmall);
+        }
+        if shares_to_mint < min_shares_out {
+            return Err(ContractError::SlippageExceeded);
+        }
+
+        // Reconcile both counters from the same post-deposit reads before the
+        // mUSDC mint, the last external call.
+        env.storage().instance().set(
+            &TOTAL_SH,
+            &total_shares
+                .checked_add(shares_to_mint)
+                .ok_or(ContractError::Overflow)?,
+        );
+        env.storage()
+            .instance()
+            .set(&ADPT_SH, &adapter_shares_after);
 
         // Mint mUSDC shares to caller.
         MusdcAdminClient::new(&env, &musdc).mint(&caller, &shares_to_mint);
 
-        // Update the adapter-share counter from the adapter's own ledger.
-        env.storage()
-            .instance()
-            .set(&ADPT_SH, &adapter_client.total_shares());
-
         Self::extend_position(&env, &caller);
 
+        // Data: (caller, requested USDC, adapter shares credited, mUSDC minted).
         env.events().publish(
             (symbol_short!("deposit"),),
-            (caller, amount, shares_to_mint),
+            (caller, amount, adapter_shares_credited, shares_to_mint),
         );
 
         Ok(shares_to_mint)
@@ -1222,6 +1276,93 @@ impl MeridianVault {
         result
     }
 
+    /// Prices `value` USDC in vault shares against a position worth
+    /// `total_assets` backing `total_shares`:
+    /// `value * (total_shares + OFFSET) / (total_assets + OFFSET)`.
+    /// The virtual offset makes the first-deposit price 1 share = 1 stroop
+    /// while neutralising the inflation attack on every later deposit.
+    fn price_shares(
+        value: i128,
+        total_shares: i128,
+        total_assets: i128,
+    ) -> Result<i128, ContractError> {
+        value
+            .checked_mul(
+                total_shares
+                    .checked_add(OFFSET)
+                    .ok_or(ContractError::Overflow)?,
+            )
+            .ok_or(ContractError::Overflow)?
+            .checked_div(
+                total_assets
+                    .checked_add(OFFSET)
+                    .ok_or(ContractError::Overflow)?,
+            )
+            .ok_or(ContractError::DivisionByZero)
+    }
+
+    /// Values the adapter shares a deposit credited, in USDC, from the
+    /// adapter's post-deposit reads, and checks that value against what the
+    /// deposit could actually have added.
+    ///
+    /// The credit is valued at `credited * assets_after / shares_after`. Its
+    /// backing is the smaller of `amount` (the USDC the adapter was given)
+    /// and `assets_after - assets_before` (how much the adapter's own
+    /// valuation grew). A credit worth more than its backing plus
+    /// `deposit_value_tolerance(amount)` means the adapter's reported credit
+    /// and its own ledger disagree, and fails with `DepositValueMismatch`.
+    /// A credit within the tolerance is capped at its backing, so rounding
+    /// can never mint more than the deposit delivered. A credit worth less
+    /// than `amount` (partial fill, supply cap, fee on deposit) is accepted
+    /// and returned as is: the caller is minted for what was credited and
+    /// `min_shares_out` is their protection.
+    fn value_deposit_credit(
+        amount: i128,
+        credited: i128,
+        assets_before: i128,
+        assets_after: i128,
+        shares_after: i128,
+    ) -> Result<i128, ContractError> {
+        // A credit larger than the adapter's whole post-deposit position
+        // cannot be real.
+        if shares_after <= 0 || credited > shares_after {
+            return Err(ContractError::DepositValueMismatch);
+        }
+
+        let credited_value = credited
+            .checked_mul(assets_after)
+            .ok_or(ContractError::Overflow)?
+            .checked_div(shares_after)
+            .ok_or(ContractError::DivisionByZero)?;
+
+        let backing = amount.min(
+            assets_after
+                .checked_sub(assets_before)
+                .ok_or(ContractError::Overflow)?,
+        );
+        let ceiling = backing
+            .checked_add(Self::deposit_value_tolerance(amount)?)
+            .ok_or(ContractError::Overflow)?;
+        if credited_value > ceiling {
+            return Err(ContractError::DepositValueMismatch);
+        }
+
+        Ok(credited_value.min(backing).max(0))
+    }
+
+    /// How far a deposit's valued credit may exceed its backing before the
+    /// vault treats it as a mismatch rather than rounding:
+    /// `amount * DEPOSIT_VALUE_TOLERANCE_BPS / 10_000 + DEPOSIT_VALUE_TOLERANCE_STROOPS`.
+    fn deposit_value_tolerance(amount: i128) -> Result<i128, ContractError> {
+        amount
+            .checked_mul(DEPOSIT_VALUE_TOLERANCE_BPS)
+            .ok_or(ContractError::Overflow)?
+            .checked_div(BPS_DENOMINATOR)
+            .ok_or(ContractError::DivisionByZero)?
+            .checked_add(DEPOSIT_VALUE_TOLERANCE_STROOPS)
+            .ok_or(ContractError::Overflow)
+    }
+
     fn require_admin(env: &Env) -> Result<(), ContractError> {
         let admin: Address = env
             .storage()
@@ -1346,6 +1487,29 @@ mod tests {
 
     fn mock_total_assets(env: &Env, usdc: &Address) -> i128 {
         TokenClient::new(env, usdc).balance(&env.current_contract_address())
+    }
+
+    // Shares a share-based protocol credits for `invested` USDC: bought at
+    // the pre-deposit `total_sh / assets_before` rate, 1:1 into an empty
+    // position. Crediting 1:1 regardless of accrued yield would value the
+    // new shares above what was deposited, which the vault now rejects as
+    // `DepositValueMismatch` (#1263).
+    fn mock_shares_for(invested: i128, total_sh: i128, assets_before: i128) -> i128 {
+        if total_sh > 0 && assets_before > 0 {
+            invested * total_sh / assets_before
+        } else {
+            invested
+        }
+    }
+
+    // `mock_shares_for` for the balance-priced mocks, whose `deposit` is
+    // called after the vault has already transferred `amount` in.
+    fn mock_credit_from_balance(env: &Env, usdc: &Address, sh_key: &Symbol, amount: i128) -> i128 {
+        let total_sh: i128 = env.storage().instance().get(sh_key).unwrap_or(0);
+        let assets_before = mock_total_assets(env, usdc) - amount;
+        let credited = mock_shares_for(amount, total_sh, assets_before);
+        env.storage().instance().set(sh_key, &(total_sh + credited));
+        credited
     }
 
     // -----------------------------------------------------------------------
@@ -1482,9 +1646,10 @@ mod tests {
             env.storage()
                 .instance()
                 .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
-            let prev: i128 = env.storage().instance().get(&MA_SH).unwrap_or(0);
-            env.storage().instance().set(&MA_SH, &(prev + amount));
-            amount
+            // USDC address is always set in initialize(), so this is safe.
+            let usdc: Address =
+                get_or_not_initialized(&env, env.storage().instance().get(&MA_USDC));
+            mock_credit_from_balance(&env, &usdc, &MA_SH, amount)
         }
 
         pub fn withdraw(env: Env, shares: i128, recipient: Address) -> i128 {
@@ -1749,9 +1914,12 @@ mod tests {
             }
 
             pub fn deposit(env: Env, amount: i128) -> i128 {
-                let prev: i128 = env.storage().instance().get(&CM_SH).unwrap_or(0);
-                env.storage().instance().set(&CM_SH, &(prev + amount));
-                amount
+                // Credits at the live rate, like BlendAdapter crediting
+                // bTokens at the live b_rate; only total_assets() is cached.
+                // USDC address is always set in initialize(), so this is safe.
+                let usdc: Address =
+                    get_or_not_initialized(&env, env.storage().instance().get(&CM_USDC));
+                mock_credit_from_balance(&env, &usdc, &CM_SH, amount)
             }
 
             pub fn withdraw(env: Env, shares: i128, recipient: Address) -> i128 {
@@ -2228,10 +2396,17 @@ mod tests {
         let attacker_shares = vault.deposit(&attacker, &attacker_deposit, &0_i128);
         assert_eq!(attacker_shares, 1);
 
-        // Attacker donates USDC directly to the adapter to inflate the share
-        // price before the victim deposits (the classic inflation attack).
+        // Attacker donates to the adapter's position to inflate the vault's
+        // share price before the victim deposits (the classic inflation
+        // attack). The donation lands as protocol shares, the way a donation
+        // reaches a real adapter (e.g. transferring dfTokens to it). A raw
+        // USDC transfer would instead reprice the mock's single 1-stroop
+        // share so steeply that the victim's deposit buys no adapter shares
+        // at all (`AdapterCreditedNothing`), which would exercise the mock's
+        // share granularity rather than the vault's own OFFSET defense.
         let donation = 100_0000000_i128;
         usdc.transfer(&attacker, &adapter_id, &donation);
+        MockAdapterClient::new(&env, &adapter_id).deposit(&donation);
 
         let victim = Address::generate(&env);
         let victim_deposit = 100_0000000_i128;
@@ -3594,9 +3769,11 @@ mod tests {
         );
 
         // The adapter's cache was actually refreshed as a side effect of this
-        // deposit (read here before user2's own transfer lands), proving the
-        // vault's refresh() call -- not stale data -- drove the pricing above.
-        assert_eq!(vault.get_total_assets(), amount + yield_amount);
+        // deposit, proving the vault's refresh() calls -- not stale data --
+        // drove the pricing above. The vault also refreshes after the
+        // adapter deposit to value the credit (#1263), so the cache now
+        // includes user2's own deposit as well as the yield.
+        assert_eq!(vault.get_total_assets(), amount + yield_amount + amount);
     }
 
     #[test]
@@ -3903,17 +4080,20 @@ mod tests {
     }
 
     #[test]
-    fn deposit_publishes_event_with_caller_amount_and_shares() {
-        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+    fn deposit_publishes_event_with_caller_amount_credit_and_shares() {
+        let (env, _admin, user, _usdc, _musdc, adapter, vault) = setup();
         let amount = 100_0000000_i128;
 
         let shares = vault.deposit(&user, &amount, &0_i128);
 
+        // Read the events before any other call: each top-level invocation
+        // replaces the recorded set.
         let event = find_event(&env, &vault.address, symbol_short!("deposit"))
             .expect("deposit event not found");
-        let data: (Address, i128, i128) =
+        let data: (Address, i128, i128, i128) =
             soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
-        assert_eq!(data, (user, amount, shares));
+        let credited = MockAdapterClient::new(&env, &adapter).total_shares();
+        assert_eq!(data, (user, amount, credited, shares));
     }
 
     #[test]
@@ -3968,6 +4148,456 @@ mod tests {
             soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
         assert_eq!(target_adapter, new_adapter_id);
         assert_eq!(earliest_ledger, current_ledger + MIN_LEDGER_GAP);
+    }
+
+    // -----------------------------------------------------------------------
+    // Deposit-value parity (#1263)
+    //
+    // `CreditMockAdapter` credits a deposit the way a share-based protocol
+    // does (shares bought at the pre-deposit rate) but can be switched into
+    // the paths where the credit is worth less than the USDC it was handed,
+    // or where its reported credit is not backed at all. Uninvested USDC
+    // (partial fill, supply cap) stays on the adapter as an idle balance
+    // that `total_assets()` excludes, the way a real adapter values only
+    // its protocol position. Own module for the same reason as
+    // `lossy_mock`: contractimpl-generated helper items aren't namespaced
+    // by type.
+    // -----------------------------------------------------------------------
+    mod credit_mock {
+        use super::*;
+
+        pub const MODE_FULL: u32 = 0;
+        /// Invests `param` bps of each deposit; the rest stays idle.
+        pub const MODE_PARTIAL_FILL: u32 = 1;
+        /// Sends `param` bps of each deposit to the sink as a fee.
+        pub const MODE_FEE: u32 = 2;
+        /// Invests only up to `param` stroops of total position value; the
+        /// rest stays idle.
+        pub const MODE_SUPPLY_CAP: u32 = 3;
+        /// Credits shares for the deposit but sends the USDC to the sink, so
+        /// the credit has nothing behind it.
+        pub const MODE_PHANTOM: u32 = 4;
+        /// Invests everything but reports `param` more shares than it
+        /// actually booked.
+        pub const MODE_OVER_REPORT: u32 = 5;
+
+        const CR_USDC: Symbol = symbol_short!("CR_USDC");
+        const CR_SH: Symbol = symbol_short!("CR_SH");
+        const CR_IDLE: Symbol = symbol_short!("CR_IDLE");
+        const CR_MODE: Symbol = symbol_short!("CR_MODE");
+        const CR_PARAM: Symbol = symbol_short!("CR_PARAM");
+        const CR_SINK: Symbol = symbol_short!("CR_SINK");
+
+        #[contract]
+        pub struct CreditMockAdapter;
+
+        #[contractimpl]
+        impl CreditMockAdapter {
+            pub fn initialize(env: Env, usdc: Address) {
+                env.storage().instance().set(&CR_USDC, &usdc);
+                env.storage().instance().set(&CR_SH, &0_i128);
+                env.storage().instance().set(&CR_IDLE, &0_i128);
+                env.storage().instance().set(&CR_MODE, &MODE_FULL);
+                env.storage().instance().set(&CR_PARAM, &0_i128);
+                env.storage()
+                    .instance()
+                    .set(&CR_SINK, &Address::generate(&env));
+            }
+
+            pub fn configure(env: Env, mode: u32, param: i128) {
+                env.storage().instance().set(&CR_MODE, &mode);
+                env.storage().instance().set(&CR_PARAM, &param);
+            }
+
+            pub fn sink(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&CR_SINK))
+            }
+
+            pub fn deposit(env: Env, amount: i128) -> i128 {
+                let usdc = Self::usdc(&env);
+                let token = TokenClient::new(&env, &usdc);
+                let me = env.current_contract_address();
+                let mode: u32 = env.storage().instance().get(&CR_MODE).unwrap_or(MODE_FULL);
+                let param: i128 = env.storage().instance().get(&CR_PARAM).unwrap_or(0);
+                let idle: i128 = env.storage().instance().get(&CR_IDLE).unwrap_or(0);
+                let total_sh: i128 = env.storage().instance().get(&CR_SH).unwrap_or(0);
+                // `amount` has already been transferred in by the vault.
+                let assets_before = token.balance(&me) - amount - idle;
+
+                let mut extra_reported = 0_i128;
+                let invested = match mode {
+                    MODE_PARTIAL_FILL => amount * param / 10_000,
+                    MODE_FEE => {
+                        let fee = amount * param / 10_000;
+                        token.transfer(&me, &Self::sink(env.clone()), &fee);
+                        amount - fee
+                    }
+                    MODE_SUPPLY_CAP => (param - assets_before).clamp(0, amount),
+                    MODE_PHANTOM => {
+                        token.transfer(&me, &Self::sink(env.clone()), &amount);
+                        amount
+                    }
+                    MODE_OVER_REPORT => {
+                        extra_reported = param;
+                        amount
+                    }
+                    _ => amount,
+                };
+                if matches!(mode, MODE_PARTIAL_FILL | MODE_SUPPLY_CAP) {
+                    env.storage()
+                        .instance()
+                        .set(&CR_IDLE, &(idle + amount - invested));
+                }
+
+                let credited = mock_shares_for(invested, total_sh, assets_before);
+                env.storage().instance().set(&CR_SH, &(total_sh + credited));
+                credited + extra_reported
+            }
+
+            pub fn withdraw(env: Env, shares: i128, recipient: Address) -> i128 {
+                let total_sh: i128 = env.storage().instance().get(&CR_SH).unwrap_or(0);
+                let usdc_out = if total_sh > 0 {
+                    shares * Self::total_assets(env.clone()) / total_sh
+                } else {
+                    0
+                };
+                if usdc_out > 0 {
+                    TokenClient::new(&env, &Self::usdc(&env)).transfer(
+                        &env.current_contract_address(),
+                        &recipient,
+                        &usdc_out,
+                    );
+                }
+                env.storage().instance().set(&CR_SH, &(total_sh - shares));
+                usdc_out
+            }
+
+            pub fn total_assets(env: Env) -> i128 {
+                let idle: i128 = env.storage().instance().get(&CR_IDLE).unwrap_or(0);
+                mock_total_assets(&env, &Self::usdc(&env)) - idle
+            }
+
+            pub fn total_shares(env: Env) -> i128 {
+                env.storage().instance().get(&CR_SH).unwrap_or(0)
+            }
+
+            pub fn refresh(env: Env) {
+                // See MockAdapter::refresh() above.
+                env.storage()
+                    .instance()
+                    .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+            }
+
+            fn usdc(env: &Env) -> Address {
+                // USDC address is always set in initialize(), so this is safe.
+                get_or_not_initialized(env, env.storage().instance().get(&CR_USDC))
+            }
+        }
+    }
+    use credit_mock::{
+        CreditMockAdapter, CreditMockAdapterClient, MODE_FEE, MODE_OVER_REPORT, MODE_PARTIAL_FILL,
+        MODE_PHANTOM, MODE_SUPPLY_CAP,
+    };
+
+    const PARITY_SEED: i128 = 10_000_000_000;
+    const PARITY_YIELD: i128 = 100_0000000;
+    const PARITY_DEPOSIT: i128 = 100_0000000;
+
+    struct ParityRig {
+        env: Env,
+        seeder: Address,
+        depositor: Address,
+        usdc: Address,
+        adapter: CreditMockAdapterClient<'static>,
+        vault: MeridianVaultClient<'static>,
+    }
+
+    /// A vault on `CreditMockAdapter` holding a 1,000 USDC position that
+    /// has earned 100 USDC of yield, so the adapter's share rate and the
+    /// vault's share price are both away from 1:1 when the deposit under
+    /// test lands.
+    fn parity_rig() -> ParityRig {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let seeder = Address::generate(&env);
+        let depositor = Address::generate(&env);
+        let usdc = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+
+        let adapter_id = env.register(CreditMockAdapter, ());
+        let adapter = CreditMockAdapterClient::new(&env, &adapter_id);
+        adapter.initialize(&usdc);
+
+        let vault_id = Address::generate(&env);
+        let musdc = env.register(MockMusdc, ());
+        MockMusdcClient::new(&env, &musdc).initialize(&vault_id);
+        env.register_at(
+            &vault_id,
+            MeridianVault,
+            (&admin, &usdc, &musdc, &adapter_id, &admin),
+        );
+        let vault = MeridianVaultClient::new(&env, &vault_id);
+
+        let sac = StellarAssetClient::new(&env, &usdc);
+        sac.mint(&seeder, &PARITY_SEED);
+        sac.mint(&depositor, &(10 * PARITY_DEPOSIT));
+        vault.deposit(&seeder, &PARITY_SEED, &0);
+        sac.mint(&adapter_id, &PARITY_YIELD);
+
+        ParityRig {
+            env,
+            seeder,
+            depositor,
+            usdc,
+            adapter,
+            vault,
+        }
+    }
+
+    /// What a deposit worth `value` USDC should mint against the rig's
+    /// pre-deposit state, using the same formula as the vault.
+    fn parity_price(r: &ParityRig, value: i128) -> i128 {
+        MeridianVault::price_shares(
+            value,
+            r.vault.get_total_shares(),
+            r.vault.get_total_assets(),
+        )
+        .unwrap()
+    }
+
+    fn stored_adpt_sh(r: &ParityRig) -> i128 {
+        r.env.as_contract(&r.vault.address, || {
+            r.env.storage().instance().get(&ADPT_SH).unwrap_or(0)
+        })
+    }
+
+    /// Runs the deposit under test and checks the invariants every
+    /// accepted deposit must keep: the share price existing holders see
+    /// does not drop, `TOTAL_SH` equals the mUSDC actually held, `ADPT_SH`
+    /// equals the adapter's own share balance, and the event carries the
+    /// requested amount, the adapter's credit and the mint. Returns the
+    /// shares minted.
+    fn deposit_and_check_parity(r: &ParityRig, amount: i128) -> i128 {
+        let assets_before = r.vault.get_total_assets();
+        let shares_before = r.vault.get_total_shares();
+        let adapter_shares_before = r.adapter.total_shares();
+
+        let minted = r.vault.deposit(&r.depositor, &amount, &0);
+
+        let event = find_event(&r.env, &r.vault.address, symbol_short!("deposit"))
+            .expect("deposit event not found");
+        let data: (Address, i128, i128, i128) =
+            soroban_sdk::TryIntoVal::try_into_val(&event.2, &r.env).unwrap();
+        let credited = r.adapter.total_shares() - adapter_shares_before;
+        assert_eq!(data, (r.depositor.clone(), amount, credited, minted));
+
+        // Compared at the vault's own price, `(assets + OFFSET) / (shares +
+        // OFFSET)`: the raw ratio moves by a few stroops on any deposit
+        // because of the virtual offset, even with exact accounting.
+        let assets_after = r.vault.get_total_assets();
+        let shares_after = r.vault.get_total_shares();
+        assert!(
+            (assets_after + OFFSET) * (shares_before + OFFSET)
+                >= (assets_before + OFFSET) * (shares_after + OFFSET),
+            "existing holders were diluted: {assets_before}/{shares_before} -> {assets_after}/{shares_after}"
+        );
+        assert_eq!(
+            shares_after,
+            r.vault.get_position(&r.seeder) + r.vault.get_position(&r.depositor)
+        );
+        assert_eq!(stored_adpt_sh(r), r.adapter.total_shares());
+        minted
+    }
+
+    /// `minted` is within a few stroops of the shares `value` USDC buys.
+    fn assert_minted_for(r_price: i128, minted: i128) {
+        assert!(
+            (r_price - minted).abs() <= 2,
+            "minted {minted}, expected ~{r_price}"
+        );
+    }
+
+    #[test]
+    fn deposit_partial_fill_mints_only_for_the_credited_value() {
+        let r = parity_rig();
+        let quote = parity_price(&r, PARITY_DEPOSIT);
+        let expected = parity_price(&r, PARITY_DEPOSIT / 2);
+        r.adapter.configure(&MODE_PARTIAL_FILL, &5_000);
+
+        let minted = deposit_and_check_parity(&r, PARITY_DEPOSIT);
+
+        assert!(minted < quote, "a half fill must not mint the full quote");
+        assert_minted_for(expected, minted);
+    }
+
+    #[test]
+    fn deposit_partial_fill_is_rejected_by_a_full_quote_min_shares_out() {
+        let r = parity_rig();
+        let quote = parity_price(&r, PARITY_DEPOSIT);
+        r.adapter.configure(&MODE_PARTIAL_FILL, &5_000);
+        let shares_before = r.vault.get_total_shares();
+
+        let result = r.vault.try_deposit(&r.depositor, &PARITY_DEPOSIT, &quote);
+
+        assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
+        assert_eq!(r.vault.get_total_shares(), shares_before);
+        assert_eq!(r.vault.get_position(&r.depositor), 0);
+    }
+
+    #[test]
+    fn deposit_fee_on_deposit_mints_net_of_the_fee() {
+        let r = parity_rig();
+        let fee = PARITY_DEPOSIT / 100;
+        let expected = parity_price(&r, PARITY_DEPOSIT - fee);
+        r.adapter.configure(&MODE_FEE, &100);
+
+        let minted = deposit_and_check_parity(&r, PARITY_DEPOSIT);
+
+        assert_eq!(
+            TokenClient::new(&r.env, &r.usdc).balance(&r.adapter.sink()),
+            fee
+        );
+        assert_minted_for(expected, minted);
+    }
+
+    #[test]
+    fn deposit_supply_cap_mints_only_up_to_the_cap() {
+        let r = parity_rig();
+        let room = 40_0000000_i128;
+        let cap = r.vault.get_total_assets() + room;
+        let expected = parity_price(&r, room);
+        r.adapter.configure(&MODE_SUPPLY_CAP, &cap);
+
+        let minted = deposit_and_check_parity(&r, PARITY_DEPOSIT);
+
+        assert_minted_for(expected, minted);
+        assert_eq!(r.vault.get_total_assets(), cap);
+    }
+
+    #[test]
+    fn deposit_into_a_full_supply_cap_credits_nothing_and_mints_nothing() {
+        let r = parity_rig();
+        r.adapter
+            .configure(&MODE_SUPPLY_CAP, &r.vault.get_total_assets());
+        let shares_before = r.vault.get_total_shares();
+
+        let result = r.vault.try_deposit(&r.depositor, &PARITY_DEPOSIT, &0);
+
+        assert_eq!(result, Err(Ok(ContractError::AdapterCreditedNothing)));
+        assert_eq!(r.vault.get_total_shares(), shares_before);
+        assert_eq!(r.vault.get_position(&r.depositor), 0);
+    }
+
+    #[test]
+    fn deposit_rejects_a_credit_with_no_value_behind_it() {
+        let r = parity_rig();
+        r.adapter.configure(&MODE_PHANTOM, &0);
+        let shares_before = r.vault.get_total_shares();
+        let adapter_shares_before = r.adapter.total_shares();
+
+        let result = r.vault.try_deposit(&r.depositor, &PARITY_DEPOSIT, &0);
+
+        assert_eq!(result, Err(Ok(ContractError::DepositValueMismatch)));
+        assert_eq!(r.vault.get_total_shares(), shares_before);
+        assert_eq!(r.adapter.total_shares(), adapter_shares_before);
+        assert_eq!(r.vault.get_position(&r.depositor), 0);
+    }
+
+    #[test]
+    fn deposit_rejects_an_adapter_over_reporting_its_credit() {
+        let r = parity_rig();
+        // 1 USDC worth of shares more than were booked: far past the
+        // tolerance for a 100 USDC deposit.
+        r.adapter.configure(&MODE_OVER_REPORT, &1_0000000);
+
+        let result = r.vault.try_deposit(&r.depositor, &PARITY_DEPOSIT, &0);
+
+        assert_eq!(result, Err(Ok(ContractError::DepositValueMismatch)));
+        assert_eq!(r.vault.get_position(&r.depositor), 0);
+    }
+
+    #[test]
+    fn deposit_caps_an_over_report_within_tolerance_at_the_quote() {
+        let r = parity_rig();
+        let quote = parity_price(&r, PARITY_DEPOSIT);
+        // A one-share over-report is rounding-sized: accepted, but it buys
+        // nothing beyond what the deposit actually delivered.
+        r.adapter.configure(&MODE_OVER_REPORT, &1);
+        let adapter_shares_before = r.adapter.total_shares();
+
+        let minted = r.vault.deposit(&r.depositor, &PARITY_DEPOSIT, &0);
+
+        assert!(minted <= quote);
+        assert_minted_for(quote, minted);
+        // ADPT_SH follows the adapter's ledger, not the inflated report.
+        assert_eq!(stored_adpt_sh(&r), r.adapter.total_shares());
+        assert!(stored_adpt_sh(&r) > adapter_shares_before);
+    }
+
+    #[test]
+    fn value_deposit_credit_enforces_the_documented_tolerance() {
+        let amount = 100_0000000_i128;
+        let tolerance = amount * DEPOSIT_VALUE_TOLERANCE_BPS / BPS_DENOMINATOR
+            + DEPOSIT_VALUE_TOLERANCE_STROOPS;
+        assert_eq!(
+            MeridianVault::deposit_value_tolerance(amount),
+            Ok(tolerance)
+        );
+
+        // 1:1 adapter with 1,000 USDC already in it.
+        let before = 10_000_000_000_i128;
+        let value = |credited: i128, assets_after: i128, shares_after: i128| {
+            MeridianVault::value_deposit_credit(
+                amount,
+                credited,
+                before,
+                assets_after,
+                shares_after,
+            )
+        };
+
+        // Exact credit.
+        assert_eq!(value(amount, before + amount, before + amount), Ok(amount));
+        // Partial credit is returned at its real value, not rejected.
+        assert_eq!(
+            value(amount / 2, before + amount / 2, before + amount / 2),
+            Ok(amount / 2)
+        );
+        // Over-credit up to the tolerance is capped at the backing...
+        let shares_after = before + amount + tolerance;
+        assert_eq!(
+            value(
+                amount + tolerance,
+                before + amount + tolerance,
+                shares_after
+            ),
+            Ok(amount)
+        );
+        // ...and one stroop past it is a mismatch.
+        assert_eq!(
+            value(
+                amount + tolerance + 1,
+                before + amount + tolerance + 1,
+                before + amount + tolerance + 1
+            ),
+            Err(ContractError::DepositValueMismatch)
+        );
+        // Backing is also bounded by how much the adapter's assets grew.
+        assert_eq!(
+            value(amount, before + amount / 2, before + amount),
+            Err(ContractError::DepositValueMismatch)
+        );
+        // A credit larger than the whole position, or no position at all.
+        assert_eq!(
+            value(before + amount + 1, before + amount, before + amount),
+            Err(ContractError::DepositValueMismatch)
+        );
+        assert_eq!(
+            value(amount, before + amount, 0),
+            Err(ContractError::DepositValueMismatch)
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -4110,9 +4740,9 @@ mod tests {
                     .instance()
                     .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
                 fire(&env, HOOK_DEPOSIT);
-                let prev: i128 = env.storage().instance().get(&RA_SH).unwrap_or(0);
-                env.storage().instance().set(&RA_SH, &(prev + amount));
-                amount
+                let usdc: Address =
+                    get_or_not_initialized(&env, env.storage().instance().get(&RA_USDC));
+                mock_credit_from_balance(&env, &usdc, &RA_SH, amount)
             }
 
             pub fn withdraw(env: Env, shares: i128, recipient: Address) -> i128 {
