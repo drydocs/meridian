@@ -1,4 +1,3 @@
-import { assertFaucetPayment } from "@meridian/stellar-sdk-helpers";
 import { USDC_ISSUER } from "@meridian/shared";
 import { fetchBalances } from "../lib/horizonAccount";
 import { useSignAndSubmit } from "./useSignAndSubmit";
@@ -58,6 +57,8 @@ export function useBlendFaucet() {
       });
       if (!res.ok) throw new Error(`Blend faucet returned ${res.status}`);
       const xdr = await res.text();
+      const { assertFaucetPayment } =
+        await import("@meridian/stellar-sdk-helpers");
       assertFaucetPayment(xdr, passphrase, network, publicKey);
       await signAndSubmit(xdr);
       push("success", t("vaultActions.walletFunded"));

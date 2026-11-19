@@ -1,0 +1,14 @@
+{
+  "baseline": {
+    "initialJsBytes": 2314547,
+    "description": "Baseline monolithic entry bundle before code-splitting (~2.26 MB)"
+  },
+  "budget": {
+    "maxInitialJsBytes": 500000,
+    "description": "Initial JavaScript budget: maximum 500 KB (down from 2.26 MB baseline)"
+  },
+  "current": {
+    "initialJsBytes": 467787,
+    "reductionPercent": 79.8
+  }
+}

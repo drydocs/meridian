@@ -122,6 +122,8 @@ jobs:
               exit 1
             fi
           done
+      - name: Check web bundle budget
+        run: pnpm bundle:check
 
   # Markdown lint plus link checks for the README, root docs and `apps/docs`.
   # Internal links are strict; external links are best-effort on PRs (hosts
