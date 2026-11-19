@@ -166,6 +166,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+      - name: Run API Conformance Suite (#1298)
+        run: pnpm test:conformance
       - run: pnpm coverage
 
   commitlint:

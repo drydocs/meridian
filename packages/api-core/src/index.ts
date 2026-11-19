@@ -6,3 +6,4 @@ export * from "./vaults";
 export * from "./admin";
 export * from "./admin-history";
 export * from "./config";
+export * from "./cache";
