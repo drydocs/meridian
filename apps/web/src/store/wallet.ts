@@ -2,7 +2,10 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { WalletState } from "../types";
 import { wallet } from "../lib/wallet";
-import { APP_NETWORK } from "@meridian/shared";
+import { APP_NETWORK, shortenAddress } from "@meridian/shared";
+import { useToastStore } from "./toast";
+import { queryClient } from "../lib/queryClient";
+import i18n from "../i18n";
 
 interface WalletStore extends WalletState {
   connect: (publicKey: string) => void;
@@ -24,16 +27,72 @@ export const useWalletStore = create<WalletStore>()(
       connect: (publicKey) => set({ publicKey, connected: true }),
       disconnect: () => set({ publicKey: null, connected: false }),
 
-      // Re-check the persisted key against Freighter. Clears stale state when
-      // the extension is gone or the user revoked site access between sessions.
+      // Re-check the persisted key against the wallet. Clears stale state when
+      // the extension is gone or the user revoked site access between sessions,
+      // and reconciles account/network switches.
       revalidate: async () => {
         const key = get().publicKey;
         if (!key) return;
         const authorized = await wallet.isAuthorized();
         // The user may have connected a different wallet while the check was
         // in flight; a stale result must not clear the newer session.
-        if (!authorized && get().publicKey === key) {
-          set({ publicKey: null, connected: false });
+        if (!authorized) {
+          if (get().publicKey === key) {
+            set({ publicKey: null, connected: false });
+          }
+          return;
+        }
+
+        // Reconcile passive address if supported
+        if (typeof wallet.getAddress === "function") {
+          try {
+            const reportedAddress = await wallet.getAddress();
+            if (reportedAddress && reportedAddress !== get().publicKey) {
+              set({ publicKey: reportedAddress, connected: true });
+              const fallback = `Wallet account switched to ${shortenAddress(reportedAddress)}`;
+              const message =
+                (i18n.isInitialized
+                  ? i18n.t("walletConnect.accountChanged", {
+                      address: shortenAddress(reportedAddress),
+                      defaultValue: fallback,
+                    })
+                  : null) || fallback;
+              useToastStore.getState().push("info", message);
+              queryClient.invalidateQueries({ queryKey: ["positions"] });
+              queryClient.invalidateQueries({ queryKey: ["vaults"] });
+              queryClient.invalidateQueries({ queryKey: ["vault-state"] });
+            }
+          } catch {
+            // Passive queries must not break revalidation
+          }
+        }
+
+        // Reconcile passive network if supported
+        if (typeof wallet.getNetwork === "function") {
+          try {
+            const reportedNetwork = await wallet.getNetwork();
+            if (
+              (reportedNetwork === "mainnet" ||
+                reportedNetwork === "testnet") &&
+              reportedNetwork !== get().network
+            ) {
+              set({ network: reportedNetwork });
+              const fallback = `Wallet network switched to ${reportedNetwork}`;
+              const message =
+                (i18n.isInitialized
+                  ? i18n.t("walletConnect.networkChanged", {
+                      network: reportedNetwork,
+                      defaultValue: fallback,
+                    })
+                  : null) || fallback;
+              useToastStore.getState().push("info", message);
+              queryClient.invalidateQueries({ queryKey: ["positions"] });
+              queryClient.invalidateQueries({ queryKey: ["vaults"] });
+              queryClient.invalidateQueries({ queryKey: ["vault-state"] });
+            }
+          } catch {
+            // Passive queries must not break revalidation
+          }
         }
       },
     }),
