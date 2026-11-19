@@ -14,6 +14,8 @@ import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
+import { ActivityHistory } from "./ActivityHistory";
+import type { LocalActivity } from "../../store/activity";
 
 function formatTvl(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -122,6 +124,20 @@ export function VaultPanel() {
   function handleTabChange(next: Tab) {
     setTab(next);
     setAmount("");
+  }
+
+  async function retryActivity(activity: LocalActivity) {
+    if (activity.action === "deposit") {
+      await deposit(
+        activity.amount,
+        activity.vaultId,
+        activity.asset,
+        undefined,
+        hasAcceptedRiskDisclosure()
+      );
+    } else if (position && activity.vaultId === bestVault?.id) {
+      await withdraw(activity.amount, activity.vaultId, activity.asset);
+    }
   }
 
   return (
@@ -323,6 +339,13 @@ export function VaultPanel() {
           />
         )}
       </div>
+
+      {/* Local activity history */}
+      {connected && (
+        <div className="border-t border-gray-800/50">
+          <ActivityHistory onRetry={retryActivity} />
+        </div>
+      )}
     </div>
   );
 }

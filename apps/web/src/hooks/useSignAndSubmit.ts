@@ -19,7 +19,8 @@ export function useSignAndSubmit() {
       throw new Error(t("walletConnect.walletDisconnected"));
     }
     const signedXdr = await wallet.sign(xdr, passphrase);
-    await api.submitTx({ xdr: signedXdr });
+    const { hash } = await api.submitTx({ xdr: signedXdr });
+    return hash;
   }
 
   return { signAndSubmit, passphrase };
