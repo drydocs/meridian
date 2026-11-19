@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { STRATEGY_ENGINE } from "@meridian/strategies";
 import { SingleRunView } from "./views/SingleRunView";
+import type { ScenarioRun } from "./lib/scenario-run";
 import { HistoryView } from "./views/HistoryView";
 import { ComparisonView } from "./views/ComparisonView";
 
@@ -19,6 +20,9 @@ const NAV_ITEMS: readonly NavItem[] = [
 
 export default function App() {
   const [activeView, setActiveView] = useState<StrategyView>("single-run");
+  // Held here rather than in the view so the result and risk views can read
+  // the latest run without a reload, and it survives switching tabs.
+  const [latestRun, setLatestRun] = useState<ScenarioRun | null>(null);
 
   return (
     <div className="shell">
@@ -99,7 +103,9 @@ export default function App() {
       </header>
 
       <main className="shell__content">
-        {activeView === "single-run" && <SingleRunView />}
+        {activeView === "single-run" && (
+          <SingleRunView latestRun={latestRun} onRunComplete={setLatestRun} />
+        )}
         {activeView === "history" && <HistoryView />}
         {activeView === "comparison" && <ComparisonView />}
       </main>
