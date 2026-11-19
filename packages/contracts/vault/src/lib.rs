@@ -4930,6 +4930,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn deposit_is_safe_against_a_reentrant_usdc_token() {
         for attack in ALL_ATTACKS {
             let r = rig(false, true, false);
