@@ -236,6 +236,8 @@ USDC on Stellar uses 7 decimal places. 1 USDC = `10_000_000` stroops. All contra
 
 Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is deliberate, so a pause can never trap user funds.
 
+`deposit`, `withdraw`, `begin_migration`, `migrate_adapter` and `on_transfer` run under a reentrancy lock ([#1264](https://github.com/drydocs/meridian/issues/1264)). Each of them makes external calls (to the adapter, to USDC or mUSDC), or is reached from one, and so could be called back into while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or the migration state is not final. While the lock is held, a second guarded call returns `ReentrancyDetected` and changes nothing. The lock is released on both success and failure. This is defense in depth: the Soroban host already refuses to re-enter a contract that is on the call stack, and the lock keeps the vault safe if that ever changes. `deposit` also writes `TOTAL_SH` and the caller's position records before its external calls; `withdraw` and `migrate_adapter` cannot, because what they write depends on what those calls return.
+
 ## Error codes
 
 `ContractError` (defined in `vault/src/lib.rs`) gives fallible entry points typed, stable error codes instead of panic strings:
@@ -264,6 +266,7 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `MigrationCooldownNotMet`        | 20   | `migrate_adapter` was called before `MIN_LEDGER_GAP` ledgers had elapsed since `begin_migration`.                                                                                                 |
 | `MigrationStabilityDrift`        | 21   | `migrate_adapter`'s target adapter's pre-deposit balance fell outside `max_slippage_bps` of the `begin_migration` snapshot, indicating the target was drained or manipulated during the cooldown. |
 | `MigrationSnapshotAssetsInvalid` | 22   | `begin_migration` was called against a target adapter reporting a negative `total_assets()`.                                                                                                      |
+| `ReentrancyDetected`             | 26   | `deposit`, `withdraw`, `begin_migration`, `migrate_adapter` or `on_transfer` was called while another guarded call was still running.                                                             |
 
 ## Contract storage
 
@@ -278,5 +281,6 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `TOTAL_SH`           | Instance     | Total mUSDC shares outstanding (`i128`)                                                                                                                                          |
 | `ADPT_SH`            | Instance     | Total adapter shares outstanding. Never reset by `set_adapter`, which requires it to already be `0`; set to the new adapter's reported share count on `migrate_adapter` (`i128`) |
 | `PAUSED`             | Instance     | Deposit pause flag (`bool`)                                                                                                                                                      |
+| `LOCKED`             | Instance     | Reentrancy lock (`bool`). Set only while a guarded entry point is executing and removed before it returns, so it is absent between calls                                         |
 | `Entry(address)`     | Persistent   | Per-address deposit entry timestamp (`u64`)                                                                                                                                      |
 | `Principal(address)` | Persistent   | Per-address net USDC deposited, not yet withdrawn (`i128`)                                                                                                                       |

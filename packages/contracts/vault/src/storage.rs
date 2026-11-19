@@ -12,6 +12,9 @@ pub const ADPT_SH: Symbol = symbol_short!("ADPT_SH");
 pub const PAUSED: Symbol = symbol_short!("PAUSED");
 pub const MIG_SNAP: Symbol = symbol_short!("MIG_SNAP");
 pub const MIG_ACTIVE: Symbol = symbol_short!("MIG_ACT");
+// Reentrancy lock. Present (true) only while a guarded entry point is
+// executing; removed again before that entry point returns.
+pub const LOCKED: Symbol = symbol_short!("LOCKED");
 // Sentinel stored in MIG_ACTIVE when a migration snapshot is live.
 // 0 = inactive, 1 = active. Uses i128 because Soroban instance
 // storage serialisation for bool may behave unexpectedly.
