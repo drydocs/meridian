@@ -182,6 +182,40 @@ Builds an unsigned Soroban withdraw transaction.
 
 **Response:** same shape as deposit: `{ xdr, fee }`.
 
+For both deposit and withdraw, an omitted `min_shares_out` or `min_usdc_out` is no longer treated as zero. The API prices the action with the same simulation as `POST /api/v1/tx/quote` and applies the quote's `recommendedMinimum` (the expected output less the default slippage), so the transaction is protected without the client choosing a floor.
+
+### `POST /api/v1/tx/quote`
+
+Prices a deposit or withdrawal without building a transaction.
+
+**Request**
+
+```json
+{
+  "action": "deposit",
+  "walletAddress": "G...",
+  "vaultId": "blend-usdc-variable",
+  "amount": "100.00"
+}
+```
+
+`action` is `deposit` or `withdraw`. A deposit requires `amount` and a withdrawal requires `shares`. Missing or malformed fields return `400`.
+
+**Response**
+
+```json
+{
+  "action": "deposit",
+  "expectedShares": "98.5",
+  "recommendedMinimum": "98.0075",
+  "slippageBps": 50,
+  "fee": "0",
+  "ledger": 123456
+}
+```
+
+A withdrawal returns `expectedAssets` in place of `expectedShares`, and `fee` is the performance fee in USDC. `recommendedMinimum` is the expected output reduced by `slippageBps`. A paused vault returns `400` for deposits. The quote is a simulation at the reported `ledger`, so it can differ from the executed result.
+
 ### `POST /api/v1/tx/add-trustline`
 
 Builds an unsigned transaction that adds a trustline for each classic Stellar asset the caller doesn't already hold: USDC always, and mUSDC too on any network where `MUSDC_ISSUER` is still set (only true before a [#578](https://github.com/drydocs/meridian/issues/578) cutover; mUSDC is now a custom SEP-41 token, not a classic asset, so it needs no trustline on a network deployed against the new contract). Must be submitted before a first deposit, on whichever assets it covers. Throws if every required trustline already exists.
