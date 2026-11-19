@@ -89,9 +89,12 @@ withdrawals, share transfers, migration setup and execution, pause and admin
 operations, and Blend and DeFindex adapter deposits and withdrawals. CI checks
 CPU instructions, memory bytes, and estimated fees against
 [`packages/contracts/benchmarks/baselines.json`](../packages/contracts/benchmarks/baselines.json)
-with a 15% tolerance. These estimates use mock protocol contracts and the
-Soroban SDK's fee schedule; they are deterministic regression indicators, not
-replacements for transaction simulation against deployed WASM.
+with a 15% tolerance. The share-transfer baseline measures the real mUSDC
+token's transfer and callback path. Adapter and vault paths use local protocol
+doubles. These estimates use the Soroban SDK's fee schedule and are regression
+indicators, not replacements for transaction simulation against deployed WASM.
+CI pins Rust to the compiler version recorded in the baseline and rejects
+compiler or SDK version drift.
 
 To refresh the baselines after reviewing a deliberate resource change, run
 from `packages/contracts`:
@@ -106,6 +109,6 @@ python3 ../../scripts/check-contract-benchmarks.py \
   --update
 ```
 
-The same results JSON is uploaded as the `soroban-resource-benchmarks` CI
-artifact. Commit the updated baseline JSON alongside the change that motivated
-it.
+The benchmark results JSON and raw test log are uploaded as the
+`soroban-resource-benchmarks` CI artifact. Commit the updated baseline JSON
+alongside the change that motivated it.

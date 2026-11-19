@@ -99,6 +99,12 @@ def main():
         encoding="utf-8",
     )
 
+    if not args.update and rustc != baseline["rustc_version"]:
+        raise ValueError(
+            f"Rust compiler version {rustc!r} differs from baseline "
+            f"{baseline['rustc_version']!r}; review and refresh the baseline"
+        )
+
     if args.update:
         baseline["rustc_version"] = rustc
         baseline["soroban_sdk_version"] = sdk_version

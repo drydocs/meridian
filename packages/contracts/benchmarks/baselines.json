@@ -1,6 +1,6 @@
 {
-  "baseline_policy": "Conservative starting limits; refresh from measured output with --update.",
-  "rustc_version": "stable",
+  "baseline_policy": "Measured native Soroban cost estimates; tolerance is applied separately.",
+  "rustc_version": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
   "soroban_sdk_version": "22.0.11",
   "tolerance_percent": 15,
   "benchmarks": {
@@ -16,6 +16,11 @@
     },
     "vault.transfer": {
       "cpu_instructions": 1000000,
+      "fee_stroops": 10000000,
+      "memory_bytes": 1000000
+    },
+    "musdc_token.transfer": {
+      "cpu_instructions": 2000000,
       "fee_stroops": 10000000,
       "memory_bytes": 1000000
     },

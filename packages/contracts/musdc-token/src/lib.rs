@@ -441,6 +441,20 @@ mod tests {
         vec, Env, IntoVal,
     };
 
+    fn report_benchmark(env: &Env, name: &str) {
+        let estimate = env.cost_estimate();
+        let resources = estimate.resources();
+        let memory_bytes = estimate.budget().memory_bytes_cost();
+        let fee_stroops = estimate.fee().total;
+        std::println!(
+            "SOROBAN_BENCHMARK|{}|{}|{}|{}",
+            name,
+            resources.instructions,
+            memory_bytes,
+            fee_stroops
+        );
+    }
+
     // Records the most recent on_transfer call it received, so tests can
     // assert exactly what the token told the vault, independent of the real
     // vault's own accounting logic (that side is covered in
@@ -527,6 +541,17 @@ mod tests {
         let token = MusdcTokenClient::new(&env, &token_id);
 
         (env, vault_id, token_id, token)
+    }
+
+    #[test]
+    fn benchmark_musdc_token_transfer() {
+        let (env, _vault, _token_id, token) = setup();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let amount = 100_0000000_i128;
+        token.mint(&from, &amount);
+        token.transfer(&from, &to, &(amount / 2));
+        report_benchmark(&env, "musdc_token.transfer");
     }
 
     #[test]
