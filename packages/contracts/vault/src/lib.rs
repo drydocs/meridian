@@ -3683,16 +3683,6 @@ mod tests {
     }
 
     #[test]
-    fn benchmark_vault_transfer() {
-        let (env, _admin, user, _usdc, musdc, _adapter, vault) = setup();
-        let amount = 100_0000000_i128;
-        vault.deposit(&user, &amount, &0_i128);
-        let recipient = Address::generate(&env);
-        MockMusdcClient::new(&env, &musdc).transfer(&user, &recipient, &(amount / 2));
-        report_benchmark(&env, "vault.transfer");
-    }
-
-    #[test]
     fn benchmark_vault_begin_migration() {
         let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
         let new_adapter = env.register(MockAdapter, ());

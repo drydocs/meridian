@@ -19,11 +19,6 @@
       "fee_stroops": 10000000,
       "memory_bytes": 1000000
     },
-    "musdc_token.transfer": {
-      "cpu_instructions": 2000000,
-      "fee_stroops": 10000000,
-      "memory_bytes": 1000000
-    },
     "vault.begin_migration": {
       "cpu_instructions": 1000000,
       "fee_stroops": 10000000,
