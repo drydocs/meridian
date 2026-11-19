@@ -393,6 +393,12 @@ deployed contract address, or the `CONTRACT_ADDRESSES` table appears in them.
 
 ## Related
 
+- [Example strategy and CLI](https://github.com/drydocs/meridian/tree/main/packages/strategies/examples):
+  a minimal simulation-only `Strategy<TConfig>` implementation
+  ([`target-weight-strategy.ts`](https://github.com/drydocs/meridian/blob/main/packages/strategies/examples/target-weight-strategy.ts)),
+  matching scenario
+  ([`target-weight.scenario.json`](https://github.com/drydocs/meridian/blob/main/packages/strategies/examples/target-weight.scenario.json)),
+  and runnable CLI (`pnpm --filter @meridian/strategies example`).
 - [Delta-neutral strategy](./delta-neutral.md): the hedged carry strategy and
   its modeled hedge venue.
 - [Self-repaying loan strategy](./self-repaying-loan.md): the loan model and
