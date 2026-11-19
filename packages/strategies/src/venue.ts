@@ -79,6 +79,7 @@ interface InternalVenueEntry {
   readonly venueId: VenueId;
   readonly asset: AssetSymbol;
   readonly memberId?: string;
+  readonly generation: bigint;
   principal: bigint;
   basis: bigint;
   accruedYield: bigint;
@@ -92,21 +93,33 @@ interface InternalDebtEntry {
 }
 
 const MS_PER_SEC = 1_000n;
+const ZERO = FixedPointDecimal.fromStroops(0n);
 const notional = (s: bigint, p: bigint): bigint => (s * p) / STROOPS_PER_UNIT;
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const keyOf = (v: VenueId, a: AssetSymbol, m?: string) =>
-  `${m ?? ""}\0${v}\0${a}`;
+  JSON.stringify([m ?? null, v, a]);
+const remainderKeyOf = (e: InternalVenueEntry, period: bigint) =>
+  `venue:${period}:${JSON.stringify([
+    e.memberId ?? "",
+    e.venueId,
+    e.asset,
+    e.generation.toString(),
+  ])}`;
 const fail = (msg: string): never => {
   throw new InvalidVenueOperationError(msg);
 };
 const checkId = (v: string, label: string): void => {
   if (v.trim().length === 0) fail(`${label} must be a non-empty string`);
 };
+const checkMemberId = (memberId: string | undefined): void => {
+  if (memberId !== undefined) checkId(memberId, "memberId");
+};
 
 /** Simulation-only ledger for venue principal, accrued yield, and linked debts. */
 export class VenueLedger implements VenuePortfolioView {
   readonly #entries = new Map<string, InternalVenueEntry>();
   readonly #debts = new Map<string, InternalDebtEntry>();
+  #nextGeneration = 0n;
 
   getVenuePosition(
     v: VenueId,
@@ -169,6 +182,7 @@ export class VenueLedger implements VenuePortfolioView {
 
   deploy(o: VenueDeployOrder, price: FixedPointDecimal): { cashCost: bigint } {
     checkId(o.venueId, "venueId");
+    checkMemberId(o.memberId);
     const amount = o.amount.toStroops();
     const p = price.toStroops();
     if (amount <= 0n || p < 0n) fail("invalid deploy amount or price");
@@ -183,6 +197,7 @@ export class VenueLedger implements VenuePortfolioView {
         venueId: o.venueId,
         asset: o.asset,
         ...(o.memberId === undefined ? {} : { memberId: o.memberId }),
+        generation: this.#nextGeneration++,
         principal: amount,
         basis: cost,
         accruedYield: 0n,
@@ -198,6 +213,7 @@ export class VenueLedger implements VenuePortfolioView {
     m?: string
   ): void {
     checkId(v, "venueId");
+    checkMemberId(m);
     const delta = amount.toStroops();
     if (delta < 0n) fail("accrued yield cannot be negative");
     this.#requireEntry(v, a, m).accruedYield += delta;
@@ -208,16 +224,44 @@ export class VenueLedger implements VenuePortfolioView {
     rates: Readonly<Record<VenueId, VenueYieldRate>> | undefined,
     remainders: Readonly<Record<string, bigint>>
   ): Readonly<Record<string, bigint>> {
-    if (!rates) return remainders;
+    if (!Number.isSafeInteger(elapsedMs) || elapsedMs < 0) {
+      fail("elapsed milliseconds must be a non-negative safe integer");
+    }
+    const configuredRates = rates ?? {};
+    for (const [venueId, cfg] of Object.entries(configuredRates)) {
+      checkId(venueId, "venueId");
+      if (
+        cfg === null ||
+        typeof cfg !== "object" ||
+        (cfg.annualRate !== undefined && cfg.ratePerSecond !== undefined)
+      ) {
+        fail(`invalid yield-rate configuration for venue "${venueId}"`);
+      }
+      if (
+        (cfg.annualRate !== undefined && cfg.annualRate.compareTo(ZERO) < 0) ||
+        (cfg.ratePerSecond !== undefined &&
+          cfg.ratePerSecond.compareTo(ZERO) < 0)
+      ) {
+        fail(`yield rate for venue "${venueId}" cannot be negative`);
+      }
+    }
     const elapsed = BigInt(elapsedMs);
-    const next: Record<string, bigint> = { ...remainders };
+    const next: Record<string, bigint> = {};
+    for (const [key, remainder] of Object.entries(remainders)) {
+      if (!key.startsWith("venue:")) next[key] = remainder;
+    }
     for (const e of this.#entries.values()) {
-      const cfg = rates[e.venueId];
+      const cfg = Object.prototype.hasOwnProperty.call(
+        configuredRates,
+        e.venueId
+      )
+        ? configuredRates[e.venueId]
+        : undefined;
       const r = cfg?.annualRate ?? cfg?.ratePerSecond;
       if (!r) continue;
       const period =
         cfg?.annualRate !== undefined ? YEAR_MILLISECONDS : MS_PER_SEC;
-      const key = `venue:${e.memberId ?? ""}:${e.venueId}:${e.asset}`;
+      const key = remainderKeyOf(e, period);
       const num = e.principal * r.toStroops() * elapsed + (next[key] ?? 0n);
       const den = STROOPS_PER_UNIT * period;
       e.accruedYield += num / den;
@@ -231,6 +275,7 @@ export class VenueLedger implements VenuePortfolioView {
     price: FixedPointDecimal
   ): { cashProceeds: bigint; realizedGain: bigint } {
     checkId(o.venueId, "venueId");
+    checkMemberId(o.memberId);
     const p = price.toStroops();
     if (p < 0n) fail("harvest price must be >= 0");
     const cur = this.#requireEntry(o.venueId, o.asset, o.memberId);
@@ -264,6 +309,7 @@ export class VenueLedger implements VenuePortfolioView {
     price: FixedPointDecimal
   ): { cashProceeds: bigint; realizedGain: bigint } {
     checkId(o.venueId, "venueId");
+    checkMemberId(o.memberId);
     const p = price.toStroops();
     if (p < 0n) fail("withdraw price must be >= 0");
     const cur = this.#requireEntry(o.venueId, o.asset, o.memberId);

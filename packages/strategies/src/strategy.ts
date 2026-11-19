@@ -20,8 +20,8 @@ export interface PositionView {
 /**
  * Read-only view of portfolio state handed to strategies. It intentionally
  * has no mutating methods: strategies express intent through returned
- * orders and the runner applies fills. The runner's `Portfolio` satisfies
- * this structurally.
+ * orders and the runner applies fills or venue operations. The runner's
+ * `Portfolio` satisfies this structurally.
  */
 export interface PortfolioView {
   readonly cash: FixedPointDecimal;
@@ -78,7 +78,8 @@ export interface StrategyContext {
  *
  * `step` observes (update internal state, accrue bookkeeping) and returns
  * nothing. `rebalance` and `close` return intended orders. Strategies never
- * mutate portfolio state directly; the runner applies the orders as fills.
+ * mutate portfolio state directly; the runner applies spot orders as fills
+ * and venue orders as ledger operations.
  */
 export interface Strategy<
   TConfig = unknown,

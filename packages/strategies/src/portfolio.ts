@@ -76,7 +76,7 @@ interface InternalPosition {
  * Multiplications truncate toward zero; the same rule is used everywhere so
  * the accounting identity is exact, not approximate:
  *
- *   cash + positionValue(prices)
+ *   cash + positionValue(prices) + venueValue(prices)
  *     == initialCash + realized + unrealized(prices) - fees
  *
  * Flipping a position through zero in one fill is rejected; close it and
@@ -91,12 +91,9 @@ export class Portfolio implements VenuePortfolioView {
   #fees = 0n;
   readonly #positions = new Map<string, Map<AssetSymbol, InternalPosition>>();
 
-  constructor(
-    initialCash: FixedPointDecimal,
-    venueLedger: VenueLedger = new VenueLedger()
-  ) {
+  constructor(initialCash: FixedPointDecimal) {
     this.initialCash = initialCash;
-    this.venueLedger = venueLedger;
+    this.venueLedger = new VenueLedger();
     this.#cash = initialCash.toStroops();
   }
 

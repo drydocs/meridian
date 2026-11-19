@@ -100,6 +100,7 @@ export interface BacktestObserver {
   readonly onSnapshot?: (snapshot: BacktestSnapshot, prices: PriceSet) => void;
   readonly onFinal?: (state: {
     readonly positions: readonly Position[];
+    readonly venues?: readonly VenuePosition[];
     readonly prices: PriceSet;
   }) => void;
 }
@@ -110,7 +111,7 @@ export interface BacktestSnapshot {
   readonly timestamp: SimulationTimestamp;
   readonly cash: FixedPointDecimal;
   readonly positions: readonly Position[];
-  readonly venues: readonly VenuePosition[];
+  readonly venues?: readonly VenuePosition[];
   readonly value: FixedPointDecimal;
 }
 
@@ -118,7 +119,7 @@ export interface BacktestResult {
   readonly strategyName: string;
   readonly initialCash: FixedPointDecimal;
   readonly snapshots: readonly BacktestSnapshot[];
-  /** Value after the closing orders have been filled, so positions are shut. */
+  /** Portfolio value after the closing orders have been filled. */
   readonly finalValue: FixedPointDecimal;
   /**
    * The strategy's own book equity at close — the sum of every position it
@@ -149,14 +150,16 @@ export interface BacktestResult {
  *                 marked at this tick's prices;
  *   2. strategy - `step`, then `rebalance`, driven through `StrategyLifecycle`
  *                 so the lifecycle order is enforced rather than assumed;
- *   3. fills    - each returned order is priced by `applyOrderFill` (slippage
- *                 first, then costs) and applied in the order it was returned;
- *   4. snapshot - cash, positions and marked value are recorded.
+ *   3. execution - spot orders are priced by `applyOrderFill` (slippage first,
+ *                  then costs); venue orders update the venue ledger. Both are
+ *                  applied in the order returned;
+ *   4. snapshot  - cash, spot positions, venue positions and marked value are
+ *                  recorded.
  *
  * The first tick has no preceding interval and so accrues nothing.
  *
- * After the final tick, `close` is called once and its orders are filled the
- * same way, which is what leaves `finalValue` in cash.
+ * After the final tick, `close` is called once and its orders are executed the
+ * same way. Any positions or venue balances left open remain in `finalValue`.
  */
 export function runBacktest<
   TConfig = unknown,
@@ -277,6 +280,7 @@ export function runBacktest<
   const portfolioValue = portfolio.totalValue(closing.market.prices);
   config.observer?.onFinal?.({
     positions: portfolio.positions(),
+    venues: portfolio.venues(),
     prices: closing.market.prices,
   });
   const selfEquity = reportedEquity(config.strategy);
@@ -308,16 +312,19 @@ export function serializeSnapshots(
         size: position.size.toString(),
         basis: position.basis.toString(),
       })),
-      ...(snapshot.venues.length === 0
-        ? {}
-        : {
+      ...(snapshot.venues && snapshot.venues.length > 0
+        ? {
             venues: snapshot.venues.map((venue) => ({
               venueId: venue.venueId,
               asset: venue.asset,
+              ...(venue.memberId === undefined
+                ? {}
+                : { memberId: venue.memberId }),
               deployedPrincipal: venue.deployedPrincipal.toString(),
               accruedYield: venue.accruedYield.toString(),
             })),
-          }),
+          }
+        : {}),
       value: snapshot.value.toString(),
     }))
   );

@@ -7,7 +7,6 @@ import {
   InvalidVenueOperationError,
   Portfolio,
   UnknownAssetError,
-  VenueLedger,
   isVenueOrder,
   runBacktest,
   serializeSnapshots,
@@ -306,12 +305,24 @@ describe("VenueLedger and Portfolio venue accounting (#1250)", () => {
   });
 
   it("validates invalid venue and debt operations cleanly", () => {
-    const ledger = new VenueLedger();
-    const portfolio = new Portfolio(D("100"), ledger);
+    const portfolio = new Portfolio(D("100"));
+    const ledger = portfolio.venueLedger;
 
     expect(() =>
       portfolio.applyVenueOrder(
         { kind: "deploy", venueId: "  ", asset: USDC, amount: D("10") },
+        prices()
+      )
+    ).toThrow(InvalidVenueOperationError);
+    expect(() =>
+      portfolio.applyVenueOrder(
+        {
+          kind: "deploy",
+          venueId: "venue",
+          asset: USDC,
+          amount: D("10"),
+          memberId: " ",
+        },
         prices()
       )
     ).toThrow(InvalidVenueOperationError);
@@ -433,6 +444,64 @@ describe("VenueLedger and Portfolio venue accounting (#1250)", () => {
     );
     expect(() => portfolio.totalValue(new Map())).toThrow(UnknownAssetError);
     expect(() => portfolio.unrealized(new Map())).toThrow(UnknownAssetError);
+  });
+
+  it("rejects negative venue rates before mutating any accrued yield", () => {
+    const portfolio = new Portfolio(D("1000"));
+    portfolio.applyVenueOrder(
+      { kind: "deploy", venueId: "first", asset: USDC, amount: D("100") },
+      prices()
+    );
+    portfolio.applyVenueOrder(
+      { kind: "deploy", venueId: "second", asset: USDC, amount: D("100") },
+      prices()
+    );
+
+    expect(() =>
+      portfolio.venueLedger.accrueTick(
+        1_000,
+        {
+          first: { ratePerSecond: D("0.01") },
+          second: { ratePerSecond: D("-0.01") },
+        },
+        {}
+      )
+    ).toThrow(InvalidVenueOperationError);
+    expect(
+      portfolio.getVenuePosition("first", USDC)?.accruedYield.toString()
+    ).toBe("0");
+    expect(
+      portfolio.getVenuePosition("second", USDC)?.accruedYield.toString()
+    ).toBe("0");
+  });
+
+  it("discards fractional accrual remainders when a venue position closes", () => {
+    const portfolio = new Portfolio(D("10"));
+    portfolio.applyVenueOrder(
+      { kind: "deploy", venueId: "fractional", asset: USDC, amount: D("1") },
+      prices()
+    );
+    const rates = { fractional: { ratePerSecond: D("0.0000001") } };
+    const remainders = portfolio.venueLedger.accrueTick(1, rates, {});
+    expect(
+      Object.keys(remainders).some((key) => key.startsWith("venue:"))
+    ).toBe(true);
+
+    portfolio.applyVenueOrder(
+      { kind: "withdraw", venueId: "fractional", asset: USDC },
+      prices()
+    );
+    portfolio.applyVenueOrder(
+      { kind: "deploy", venueId: "fractional", asset: USDC, amount: D("1") },
+      prices()
+    );
+    const afterClose = portfolio.venueLedger.accrueTick(999, rates, remainders);
+    expect(
+      Object.keys(afterClose).some((key) => key.startsWith("venue:"))
+    ).toBe(true);
+    expect(
+      portfolio.getVenuePosition("fractional", USDC)?.accruedYield.toString()
+    ).toBe("0");
   });
 });
 
