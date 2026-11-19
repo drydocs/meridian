@@ -92,6 +92,11 @@ const deploymentSchema = z
       expected: string | null;
     }> = [
       {
+        path: ["vault", "constructorArgs", "admin"],
+        actual: deployment.vault.constructorArgs.admin,
+        expected: deployment.expectedState.admin,
+      },
+      {
         path: ["vault", "constructorArgs", "usdc"],
         actual: deployment.vault.constructorArgs.usdc,
         expected: deployment.expectedState.usdc,
@@ -105,6 +110,11 @@ const deploymentSchema = z
         path: ["vault", "constructorArgs", "treasury"],
         actual: deployment.vault.constructorArgs.treasury,
         expected: deployment.expectedState.treasury,
+      },
+      {
+        path: ["vault", "constructorArgs", "adapter"],
+        actual: deployment.vault.constructorArgs.adapter,
+        expected: deployment.expectedState.activeAdapter,
       },
       {
         path: ["blendAdapter", "constructorArgs", "vault"],

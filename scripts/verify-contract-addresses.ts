@@ -125,16 +125,21 @@ function readVaultAddressesAt(
 }
 
 function checkInternalConsistency(): string | null {
-  const constantsVault = CONTRACT_ADDRESSES.testnet.vault;
-  const knownPoolVault = KNOWN_POOLS.testnet["meridian-usdc"]?.contractId;
-  if (knownPoolVault && knownPoolVault !== constantsVault) {
-    return (
-      "CONTRACT_ADDRESSES.testnet.vault and " +
-      "KNOWN_POOLS.testnet[meridian-usdc].contractId disagree: " +
-      constantsVault +
-      " vs " +
-      knownPoolVault
-    );
+  for (const network of DEPLOYMENT_NETWORKS) {
+    const constantsVault = CONTRACT_ADDRESSES[network].vault;
+    const knownPoolVault = KNOWN_POOLS[network]["meridian-usdc"]?.contractId;
+    if (knownPoolVault && knownPoolVault !== constantsVault) {
+      return (
+        "CONTRACT_ADDRESSES." +
+        network +
+        ".vault and KNOWN_POOLS." +
+        network +
+        "[meridian-usdc].contractId disagree: " +
+        constantsVault +
+        " vs " +
+        knownPoolVault
+      );
+    }
   }
   return null;
 }

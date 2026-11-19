@@ -115,6 +115,21 @@ describe("deploymentManifestSchema", () => {
       "Deployment relationship does not match the recorded stack"
     );
   });
+
+  it.each([
+    ["admin", address("G", "B")],
+    ["adapter", address("C", "G")],
+  ] as const)(
+    "rejects a vault constructor %s that differs from expected live state",
+    (field, value) => {
+      const inconsistent = structuredClone(manifest);
+      inconsistent.contracts.testnet.vault.constructorArgs[field] = value;
+
+      expect(() => deploymentManifestSchema.parse(inconsistent)).toThrow(
+        "Deployment relationship does not match the recorded stack"
+      );
+    }
+  );
 });
 
 describe("deploymentStateMismatches", () => {

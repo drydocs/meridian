@@ -71,17 +71,20 @@ deploy() {
   shift 3
   stderr_file=$(mktemp)
   if [ -n "$salt" ]; then
-    if ! output=$(stellar contract deploy "${STELLAR_NETWORK_FLAGS[@]}" --source "$source" --wasm-hash "$hash" --salt "$salt" "$@" 2> >(tee "$stderr_file" >&2)); then
+    if ! output=$(stellar contract deploy "${STELLAR_NETWORK_FLAGS[@]}" --source "$source" --wasm-hash "$hash" --salt "$salt" "$@" 2>"$stderr_file"); then
+      cat "$stderr_file" >&2
       rm -f "$stderr_file"
       return 1
     fi
   else
-    if ! output=$(stellar contract deploy "${STELLAR_NETWORK_FLAGS[@]}" --source "$source" --wasm-hash "$hash" "$@" 2> >(tee "$stderr_file" >&2)); then
+    if ! output=$(stellar contract deploy "${STELLAR_NETWORK_FLAGS[@]}" --source "$source" --wasm-hash "$hash" "$@" 2>"$stderr_file"); then
+      cat "$stderr_file" >&2
       rm -f "$stderr_file"
       return 1
     fi
   fi
 
+  cat "$stderr_file" >&2
   contract_id=$(printf '%s\n' "$output" | sed -nE '/^C[A-Z2-7]{55}$/p' | tail -n 1)
   transaction_hash=$(
     {
@@ -105,6 +108,26 @@ deploy_vault_stack() {
     echo "ERROR: DEPLOYMENT_NETWORK must be testnet or mainnet." >&2
     return 1
   fi
+
+  local expected_stellar_cli_version
+  expected_stellar_cli_version=$(node -e '
+    const fs = require("node:fs");
+    const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    process.stdout.write(manifest.toolchain.stellarCli);
+  ' "$repo_root/packages/shared/deployed-contracts.json")
+  local stellar_version_output
+  if ! stellar_version_output=$(stellar --version 2>&1); then
+    echo "ERROR: unable to read the installed Stellar CLI version." >&2
+    printf '%s\n' "$stellar_version_output" >&2
+    return 1
+  fi
+  local actual_stellar_cli_version
+  actual_stellar_cli_version=$(printf '%s\n' "$stellar_version_output" | sed -nE 's/^[^0-9]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+  if [ "$actual_stellar_cli_version" != "$expected_stellar_cli_version" ]; then
+    echo "ERROR: deployment manifest requires Stellar CLI $expected_stellar_cli_version, but found: $stellar_version_output" >&2
+    return 1
+  fi
+
   if [ -n "$(git -C "$repo_root" status --porcelain --untracked-files=all -- packages/contracts)" ]; then
     echo "ERROR: packages/contracts has uncommitted changes; commit them before deployment." >&2
     return 1
