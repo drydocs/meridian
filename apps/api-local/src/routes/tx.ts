@@ -4,6 +4,7 @@ import {
   handleWithdrawRequest,
   handleAddTrustlineRequest,
   handleSubmitRequest,
+  handleQuoteRequest,
 } from "@meridian/api-core";
 
 export const txRoute: FastifyPluginAsync = async (app) => {
@@ -36,6 +37,12 @@ export const txRoute: FastifyPluginAsync = async (app) => {
     if (result.error) {
       app.log.error({ err: result.error }, "[tx/submit] failed");
     }
+    reply.code(result.status).send(result.body);
+  });
+
+  app.post("/quote", async (req, reply) => {
+    const result = await handleQuoteRequest(req.body);
+    if (result.error) app.log.error({ err: result.error }, "[tx/quote] quote failed");
     reply.code(result.status).send(result.body);
   });
 };

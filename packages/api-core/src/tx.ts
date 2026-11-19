@@ -4,6 +4,8 @@ import {
   WithdrawRequestSchema,
   TrustlineRequestSchema,
   SubmitRequestSchema,
+  QuoteRequestSchema,
+  DEFAULT_SLIPPAGE_BPS,
   formatZodError,
   sanitizeTxError,
 } from "@meridian/shared";
@@ -15,6 +17,7 @@ import {
   ContractSimulationError,
   assertRequiredTrustlines,
   MissingTrustlineError,
+  quoteVaultAction,
 } from "@meridian/stellar-sdk-helpers";
 import { trackPositionHistoryUser } from "./position-tracking";
 import type { RouteResult } from "./types";
@@ -82,12 +85,24 @@ export async function handleDepositRequest(
   try {
     const { walletAddress, vaultId, amount, min_shares_out } = parsed.data;
     await assertRequiredTrustlines(walletAddress, APP_NETWORK);
+    let protectedMinimum = min_shares_out;
+    if (!protectedMinimum) {
+      const quote = await quoteVaultAction({
+        action: "deposit",
+        walletAddress,
+        vaultId,
+        amount,
+        network: APP_NETWORK,
+        slippageBps: DEFAULT_SLIPPAGE_BPS,
+      });
+      protectedMinimum = quote.recommendedMinimum;
+    }
     const result = await buildDepositTx(
       vaultId,
       walletAddress,
       amount,
       APP_NETWORK,
-      min_shares_out
+      protectedMinimum
     );
     await trackPositionHistoryUser(walletAddress);
     return { status: 200, body: result };
@@ -110,12 +125,24 @@ export async function handleWithdrawRequest(
   try {
     const { walletAddress, vaultId, shares, min_usdc_out } = parsed.data;
     await assertRequiredTrustlines(walletAddress, APP_NETWORK);
+    let protectedMinimum = min_usdc_out;
+    if (!protectedMinimum) {
+      const quote = await quoteVaultAction({
+        action: "withdraw",
+        walletAddress,
+        vaultId,
+        shares,
+        network: APP_NETWORK,
+        slippageBps: DEFAULT_SLIPPAGE_BPS,
+      });
+      protectedMinimum = quote.recommendedMinimum;
+    }
     const result = await buildWithdrawTx(
       vaultId,
       walletAddress,
       shares,
       APP_NETWORK,
-      min_usdc_out
+      protectedMinimum
     );
     await trackPositionHistoryUser(walletAddress);
     return { status: 200, body: result };
@@ -157,5 +184,31 @@ export async function handleSubmitRequest(body: unknown): Promise<RouteResult> {
     return { status: 200, body: result };
   } catch (err) {
     return txErrorResult(err, "Failed to submit transaction");
+  }
+}
+
+export async function handleQuoteRequest(body: unknown): Promise<RouteResult> {
+  const parsed = QuoteRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return { status: 400, body: { error: formatZodError(parsed.error) } };
+  }
+
+  try {
+    const { action, walletAddress, vaultId, amount, shares } = parsed.data;
+    const quote = await quoteVaultAction({
+      action,
+      walletAddress,
+      vaultId,
+      amount,
+      shares,
+      network: APP_NETWORK,
+      slippageBps: DEFAULT_SLIPPAGE_BPS,
+    });
+    return { status: 200, body: quote };
+  } catch (err) {
+    if (err instanceof Error && err.message === "Deposits are currently paused") {
+      return { status: 400, body: { error: err.message }, error: err };
+    }
+    return txErrorResult(err, "Failed to simulate transaction quote");
   }
 }
