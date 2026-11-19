@@ -335,51 +335,43 @@ function fundingPositions(
 }
 
 /** The configured cash rate, or nothing when the run earns none. */
-function cashInterest(
-  accrual: AccrualConfig | undefined
-): CashInterestAccrual | undefined {
-  if (accrual === undefined) return undefined;
-  if (accrual.cashRateAnnual !== undefined) {
+function cashInterest(accrual: AccrualConfig | undefined): CashInterestAccrual | undefined {
+  if (accrual?.cashRatePerSecond !== undefined) {
+    return { ratePerSecond: accrual.cashRatePerSecond };
+  }
+  if (accrual?.cashRateAnnual !== undefined) {
     return { annualRate: accrual.cashRateAnnual };
   }
-  const rate = accrual.cashRatePerSecond;
-  if (rate === undefined) return undefined;
-  return { ratePerSecond: rate };
+  return undefined;
 }
 
-/** Prices one order through the fill model and applies it to the portfolio. */
+function abs(value: bigint): bigint {
+  return value < 0n ? -value : value;
+}
+
 function fill(
   portfolio: Portfolio,
   order: Order,
   prices: PriceSet,
   execution: ExecutionConfig,
-  observer?: BacktestObserver
+  observer: BacktestObserver | undefined
 ): void {
-  const midPrice = prices.get(order.asset);
-  if (midPrice === undefined) {
+  const price = prices.get(order.asset);
+  if (price === undefined) {
     throw new RangeError(`runBacktest: no price for "${order.asset}"`);
   }
-
-  const signed = order.size.toStroops();
-  const adjusted = applyOrderFill({
-    side: signed < 0n ? "sell" : "buy",
-    quantity: FixedPointDecimal.fromStroops(abs(signed)),
-    midPrice,
+  const priced = applyOrderFill({
+    order,
+    referencePrice: price,
     slippageModel: execution.slippageModel ?? ZERO_SLIPPAGE_MODEL,
     costSchedule: execution.costSchedule ?? ZERO_COSTS,
   });
-
-  const appliedFill = {
+  portfolio.applyFill(priced);
+  observer?.onFill?.({
     asset: order.asset,
     ...(order.memberId === undefined ? {} : { memberId: order.memberId }),
     size: order.size,
-    price: adjusted.effectivePrice,
-    fee: adjusted.totalCost,
-  };
-  portfolio.applyFill(appliedFill);
-  observer?.onFill?.(appliedFill);
-}
-
-function abs(value: bigint): bigint {
-  return value < 0n ? -value : value;
+    price: priced.price,
+    fee: priced.fee,
+  });
 }
