@@ -14,10 +14,7 @@ fn report_benchmark(env: &soroban_sdk::Env, name: &str) {
     let fee_stroops = estimate.fee().total;
     println!(
         "SOROBAN_BENCHMARK|{}|{}|{}|{}",
-        name,
-        resources.instructions,
-        memory_bytes,
-        fee_stroops
+        name, resources.instructions, memory_bytes, fee_stroops
     );
 }
 
