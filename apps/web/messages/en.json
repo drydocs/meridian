@@ -230,5 +230,21 @@
       "title": "Security Audit",
       "notYetAvailable": "No independent security audit has been completed yet. A report will be linked here once one exists."
     }
+  },
+
+  "activity": {
+    "title": "Local Activity",
+    "receipt": "Transaction receipt",
+    "dismiss": "Dismiss receipt",
+    "viewTx": "View tx",
+    "actions": {
+      "deposit": "Deposited",
+      "withdraw": "Withdrew"
+    },
+    "status": {
+      "pending": "Pending",
+      "confirmed": "Confirmed",
+      "failed": "Failed"
+    }
   }
 }

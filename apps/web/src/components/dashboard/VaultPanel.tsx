@@ -15,6 +15,8 @@ import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
 import { formatApy, formatCompactUsd, parseMoneyInput } from "../../lib/format";
+import { ActivityHistory } from "./ActivityHistory";
+import type { LocalActivity } from "../../store/activity";
 
 const YieldHistoryChart = lazy(() =>
   import("./YieldHistoryChart").then((m) => ({
@@ -153,6 +155,20 @@ export function VaultPanel() {
   function handleTabChange(next: Tab) {
     setTab(next);
     setAmount("");
+  }
+
+  async function retryActivity(activity: LocalActivity) {
+    if (activity.action === "deposit") {
+      await deposit(
+        activity.amount,
+        activity.vaultId,
+        activity.asset,
+        undefined,
+        hasAcceptedRiskDisclosure()
+      );
+    } else if (position && activity.vaultId === bestVault?.id) {
+      await withdraw(activity.amount, activity.vaultId, activity.asset);
+    }
   }
 
   return (
@@ -443,6 +459,13 @@ export function VaultPanel() {
           />
         )}
       </div>
+
+      {/* Local activity history */}
+      {connected && (
+        <div className="border-t border-gray-800/50">
+          <ActivityHistory onRetry={retryActivity} />
+        </div>
+      )}
     </div>
   );
 }

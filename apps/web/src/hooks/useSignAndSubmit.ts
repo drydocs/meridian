@@ -22,7 +22,7 @@ export function useSignAndSubmit() {
   // run can't cancel its replacement.
   const controllerRef = useRef<AbortController | null>(null);
 
-  async function signAndSubmit(xdr: string) {
+  async function signAndSubmit(xdr: string): Promise<string> {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -53,6 +53,7 @@ export function useSignAndSubmit() {
       if (result.status === "PENDING" || result.status === "OUTCOME_UNKNOWN") {
         throw new TransactionNotConfirmedError(result.status, result.hash);
       }
+      return result.hash;
     } finally {
       if (controllerRef.current === controller) controllerRef.current = null;
     }
