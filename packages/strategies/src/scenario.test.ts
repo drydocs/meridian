@@ -96,9 +96,7 @@ describe("ScenarioSchema", () => {
       costs: { swapFeeRate: "0.003", networkFee: "0.0000100" },
     });
 
-    expect(scenarioCostSchedule(scenario).swapFeeRate.toString()).toBe(
-      "0.003"
-    );
+    expect(scenarioCostSchedule(scenario).swapFeeRate.toString()).toBe("0.003");
     expect(scenarioCostSchedule(scenario).networkFee.toString()).toBe(
       "0.00001"
     );
