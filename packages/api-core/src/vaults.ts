@@ -8,7 +8,7 @@ import type { RouteResult } from "./types";
 
 export async function handleGetVaults(): Promise<RouteResult> {
   try {
-    const { vaults, cached } = await fetchVaultsWithCache(APP_NETWORK.network);
+    const { vaults, cached, stale, cacheAgeSeconds } = await fetchVaultsWithCache(APP_NETWORK.network);
     const best = selectBestVault(vaults, {
       defindexConfigured: isDefindexConfigured(),
     });
@@ -19,6 +19,8 @@ export async function handleGetVaults(): Promise<RouteResult> {
         recommendedVaultId: best?.id ?? null,
         updatedAt: new Date().toISOString(),
         cached,
+        ...(stale && { stale: true }),
+        ...(stale && cacheAgeSeconds !== undefined && { cacheAgeSeconds }),
       },
     };
   } catch (err) {
