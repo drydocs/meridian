@@ -1,16 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { useVaultState } from "../../hooks/useVaultState";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
-
-function formatAmount(value: number): string {
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+import { formatNumber } from "../../lib/format";
 
 export function VaultStatePanel() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data, isLoading, isError, refetch } = useVaultState();
 
   return (
@@ -77,7 +71,10 @@ export function VaultStatePanel() {
                 {t("admin.vaultState.totalShares")}
               </p>
               <p className="text-sm font-semibold text-paper tabular-nums">
-                {formatAmount(data.totalShares)}
+                {formatNumber(data.totalShares, i18n.language, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </p>
             </div>
             <div>
@@ -85,7 +82,10 @@ export function VaultStatePanel() {
                 {t("admin.vaultState.totalAssets")}
               </p>
               <p className="text-sm font-semibold text-paper tabular-nums">
-                {formatAmount(data.totalAssets)}
+                {formatNumber(data.totalAssets, i18n.language, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </p>
             </div>
           </div>

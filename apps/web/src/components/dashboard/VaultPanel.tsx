@@ -14,19 +14,14 @@ import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
-
-function formatTvl(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-  return `$${value.toFixed(0)}`;
-}
+import { formatApy, formatCompactUsd, parseMoneyInput } from "../../lib/format";
 
 type Tab = "deposit" | "withdraw";
 
 export function VaultPanel() {
   const { data, isLoading: vaultsLoading } = useVaults();
   const vaults = data?.vaults;
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { connected, publicKey } = useWalletStore();
   const { balance: availableBalance, refetch: refetchBalance } =
     useUsdcBalance();
@@ -55,6 +50,7 @@ export function VaultPanel() {
   const depositRiskDisclosure = useRiskDisclosure();
 
   function onAmountKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     const allowed = [
       "Backspace",
       "Delete",
@@ -64,6 +60,8 @@ export function VaultPanel() {
       "Home",
       "End",
       ".",
+      ",",
+      " ",
     ];
     if (allowed.includes(e.key) || (e.key >= "0" && e.key <= "9")) return;
     e.preventDefault();
@@ -114,8 +112,20 @@ export function VaultPanel() {
   async function handleWithdraw() {
     if (!amount || !bestVault || !position) return;
     if (position.vaultId !== bestVault.id) return;
-    if (parseFloat(amount) > position.shares) return;
-    const ok = await withdraw(amount, bestVault.id, bestVault.asset, undefined);
+    const canonicalAmount = parseMoneyInput(amount, i18n.language);
+    if (
+      canonicalAmount === null ||
+      canonicalAmount === "" ||
+      Number(canonicalAmount) > position.shares
+    ) {
+      return;
+    }
+    const ok = await withdraw(
+      canonicalAmount,
+      bestVault.id,
+      bestVault.asset,
+      undefined
+    );
     if (ok) setAmount("");
   }
 
@@ -181,7 +191,7 @@ export function VaultPanel() {
               </p>
               <div className="flex items-baseline gap-0.5">
                 <span className="text-5xl font-black text-emerald-400 tabular-nums tracking-tight">
-                  {bestVault.apy.toFixed(2)}
+                  {formatApy(bestVault.apy, i18n.language)}
                 </span>
                 <span className="text-xl font-bold text-emerald-600">%</span>
               </div>
@@ -191,7 +201,7 @@ export function VaultPanel() {
                 {t("vaultPanel.tvl")}
               </p>
               <p className="text-lg font-bold text-paper">
-                {formatTvl(bestVault.tvl)}
+                {formatCompactUsd(bestVault.tvl, i18n.language)}
               </p>
             </div>
             <div className="pb-1 sm:text-right">

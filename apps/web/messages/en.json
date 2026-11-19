@@ -42,7 +42,8 @@
       "required": "Enter an amount to deposit.",
       "invalid": "Enter a valid number.",
       "nonPositive": "Amount must be greater than zero.",
-      "exceedsBalance": "Amount exceeds your available balance."
+      "exceedsBalance": "Amount exceeds your available balance.",
+      "exceedsPosition": "Amount exceeds your available position."
     }
   },
 
