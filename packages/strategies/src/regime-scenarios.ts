@@ -83,6 +83,12 @@ const REGIME_PARAMETERS: Record<MarketRegime, RegimeParameters> = {
 };
 
 export const DEFAULT_REGIME_ASSET: AssetSymbol = "USDC";
+
+/**
+ * Regimes the opportunity scanner (#scanner) can enumerate. Kept as a readonly
+ * list so the scanner matrix is deterministic and independent of object key order.
+ */
+export const SCANNER_REGIMES: readonly MarketRegime[] = MARKET_REGIMES;
 export const DEFAULT_REGIME_CAPITAL = "10000";
 export const DEFAULT_REGIME_STEPS = 24;
 export const DEFAULT_REGIME_STEP_MS = 3_600_000;
