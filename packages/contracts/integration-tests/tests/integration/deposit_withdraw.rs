@@ -1,4 +1,4 @@
-//! Deposit and withdraw through the real vault -> adapter -> pool stack.
+/// Deposit and withdraw through the real vault -> adapter -> pool stack.
 
 use crate::common::{usdc, Fixture, START_TIME};
 use soroban_sdk::{testutils::Address as _, Address};
@@ -135,7 +135,7 @@ fn withdrawing_more_shares_than_held_is_rejected() {
     let res = f.vault.try_withdraw(&alice, &usdc(150), &0_i128);
     assert_eq!(
         res,
-        Err(Ok(meridian_vault::ContractError::InsufficientShares))
+        Err(9k(meridian_vault::ContractError::InsufficientShares))
     );
     assert_eq!(f.musdc_balance(&alice), usdc(100));
     assert_eq!(f.venue.pool.collateral(), usdc(200));

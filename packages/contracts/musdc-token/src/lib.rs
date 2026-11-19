@@ -28,6 +28,21 @@ const NAME: Symbol = symbol_short!("NAME");
 const SYMBOL: Symbol = symbol_short!("SYMBOL");
 const TOTAL_SUP: Symbol = symbol_short!("TOTAL_SUP");
 
+// TTL management, mirroring the Stellar Asset Contract this token replaced.
+// Instance storage holds ADMIN/DECIMALS/NAME/SYMBOL/TOTAL_SUP and is bumped
+// on every entry point; each balance entry is bumped on read and write so a
+// holder who takes no action can still read and redeem their position later.
+// `extend_ttl` below gives a keeper a permissionless way to keep both alive.
+//
+// Thresholds are in ledgers. Persistent entries must be bumped before they
+// reach `PERSISTENT_THRESHOLD`; the bump extends them to `PERSISTENT_BUMP`.
+// Instance storage uses the same pair. The values are chosen so a keeper
+// running well inside the threshold window can always refresh in time.
+const INSTANCE_THRESHOLD: u32 = 17_280; // ~1 day at 5s/ledger
+const INSTANCE_BUMP: u32 = 518_400; // ~30 days
+const PERSISTENT_THRESHOLD: u32 = 17_280; // ~1 day
+const PERSISTENT_BUMP: u32 = 518_400; // ~30 days
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -135,6 +150,7 @@ impl MusdcToken {
     /// `initialize` so the two can never set up different state. Not
     /// `pub`, so it is not callable from outside the contract.
     fn init_state(env: &Env, admin: &Address, decimals: u32, name: String, symbol: String) {
+        Self::extend_instance_ttl(env);
         env.storage().instance().set(&ADMIN, admin);
         env.storage().instance().set(&DECIMALS, &decimals);
         env.storage().instance().set(&NAME, &name);
@@ -152,6 +168,7 @@ impl MusdcToken {
     /// side (`vault/src/lib.rs`), which calls this the same panic-through
     /// way it already calls the adapter interface's non-`Result` methods.
     pub fn mint(env: Env, to: Address, amount: i128) {
+        Self::extend_instance_ttl(&env);
         if let Err(err) = Self::require_admin(&env) {
             panic_with_error!(&env, err);
         }
@@ -176,19 +193,53 @@ impl MusdcToken {
     }
 
     pub fn total_supply(env: Env) -> i128 {
+        Self::extend_instance_ttl(&env);
         env.storage().instance().get(&TOTAL_SUP).unwrap_or(0)
     }
 
     pub fn admin(env: Env) -> Result<Address, ContractError> {
+        Self::extend_instance_ttl(&env);
         env.storage()
             .instance()
             .get(&ADMIN)
             .ok_or(ContractError::NotInitialized)
     }
 
+    /// Permissionless: anyone (a keeper, a holder, the vault) can call this
+    /// to extend the TTL of the token instance and, if given, a holder's
+    /// balance entry. Mirrors the SAC's own instance/balance lifetime
+    /// management so a holder who takes no action can still redeem later.
+    ///
+    /// `holder` is optional so a keeper can refresh the instance alone
+    /// without knowing every balance holder; passing a holder also bumps
+    /// that holder's balance entry.
+    pub fn extend_ttl(env: Env, holder: Option<Address>) {
+        Self::extend_instance_ttl(&env);
+        if let Some(holder) = holder {
+            Self::extend_balance_ttl(&env, &holder);
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    fn extend_instance_ttl(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+    }
+
+    fn extend_balance_ttl(env: &Env, id: &Address) {
+        let key = DataKey::Balance(id.clone());
+        // Only extend an entry that exists; extending a missing key is a
+        // no-op in the host, but guarding keeps the intent explicit.
+        if env.storage().persistent().has(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, PERSISTENT_THRESHOLD, PERSISTENT_BUMP);
+        }
+    }
 
     fn require_admin(env: &Env) -> Result<(), ContractError> {
         let admin: Address = env
@@ -201,16 +252,24 @@ impl MusdcToken {
     }
 
     fn read_balance(env: &Env, id: &Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Balance(id.clone()))
-            .unwrap_or(0)
+        let key = DataKey::Balance(id.clone());
+        let balance = env.storage().persistent().get(&key).unwrap_or(0);
+        // Bump after the read so a holder's entry never archives out from
+        // under a `balance`/`deposit`/`withdraw` call.
+        if env.storage().persistent().has(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, PERSISTENT_THRESHOLD, PERSISTENT_BUMP);
+        }
+        balance
     }
 
     fn write_balance(env: &Env, id: &Address, amount: i128) {
+        let key = DataKey::Balance(id.clone());
+        env.storage().persistent().set(&key, &amount);
         env.storage()
             .persistent()
-            .set(&DataKey::Balance(id.clone()), &amount);
+            .extend_ttl(&key, PERSISTENT_THRESHOLD, PERSISTENT_BUMP);
     }
 
     fn read_allowance(env: &Env, from: &Address, spender: &Address) -> AllowanceValue {
@@ -323,10 +382,12 @@ impl MusdcToken {
 #[contractimpl]
 impl TokenInterface for MusdcToken {
     fn allowance(env: Env, from: Address, spender: Address) -> i128 {
+        Self::extend_instance_ttl(&env);
         Self::read_allowance(&env, &from, &spender).amount
     }
 
     fn approve(env: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+        Self::extend_instance_ttl(&env);
         from.require_auth();
         if amount < 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
@@ -345,15 +406,18 @@ impl TokenInterface for MusdcToken {
     }
 
     fn balance(env: Env, id: Address) -> i128 {
+        Self::extend_instance_ttl(&env);
         Self::read_balance(&env, &id)
     }
 
     fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        Self::extend_instance_ttl(&env);
         from.require_auth();
         Self::do_transfer(&env, &from, &to, amount);
     }
 
     fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        Self::extend_instance_ttl(&env);
         spender.require_auth();
         if amount <= 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
@@ -363,6 +427,7 @@ impl TokenInterface for MusdcToken {
     }
 
     fn burn(env: Env, from: Address, amount: i128) {
+        Self::extend_instance_ttl(&env);
         from.require_auth();
         if amount <= 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
@@ -386,6 +451,7 @@ impl TokenInterface for MusdcToken {
     }
 
     fn burn_from(env: Env, spender: Address, from: Address, amount: i128) {
+        Self::extend_instance_ttl(&env);
         spender.require_auth();
         if amount <= 0 {
             panic_with_error!(&env, ContractError::NonPositiveAmount);
@@ -410,10 +476,12 @@ impl TokenInterface for MusdcToken {
     }
 
     fn decimals(env: Env) -> u32 {
+        Self::extend_instance_ttl(&env);
         env.storage().instance().get(&DECIMALS).unwrap_or(7)
     }
 
     fn name(env: Env) -> String {
+        Self::extend_instance_ttl(&env);
         env.storage()
             .instance()
             .get(&NAME)
@@ -421,6 +489,7 @@ impl TokenInterface for MusdcToken {
     }
 
     fn symbol(env: Env) -> String {
+        Self::extend_instance_ttl(&env);
         env.storage()
             .instance()
             .get(&SYMBOL)
