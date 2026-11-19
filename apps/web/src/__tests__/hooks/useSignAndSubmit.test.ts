@@ -14,6 +14,8 @@ vi.mock("../../lib/wallet", () => ({
   wallet: {
     sign: vi.fn(async () => "SIGNED_XDR"),
     isAuthorized: vi.fn(async () => true),
+    getNetwork: vi.fn(async () => APP_NETWORK.network),
+    getAddress: vi.fn(async () => KEY),
   },
 }));
 
@@ -25,8 +27,14 @@ vi.mock("../../lib/api", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string) =>
-      key === "walletConnect.walletDisconnected" ? "Wallet disconnected" : key,
+    t: (key: string, opts?: Record<string, unknown>) => {
+      if (key === "walletConnect.walletDisconnected")
+        return "Wallet disconnected";
+      if (key === "walletConnect.networkMismatch") {
+        return `Wallet network mismatch: wallet is on ${opts?.walletNetwork}, but app requires ${opts?.appNetwork}`;
+      }
+      return key;
+    },
   }),
 }));
 
@@ -37,6 +45,7 @@ describe("useSignAndSubmit (#965)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(wallet.isAuthorized).mockResolvedValue(true);
+    vi.mocked(wallet.getNetwork!).mockResolvedValue(APP_NETWORK.network);
     useWalletStore.setState({
       publicKey: KEY,
       connected: true,
@@ -90,6 +99,17 @@ describe("useSignAndSubmit (#965)", () => {
         "Wallet disconnected"
       );
       expect(useWalletStore.getState().connected).toBe(false);
+      expect(wallet.sign).not.toHaveBeenCalled();
+      expect(api.submitTx).not.toHaveBeenCalled();
+    });
+
+    it("blocks signing when there is a network mismatch (#1300)", async () => {
+      vi.mocked(wallet.getNetwork!).mockResolvedValue(OTHER_NETWORK);
+      const { result } = renderHook(() => useSignAndSubmit());
+
+      await expect(result.current.signAndSubmit("XDR")).rejects.toThrow(
+        /network mismatch/i
+      );
       expect(wallet.sign).not.toHaveBeenCalled();
       expect(api.submitTx).not.toHaveBeenCalled();
     });

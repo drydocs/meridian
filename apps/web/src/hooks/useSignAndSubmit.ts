@@ -15,8 +15,21 @@ export function useSignAndSubmit() {
 
   async function signAndSubmit(xdr: string) {
     await revalidate();
-    if (!useWalletStore.getState().connected) {
+    const state = useWalletStore.getState();
+    if (!state.connected) {
       throw new Error(t("walletConnect.walletDisconnected"));
+    }
+    if (typeof wallet.getNetwork === "function") {
+      const currentNetwork = await wallet.getNetwork();
+      if (currentNetwork && currentNetwork !== APP_NETWORK.network) {
+        throw new Error(
+          t("walletConnect.networkMismatch", {
+            walletNetwork: currentNetwork,
+            appNetwork: APP_NETWORK.network,
+            defaultValue: `Wallet network mismatch: wallet is on ${currentNetwork}, but app requires ${APP_NETWORK.network}`,
+          })
+        );
+      }
     }
     const signedXdr = await wallet.sign(xdr, passphrase);
     await api.submitTx({ xdr: signedXdr });

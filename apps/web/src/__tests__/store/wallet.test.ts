@@ -1,10 +1,28 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useWalletStore } from "../../store/wallet";
+import { useToastStore } from "../../store/toast";
+import { queryClient } from "../../lib/queryClient";
 import { APP_NETWORK } from "@meridian/shared";
 
 vi.mock("../../lib/wallet", () => ({
   wallet: {
     isAuthorized: vi.fn(),
+    getAddress: vi.fn(),
+    getNetwork: vi.fn(),
+  },
+}));
+
+vi.mock("../../lib/queryClient", () => ({
+  queryClient: {
+    invalidateQueries: vi.fn(),
+  },
+}));
+
+vi.mock("../../store/toast", () => ({
+  useToastStore: {
+    getState: vi.fn(() => ({
+      push: vi.fn(),
+    })),
   },
 }));
 
@@ -86,6 +104,114 @@ describe("useWalletStore", () => {
     expect(useWalletStore.getState()).toMatchObject({
       publicKey: OTHER_KEY,
       connected: true,
+    });
+  });
+
+  describe("passive reconciliation (#1300)", () => {
+    it("updates store, shows toast, and invalidates queries on account switch", async () => {
+      const NEW_KEY =
+        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7";
+      const pushMock = vi.fn();
+      vi.mocked(useToastStore.getState).mockReturnValue({
+        push: pushMock,
+      } as unknown as ReturnType<typeof useToastStore.getState>);
+
+      useWalletStore.setState({ publicKey: KEY, connected: true });
+      vi.mocked(wallet.isAuthorized).mockResolvedValue(true);
+      vi.mocked(wallet.getAddress!).mockResolvedValue(NEW_KEY);
+      vi.mocked(wallet.getNetwork!).mockResolvedValue(APP_NETWORK.network);
+
+      await useWalletStore.getState().revalidate();
+
+      expect(useWalletStore.getState().publicKey).toBe(NEW_KEY);
+      expect(pushMock).toHaveBeenCalledWith(
+        "info",
+        expect.stringContaining("switched")
+      );
+      expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["positions"],
+      });
+      expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["vaults"],
+      });
+      expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["vault-state"],
+      });
+    });
+
+    it("updates store, shows toast, and invalidates queries on network switch", async () => {
+      const NEW_NETWORK =
+        APP_NETWORK.network === "mainnet" ? "testnet" : "mainnet";
+      const pushMock = vi.fn();
+      vi.mocked(useToastStore.getState).mockReturnValue({
+        push: pushMock,
+      } as unknown as ReturnType<typeof useToastStore.getState>);
+
+      useWalletStore.setState({
+        publicKey: KEY,
+        connected: true,
+        network: APP_NETWORK.network,
+      });
+      vi.mocked(wallet.isAuthorized).mockResolvedValue(true);
+      vi.mocked(wallet.getAddress!).mockResolvedValue(KEY);
+      vi.mocked(wallet.getNetwork!).mockResolvedValue(NEW_NETWORK);
+
+      await useWalletStore.getState().revalidate();
+
+      expect(useWalletStore.getState().network).toBe(NEW_NETWORK);
+      expect(pushMock).toHaveBeenCalledWith(
+        "info",
+        expect.stringContaining("switched")
+      );
+      expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["positions"],
+      });
+    });
+
+    it("makes no changes and shows no toast on unchanged focus", async () => {
+      const pushMock = vi.fn();
+      vi.mocked(useToastStore.getState).mockReturnValue({
+        push: pushMock,
+      } as unknown as ReturnType<typeof useToastStore.getState>);
+
+      useWalletStore.setState({
+        publicKey: KEY,
+        connected: true,
+        network: APP_NETWORK.network,
+      });
+      vi.mocked(wallet.isAuthorized).mockResolvedValue(true);
+      vi.mocked(wallet.getAddress!).mockResolvedValue(KEY);
+      vi.mocked(wallet.getNetwork!).mockResolvedValue(APP_NETWORK.network);
+
+      await useWalletStore.getState().revalidate();
+
+      expect(useWalletStore.getState().publicKey).toBe(KEY);
+      expect(useWalletStore.getState().network).toBe(APP_NETWORK.network);
+      expect(pushMock).not.toHaveBeenCalled();
+      expect(queryClient.invalidateQueries).not.toHaveBeenCalled();
+    });
+
+    it("handles a wallet without passive reporting (null/undefined getters)", async () => {
+      const pushMock = vi.fn();
+      vi.mocked(useToastStore.getState).mockReturnValue({
+        push: pushMock,
+      } as unknown as ReturnType<typeof useToastStore.getState>);
+
+      useWalletStore.setState({
+        publicKey: KEY,
+        connected: true,
+        network: APP_NETWORK.network,
+      });
+      vi.mocked(wallet.isAuthorized).mockResolvedValue(true);
+      vi.mocked(wallet.getAddress!).mockResolvedValue(null);
+      vi.mocked(wallet.getNetwork!).mockResolvedValue(null);
+
+      await useWalletStore.getState().revalidate();
+
+      expect(useWalletStore.getState().publicKey).toBe(KEY);
+      expect(useWalletStore.getState().network).toBe(APP_NETWORK.network);
+      expect(pushMock).not.toHaveBeenCalled();
+      expect(queryClient.invalidateQueries).not.toHaveBeenCalled();
     });
   });
 });
