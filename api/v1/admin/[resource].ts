@@ -15,6 +15,11 @@ const HISTORY_CACHE_CONTROL = "public, s-maxage=30, stale-while-revalidate=120";
 // req.query.resource set accordingly. Both are public read-only endpoints
 // (same data as the public /api/v1/vaults and /api/v1/positions routes,
 // just reshaped for the admin dashboard), so they share one auth model.
+//
+// OpenAPI: this route is documented in the API schema (see docs/openapi).
+// Contract tests assert the status codes and required body keys below.
+// When changing the response shape or status codes, update the schema and
+// the contract tests together. See the contribution guide for the steps.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   try {

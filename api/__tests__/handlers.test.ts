@@ -268,6 +268,20 @@ beforeEach(() => {
 });
 
 describe("GET /api/v1/positions/[publicKey]", () => {
+  it("documents the 200 status and Cache-Control header contract", async () => {
+    const res = makeRes();
+    await positionsHandler(
+      fakeReq({
+        query: { publicKey: PUBKEY },
+        method: "GET",
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["Cache-Control"]).toBe("no-store");
+    expect(res.body).toBeDefined();
+  });
+
   it("sets an explicit Cache-Control header", async () => {
     const res = makeRes();
     await positionsHandler(

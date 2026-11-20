@@ -7,6 +7,8 @@ Meridian has two API implementations that share the same interface:
 | Vercel serverless functions | Production        | `api/v1/`         |
 | Fastify server              | Local development | `apps/api-local/` |
 
+The machine-readable contract for every public `/api/v1` route is published as an OpenAPI 3.1 document at [`/openapi.yaml`](/openapi.yaml). Client authors should target that schema rather than reading handler code. CI validates the document and contract tests assert that handlers return the documented status codes and required response keys. To change a route, update its entry in the schema in the same pull request. See the contribution guide for the full workflow.
+
 ## Endpoints
 
 ### `GET /api/v1/vaults`

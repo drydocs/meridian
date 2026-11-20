@@ -7,6 +7,13 @@ import {
   vaultReadCacheControl,
 } from "../../_lib/middleware.js";
 
+/**
+ * GET /api/v1/vaults
+ *
+ * Contract is documented in the published OpenAPI schema (see docs/openapi.yaml).
+ * When changing the response shape or status codes, update the schema and the
+ * contract tests in the same change.
+ */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   if (requireGetMethod(req, res)) return;
