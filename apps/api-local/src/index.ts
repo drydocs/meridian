@@ -19,7 +19,7 @@ import { adminRoute } from "./routes/admin";
 // Rate limits: one shared 100 req/min limiter across all routes, matching the
 // deployed handlers' shared Upstash sliding window (api/_lib/middleware.ts).
 // Body limit: 10 KB on all routes to block oversized payload attacks.
-// Security headers: X-Content-Type-Options and X-Frame-Options on every response.
+// Security headers: parity with applySecurityHeaders in api/_lib/middleware.ts.
 const app = Fastify({ logger: true, bodyLimit: 10 * 1024 });
 
 const redisClient = process.env.REDIS_URL
@@ -29,6 +29,7 @@ const redisClient = process.env.REDIS_URL
 await app.register(cors, {
   origin: process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN,
   methods: ["GET", "POST", "OPTIONS"],
+  maxAge: 600,
 });
 await app.register(rateLimit, {
   max: 100,
@@ -39,6 +40,10 @@ await app.register(rateLimit, {
 app.addHook("onSend", (_req, reply, _payload, done) => {
   reply.header("X-Content-Type-Options", "nosniff");
   reply.header("X-Frame-Options", "DENY");
+  reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  reply.header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+  reply.header("Content-Security-Policy", "default-src 'none'");
+  reply.header("Vary", "Origin");
   done();
 });
 
