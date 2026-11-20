@@ -155,4 +155,6 @@ pub enum ContractError {
     ProtectedToken = 38,
     /// The vault does not hold enough of the target token to satisfy the rescue amount.
     InsufficientBalance = 39,
+    /// `deposit` would cause total assets to exceed the configured deposit cap.
+    DepositCapExceeded = 40,
 }

@@ -172,6 +172,16 @@ Emergency switch. While paused, new deposits are rejected. Withdrawals remain op
 
 Returns whether deposits are currently paused.
 
+### `set_total_deposit_cap(cap: i128) -> Result<(), ContractError>` (admin only)
+
+Sets the maximum total asset amount (in USDC stroops, the same units as `get_total_assets()`) the vault will accept across all deposits. Setting `0` leaves the vault uncapped (the default). Rejecting any negative cap value with `ZeroAmount`. Emits an admin event with topic `("admin", "cap")` and data `cap`.
+
+When a positive cap is set, any `deposit` that would cause resulting total assets (`total_assets + amount`) to exceed `cap` fails with `DepositCapExceeded`. A deposit that reaches the cap exactly (`total_assets + amount == cap`) succeeds.
+
+### `get_total_deposit_cap() -> i128`
+
+Returns the current total deposit cap in USDC stroops, or `0` if deposits are uncapped.
+
 ### `transfer_admin(new_admin)` (admin only)
 
 Nominates `new_admin` as the next admin. Requires the current admin's `require_auth()`. Records the nominee in a pending slot but does **not** change who the admin is. `get_admin()` still returns the current admin until the nominee itself calls `accept_admin()`. Calling this again before that happens overwrites the pending nominee; only the most recent nomination is live.
@@ -222,6 +232,7 @@ All topic segments are `Symbol` values unless shown as `u32(1)`. Soroban encodes
 | `adapter`   | `(admin, adapter, u32(1))`   | `new_adapter: Address`                                                                |
 | `mig_begin` | `(admin, mig_begin, u32(1))` | `(new_adapter: Address, earliest_ledger: u32)`                                        |
 | `migrate`   | `(admin, migrate, u32(1))`   | `(old_adapter: Address, new_adapter: Address)`                                        |
+| `cap`       | `(admin, cap, u32(1))`       | `cap: i128`                                                                           |
 | `rescue`    | `(admin, rescue, u32(1))`    | `(token: Address, to: Address, amount: i128)`                                         |
 
 ### Event schema compatibility
@@ -382,6 +393,7 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `MusdcAdminMismatch`             | 37   | Constructor initialization found that mUSDC is not administered by this vault.                                                                                                                    |
 | `ProtectedToken`                 | 38   | `rescue_token` was called for the vault's USDC, the mUSDC share token or the active adapter.                                                                                                      |
 | `InsufficientBalance`            | 39   | `rescue_token` was asked for more of the token than the vault holds.                                                                                                                              |
+| `DepositCapExceeded`             | 40   | `deposit` would take the vault's total assets above the cap set with `set_total_deposit_cap`.                                                                                                     |
 
 ## Contract storage
 
