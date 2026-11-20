@@ -5,6 +5,7 @@ import {
   applyCors,
   checkRateLimit,
   requireGetMethod,
+  sendResponse,
   vaultReadCacheControl,
 } from "../../_lib/middleware.js";
 import { logError } from "../../_lib/logger.js";
@@ -23,15 +24,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!(await checkRateLimit(req, res))) return;
   } catch (err) {
     logError("vault.rate_limit_failed", req, err);
-    return res
-      .status(503)
-      .json({ error: "Rate limiter unavailable; refusing to run" });
+    return sendResponse(req, res, 503, {
+      error: "Rate limiter unavailable; refusing to run",
+    });
   }
   const raw = req.query["vaultId"];
   const vaultId = typeof raw === "string" ? raw : undefined;
-  if (!vaultId) return res.status(400).json({ error: "vaultId is required" });
+  if (!vaultId)
+    return sendResponse(req, res, 400, { error: "vaultId is required" });
   if (!KNOWN_VAULT_IDS.has(vaultId))
-    return res.status(404).json({ error: "vault not found", vaultId });
+    return sendResponse(req, res, 404, { error: "vault not found", vaultId });
 
   const result = await handleGetVaultById(vaultId);
   if (result.error) {
@@ -40,5 +42,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (result.status === 200) {
     res.setHeader("Cache-Control", vaultReadCacheControl());
   }
-  res.status(result.status).json(result.body);
+  return sendResponse(req, res, result.status, result.body);
 }

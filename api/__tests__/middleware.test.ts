@@ -69,6 +69,10 @@ describe("applyCors", () => {
     applyCors(fakeReq("GET"), res);
     expect(res.headers["Access-Control-Allow-Origin"]).toBeDefined();
     expect(res.headers["Access-Control-Allow-Methods"]).toContain("POST");
+    expect(res.headers["Access-Control-Allow-Headers"]).toContain(
+      "X-Request-ID"
+    );
+    expect(res.headers["X-Request-ID"]).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("returns true and ends the response for OPTIONS preflight", () => {
@@ -114,7 +118,21 @@ describe("requireGetMethod", () => {
     expect(requireGetMethod(fakeReq("POST"), res)).toBe(true);
     expect(res.statusCode).toBe(405);
     expect(res.headers["Allow"]).toBe("GET");
-    expect(res.body).toEqual({ error: "Method not allowed" });
+    expect(res.body).toMatchObject({
+      error: {
+        code: "METHOD_NOT_ALLOWED",
+        message: "Method not allowed",
+        requestId: expect.any(String),
+      },
+    });
+    const body = res.body as { error: { requestId: string } };
+    expect(res.headers["X-Request-ID"]).toBe(body.error.requestId);
+  });
+
+  it("preserves a valid incoming request ID", () => {
+    const res = fakeRes();
+    applyCors(fakeReq("GET", { "x-request-id": "support-123" }), res);
+    expect(res.headers["X-Request-ID"]).toBe("support-123");
   });
 });
 

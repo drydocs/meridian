@@ -7,6 +7,31 @@ Meridian has two API implementations that share the same interface:
 | Vercel serverless functions | Production        | `api/v1/`         |
 | Fastify server              | Local development | `apps/api-local/` |
 
+## Request IDs and errors
+
+Every response includes an `X-Request-ID` header. Clients may send a
+well-formed value in the same header; otherwise the API generates a UUID. The
+ID is included in structured server logs so operators can match a client
+failure to its request.
+
+Responses with status `400` or higher use one stable envelope in both API
+implementations:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "walletAddress: Invalid input",
+    "requestId": "support-2026.11:abc"
+  }
+}
+```
+
+`code` is stable for the HTTP failure class (or an existing explicit code),
+`message` is safe for the caller, and `requestId` is the value from the
+response header. Resource-specific fields remain alongside the envelope for
+backward-compatible access.
+
 ## Endpoints
 
 The machine-readable OpenAPI specification lives at [`docs/openapi.yaml`](https://github.com/drydocs/meridian/blob/main/docs/openapi.yaml).

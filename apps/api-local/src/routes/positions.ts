@@ -14,7 +14,7 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
       refresh: refresh === "true" || refresh === "1",
     });
     if (result.error) {
-      app.log.error(result.error, "[positions] read failed");
+      req.log.error(result.error, "[positions] read failed");
     }
     if (result.etag) reply.header("ETag", result.etag);
     reply.header("Cache-Control", "no-store");
@@ -41,7 +41,7 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
       cursor
     );
     if (result.error) {
-      app.log.error(result.error, "[positions] history read failed");
+      req.log.error(result.error, "[positions] history read failed");
     }
     reply.header("Cache-Control", "no-store");
     reply.code(result.status).send(result.body);
