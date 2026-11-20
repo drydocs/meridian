@@ -53,10 +53,12 @@ pub trait YieldAdapterInterface {
     fn deposit(env: Env, amount: i128) -> i128;
     fn withdraw(env: Env, shares: i128, recipient: Address) -> i128;
     fn total_assets(env: Env) -> i128;
+    fn live_total_assets(env: Env) -> i128;
     /// The adapter's current protocol-share balance, read from the underlying
     /// protocol's own ledger rather than self-tracked. Lets the vault reconcile
     /// ADPT_SH instead of estimating its decrements.
     fn total_shares(env: Env) -> i128;
+    fn last_accrual_ledger(env: Env) -> u32;
     /// Refreshes the adapter's cached total_assets before it is read for
     /// deposit/withdraw pricing. A no-op for adapters that already price
     /// live on every call.
@@ -108,6 +110,11 @@ pub trait MusdcAdminInterface {
     fn mint(env: Env, to: Address, amount: i128);
 }
 
+#[contractclient(name = "MusdcViewClient")]
+pub trait MusdcViewInterface {
+    fn total_supply(env: Env) -> i128;
+}
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -126,6 +133,23 @@ pub struct WithdrawPreview {
     pub treasury_shares: i128,
     /// USDC the caller receives, exactly what `withdraw` returns.
     pub assets_out: i128,
+}
+
+/// Read-only reconciliation state for the vault and its active adapter.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Health {
+    pub total_shares: i128,
+    pub musdc_supply: i128,
+    pub total_shares_mismatch: bool,
+    pub adapter_shares: i128,
+    pub adapter_reported_shares: i128,
+    pub adapter_shares_mismatch: bool,
+    pub cached_assets: i128,
+    pub live_assets: i128,
+    pub last_accrual_ledger: u32,
+    pub migration_active: bool,
+    pub migration_earliest_ledger: u32,
 }
 
 #[contract]
@@ -804,6 +828,57 @@ impl MeridianVault {
     /// Returns total mUSDC shares outstanding.
     pub fn get_total_shares(env: Env) -> i128 {
         env.storage().instance().get(&TOTAL_SH).unwrap_or(0)
+    }
+
+    /// Reconciles the vault's counters and adapter valuation without writing.
+    /// Legacy adapters that do not expose the optional live metadata views
+    /// fall back to their cached value and a zero accrual ledger.
+    pub fn get_health(env: Env) -> Result<Health, ContractError> {
+        let adapter = Self::adapter(&env)?;
+        let adapter_client = AdapterClient::new(&env, &adapter);
+        let total_shares = Self::get_total_shares(env.clone());
+        let musdc = Self::musdc(&env)?;
+        let musdc_supply = MusdcViewClient::new(&env, &musdc)
+            .try_total_supply()
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or(total_shares);
+        let adapter_shares = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
+        let adapter_reported_shares = adapter_client.total_shares();
+        let cached_assets = adapter_client.total_assets();
+        let live_assets = adapter_client
+            .try_live_total_assets()
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or(cached_assets);
+        let last_accrual_ledger = adapter_client
+            .try_last_accrual_ledger()
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or(0);
+        let migration_active = env.storage().instance().get(&MIG_ACTIVE).unwrap_or(0_i128) != 0;
+        let migration_earliest_ledger = if migration_active {
+            let snapshot: Option<MigrationSnapshot> = env.storage().instance().get(&MIG_SNAP);
+            snapshot
+                .map(|snapshot| snapshot.ledger_seq.saturating_add(MIN_LEDGER_GAP))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        Ok(Health {
+            total_shares,
+            musdc_supply,
+            total_shares_mismatch: total_shares != musdc_supply,
+            adapter_shares,
+            adapter_reported_shares,
+            adapter_shares_mismatch: adapter_shares != adapter_reported_shares,
+            cached_assets,
+            live_assets,
+            last_accrual_ledger,
+            migration_active,
+            migration_earliest_ledger,
+        })
     }
 
     /// Returns the constructor-fixed address that receives performance-fee
@@ -4721,6 +4796,43 @@ mod tests {
         assert_eq!(
             vault.try_preview_withdraw(&user, &amount),
             Err(Ok(ContractError::WithdrawalTooSmall))
+        );
+    }
+
+    #[test]
+    fn health_reports_reconciliation_flags_live_value_and_migration_window() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0);
+
+        let healthy = vault.get_health();
+        assert_eq!(healthy.total_shares, amount);
+        assert_eq!(healthy.musdc_supply, amount);
+        assert!(!healthy.total_shares_mismatch);
+        assert_eq!(healthy.adapter_shares, amount);
+        assert_eq!(healthy.adapter_reported_shares, amount);
+        assert!(!healthy.adapter_shares_mismatch);
+        assert_eq!(healthy.cached_assets, amount);
+        assert_eq!(healthy.live_assets, amount);
+        assert_eq!(healthy.last_accrual_ledger, 0);
+        assert!(!healthy.migration_active);
+        assert_eq!(healthy.migration_earliest_ledger, 0);
+
+        // Construct the same kind of counter drift the view is intended to
+        // surface, without going through a state-changing public entry point.
+        env.as_contract(&vault.address, || {
+            env.storage().instance().set(&ADPT_SH, &(amount + 1));
+        });
+        assert!(vault.get_health().adapter_shares_mismatch);
+
+        let target = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &target).initialize(&usdc);
+        vault.begin_migration(&target);
+        let migrating = vault.get_health();
+        assert!(migrating.migration_active);
+        assert_eq!(
+            migrating.migration_earliest_ledger,
+            env.ledger().sequence() + MIN_LEDGER_GAP
         );
     }
 
