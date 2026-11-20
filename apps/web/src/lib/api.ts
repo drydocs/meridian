@@ -33,6 +33,43 @@ export interface VaultState {
   paused: boolean;
 }
 
+/**
+ * Error raised for non-OK HTTP responses. `status` lets callers distinguish
+ * client errors (4xx, never retried) from server or network failures.
+ */
+export class ApiError extends Error {
+  readonly status: number | null;
+
+  constructor(message: string, status: number | null) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/** True when the error represents a client error that must not be retried. */
+export function isClientError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status !== null &&
+    error.status >= 400 &&
+    error.status < 500
+  );
+}
+
+/**
+ * True when the failure looks like connectivity loss: either a fetch-level
+ * TypeError (no HTTP response) or a timeout/abort.
+ */
+export function isNetworkError(error: unknown): boolean {
+  if (error instanceof ApiError) return error.status === null;
+  if (error instanceof TypeError) return true;
+  if (error instanceof DOMException) {
+    return error.name === "TimeoutError" || error.name === "AbortError";
+  }
+  return false;
+}
+
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -58,7 +95,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       }
     }
     msg = msg || `Request failed (${res.status})`;
-    throw new Error(msg);
+    throw new ApiError(msg, res.status);
   }
   return res.json() as Promise<T>;
 }

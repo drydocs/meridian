@@ -24,7 +24,7 @@ function formatTvl(value: number): string {
 type Tab = "deposit" | "withdraw";
 
 export function VaultPanel() {
-  const { data, isLoading: vaultsLoading } = useVaults();
+  const { data, isLoading: vaultsLoading, dataUpdatedAt: vaultsUpdatedAt, isStale: vaultsStale } = useVaults();
   const vaults = data?.vaults;
   const { t } = useTranslation();
   const { connected, publicKey } = useWalletStore();
@@ -193,6 +193,16 @@ export function VaultPanel() {
               <p className="text-lg font-bold text-paper">
                 {formatTvl(bestVault.tvl)}
               </p>
+              {vaultsStale && (
+                <span className="inline-block mt-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-amber-400 bg-amber-950/40 border border-amber-800/70">
+                  Stale
+                </span>
+              )}
+              {vaultsUpdatedAt > 0 && (
+                <p className="text-[10px] text-gray-600 mt-0.5">
+                  Updated {new Date(vaultsUpdatedAt).toLocaleTimeString()}
+                </p>
+              )}
             </div>
             <div className="pb-1 sm:text-right">
               <p className="text-xs text-gray-500 mb-1.5">

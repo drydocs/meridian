@@ -29,6 +29,12 @@ function hasSettled(
   return liveShares < sharesBefore;
 }
 
+/** Errors that will not succeed on retry (client-side 4xx responses). */
+function isNonRetryableError(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === "number" && status >= 400 && status < 500;
+}
+
 export function usePositionPolling() {
   const { t } = useTranslation();
   const { publicKey } = useWalletStore();
@@ -80,7 +86,14 @@ export function usePositionPolling() {
       return data.positions;
     },
     enabled: isPollingPositions && !!publicKey,
-    retry: false,
+    // Polling already re-runs on a fixed 3s cadence, so transient failures are
+    // handled by the refetchInterval failure counter. Do not retry 4xx
+    // responses; allow a bounded number of retries for 5xx/network errors.
+    retry: (failureCount, error) => {
+      if (isNonRetryableError(error)) return false;
+      return failureCount < 2;
+    },
+    retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 8_000),
 
     refetchInterval: (query) => {
       const targets = pollTargetsRef.current;
