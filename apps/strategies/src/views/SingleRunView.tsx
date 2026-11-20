@@ -31,6 +31,11 @@ export interface SingleRunViewProps {
   readonly latestRun?: ScenarioRun | null;
   /** Called with every successful run, before the summary renders. */
   readonly onRunComplete?: (run: ScenarioRun) => void;
+  /**
+   * Called when a submission fails, so a parent holding `latestRun` can drop
+   * the previous run instead of showing it next to the error.
+   */
+  readonly onRunCleared?: () => void;
 }
 
 type TextField =
@@ -142,6 +147,7 @@ function Metric({
 export function SingleRunView({
   latestRun,
   onRunComplete,
+  onRunCleared,
 }: SingleRunViewProps = {}) {
   const [values, setValues] = useState<ScenarioFormValues>(defaultFormValues);
   const [running, setRunning] = useState(false);
@@ -190,6 +196,14 @@ export function SingleRunView({
     setValues((current) => presetValues(regime, current.strategyId));
   };
 
+  // A failed submission invalidates the previous run: the form no longer
+  // describes it, so it must not stay on screen next to the error.
+  const fail = (failure: ScenarioRunError) => {
+    setError(failure);
+    setOwnRun(null);
+    onRunCleared?.();
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setRunning(true);
@@ -203,10 +217,10 @@ export function SingleRunView({
         setOwnRun(outcome.run);
         onRunComplete?.(outcome.run);
       } else {
-        setError(outcome.error);
+        fail(outcome.error);
       }
     } catch (caught) {
-      setError({
+      fail({
         kind: "execution",
         message: caught instanceof Error ? caught.message : String(caught),
       });
@@ -459,7 +473,7 @@ export function SingleRunView({
         )}
       </form>
 
-      {run && (
+      {run && error === null && (
         <section
           className="panel run-summary"
           aria-label="Run summary"

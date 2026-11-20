@@ -110,6 +110,51 @@ describe("SingleRunView", () => {
     expect(screen.queryByTestId("run-summary")).toBeNull();
     expect(onRunComplete).not.toHaveBeenCalled();
   });
+
+  it("drops the previous run when a later submission fails", async () => {
+    const onRunCleared = vi.fn();
+    render(<SingleRunView onRunCleared={onRunCleared} />);
+
+    submit();
+    await screen.findByTestId("run-summary");
+
+    change("input-startingCapital", "0");
+    submit();
+
+    await screen.findByTestId("run-error");
+    expect(screen.queryByTestId("run-summary")).toBeNull();
+    expect(onRunCleared).toHaveBeenCalledTimes(1);
+
+    change("input-startingCapital", "1000");
+    submit();
+
+    await screen.findByTestId("run-summary");
+    expect(screen.queryByTestId("run-error")).toBeNull();
+  });
+
+  it("hides a parent-held run while an error is shown", async () => {
+    const run = await (async () => {
+      const onRunComplete = vi.fn<(run: ScenarioRun) => void>();
+      const { unmount } = render(
+        <SingleRunView onRunComplete={onRunComplete} />
+      );
+      submit();
+      await screen.findByTestId("run-summary");
+      unmount();
+      return onRunComplete.mock.calls[0]![0];
+    })();
+
+    // A parent that never clears its state must still not show the stale run
+    // next to the error.
+    render(<SingleRunView latestRun={run} />);
+    expect(screen.getByTestId("run-summary")).toBeTruthy();
+
+    change("input-strategyVersion", "9.9.9");
+    submit();
+
+    await screen.findByTestId("run-error");
+    expect(screen.queryByTestId("run-summary")).toBeNull();
+  });
 });
 
 describe("App", () => {
@@ -124,5 +169,22 @@ describe("App", () => {
     fireEvent.click(screen.getByTestId("nav-single-run"));
 
     expect(screen.getByTestId("run-summary")).toBeTruthy();
+  });
+
+  it("clears the held run after a failed submission, across view switches", async () => {
+    render(<App />);
+
+    submit();
+    await screen.findByTestId("run-summary");
+
+    change("input-startingCapital", "0");
+    submit();
+    await screen.findByTestId("run-error");
+    expect(screen.queryByTestId("run-summary")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("nav-history"));
+    fireEvent.click(screen.getByTestId("nav-single-run"));
+
+    expect(screen.queryByTestId("run-summary")).toBeNull();
   });
 });

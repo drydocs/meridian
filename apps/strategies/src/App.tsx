@@ -104,7 +104,11 @@ export default function App() {
 
       <main className="shell__content">
         {activeView === "single-run" && (
-          <SingleRunView latestRun={latestRun} onRunComplete={setLatestRun} />
+          <SingleRunView
+            latestRun={latestRun}
+            onRunComplete={setLatestRun}
+            onRunCleared={() => setLatestRun(null)}
+          />
         )}
         {activeView === "history" && <HistoryView />}
         {activeView === "comparison" && <ComparisonView />}
