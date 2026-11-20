@@ -33,7 +33,7 @@ struct VectorInputs {
     usdc_out: Option<String>,
     principal_out: Option<String>,
     fee_bps: Option<String>,
-    bps_denominator: Option<String>,
+    bps_denominator: Option<String>
 }
 
 #[derive(Deserialize, Debug)]
@@ -43,7 +43,7 @@ struct VectorExpected {
     share_price: Option<String>,
     assets_out: Option<String>,
     gain: Option<String>,
-    fee: Option<String>,
+    fee: Option<String>
 }
 
 #[test]
