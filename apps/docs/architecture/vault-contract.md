@@ -173,6 +173,21 @@ Returns the currently pending nominee, or `None` if no handover is in progress.
 
 Returns the current admin address.
 
+### `get_config() -> Result<VaultConfig, ContractError>`
+
+Returns the vault's configuration and totals in a single read, so dashboards and admin pages do not have to combine several getter calls. Fails with `NotInitialized` if the vault has not been initialized. The individual getters are unchanged.
+
+| Field                 | Type              | Meaning                                                                         |
+| --------------------- | ----------------- | ------------------------------------------------------------------------------- |
+| `admin`               | `Address`         | Current admin.                                                                  |
+| `pending_admin`       | `Option<Address>` | Nominee from `transfer_admin`, or `None` if no handover is in progress.         |
+| `adapter`             | `Address`         | Active yield adapter.                                                           |
+| `paused`              | `bool`            | Whether deposits are paused.                                                    |
+| `treasury`            | `Address`         | Constructor-fixed performance-fee treasury.                                     |
+| `performance_fee_bps` | `i128`            | Performance fee compiled into this vault, in basis points.                      |
+| `total_shares`        | `i128`            | Total outstanding mUSDC shares.                                                 |
+| `total_assets`        | `i128`            | USDC value reported by the active adapter, as returned by `get_total_assets()`. |
+
 ## Events
 
 Every vault event carries a schema version in its final topic segment. The current version is `1` (`u32`). Event names remain stable across versions; consumers must inspect the final topic segment and reject versions they do not understand instead of decoding them using this schema.
