@@ -4088,6 +4088,33 @@ mod tests {
     }
 
     #[test]
+    fn storage_ttl_audit_covers_every_persistent_position_key() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+        vault.extend_position_ttl(&user);
+
+        let mut remaining = POSITION_THRESHOLD - 1;
+        while remaining > 0 {
+            let step = remaining.min(INSTANCE_THRESHOLD - 1);
+            env.ledger().with_mut(|li| li.sequence_number += step);
+            // Keep the vault instance entry alive while the table-driven
+            // persistent-key audit advances through the longer position TTL.
+            vault.set_paused(&true);
+            vault.set_paused(&false);
+            remaining -= step;
+        }
+
+        env.as_contract(&vault.address, || {
+            for key in [
+                DataKey::Entry(user.clone()),
+                DataKey::Principal(user.clone()),
+            ] {
+                assert!(env.storage().persistent().has(&key));
+            }
+        });
+    }
+
+    #[test]
     fn admin_state_calls_extend_instance_ttl() {
         let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
         vault.set_paused(&true);
