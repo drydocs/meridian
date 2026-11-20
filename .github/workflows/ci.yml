@@ -60,6 +60,8 @@ jobs:
             contracts:
               - .github/workflows/ci.yml
               - "packages/contracts/**"
+              - "scripts/check-wasm-size.ts"
+              - "packages/shared/src/wasm-size-budget.ts"
               - "scripts/deploy-*.sh"
               - "scripts/redeploy-*.sh"
               - "scripts/lib/**"
@@ -183,6 +185,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The WASM size check builds the PR's base commit for its delta.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32v1-none
@@ -217,3 +222,17 @@ jobs:
       - name: Build wasm
         working-directory: packages/contracts
         run: cargo build --target wasm32v1-none --release
+      # Compares each contract's release WASM with its budget in
+      # packages/contracts/wasm-size-budgets.json and, on PRs, with a build of
+      # the base commit (same command, separate target dir). Fails when a
+      # contract is over budget; the table also goes to the job summary.
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check contract WASM size budgets
+        env:
+          WASM_SIZE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: pnpm check:wasm-size
