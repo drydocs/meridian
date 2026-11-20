@@ -13,4 +13,5 @@ mod fees;
 mod migration;
 mod multi_user;
 mod pause_and_auth;
+mod previews;
 mod transfer;
