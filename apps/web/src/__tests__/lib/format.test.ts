@@ -113,6 +113,16 @@ describe("formatDateTime", () => {
 });
 
 describe("formatDuration", () => {
+  it("returns the fallback for non-finite input", () => {
+    expect(formatDuration(Number.NaN)).toBe(INVALID_DATE_FALLBACK);
+    expect(formatDuration(Number.POSITIVE_INFINITY)).toBe(
+      INVALID_DATE_FALLBACK
+    );
+    expect(formatDuration(Number.NEGATIVE_INFINITY)).toBe(
+      INVALID_DATE_FALLBACK
+    );
+  });
+
   it("shows whole minutes under an hour", () => {
     expect(formatDuration(5 * 60_000)).toBe("5m");
     expect(formatDuration(59 * 60_000)).toBe("59m");

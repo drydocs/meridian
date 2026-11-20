@@ -79,8 +79,10 @@ export function formatDateTime(
  * Whole units only — this is a dashboard glance, not a stopwatch.
  *
  * @param ms - Duration in milliseconds.
+ * @returns The coarse duration, or the fallback for non-finite input.
  */
 export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms)) return INVALID_DATE_FALLBACK;
   const minutes = Math.round(ms / 60_000);
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.round(minutes / 60);

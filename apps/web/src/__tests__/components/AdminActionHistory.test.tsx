@@ -1,4 +1,3 @@
-import { formatDate } from "../../lib/format";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { createInstance } from "i18next";
@@ -146,7 +145,7 @@ describe("AdminActionHistory", () => {
     renderHistory();
 
     expect(
-      screen.getByText(formatDate(new Date(old), "en"))
+      screen.getByText(new Date(old).toLocaleDateString("en"))
     ).toBeDefined();
   });
 });
@@ -239,7 +238,7 @@ describe("AdminActionHistory relative timestamps", () => {
     renderHistory("fr");
 
     expect(
-      screen.getByText(formatDate(new Date(iso), "fr"))
+      screen.getByText(new Date(iso).toLocaleDateString("fr"))
     ).toBeDefined();
   });
 });
