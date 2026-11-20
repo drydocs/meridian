@@ -43,7 +43,19 @@ export function Toasts() {
           <span className="font-bold shrink-0" aria-hidden="true">
             {ICON[toast.kind]}
           </span>
-          <span className="flex-1 leading-snug">{toast.message}</span>
+          <span className="flex-1 leading-snug">
+            <span>{toast.message}</span>
+            {toast.kind === "error" && (
+              <a
+                href="/docs/operations/wallet-signing-troubleshooting"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-2 inline-block text-xs text-red-200 underline hover:text-white transition-colors duration-150"
+              >
+                {t("toasts.troubleshooting")}
+              </a>
+            )}
+          </span>
           <button
             onClick={() => dismiss(toast.id)}
             className="shrink-0 opacity-50 hover:opacity-100 transition-opacity duration-100 text-xs"
