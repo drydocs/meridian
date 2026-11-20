@@ -18,7 +18,7 @@ import type {
   Strategy,
   StrategyContext,
 } from "../strategy";
-import { FixedPointDecimal } from "../types";
+import { FixedPointDecimal, UnknownAssetError } from "../types";
 import type {
   AssetSymbol,
   FundingRate,
@@ -83,12 +83,23 @@ export interface BacktestConfig<
   readonly observer?: BacktestObserver;
 }
 
+export interface VenueYieldAccrual {
+  readonly type: "venue-yield";
+  readonly venueId: VenueId;
+  readonly asset: AssetSymbol;
+  readonly memberId?: string;
+  readonly amount: FixedPointDecimal;
+}
+
+export type BacktestAccrualTransaction =
+  PortfolioTransaction | VenueYieldAccrual;
+
 /** Actual runner events exposed to specialized reporting such as composition attribution. */
 export interface BacktestObserver {
   readonly onAccrual?: (event: {
     readonly timestamp: SimulationTimestamp;
     readonly cashBefore: FixedPointDecimal;
-    readonly transactions: readonly PortfolioTransaction[];
+    readonly transactions: readonly BacktestAccrualTransaction[];
   }) => void;
   readonly onFill?: (fill: {
     readonly asset: AssetSymbol;
@@ -175,8 +186,7 @@ export function runBacktest<
   const portfolio = new Portfolio(config.initialCash);
   const snapshots: BacktestSnapshot[] = [];
   const execution = config.execution ?? {};
-  // Fractional-stroop remainders carried between ticks, keyed `funding:<id>`
-  // or `cash`, exactly as the accrual engine keys them.
+  // Fractional-stroop remainders carried between ticks for every accrual path.
   let remainders: Readonly<Record<string, bigint>> = {};
   let totalInterest = ZERO;
   let totalFunding = ZERO;
@@ -206,13 +216,12 @@ export function runBacktest<
           cashInterest: cashInterest(config.accrual),
         }
       );
-      remainders = accrued.portfolio.accrualRemainders;
-      config.observer?.onAccrual?.({
-        timestamp,
-        cashBefore: portfolio.cash,
-        transactions: accrued.transactions,
-      });
-
+      remainders = {
+        ...Object.fromEntries(
+          Object.entries(remainders).filter(([key]) => key.startsWith("venue:"))
+        ),
+        ...accrued.portfolio.accrualRemainders,
+      };
       let funding = ZERO;
       let interest = ZERO;
       for (const transaction of accrued.transactions) {
@@ -224,13 +233,58 @@ export function runBacktest<
       }
 
       totalFunding = totalFunding.add(funding);
-      totalInterest = totalInterest.add(interest);
-      portfolio.applyCashFlow(funding.add(interest));
+      const cashBefore = portfolio.cash;
+
+      const venuesBefore = new Map(
+        portfolio
+          .venues()
+          .map((venue) => [
+            JSON.stringify([
+              venue.memberId ?? null,
+              venue.venueId,
+              venue.asset,
+            ]),
+            venue,
+          ])
+      );
       remainders = portfolio.venueLedger.accrueTick(
         elapsed,
         config.accrual?.venueRates,
         remainders
       );
+
+      const transactions: BacktestAccrualTransaction[] = [
+        ...accrued.transactions,
+      ];
+      let venueInterest = ZERO;
+      for (const venue of portfolio.venues()) {
+        const key = JSON.stringify([
+          venue.memberId ?? null,
+          venue.venueId,
+          venue.asset,
+        ]);
+        const previousYield = venuesBefore.get(key)?.accruedYield ?? ZERO;
+        const amount = venue.accruedYield.sub(previousYield);
+        if (amount.toStroops() <= 0n) continue;
+
+        const price = market.prices.get(venue.asset);
+        if (price === undefined) throw new UnknownAssetError(venue.asset);
+        venueInterest = venueInterest.add(amount.mul(price));
+        transactions.push({
+          type: "venue-yield",
+          venueId: venue.venueId,
+          asset: venue.asset,
+          ...(venue.memberId === undefined ? {} : { memberId: venue.memberId }),
+          amount,
+        });
+      }
+      totalInterest = totalInterest.add(interest).add(venueInterest);
+      config.observer?.onAccrual?.({
+        timestamp,
+        cashBefore,
+        transactions,
+      });
+      portfolio.applyCashFlow(funding.add(interest));
     }
 
     const context: StrategyContext = { market, portfolio, venues: portfolio };

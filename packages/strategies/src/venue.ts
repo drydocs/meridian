@@ -262,7 +262,8 @@ export class VenueLedger implements VenuePortfolioView {
       const period =
         cfg?.annualRate !== undefined ? YEAR_MILLISECONDS : MS_PER_SEC;
       const key = remainderKeyOf(e, period);
-      const num = e.principal * r.toStroops() * elapsed + (next[key] ?? 0n);
+      const num =
+        e.principal * r.toStroops() * elapsed + (remainders[key] ?? 0n);
       const den = STROOPS_PER_UNIT * period;
       e.accruedYield += num / den;
       next[key] = num % den;

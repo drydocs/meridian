@@ -503,6 +503,24 @@ describe("VenueLedger and Portfolio venue accounting (#1250)", () => {
       portfolio.getVenuePosition("fractional", USDC)?.accruedYield.toString()
     ).toBe("0");
   });
+
+  it("carries fractional venue yield across ticks and accrues the exact amount", () => {
+    const portfolio = new Portfolio(D("10"));
+    portfolio.applyVenueOrder(
+      { kind: "deploy", venueId: "fractional", asset: USDC, amount: D("1") },
+      prices()
+    );
+    const rates = { fractional: { ratePerSecond: D("0.0000001") } };
+    let remainders: Readonly<Record<string, bigint>> = {};
+
+    for (let tick = 0; tick < 1_000; tick += 1) {
+      remainders = portfolio.venueLedger.accrueTick(1, rates, remainders);
+    }
+
+    expect(
+      portfolio.getVenuePosition("fractional", USDC)?.accruedYield.toString()
+    ).toBe("0.0000001");
+  });
 });
 
 describe("runBacktest with venue orders and yield accrual (#1250)", () => {
