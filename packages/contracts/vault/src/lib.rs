@@ -1502,6 +1502,11 @@ impl MeridianVault {
         // one stroop. A shortfall within that is rounding, not a partial
         // fill, so the credit counts as its full backing and the deposit
         // mints exactly what `preview_deposit` quoted.
+        //
+        // The slack is capped at the deposit value tolerance. When one
+        // adapter share is worth a lot, a whole share of shortfall is real
+        // value the adapter never credited; counting it as backing would let
+        // the depositor mint on it at existing holders' expense.
         let one_share_value = assets_after
             .checked_add(shares_after - 1)
             .ok_or(ContractError::Overflow)?
@@ -1509,7 +1514,8 @@ impl MeridianVault {
             .ok_or(ContractError::DivisionByZero)?;
         let rounding_slack = one_share_value
             .checked_add(1)
-            .ok_or(ContractError::Overflow)?;
+            .ok_or(ContractError::Overflow)?
+            .min(Self::deposit_value_tolerance(amount)?);
         if credited_value < backing && backing - credited_value <= rounding_slack {
             return Ok(backing.max(0));
         }
@@ -4538,6 +4544,12 @@ mod tests {
     /// vault's share price are both away from 1:1 when the deposit under
     /// test lands.
     fn parity_rig() -> ParityRig {
+        parity_rig_with(PARITY_SEED, PARITY_YIELD)
+    }
+
+    /// `parity_rig` with a chosen seed deposit and adapter yield. A small
+    /// seed with a large yield leaves each adapter share worth a lot.
+    fn parity_rig_with(seed: i128, yield_: i128) -> ParityRig {
         let env = Env::default();
         env.mock_all_auths();
         let admin = Address::generate(&env);
@@ -4562,10 +4574,10 @@ mod tests {
         let vault = MeridianVaultClient::new(&env, &vault_id);
 
         let sac = StellarAssetClient::new(&env, &usdc);
-        sac.mint(&seeder, &PARITY_SEED);
+        sac.mint(&seeder, &seed);
         sac.mint(&depositor, &(10 * PARITY_DEPOSIT));
-        vault.deposit(&seeder, &PARITY_SEED, &0);
-        sac.mint(&adapter_id, &PARITY_YIELD);
+        vault.deposit(&seeder, &seed, &0);
+        sac.mint(&adapter_id, &yield_);
 
         ParityRig {
             env,
@@ -4650,6 +4662,38 @@ mod tests {
         let minted = deposit_and_check_parity(&r, PARITY_DEPOSIT);
 
         assert!(minted < quote, "a half fill must not mint the full quote");
+        assert_minted_for(expected, minted);
+    }
+
+    #[test]
+    fn deposit_short_by_less_than_an_expensive_share_mints_the_credited_value() {
+        // 1,000 stroops seeded, then 10,000 USDC of yield: each adapter share
+        // is worth ~10 USDC. A 25 USDC deposit buys 2 shares, leaving ~5 USDC
+        // uncredited. That is under one share but well above the deposit
+        // tolerance, so it is not rounding and the depositor must not be
+        // paid for it.
+        let r = parity_rig_with(1_000, 100_000_000_000);
+        let amount = 25_0000000;
+        let adapter_assets_before = r.adapter.total_assets();
+        let adapter_shares_before = r.adapter.total_shares();
+        let quote = parity_price(&r, amount);
+
+        let credited = mock_shares_for(amount, adapter_shares_before, adapter_assets_before);
+        let assets_after = adapter_assets_before + amount;
+        let shares_after = adapter_shares_before + credited;
+        let credited_value = credited * assets_after / shares_after;
+        let one_share_value = (assets_after + shares_after - 1) / shares_after;
+        let shortfall = amount - credited_value;
+        assert!(shortfall > MeridianVault::deposit_value_tolerance(amount).unwrap());
+        assert!(shortfall < one_share_value);
+        let expected = parity_price(&r, credited_value);
+
+        let minted = deposit_and_check_parity(&r, amount);
+
+        assert!(
+            minted < quote,
+            "a real shortfall must not mint the full quote"
+        );
         assert_minted_for(expected, minted);
     }
 
@@ -4769,6 +4813,33 @@ mod tests {
         )
         .unwrap();
         assert!(short < amount - 3, "{short} should be below the slack");
+    }
+
+    #[test]
+    fn rounding_slack_is_capped_at_the_deposit_tolerance() {
+        // Adapter shares worth ~10 USDC (100_000_000 stroops) each: 25 USDC
+        // buys 2 shares, so the credit is short by about half a share. That is less than one share, but far above the
+        // deposit tolerance, so it is a real shortfall and must be valued as
+        // credited, not rounded up to the full amount.
+        let amount = 250_000_000;
+        let (assets_before, assets_after, shares_after) = (10_000_000_000, 10_250_000_000, 102);
+        let credited = 2;
+        let credited_value = credited * assets_after / shares_after;
+        let tolerance = MeridianVault::deposit_value_tolerance(amount).unwrap();
+        let one_share_value = (assets_after + shares_after - 1) / shares_after;
+        assert!(amount - credited_value > tolerance);
+        assert!(amount - credited_value < one_share_value);
+
+        assert_eq!(
+            MeridianVault::value_deposit_credit(
+                amount,
+                credited,
+                assets_before,
+                assets_after,
+                shares_after,
+            ),
+            Ok(credited_value)
+        );
     }
 
     #[test]
