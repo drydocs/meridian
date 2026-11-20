@@ -1,6 +1,7 @@
 import { useAdminHistory } from "../../hooks/useAdminHistory";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
+import { formatDate } from "../../lib/format";
 
 const ACTION_BADGE: Record<string, { labelKey: string; className: string }> = {
   set_admin: {
@@ -47,7 +48,7 @@ function formatTimestamp(iso: string, t: TFunction, locale: string): string {
     return t("adminHistory.time.hoursAgo", { count: diffHours });
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return t("adminHistory.time.daysAgo", { count: diffDays });
-  return date.toLocaleDateString(locale);
+  return formatDate(date, locale);
 }
 
 interface AdminActionHistoryProps {
