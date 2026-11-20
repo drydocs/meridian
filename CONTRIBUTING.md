@@ -410,6 +410,14 @@ This suite is a blocking CI check. Tests that depend on live testnet RPC or othe
 suite deterministic — real testnet RPC is still exercised in the deposit/withdraw tx-build specs, which
 accept valid RPC failure states as expected outcomes. Before merging a PR, this job must pass (see #535).
 
+### Dependency audit and license checks
+
+CI runs a dependency vulnerability audit and a license compatibility check on both workspaces. The job
+fails on high or critical advisories and on any license not in the checked-in allowlist. The job does not
+require repository secrets.
+
+
+
 ---
 
 ## Getting Help

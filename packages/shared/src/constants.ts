@@ -1,5 +1,15 @@
 export const DEFAULT_ALLOWED_ORIGIN = "https://usemeridian.vercel.app";
 
+// Licenses permitted for dependencies, matching the project's MIT licensing.
+// Consumed by the CI license check; keep in sync with the checked-in allowlist.
+export const ALLOWED_DEPENDENCY_LICENSES = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+] as const;
+
 export const SUPPORTED_STABLECOINS = ["USDC", "EURC"] as const;
 export type SupportedStablecoin = (typeof SUPPORTED_STABLECOINS)[number];
 
