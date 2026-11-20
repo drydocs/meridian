@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Decides which of the expensive jobs below a push actually needs.
   # Job-level `paths` doesn't exist in Actions, and a workflow-level filter
@@ -14,6 +18,7 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
@@ -60,6 +65,8 @@ jobs:
             contracts:
               - .github/workflows/ci.yml
               - "packages/contracts/**"
+              - "scripts/check-wasm-size.ts"
+              - "packages/shared/src/wasm-size-budget.ts"
               - "scripts/deploy-*.sh"
               - "scripts/redeploy-*.sh"
               - "scripts/lib/**"
@@ -68,6 +75,7 @@ jobs:
   lint-typecheck:
     name: Lint & Typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6.1.1
@@ -87,6 +95,7 @@ jobs:
   vercel-build:
     name: Verify Vercel Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6.1.1
@@ -111,6 +120,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.test == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6.1.1
@@ -126,6 +136,7 @@ jobs:
     name: Commit Messages
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
@@ -138,6 +149,7 @@ jobs:
     name: Dependency Review
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/dependency-review-action@v5
@@ -147,6 +159,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Drives the real dev stack against real Stellar testnet RPC (wallet
     # signing is mocked, see apps/web/e2e/fixtures.ts), so it exercises
     # the real API and Soroban simulation paths end to end. Tests use page.route()
@@ -181,8 +194,12 @@ jobs:
     needs: changes
     if: needs.changes.outputs.contracts == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The WASM size check builds the PR's base commit for its delta.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32v1-none
@@ -217,3 +234,17 @@ jobs:
       - name: Build wasm
         working-directory: packages/contracts
         run: cargo build --target wasm32v1-none --release
+      # Compares each contract's release WASM with its budget in
+      # packages/contracts/wasm-size-budgets.json and, on PRs, with a build of
+      # the base commit (same command, separate target dir). Fails when a
+      # contract is over budget; the table also goes to the job summary.
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check contract WASM size budgets
+        env:
+          WASM_SIZE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: pnpm check:wasm-size
