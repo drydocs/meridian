@@ -1,4 +1,6 @@
 export * from "./types";
+export * from "./rate-limit";
+export * from "./rate-limit-store";
 export * from "./tx";
 export * from "./positions";
 export * from "./position-history";

@@ -64,7 +64,7 @@ describe("Rate limit production fail-closed scoping (#621)", () => {
     await expect(import("../_lib/middleware.js")).resolves.toBeDefined();
   }, 15000);
 
-  it("allows non-strict read-only routes to fall back to in-memory limiter in production without Upstash", async () => {
+  it("allows read-only routes to fall back to in-memory limiter in production without Upstash", async () => {
     process.env.VERCEL_ENV = "production";
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -75,12 +75,12 @@ describe("Rate limit production fail-closed scoping (#621)", () => {
     const req = fakeReq("GET", { "x-vercel-forwarded-for": "1.2.3.4" });
     const res = fakeRes();
 
-    const allowed = await mod.checkRateLimit(req, res, { strict: false });
+    const allowed = await mod.checkRateLimit(req, res, { policy: "read" });
     expect(allowed).toBe(true);
     expect(res.statusCode).toBe(200);
   }, 15000);
 
-  it("fails with HTTP 503 for strict critical routes in production when Upstash is unconfigured", async () => {
+  it("fails with HTTP 503 for fail-closed critical routes in production when Upstash is unconfigured", async () => {
     process.env.VERCEL_ENV = "production";
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -91,7 +91,7 @@ describe("Rate limit production fail-closed scoping (#621)", () => {
     const req = fakeReq("POST", { "x-vercel-forwarded-for": "1.2.3.4" });
     const res = fakeRes();
 
-    const allowed = await mod.checkRateLimit(req, res, { strict: true });
+    const allowed = await mod.checkRateLimit(req, res, { policy: "txBuild" });
     expect(allowed).toBe(false);
     expect(res.statusCode).toBe(503);
     expect(res.body).toEqual(
@@ -102,7 +102,7 @@ describe("Rate limit production fail-closed scoping (#621)", () => {
   }, 15000);
 
   it.each(["preview", "development"])(
-    "fails with HTTP 503 for strict routes when VERCEL_ENV=%s and Upstash is unconfigured",
+    "fails with HTTP 503 for fail-closed routes when VERCEL_ENV=%s and Upstash is unconfigured",
     async (vercelEnv) => {
       process.env.VERCEL_ENV = vercelEnv;
       delete process.env.UPSTASH_REDIS_REST_URL;
@@ -114,7 +114,7 @@ describe("Rate limit production fail-closed scoping (#621)", () => {
       const req = fakeReq("POST", { "x-vercel-forwarded-for": "1.2.3.4" });
       const res = fakeRes();
 
-      const allowed = await mod.checkRateLimit(req, res, { strict: true });
+      const allowed = await mod.checkRateLimit(req, res, { policy: "txBuild" });
       expect(allowed).toBe(false);
       expect(res.statusCode).toBe(503);
       expect(res.body).toEqual(
@@ -124,7 +124,7 @@ describe("Rate limit production fail-closed scoping (#621)", () => {
     15000
   );
 
-  it("lets strict routes use the in-memory limiter in local dev (no VERCEL_ENV)", async () => {
+  it("lets fail-closed routes use the in-memory limiter in local dev (no VERCEL_ENV)", async () => {
     delete process.env.VERCEL_ENV;
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -135,12 +135,12 @@ describe("Rate limit production fail-closed scoping (#621)", () => {
     const req = fakeReq("POST", { "x-vercel-forwarded-for": "1.2.3.4" });
     const res = fakeRes();
 
-    const allowed = await mod.checkRateLimit(req, res, { strict: true });
+    const allowed = await mod.checkRateLimit(req, res, { policy: "txBuild" });
     expect(allowed).toBe(true);
     expect(res.statusCode).toBe(200);
   }, 15000);
 
-  it("allows strict routes when distributed rate limiting is configured", async () => {
+  it("allows fail-closed routes when distributed rate limiting is configured", async () => {
     process.env.VERCEL_ENV = "production";
     process.env.UPSTASH_REDIS_REST_URL = "https://mock-redis.upstash.io";
     process.env.UPSTASH_REDIS_REST_TOKEN = "mock-token";
