@@ -5,6 +5,7 @@ import {
   checkRateLimit,
   requireGetMethod,
 } from "../../_lib/middleware.js";
+import { logError } from "../../_lib/logger.js";
 
 const HISTORY_CACHE_CONTROL = "public, s-maxage=30, stale-while-revalidate=120";
 
@@ -20,7 +21,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!(await checkRateLimit(req, res))) return;
   } catch (err) {
-    console.error("[admin] rate limit check failed:", err);
+    logError("admin.rate_limit_failed", req, err);
     return res
       .status(503)
       .json({ error: "Rate limiter unavailable; refusing to run" });
@@ -31,7 +32,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (resource === "vault-state") {
     if (requireGetMethod(req, res)) return;
     const result = await handleGetVaultState();
-    if (result.error) console.error("[admin/vault-state] error:", result.error);
+    if (result.error) logError("admin.vault_state_failed", req, result.error);
     res.setHeader("Cache-Control", "no-store");
     return res.status(result.status).json(result.body);
   }

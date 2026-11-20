@@ -15,12 +15,21 @@ import { positionsRoute } from "./routes/positions";
 import { txRoute } from "./routes/tx";
 import { keepersRoute } from "./routes/keepers";
 import { adminRoute } from "./routes/admin";
+import { writeLog } from "../../../api/_lib/logger";
 
 // Rate limits: one shared 100 req/min limiter across all routes, matching the
 // deployed handlers' shared Upstash sliding window (api/_lib/middleware.ts).
 // Body limit: 10 KB on all routes to block oversized payload attacks.
 // Security headers: X-Content-Type-Options and X-Frame-Options on every response.
 const app = Fastify({ logger: true, bodyLimit: 10 * 1024 });
+
+app.addHook("onRequest", async (request) => {
+  writeLog("info", "http.request", {
+    requestId: request.id,
+    method: request.method,
+    route: request.url,
+  });
+});
 
 const redisClient = process.env.REDIS_URL
   ? new Redis(process.env.REDIS_URL)
@@ -53,6 +62,7 @@ app.get("/health", async () => ({ status: "ok" }));
 try {
   await app.listen({ port: Number(process.env.PORT ?? 3001), host: "0.0.0.0" });
 } catch (err) {
+  writeLog("error", "http.server_start_failed", { error: err });
   app.log.error(err);
   process.exit(1);
 }
