@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
 import { useToastStore } from "../../store/toast";
@@ -70,6 +70,10 @@ vi.mock("../../lib/wallet", () => ({
     sign: vi.fn(async () => "SIGNED_XDR"),
     isAuthorized: vi.fn(async () => true),
   },
+  isWalletCancellation: (err: unknown) =>
+    err instanceof Error && err.name === "WalletCancelledError",
+  isWalletTimeout: (err: unknown) =>
+    err instanceof Error && err.name === "WalletTimeoutError",
 }));
 
 vi.mock("../../lib/api", () => ({
@@ -201,9 +205,12 @@ describe("useVaultActions — deposit", () => {
       min_shares_out: "4.9750000",
       riskAcknowledged: true,
     });
+    // Deposit passes an abort signal so the user can cancel an open wallet
+    // popup (#1301); the passphrase is still the build's.
     expect(wallet.sign).toHaveBeenCalledWith(
       "DEPOSIT_XDR",
-      APP_NETWORK.passphrase
+      APP_NETWORK.passphrase,
+      { signal: expect.any(AbortSignal) }
     );
     expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
     expect(useToastStore.getState().toasts[0]).toMatchObject({
@@ -589,5 +596,99 @@ describe("useVaultActions — fresh vault state slippage", () => {
       kind: "error",
       message: "Vault state unavailable",
     });
+  });
+});
+
+describe("useVaultActions — wallet timeouts and cancellation (#1301)", () => {
+  function namedError(name: string, message: string): Error {
+    const err = new Error(message);
+    err.name = name;
+    return err;
+  }
+
+  it("returns to idle and toasts the timeout when signing times out", async () => {
+    vi.mocked(wallet.sign).mockRejectedValueOnce(
+      namedError("WalletTimeoutError", "Wallet sign did not respond")
+    );
+    const { result } = renderHook(() => useVaultActions());
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.deposit(
+        "10",
+        "blend-usdc-fixed",
+        "USDC",
+        undefined,
+        true
+      );
+    });
+
+    expect(ok).toBe(false);
+    // Nothing was submitted, and the deposit flag is cleared so the form is
+    // usable again rather than stuck on "Waiting...".
+    expect(api.submitTx).not.toHaveBeenCalled();
+    expect(result.current.isDepositing).toBe(false);
+    expect(useToastStore.getState().toasts[0]).toMatchObject({ kind: "error" });
+  });
+
+  it("returns false silently when the user cancels the signature", async () => {
+    vi.mocked(wallet.sign).mockRejectedValueOnce(
+      namedError("WalletCancelledError", "Wallet sign was cancelled")
+    );
+    const { result } = renderHook(() => useVaultActions());
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.deposit(
+        "10",
+        "blend-usdc-fixed",
+        "USDC",
+        undefined,
+        true
+      );
+    });
+
+    expect(ok).toBe(false);
+    expect(result.current.isDepositing).toBe(false);
+    // A cancel is the user's own action, so it must not raise an error toast.
+    expect(useToastStore.getState().toasts).toHaveLength(0);
+  });
+
+  it("cancelSigning aborts the pending signature and clears the busy flag", async () => {
+    // A signature that never settles, standing in for a stuck wallet popup.
+    vi.mocked(wallet.sign).mockImplementation(
+      (_xdr, _passphrase, options) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () =>
+            reject(namedError("WalletCancelledError", "cancelled"))
+          );
+        })
+    );
+    const { result } = renderHook(() => useVaultActions());
+
+    let pending: Promise<boolean> | undefined;
+    act(() => {
+      pending = result.current.deposit(
+        "10",
+        "blend-usdc-fixed",
+        "USDC",
+        undefined,
+        true
+      );
+    });
+
+    await waitFor(() => expect(result.current.isDepositing).toBe(true));
+
+    act(() => result.current.cancelSigning());
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await pending;
+    });
+
+    expect(ok).toBe(false);
+    expect(result.current.isDepositing).toBe(false);
+    expect(api.submitTx).not.toHaveBeenCalled();
+    expect(useToastStore.getState().toasts).toHaveLength(0);
   });
 });

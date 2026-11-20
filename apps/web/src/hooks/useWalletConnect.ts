@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import {
   getSelectedWalletId,
   getWalletAdapter,
+  isWalletCancellation,
+  isWalletTimeout,
   setSelectedWalletId,
   type WalletId,
 } from "../lib/wallet";
@@ -10,7 +12,7 @@ import { useRiskDisclosure } from "./useRiskDisclosure";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "react-i18next";
 
-export type ConnectStatus = "idle" | "connecting" | "no-extension";
+export type ConnectStatus = "idle" | "connecting" | "no-extension" | "timeout";
 
 interface UseWalletConnectOptions {
   // For call sites where connecting isn't a deposit action, e.g. AdminLogin.
@@ -30,6 +32,9 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
   // still resolves to the right wallet from the very first render.
   const [attemptedWalletId, setAttemptedWalletId] =
     useState<WalletId>(getSelectedWalletId);
+  // Aborts the in-flight connect. The adapter's own promise cannot be
+  // cancelled, so aborting only stops this hook waiting on it (#1301).
+  const abortRef = useRef<AbortController | null>(null);
   // The risk-disclosure gate lives here, not in each component that can
   // trigger a connect (#720): there is more than one such call site
   // (WalletConnect.tsx's own button, VaultPanel.tsx's inline connect
@@ -43,15 +48,26 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
   async function connectNow(walletId: WalletId) {
     setAttemptedWalletId(walletId);
     const adapter = getWalletAdapter(walletId);
-    const installed = await adapter.isInstalled();
-    if (!installed) {
-      setStatus("no-extension");
-      return;
-    }
+    // One controller per attempt: cancelling or superseding a connect aborts
+    // exactly the attempt it belongs to.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const signal = controller.signal;
 
-    setStatus("connecting");
     try {
-      const key = await adapter.connect();
+      const installed = await adapter.isInstalled({ signal });
+      if (signal.aborted) return;
+      if (!installed) {
+        setStatus("no-extension");
+        return;
+      }
+
+      setStatus("connecting");
+      const key = await adapter.connect({ signal });
+      // A cancelled attempt must not connect, persist a selection, or fire a
+      // toast: the user already asked to go back to idle.
+      if (signal.aborted) return;
       // Only persisted on success: a failed or cancelled connect attempt
       // must not silently switch which wallet future sign/reconnect calls
       // (which dispatch off the persisted selection) go through.
@@ -60,6 +76,18 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
       setStatus("idle");
       push("success", t("walletConnect.walletConnected"));
     } catch (err) {
+      if (signal.aborted || isWalletCancellation(err)) {
+        setStatus("idle");
+        return;
+      }
+      if (isWalletTimeout(err)) {
+        // A wallet window can be behind the browser or blocked entirely, so
+        // the recovery is "look for the wallet, then retry" rather than a
+        // generic failure toast.
+        setStatus("timeout");
+        push("error", t("walletConnect.timeout"));
+        return;
+      }
       const message = err instanceof Error ? err.message : "";
       // User closed the popup — not an error worth surfacing
       if (!message || /cancel|decline|reject/i.test(message)) {
@@ -68,7 +96,17 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
       }
       push("error", message);
       setStatus("idle");
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
     }
+  }
+
+  // Returns the UI to idle immediately without touching the persisted
+  // selection, which only ever changes on a successful connect.
+  function cancelConnect() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setStatus("idle");
   }
 
   // Never connects directly: the actual connection only ever starts from
@@ -92,6 +130,7 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
     handleConnect,
     status,
     attemptedWalletId,
+    cancelConnect,
     showRiskDisclosure: riskDisclosure.show,
     acceptRiskDisclosure: riskDisclosure.accept,
     cancelRiskDisclosure: riskDisclosure.cancel,

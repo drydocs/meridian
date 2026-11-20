@@ -12,6 +12,7 @@ import { useToastStore } from "../../store/toast";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
 
 const handleConnect = vi.fn();
+const cancelConnect = vi.fn();
 const acceptRiskDisclosure = vi.fn();
 const cancelRiskDisclosure = vi.fn();
 const { freighterInstalled, lobstrInstalled } = vi.hoisted(() => ({
@@ -56,6 +57,7 @@ function mockConnect(overrides: Partial<ReturnType<typeof useWalletConnect>>) {
     handleConnect,
     status: "idle",
     attemptedWalletId: "freighter",
+    cancelConnect,
     showRiskDisclosure: false,
     acceptRiskDisclosure,
     cancelRiskDisclosure,
@@ -397,5 +399,36 @@ describe("WalletConnect — copy address", () => {
 
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+});
+
+describe("WalletConnect — stuck wallet popup (#1301)", () => {
+  it("offers a cancel control while connecting", () => {
+    mockConnect({ status: "connecting" });
+    render(<WalletConnect />);
+
+    fireEvent.click(screen.getByTestId("wallet-connect-cancel"));
+
+    expect(cancelConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not offer a cancel control when idle", () => {
+    mockConnect({ status: "idle" });
+    render(<WalletConnect />);
+
+    expect(screen.queryByTestId("wallet-connect-cancel")).toBeNull();
+  });
+
+  it("explains a timeout and offers a retry", () => {
+    mockConnect({ status: "timeout" });
+    render(<WalletConnect />);
+
+    expect(screen.getByTestId("wallet-connect-timeout").textContent).toContain(
+      "walletConnect.timeoutHint"
+    );
+
+    fireEvent.click(screen.getByTestId("wallet-connect-retry"));
+
+    expect(handleConnect).toHaveBeenCalledTimes(1);
   });
 });

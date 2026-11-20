@@ -51,6 +51,7 @@ beforeEach(() => {
     handleConnect,
     status: "idle",
     attemptedWalletId: "freighter",
+    cancelConnect: vi.fn(),
     showRiskDisclosure: false,
     acceptRiskDisclosure: vi.fn(),
     cancelRiskDisclosure: vi.fn(),

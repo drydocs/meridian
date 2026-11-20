@@ -32,6 +32,7 @@ interface DepositTabProps {
   hasPosition: boolean;
   isDepositing: boolean;
   onSubmit: () => void;
+  onCancelSigning?: () => void;
   availableBalance?: number;
 }
 
@@ -44,6 +45,7 @@ export function DepositTab({
   hasPosition,
   isDepositing,
   onSubmit,
+  onCancelSigning,
   availableBalance,
 }: DepositTabProps) {
   const { t, i18n } = useTranslation();
@@ -97,6 +99,15 @@ export function DepositTab({
       >
         {isDepositing ? t("vaultPanel.waiting") : t("vaultPanel.deposit")}
       </button>
+      {isDepositing && onCancelSigning && (
+        <button
+          data-testid="vault-deposit-cancel"
+          onClick={onCancelSigning}
+          className="w-full rounded-xl border border-gray-700 text-sm font-medium text-gray-400 py-2.5 hover:border-gray-600 hover:text-paper transition-colors duration-150"
+        >
+          {t("walletConnect.cancel")}
+        </button>
+      )}
     </div>
   );
 }

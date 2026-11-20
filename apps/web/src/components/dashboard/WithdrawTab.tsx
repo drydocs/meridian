@@ -11,6 +11,7 @@ interface WithdrawTabProps {
   hasPosition: boolean;
   isWithdrawing: boolean;
   onSubmit: () => void;
+  onCancelSigning?: () => void;
 }
 
 export function WithdrawTab({
@@ -22,6 +23,7 @@ export function WithdrawTab({
   hasPosition,
   isWithdrawing,
   onSubmit,
+  onCancelSigning,
 }: WithdrawTabProps) {
   const { t } = useTranslation();
 
@@ -66,6 +68,15 @@ export function WithdrawTab({
           >
             {isWithdrawing ? t("vaultPanel.waiting") : t("vaultPanel.withdraw")}
           </button>
+          {isWithdrawing && onCancelSigning && (
+            <button
+              data-testid="vault-withdraw-cancel"
+              onClick={onCancelSigning}
+              className="w-full rounded-xl border border-gray-700 text-sm font-medium text-gray-400 py-2.5 hover:border-gray-600 hover:text-paper transition-colors duration-150"
+            >
+              {t("walletConnect.cancel")}
+            </button>
+          )}
         </>
       )}
     </div>

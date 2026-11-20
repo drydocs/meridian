@@ -124,3 +124,50 @@ describe("useSignAndSubmit (#965)", () => {
     });
   });
 });
+
+describe("useSignAndSubmit — cancellation (#1301)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(wallet.isAuthorized).mockResolvedValue(true);
+    useWalletStore.setState({
+      publicKey: KEY,
+      connected: true,
+      network: APP_NETWORK.network,
+    });
+  });
+
+  it("passes the caller's abort signal through to the wallet", async () => {
+    const controller = new AbortController();
+    const { result } = renderHook(() => useSignAndSubmit());
+
+    await result.current.signAndSubmit("XDR", { signal: controller.signal });
+
+    expect(wallet.sign).toHaveBeenCalledWith("XDR", APP_NETWORK.passphrase, {
+      signal: controller.signal,
+    });
+  });
+
+  it("does not submit when the signature was cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    vi.mocked(wallet.sign).mockRejectedValueOnce(
+      new Error("Wallet sign was cancelled")
+    );
+    const { result } = renderHook(() => useSignAndSubmit());
+
+    await expect(
+      result.current.signAndSubmit("XDR", { signal: controller.signal })
+    ).rejects.toThrow("cancelled");
+
+    expect(api.submitTx).not.toHaveBeenCalled();
+  });
+
+  it("still signs without options for callers that pass none", async () => {
+    const { result } = renderHook(() => useSignAndSubmit());
+
+    await result.current.signAndSubmit("XDR");
+
+    // Two-argument call keeps older call sites and their assertions working.
+    expect(wallet.sign).toHaveBeenCalledWith("XDR", APP_NETWORK.passphrase);
+  });
+});

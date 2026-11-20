@@ -21,6 +21,10 @@ vi.mock("../../lib/wallet", () => ({
   setRiskDisclosureAccepted: vi.fn(() => {
     riskDisclosureAccepted = true;
   }),
+  isWalletCancellation: (err: unknown) =>
+    err instanceof Error && err.name === "WalletCancelledError",
+  isWalletTimeout: (err: unknown) =>
+    err instanceof Error && err.name === "WalletTimeoutError",
 }));
 
 vi.mock("react-i18next", () => {
@@ -215,5 +219,106 @@ describe("useWalletConnect — risk disclosure gate (#720)", () => {
 
     expect(result.current.showRiskDisclosure).toBe(false);
     expect(freighterAdapter.connect).toHaveBeenCalledOnce();
+  });
+});
+
+describe("useWalletConnect — timeouts and cancellation (#1301)", () => {
+  // Stands in for a wallet popup that never answers: blocked, or opened
+  // behind the browser window.
+  function never<T>(): Promise<T> {
+    return new Promise<T>(() => {});
+  }
+
+  function timeoutError() {
+    const err = new Error("Wallet connect did not respond");
+    err.name = "WalletTimeoutError";
+    return err;
+  }
+
+  it("leaves connecting and reports timeout when the wallet times out", async () => {
+    vi.mocked(freighterAdapter.isInstalled).mockResolvedValue(true);
+    // The adapter's own deadline rejects with a typed timeout; the real
+    // never-resolving path is covered in lib/wallet-timeout.test.ts.
+    vi.mocked(freighterAdapter.connect).mockRejectedValueOnce(timeoutError());
+
+    const { result } = renderHook(() => useWalletConnect());
+    await act(() => result.current.handleConnect());
+
+    expect(result.current.status).toBe("timeout");
+    expect(useToastStore.getState().toasts[0]).toMatchObject({
+      kind: "error",
+    });
+    expect(useWalletStore.getState().connected).toBe(false);
+  });
+
+  it("cancel returns to idle without persisting a selection", async () => {
+    vi.mocked(freighterAdapter.isInstalled).mockResolvedValue(true);
+    let resolveConnect: (key: string) => void = () => {};
+    vi.mocked(freighterAdapter.connect).mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveConnect = resolve;
+        })
+    );
+
+    const { result } = renderHook(() => useWalletConnect());
+    let pending: Promise<void> | undefined;
+    act(() => {
+      pending = result.current.handleConnect();
+    });
+    // Wait for the connect call to be in flight, so status is "connecting".
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.status).toBe("connecting");
+
+    act(() => result.current.cancelConnect());
+    expect(result.current.status).toBe("idle");
+
+    // The popup answers after the cancel: the cancelled attempt must not
+    // connect, persist, or toast.
+    await act(async () => {
+      resolveConnect(KEY);
+      await pending;
+    });
+
+    expect(useWalletStore.getState().connected).toBe(false);
+    expect(selectedWalletId).toBe("freighter");
+    expect(useToastStore.getState().toasts).toHaveLength(0);
+  });
+
+  it("cancel does not change a previously persisted selection", async () => {
+    selectedWalletId = "freighter";
+    vi.mocked(lobstrAdapter.isInstalled).mockResolvedValue(true);
+    vi.mocked(lobstrAdapter.connect).mockImplementation(never);
+
+    const { result } = renderHook(() => useWalletConnect());
+    act(() => {
+      void result.current.handleConnect("lobstr");
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => result.current.cancelConnect());
+
+    expect(selectedWalletId).toBe("freighter");
+  });
+
+  it("stays idle when the wallet never answers and the user cancels", async () => {
+    vi.mocked(freighterAdapter.isInstalled).mockResolvedValue(true);
+    vi.mocked(freighterAdapter.connect).mockImplementation(never);
+
+    const { result } = renderHook(() => useWalletConnect());
+    act(() => {
+      void result.current.handleConnect();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => result.current.cancelConnect());
+
+    expect(result.current.status).toBe("idle");
   });
 });
