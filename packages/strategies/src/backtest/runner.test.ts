@@ -4,7 +4,12 @@ import { ONE_DAY_MS, ONE_HOUR_MS, SimulationClock } from "../clock";
 import { BacktestPriceFeed } from "../feeds";
 import { FixedBpsSlippageModel } from "../slippage-model";
 import { BuyAndHoldStrategy } from "../strategy";
-import type { Order, Strategy, StrategyContext } from "../strategy";
+import type {
+  Order,
+  Strategy,
+  StrategyContext,
+  VenueStrategy,
+} from "../strategy";
 import { FixedPointDecimal } from "../types";
 import type { AssetSymbol } from "../types";
 import { runBacktest, serializeSnapshots } from "./runner";
@@ -322,6 +327,64 @@ describe("runBacktest", () => {
       result.snapshots[result.snapshots.length - 1]?.cash.toString();
     expect(last(split)).toBe("5.0000015");
     expect(last(split)).toBe(last(single));
+  });
+
+  it("reports fractional venue yield as total interest and an accrual event", () => {
+    const window = 1_000;
+    const observedVenueYield: string[] = [];
+    const strategy: VenueStrategy<null> = {
+      name: "fractional-venue-yield",
+      init: () => undefined,
+      step: () => undefined,
+      rebalance: (context) =>
+        context.market.timestamp === START
+          ? [
+              {
+                kind: "deploy",
+                venueId: "fractional",
+                asset: USDC,
+                amount: amount("1"),
+              },
+            ]
+          : [],
+      close: () => [],
+    };
+
+    const result = runBacktest({
+      clock: new SimulationClock({
+        start: START,
+        end: START + window,
+        stepMs: 1,
+      }),
+      assets: [USDC],
+      prices: BacktestPriceFeed.create({
+        USDC: [
+          { timestamp: START, price: "1" },
+          { timestamp: START + window, price: "1" },
+        ],
+      }),
+      strategy,
+      strategyConfig: null,
+      initialCash: amount("1"),
+      accrual: {
+        venueRates: {
+          fractional: { ratePerSecond: amount("0.0000001") },
+        },
+      },
+      observer: {
+        onAccrual: ({ transactions }) => {
+          for (const transaction of transactions) {
+            if (transaction.type === "venue-yield") {
+              observedVenueYield.push(transaction.amount.toString());
+            }
+          }
+        },
+      },
+    });
+
+    expect(result.totalInterest.toString()).toBe("0.0000001");
+    expect(result.finalValue.toString()).toBe("1.0000001");
+    expect(observedVenueYield).toEqual(["0.0000001"]);
   });
 
   it("fills orders through the cost model after slippage", () => {
