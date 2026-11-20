@@ -24,7 +24,12 @@ function formatTvl(value: number): string {
 type Tab = "deposit" | "withdraw";
 
 export function VaultPanel() {
-  const { data, isLoading: vaultsLoading } = useVaults();
+  const {
+    data,
+    isLoading: vaultsLoading,
+    isError: vaultsError,
+    refetch: refetchVaults,
+  } = useVaults();
   const vaults = data?.vaults;
   const { t } = useTranslation();
   const { connected, publicKey } = useWalletStore();
@@ -173,6 +178,22 @@ export function VaultPanel() {
               </div>
             ))}
           </div>
+        ) : vaultsError ? (
+          <div className="rounded-xl border border-amber-800/70 bg-amber-950/20 px-4 py-4">
+            <p className="text-sm text-amber-400">
+              {t("vaultPanel.vaultsError")}
+            </p>
+            <button
+              onClick={() => void refetchVaults()}
+              className="mt-3 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 transition-colors"
+            >
+              {t("common.retry")}
+            </button>
+          </div>
+        ) : !vaults || vaults.length === 0 ? (
+          <div className="rounded-xl border border-gray-800 bg-gray-900/40 px-4 py-4">
+            <p className="text-sm text-gray-300">{t("vaultPanel.noVaults")}</p>
+          </div>
         ) : bestVault ? (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -204,9 +225,15 @@ export function VaultPanel() {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">
-            {t("vaultPanel.noLiveRateData")}
-          </p>
+          <div className="rounded-xl border border-gray-800 bg-gray-900/40 px-4 py-4">
+            <p className="text-sm text-gray-300">{t("vaultPanel.noMatches")}</p>
+            <button
+              onClick={() => void refetchVaults()}
+              className="mt-3 rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-300 hover:border-gray-500 transition-colors"
+            >
+              {t("vaultPanel.resetFilters")}
+            </button>
+          </div>
         )}
       </div>
 

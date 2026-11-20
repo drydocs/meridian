@@ -58,6 +58,16 @@ function mockVaultsLoaded() {
   } as ReturnType<typeof useVaults>);
 }
 
+function mockVaults(overrides: Partial<ReturnType<typeof useVaults>>) {
+  vi.mocked(useVaults).mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+    ...overrides,
+  } as ReturnType<typeof useVaults>);
+}
+
 function mockPositions(overrides: Partial<ReturnType<typeof usePositions>>) {
   vi.mocked(usePositions).mockReturnValue({
     data: [],
@@ -132,6 +142,33 @@ describe("VaultPanel — position load error", () => {
     render(<VaultPanel />);
 
     expect(screen.queryByText("vaultPanel.positionsError")).toBeNull();
+  });
+});
+
+describe("VaultPanel — vault list states", () => {
+  it("offers retry when the vault read fails", () => {
+    const refetch = vi.fn();
+    mockVaults({ isError: true, refetch });
+    render(<VaultPanel />);
+    fireEvent.click(screen.getByText("common.retry"));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a dedicated empty state when no vaults exist", () => {
+    mockVaults({ data: { vaults: [], recommendedVaultId: null } });
+    render(<VaultPanel />);
+    expect(screen.getByText("vaultPanel.noVaults")).toBeDefined();
+  });
+
+  it("offers a reset action when the active filter has no match", () => {
+    const refetch = vi.fn();
+    mockVaults({
+      data: { vaults: [VAULT], recommendedVaultId: null },
+      refetch,
+    });
+    render(<VaultPanel />);
+    fireEvent.click(screen.getByText("vaultPanel.resetFilters"));
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });
 
