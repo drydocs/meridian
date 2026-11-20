@@ -5197,11 +5197,11 @@ mod tests {
         env.set_auths(&[]);
 
         assert_eq!(
-            vault.try_set_total_deposit_cap(&1_000_0000000),
+            vault.try_set_total_deposit_cap(&10_000_000_000),
             Err(Err(soroban_sdk::InvokeError::Abort))
         );
         assert_eq!(
-            vault.try_set_deposit_cap(&1_000_0000000),
+            vault.try_set_deposit_cap(&10_000_000_000),
             Err(Err(soroban_sdk::InvokeError::Abort))
         );
     }
