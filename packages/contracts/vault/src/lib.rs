@@ -6,7 +6,7 @@ mod storage;
 
 pub use errors::ContractError;
 pub use storage::{
-    clear_position_records, DataKey, MigrationSnapshot, ADAPTER, ADMIN, ADPT_SH,
+    clear_position_records, DataKey, MigrationSnapshot, PositionSummary, ADAPTER, ADMIN, ADPT_SH,
     DEPOSIT_VALUE_TOLERANCE_BPS, DEPOSIT_VALUE_TOLERANCE_STROOPS, LOCKED, MAX_ADMIN_SLIPPAGE_BPS,
     MIG_ACTIVE, MIG_SNAP, MIN_LEDGER_GAP, MUSDC, OFFSET, PAUSED, PEND_ADM, TOTAL_SH, TREASURY,
     USDC,
@@ -1085,6 +1085,33 @@ impl MeridianVault {
         }
         let key = DataKey::Principal(address);
         env.storage().persistent().get(&key).unwrap_or(0)
+    }
+
+    /// Returns an aggregate summary of an address's position (shares, principal,
+    /// entry time, and current asset value) at a consistent ledger snapshot.
+    ///
+    /// If the address holds no shares, returns zeroed values without trapping.
+    pub fn get_position_summary(env: Env, address: Address) -> PositionSummary {
+        let shares = Self::get_position(env.clone(), address.clone());
+        if shares <= 0 {
+            return PositionSummary {
+                shares: 0,
+                principal: 0,
+                entry_time: 0,
+                current_value: 0,
+            };
+        }
+
+        let principal = Self::get_principal(env.clone(), address.clone());
+        let entry_time = Self::get_entry_time(env.clone(), address.clone());
+        let current_value = Self::convert_to_assets(env, shares).unwrap_or(0);
+
+        PositionSummary {
+            shares,
+            principal,
+            entry_time,
+            current_value,
+        }
     }
 
     /// Permissionless entry point that extends the TTL of instance storage
@@ -7149,6 +7176,87 @@ mod tests {
             assert_every_reentry_rejected(&r, &r.usdc, "migrate/usdc", attack);
             assert_migrated(&r, &new_adapter);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Aggregate position summary tests (#1341)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn position_summary_on_empty_position_returns_zeroed_values() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let empty_user = Address::generate(&env);
+
+        let summary = vault.get_position_summary(&empty_user);
+        assert_eq!(
+            summary,
+            PositionSummary {
+                shares: 0,
+                principal: 0,
+                entry_time: 0,
+                current_value: 0,
+            }
+        );
+
+        // Verify existing getters remain unchanged
+        assert_eq!(vault.get_position(&empty_user), 0);
+        assert_eq!(vault.get_principal(&empty_user), 0);
+        assert_eq!(vault.get_entry_time(&empty_user), 0);
+    }
+
+    #[test]
+    fn position_summary_on_fresh_position() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        let amount = 100_0000000_i128; // 100 USDC
+
+        let expected_time = env.ledger().timestamp();
+        let shares = vault.deposit(&user, &amount, &0);
+
+        let summary = vault.get_position_summary(&user);
+        assert_eq!(summary.shares, shares);
+        assert_eq!(summary.principal, amount);
+        assert_eq!(summary.entry_time, expected_time);
+        assert_eq!(summary.current_value, amount);
+
+        // Existing single-field getters match
+        assert_eq!(vault.get_position(&user), summary.shares);
+        assert_eq!(vault.get_principal(&user), summary.principal);
+        assert_eq!(vault.get_entry_time(&user), summary.entry_time);
+    }
+
+    #[test]
+    fn position_summary_on_earning_position() {
+        let (env, _admin, user, usdc, _musdc, adapter, vault) = setup();
+        let amount = 100_0000000_i128; // 100 USDC
+
+        let shares = vault.deposit(&user, &amount, &0);
+        let fresh_summary = vault.get_position_summary(&user);
+        assert_eq!(fresh_summary.current_value, amount);
+
+        // Simulate 20 USDC yield arriving at adapter
+        let yield_amount = 20_0000000_i128;
+        StellarAssetClient::new(&env, &usdc).mint(&adapter, &yield_amount);
+
+        let earning_summary = vault.get_position_summary(&user);
+        assert_eq!(earning_summary.shares, shares);
+        assert_eq!(earning_summary.principal, amount);
+        assert_eq!(earning_summary.entry_time, fresh_summary.entry_time);
+        // Current value should reflect the yield
+        assert!(earning_summary.current_value > amount);
+        assert_eq!(earning_summary.current_value, amount + yield_amount);
+
+        // Full exit resets summary to zero
+        vault.withdraw(&user, &shares, &0);
+        let exited_summary = vault.get_position_summary(&user);
+        assert_eq!(
+            exited_summary,
+            PositionSummary {
+                shares: 0,
+                principal: 0,
+                entry_time: 0,
+                current_value: 0,
+            }
+        );
     }
 
     #[test]
