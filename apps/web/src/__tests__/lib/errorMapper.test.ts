@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mapError } from "../../lib/errorMapper";
+import { mapError, WALLET_DISCONNECTED_ERROR } from "../../lib/errorMapper";
 import type { TFunction } from "i18next";
 
 // Minimal t() that returns the key (and optionally the interpolation params
@@ -66,11 +66,13 @@ describe("mapError", () => {
     ["Failed to build withdraw transaction", "errors.withdrawBuildFailed"],
     ["Failed to build trustline transaction", "errors.trustlineBuildFailed"],
     ["Failed to submit transaction", "errors.submitFailed"],
-    ["Wallet Disconnected", "errors.walletDisconnected"],
+    [WALLET_DISCONNECTED_ERROR, "errors.walletDisconnected"],
     ["User declined access", "errors.walletDeclined"],
     ["User declined request", "errors.walletDeclined"],
     ["User cancelled", "errors.walletDeclined"],
     ["User rejected", "errors.walletDeclined"],
+    ["Signing cancelled", "errors.walletDeclined"],
+    ["Connection cancelled", "errors.walletDeclined"],
   ];
 
   knownCases.forEach(([serverMessage, expectedKey]) => {
@@ -103,12 +105,27 @@ describe("mapError", () => {
   it("maps dynamic wallet decline messages via pattern match", () => {
     const declineMessages = [
       "User cancelled the request",
-      "Request rejected by user",
-      "Transaction declined",
+      "User rejected the request",
+      "User declined to sign",
     ];
     for (const msg of declineMessages) {
       const result = mapError(new Error(msg), t);
       expect(result.message).toBe("errors.walletDeclined");
+    }
+  });
+
+  it("does not treat on-chain or network failures as a wallet decline", () => {
+    // The decline pattern is anchored to a leading decline verb, so a message
+    // that merely contains one of those words further on — e.g. a contract or
+    // network rejection — must not be misreported as "You declined the
+    // request" (it falls through to the unmapped path instead).
+    const notDecline = [
+      "Transaction rejected",
+      "Transaction declined by the network",
+    ];
+    for (const msg of notDecline) {
+      const result = mapError(new Error(msg), t);
+      expect(result.message).not.toBe("errors.walletDeclined");
     }
   });
 

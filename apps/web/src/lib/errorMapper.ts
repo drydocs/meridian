@@ -12,6 +12,14 @@
 import type { TFunction } from "i18next";
 
 /**
+ * Stable, locale-independent code thrown by the disconnected guard in
+ * `useSignAndSubmit`. `mapError` matches on this code rather than the
+ * translated `walletConnect.walletDisconnected` string, whose text differs
+ * per locale and so could never match the table in non-English builds.
+ */
+export const WALLET_DISCONNECTED_ERROR = "WALLET_DISCONNECTED";
+
+/**
  * Map from the exact server-sent error strings defined in
  * `packages/api-core/src/tx.ts` to i18n translation keys.
  */
@@ -51,14 +59,26 @@ const SERVER_MESSAGE_TO_KEY: Record<string, string> = {
   "Failed to build trustline transaction": "errors.trustlineBuildFailed",
   "Failed to submit transaction": "errors.submitFailed",
 
-  // wallet.sign() — wallet disconnected
-  "Wallet Disconnected": "errors.walletDisconnected",
+  // useSignAndSubmit's disconnected guard. Matched on a stable code, not the
+  // translated `walletConnect.walletDisconnected` string (which differs per
+  // locale and so would never match here in fr).
+  [WALLET_DISCONNECTED_ERROR]: "errors.walletDisconnected",
 
-  // wallet.sign() / wallet.connect() — user closed the popup
+  // wallet.connect() / wallet.sign() — user closed the popup or rejected the
+  // request. These strings come from the wallet adapters / SDKs, which do not
+  // localize, so matching the English text is stable across locales.
   "User declined access": "errors.walletDeclined",
   "User declined request": "errors.walletDeclined",
   "User cancelled": "errors.walletDeclined",
   "User rejected": "errors.walletDeclined",
+
+  // Adapters throw this when sign() returns no signed XDR (the user closed the
+  // signing popup). It does not start with a decline verb, so the anchored
+  // dynamic fallback below would miss it; pin it here instead.
+  "Signing cancelled": "errors.walletDeclined",
+
+  // Albedo throws this when the user rejects the connect popup.
+  "Connection cancelled": "errors.walletDeclined",
 };
 
 /**
@@ -79,7 +99,14 @@ function isMissingTrustlineMessage(message: string): boolean {
  * but can arrive with different exact phrasings from different wallet adapters.
  */
 function isWalletDeclineMessage(message: string): boolean {
-  return /cancel|decline|reject/i.test(message);
+  // Treat a message as a wallet decline only when a decline verb leads it,
+  // optionally prefixed with "user ". A bare substring test would also match
+  // network/contract failures that merely contain one of these words later
+  // in the message (e.g. "Transaction rejected"), wrongly surfacing them as
+  // "You declined the request". Anchoring at the start avoids that; the known
+  // adapter strings that don't fit this shape ("Signing cancelled",
+  // "Connection cancelled") are pinned in the exact-match table above.
+  return /^(user )?(declined|cancel(l)?ed|rejected)\b/i.test(message);
 }
 
 /**
