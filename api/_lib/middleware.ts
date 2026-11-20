@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { CONFIG_CACHE_CONTROL } from "@meridian/api-core";
 import { APP_NETWORK, DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
@@ -115,6 +116,15 @@ export function vaultReadCacheControl(): string {
   return APP_NETWORK.network === "testnet"
     ? TESTNET_VAULT_CACHE_CONTROL
     : MAINNET_VAULT_CACHE_CONTROL;
+}
+
+/**
+ * Cache-Control for GET /api/v1/config responses. Returns a short cache policy
+ * when complete, or no-store if active adapter resolution degraded so transient
+ * RPC errors are not cached at the edge.
+ */
+export function configCacheControl(degraded = false): string {
+  return degraded ? "no-store" : CONFIG_CACHE_CONTROL;
 }
 
 function clientIp(req: VercelRequest): string {
