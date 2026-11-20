@@ -12,11 +12,13 @@ export type {
   Position,
   Transaction,
   AdapterInfo,
+  WithdrawPreview,
 } from "./types.js";
 export type { Rounding } from "./vault-base.js";
 export {
   VaultBase,
   VIRTUAL_OFFSET,
+  SHARE_PRICE_SCALE,
   convertAssetsToShares,
   convertSharesToAssets,
 } from "./vault-base.js";
