@@ -159,7 +159,12 @@ describe("GET /api/v1/positions/:publicKey/history", () => {
       url: `/api/v1/positions/${WALLET}/history`,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ days: 30, snapshots: [snapshot] });
+    expect(res.json()).toMatchObject({
+      days: 30,
+      resolution: "hour",
+      truncated: false,
+      nextCursor: null,
+    });
   });
 
   it("forwards the days query parameter", async () => {

@@ -868,7 +868,9 @@ describe("GET /api/v1/positions/:publicKey/history", () => {
     expect(res.body).toEqual({
       publicKey: PUBKEY,
       days: 7,
-      snapshots: [snapshot],
+      resolution: "hour",
+      truncated: false,
+      nextCursor: null,
     });
     expect(res.headers["Cache-Control"]).toBe("no-store");
   });

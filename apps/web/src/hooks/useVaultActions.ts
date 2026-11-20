@@ -14,6 +14,7 @@ import {
   computeMinUsdcOut,
   fetchFreshVaultState,
 } from "./useVaultState";
+import { useActivityStore } from "../store/activity";
 
 /**
  * Live vault totals for pricing a slippage floor, falling back to the cached
@@ -56,6 +57,7 @@ export function useVaultActions() {
   const { hasRequiredTrustlines, addTrustline } = useTrustlines();
   const { hasBlendUsdcBalance, fundFromBlendFaucet } = useBlendFaucet();
   const { startPolling } = usePositionPolling();
+  const { addPending, updateActivity } = useActivityStore.getState();
 
   async function deposit(
     amount: string,
@@ -67,6 +69,12 @@ export function useVaultActions() {
     if (!riskAcknowledged) return false;
     if (!publicKey || !passphrase) return false;
     setIsDepositing(true);
+    const activityId = addPending({
+      action: "deposit",
+      amount,
+      asset,
+      vaultId,
+    });
     try {
       // Snapshot the cached positions before any async work so the optimistic
       // update and the poll share a baseline, the same shape as `withdraw`.
@@ -124,7 +132,13 @@ export function useVaultActions() {
         min_shares_out: resolvedMinSharesOut,
         riskAcknowledged: true,
       });
-      await signAndSubmit(xdr);
+      const txHash = await signAndSubmit(xdr);
+
+      updateActivity(activityId, {
+        transactionHash: txHash,
+        status: "confirmed",
+        error: undefined,
+      });
 
       // Without this, the vault panel's TVL/APY keep serving their cached
       // value for up to staleTime (5 min) after a deposit actually lands.
@@ -171,6 +185,10 @@ export function useVaultActions() {
       const msg =
         err instanceof Error ? err.message : t("vaultActions.depositFailed");
       push("error", msg);
+      updateActivity(activityId, {
+        status: "failed",
+        error: msg,
+      });
       return false;
     } finally {
       setIsDepositing(false);
@@ -185,6 +203,12 @@ export function useVaultActions() {
   ): Promise<boolean> {
     if (!publicKey || !passphrase) return false;
     setIsWithdrawing(true);
+    const activityId = addPending({
+      action: "withdraw",
+      amount: shares,
+      asset,
+      vaultId,
+    });
     try {
       // Snapshot the current positions before any async work so the optimistic
       // update and poll have a consistent baseline.
@@ -226,8 +250,13 @@ export function useVaultActions() {
         shares,
         min_usdc_out: resolvedMinUsdcOut,
       });
+      const txHash = await signAndSubmit(xdr);
 
-      await signAndSubmit(xdr);
+      updateActivity(activityId, {
+        transactionHash: txHash,
+        status: "confirmed",
+        error: undefined,
+      });
 
       // Without this, the vault panel's TVL/APY keep serving their cached
       // value for up to staleTime (5 min) after a withdrawal actually lands.
@@ -262,10 +291,13 @@ export function useVaultActions() {
       push("success", `${t("vaultActions.withdrew")} ${shares} ${asset}`);
       return true;
     } catch (err) {
-      push(
-        "error",
-        err instanceof Error ? err.message : t("vaultActions.withdrawalFailed")
-      );
+      const msg =
+        err instanceof Error ? err.message : t("vaultActions.withdrawalFailed");
+      push("error", msg);
+      updateActivity(activityId, {
+        status: "failed",
+        error: msg,
+      });
       return false;
     } finally {
       setIsWithdrawing(false);
