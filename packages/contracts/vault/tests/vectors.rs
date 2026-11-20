@@ -1,17 +1,25 @@
 use serde::Deserialize;
 use std::fs;
-use std::path::Path;
 
 #[derive(Deserialize, Debug)]
 struct VectorFile {
+    #[allow(dead_code)]
     version: u32,
+    #[allow(dead_code)]
+    contract_version: Option<String>,
     virtual_offset: String,
+    #[allow(dead_code)]
+    performance_fee_bps: Option<String>,
+    #[allow(dead_code)]
+    bps_denominator: Option<String>,
     vectors: Vec<Vector>,
 }
 
 #[derive(Deserialize, Debug)]
 struct Vector {
     name: String,
+    #[allow(dead_code)]
+    description: String,
     inputs: VectorInputs,
     expected: VectorExpected,
 }
@@ -20,7 +28,7 @@ struct Vector {
 struct VectorInputs {
     assets: Option<String>,
     total_assets: Option<String>,
-    total_shares: Option<String>,
+    total_shares: Option<String>, 
     shares: Option<String>,
     usdc_out: Option<String>,
     principal_out: Option<String>,
@@ -31,6 +39,7 @@ struct VectorInputs {
 #[derive(Deserialize, Debug)]
 struct VectorExpected {
     shares_out: Option<String>,
+    #[allow(dead_code)]
     share_price: Option<String>,
     assets_out: Option<String>,
     gain: Option<String>,
@@ -39,9 +48,9 @@ struct VectorExpected {
 
 #[test]
 fn test_vault_math_conformance_vectors() {
-    let path_str = "../../shared/vectors/vault_math_v1.json";
-    let data = fs::read_to_string(path_str)
-        .unwrap_or_else(|_| fs::read_to_string("packages/shared/vectors/vault_math_v1.json").unwrap());
+    let data = fs::read_to_string("../../shared/vectors/vault_math_v1.json")
+        .or_else(|_| fs::read_to_string("packages/shared/vectors/vault_math_v1.json"))
+        .expect("Failed to read vault_math_v1.json vector file");
     let suite: VectorFile = serde_json::from_str(&data).unwrap();
 
     assert_eq!(suite.virtual_offset, meridian_vault::storage::OFFSET.to_string());
@@ -59,8 +68,7 @@ fn test_vault_math_conformance_vectors() {
             let shares = v.inputs.shares.as_deref().unwrap_or("0").parse::<i128>().unwrap();
             let total_shares = v.inputs.total_shares.as_deref().unwrap_or("0").parse::<i128>().unwrap();
             let total_assets = v.inputs.total_assets.as_deref().unwrap_or("0").parse::<i128>().unwrap();
-            // raw ratio or adapter shares
-            let adapter_shares = shares; // 1:1 in test vectors
+            let adapter_shares = shares;
             let assets = meridian_vault::pricing::assets_for_adapter_shares(adapter_shares, total_assets, total_shares).unwrap();
             if let Some(expected_assets) = &v.expected.assets_out {
                 assert_eq!(assets, expected_assets.parse::<i128>().unwrap(), "Failed on vector {}", v.name);

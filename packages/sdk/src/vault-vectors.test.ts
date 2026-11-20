@@ -5,7 +5,6 @@ import {
   convertAssetsToShares,
   convertSharesToAssets,
   VIRTUAL_OFFSET,
-  SHARE_PRICE_SCALE,
 } from "./vault-base.js";
 
 interface Vector {
