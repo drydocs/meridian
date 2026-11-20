@@ -306,7 +306,7 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 
 ## Error codes
 
-`ContractError` (defined in `vault/src/lib.rs`) gives fallible entry points typed, stable error codes instead of panic strings:
+`ContractError` (defined in `packages/contracts/vault/src/errors.rs`) gives fallible entry points typed, stable error codes instead of panic strings. For the complete catalog across the vault, adapters, and mUSDC token—including causes and recommended client or operator responses—see the [Contract Error Reference](./contract-errors.md).
 
 | Variant                          | Code | Meaning                                                                                                                                                                                           |
 | -------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
