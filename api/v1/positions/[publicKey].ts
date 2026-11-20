@@ -4,6 +4,8 @@ import {
   applyCors,
   checkRateLimit,
   requireGetMethod,
+  getRequestId,
+  sendResponse,
 } from "../../_lib/middleware.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -12,17 +14,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!(await checkRateLimit(req, res))) return;
   } catch (err) {
-    console.error("[positions] rate limit check failed:", err);
-    return res
-      .status(503)
-      .json({ error: "Rate limiter unavailable; refusing to run" });
+    console.error("[positions] rate limit check failed:", {
+      requestId: getRequestId(req),
+      error: err,
+    });
+    return sendResponse(req, res, 503, {
+      error: "Rate limiter unavailable; refusing to run",
+    });
   }
   const { publicKey } = req.query as { publicKey: string };
 
   const result = await handleGetPositions(publicKey);
   if (result.error) {
-    console.error("[positions] error:", result.error);
+    console.error("[positions] error:", {
+      requestId: getRequestId(req),
+      error: result.error,
+    });
   }
   res.setHeader("Cache-Control", "no-store");
-  res.status(result.status).json(result.body);
+  return sendResponse(req, res, result.status, result.body);
 }

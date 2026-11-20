@@ -10,7 +10,7 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
 
     const result = await handleGetPositions(publicKey);
     if (result.error) {
-      app.log.error(result.error, "[positions] read failed");
+      req.log.error(result.error, "[positions] read failed");
     }
     reply.code(result.status).send(result.body);
   });
@@ -21,7 +21,7 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
 
     const result = await handleGetPositionHistory(publicKey, days);
     if (result.error) {
-      app.log.error(result.error, "[positions] history read failed");
+      req.log.error(result.error, "[positions] history read failed");
     }
     reply.code(result.status).send(result.body);
   });

@@ -21,8 +21,10 @@ import { APP_NETWORK } from "@meridian/shared";
 import {
   applyCors,
   checkRateLimit,
+  getRequestId,
   isCronAuthorized,
   isCronSecretConfigured,
+  sendResponse,
 } from "../../_lib/middleware.js";
 
 // Consolidated from the former per-keeper files to stay under Vercel's
@@ -48,15 +50,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       if (!(await checkRateLimit(req, res))) return;
     } catch (err) {
-      console.error("[keepers/health] rate limit check failed:", err);
-      return res
-        .status(503)
-        .json({ error: "Rate limiter unavailable; refusing to run" });
+      console.error("[keepers/health] rate limit check failed:", {
+        requestId: getRequestId(req),
+        error: err,
+      });
+      return sendResponse(req, res, 503, {
+        error: "Rate limiter unavailable; refusing to run",
+      });
     }
     const result = await handleGetKeeperHealth();
-    if (result.error) console.error("[keepers/health] error:", result.error);
+    if (result.error)
+      console.error("[keepers/health] error:", {
+        requestId: getRequestId(req),
+        error: result.error,
+      });
     res.setHeader("Cache-Control", "no-store");
-    return res.status(result.status).json(result.body);
+    return sendResponse(req, res, result.status, result.body);
   }
 
   if (
@@ -65,12 +74,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     action !== "alert" &&
     action !== "snapshot"
   ) {
-    return res.status(404).json({ error: "Unknown action" });
+    return sendResponse(req, res, 404, { error: "Unknown action" });
   }
 
   if (req.method !== "GET" && req.method !== "POST") {
     res.setHeader("Allow", "GET, POST");
-    return res.status(405).json({ error: "Method not allowed" });
+    return sendResponse(req, res, 405, { error: "Method not allowed" });
   }
 
   // No applyCors: cron-invoked, never browser-facing. But these actions sign
@@ -84,17 +93,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!(await checkRateLimit(req, res, { strict: true }))) return;
   } catch (err) {
-    console.error(`[keepers/${action}] rate limit check failed:`, err);
-    return res
-      .status(503)
-      .json({ error: "Rate limiter unavailable; refusing to run" });
+    console.error(`[keepers/${action}] rate limit check failed:`, {
+      requestId: getRequestId(req),
+      error: err,
+    });
+    return sendResponse(req, res, 503, {
+      error: "Rate limiter unavailable; refusing to run",
+    });
   }
 
   if (!isCronSecretConfigured()) {
-    return res.status(503).json({ error: "CRON_SECRET is not configured" });
+    return sendResponse(req, res, 503, {
+      error: "CRON_SECRET is not configured",
+    });
   }
   if (!isCronAuthorized(req)) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return sendResponse(req, res, 401, { error: "Unauthorized" });
   }
 
   if (action === "accrue") {
@@ -113,10 +127,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           consoleLogger
         );
       }
-      return res.status(status).json(result);
+      return sendResponse(req, res, status, result);
     } catch (err) {
-      console.error("[accrual-keeper] run failed:", err);
-      return res.status(500).json({ error: redactedErrorMessage(err) });
+      console.error("[accrual-keeper] run failed:", {
+        requestId: getRequestId(req),
+        error: err,
+      });
+      return sendResponse(req, res, 500, { error: redactedErrorMessage(err) });
     }
   }
 
@@ -147,10 +164,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logger: consoleLogger,
       });
       const status = result.failures.length > 0 ? 500 : 200;
-      return res.status(status).json(result);
+      return sendResponse(req, res, status, result);
     } catch (err) {
-      console.error("[snapshot-keeper] run failed:", err);
-      return res.status(500).json({ error: redactedErrorMessage(err) });
+      console.error("[snapshot-keeper] run failed:", {
+        requestId: getRequestId(req),
+        error: err,
+      });
+      return sendResponse(req, res, 500, { error: redactedErrorMessage(err) });
     }
   }
 
@@ -160,7 +180,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // on, and every 5-minute cron tick throwing/500ing for an
     // intentionally-not-yet-configured feature is noise, not a signal.
     if (!isAlertKeeperConfigured(process.env)) {
-      return res.status(200).json({
+      return sendResponse(req, res, 200, {
         status: "disabled",
         message: "MERIDIAN_ALERT_WEBHOOK_URL is not configured",
       });
@@ -177,10 +197,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
       const result = await runAlertKeeper(config, { cursorStore });
       const status = result.failures.length > 0 ? 500 : 200;
-      return res.status(status).json(result);
+      return sendResponse(req, res, status, result);
     } catch (err) {
-      console.error("[alert-keeper] run failed:", err);
-      return res.status(500).json({ error: redactedErrorMessage(err) });
+      console.error("[alert-keeper] run failed:", {
+        requestId: getRequestId(req),
+        error: err,
+      });
+      return sendResponse(req, res, 500, { error: redactedErrorMessage(err) });
     }
   }
 
@@ -194,7 +217,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // a 500, a permanent, noisy false alarm for a deliberately-unset key, not
   // an actual failure.
   if (!isMigrationKeeperConfigured(process.env)) {
-    return res.status(200).json({
+    return sendResponse(req, res, 200, {
       status: "disabled",
       message: "MERIDIAN_MIGRATION_KEEPER_SECRET_KEY is not configured",
     });
@@ -215,9 +238,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         consoleLogger
       );
     }
-    return res.status(status).json(result);
+    return sendResponse(req, res, status, result);
   } catch (err) {
-    console.error("[migration-keeper] run failed:", err);
-    return res.status(500).json({ error: redactedErrorMessage(err) });
+    console.error("[migration-keeper] run failed:", {
+      requestId: getRequestId(req),
+      error: err,
+    });
+    return sendResponse(req, res, 500, { error: redactedErrorMessage(err) });
   }
 }

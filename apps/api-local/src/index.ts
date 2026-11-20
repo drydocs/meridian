@@ -10,6 +10,11 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import Redis from "ioredis";
 import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import {
+  createRequestId,
+  REQUEST_ID_HEADER,
+  responseBody,
+} from "@meridian/api-core";
 import { vaultsRoute } from "./routes/vaults";
 import { positionsRoute } from "./routes/positions";
 import { txRoute } from "./routes/tx";
@@ -20,7 +25,13 @@ import { adminRoute } from "./routes/admin";
 // deployed handlers' shared Upstash sliding window (api/_lib/middleware.ts).
 // Body limit: 10 KB on all routes to block oversized payload attacks.
 // Security headers: X-Content-Type-Options and X-Frame-Options on every response.
-const app = Fastify({ logger: true, bodyLimit: 10 * 1024 });
+const app = Fastify({
+  logger: true,
+  bodyLimit: 10 * 1024,
+  requestIdHeader: REQUEST_ID_HEADER,
+  genReqId: (req) =>
+    createRequestId(req.headers[REQUEST_ID_HEADER.toLowerCase()]),
+});
 
 const redisClient = process.env.REDIS_URL
   ? new Redis(process.env.REDIS_URL)
@@ -29,6 +40,7 @@ const redisClient = process.env.REDIS_URL
 await app.register(cors, {
   origin: process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN,
   methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", REQUEST_ID_HEADER],
 });
 await app.register(rateLimit, {
   max: 100,
@@ -40,6 +52,24 @@ app.addHook("onSend", (_req, reply, _payload, done) => {
   reply.header("X-Content-Type-Options", "nosniff");
   reply.header("X-Frame-Options", "DENY");
   done();
+});
+
+app.addHook("onSend", (req, reply, payload, done) => {
+  reply.header(REQUEST_ID_HEADER, req.id);
+  if (reply.statusCode < 400 || typeof payload !== "string") {
+    done(null, payload);
+    return;
+  }
+  try {
+    done(
+      null,
+      JSON.stringify(
+        responseBody(reply.statusCode, JSON.parse(payload), req.id)
+      )
+    );
+  } catch {
+    done(null, payload);
+  }
 });
 
 app.register(vaultsRoute, { prefix: "/api/v1/vaults" });
