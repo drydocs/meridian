@@ -95,35 +95,41 @@ pub enum ContractError {
     /// would always pass.
     MigrationBaselineInvalid = 25,
     /// The vault constructor received the zero admin address.
-    ZeroAdminAddress = 26,
+    ZeroAdminAddress = 27,
     /// The vault constructor received the zero USDC address.
-    ZeroUsdcAddress = 27,
+    ZeroUsdcAddress = 28,
     /// The vault constructor received the zero mUSDC address.
-    ZeroMusdcAddress = 28,
+    ZeroMusdcAddress = 29,
     /// The vault constructor received the zero adapter address.
-    ZeroAdapterAddress = 29,
+    ZeroAdapterAddress = 30,
     /// The vault constructor received the zero treasury address.
-    ZeroTreasuryAddress = 30,
+    ZeroTreasuryAddress = 31,
     /// The admin address cannot be the vault itself.
-    AdminIsVault = 31,
+    AdminIsVault = 32,
     /// The USDC address cannot be the vault itself.
-    UsdcIsVault = 32,
+    UsdcIsVault = 33,
     /// The mUSDC address cannot be the vault itself.
-    MusdcIsVault = 33,
+    MusdcIsVault = 34,
     /// The adapter address cannot be the vault itself.
-    AdapterIsVault = 34,
+    AdapterIsVault = 35,
     /// The treasury address cannot be the vault itself.
-    TreasuryIsVault = 35,
+    TreasuryIsVault = 36,
     /// USDC and mUSDC must be separate contracts.
-    UsdcIsMusdc = 36,
+    UsdcIsMusdc = 37,
     /// USDC and the adapter must be separate contracts.
-    UsdcIsAdapter = 37,
+    UsdcIsAdapter = 38,
     /// mUSDC and the adapter must be separate contracts.
-    MusdcIsAdapter = 38,
+    MusdcIsAdapter = 39,
     /// The mUSDC token's admin must be the vault.
-    MusdcAdminMismatch = 39,
+    MusdcAdminMismatch = 40,
     /// The adapter's USDC token must match the vault's USDC token.
-    AdapterUsdcMismatch = 40,
+    AdapterUsdcMismatch = 41,
     /// The adapter must be bound to this vault.
-    AdapterVaultMismatch = 41,
+    AdapterVaultMismatch = 42,
+    /// The mUSDC token does not expose the required get_admin view.
+    MusdcAdminViewMissing = 43,
+    /// The adapter does not expose the required get_usdc view.
+    AdapterUsdcViewMissing = 44,
+    /// The adapter does not expose the required get_vault view.
+    AdapterVaultViewMissing = 45,
 }

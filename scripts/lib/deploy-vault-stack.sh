@@ -109,6 +109,35 @@ preflight_deployed_component() {
   fi
 }
 
+preflight_deployed_component_bindings() {
+  local musdc_admin
+  musdc_admin=$(stellar contract invoke "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" --id "$MUSDC_ID" -- get_admin 2>/dev/null)
+  musdc_admin=$(printf '%s\n' "$musdc_admin" | tr -d '"')
+  if is_zero_address "$musdc_admin"; then
+    echo "ERROR: mUSDC get_admin resolved to the zero address." >&2
+    exit 1
+  fi
+  if [ "$musdc_admin" != "$VAULT_ID" ]; then
+    echo "ERROR: mUSDC admin $musdc_admin does not equal reserved vault address $VAULT_ID." >&2
+    exit 1
+  fi
+
+  local adapter_usdc adapter_vault
+  adapter_usdc=$(stellar contract invoke "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" --id "$BLEND_ADAPTER_ID" -- get_usdc 2>/dev/null)
+  adapter_usdc=$(printf '%s\n' "$adapter_usdc" | tr -d '"')
+  if [ "$adapter_usdc" != "$USDC_ID" ]; then
+    echo "ERROR: adapter USDC $adapter_usdc does not equal vault USDC $USDC_ID." >&2
+    exit 1
+  fi
+
+  adapter_vault=$(stellar contract invoke "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" --id "$BLEND_ADAPTER_ID" -- get_vault 2>/dev/null)
+  adapter_vault=$(printf '%s\n' "$adapter_vault" | tr -d '"')
+  if [ "$adapter_vault" != "$VAULT_ID" ]; then
+    echo "ERROR: adapter vault $adapter_vault does not equal reserved vault address $VAULT_ID." >&2
+    exit 1
+  fi
+}
+
 deploy_vault_stack() {
   local vault_salt="${VAULT_SALT:-$(openssl rand -hex 32)}"
   VAULT_ID=$(stellar contract id wasm "${STELLAR_NETWORK_FLAGS[@]}" --source-account "$ADMIN_ADDRESS" --salt "$vault_salt")
@@ -189,6 +218,7 @@ deploy_vault_stack() {
 
   preflight_deployed_component "BLEND_ADAPTER_ID" "$BLEND_ADAPTER_ID"
   preflight_deployed_component "MUSDC_ID" "$MUSDC_ID"
+  preflight_deployed_component_bindings
 
   # Deploying with the same salt used to reserve VAULT_ID above lands the
   # vault at that exact address. Its constructor sets

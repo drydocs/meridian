@@ -245,15 +245,21 @@ impl MeridianVault {
             return Err(ContractError::MusdcIsAdapter);
         }
 
-        if MusdcAdminClient::new(env, musdc).get_admin() != vault {
-            return Err(ContractError::MusdcAdminMismatch);
+        match MusdcAdminClient::new(env, musdc).try_get_admin() {
+            Ok(admin) if admin == vault => {}
+            Ok(_) => return Err(ContractError::MusdcAdminMismatch),
+            Err(_) => return Err(ContractError::MusdcAdminViewMissing),
         }
         let adapter_client = AdapterClient::new(env, adapter);
-        if adapter_client.get_usdc() != *usdc {
-            return Err(ContractError::AdapterUsdcMismatch);
+        match adapter_client.try_get_usdc() {
+            Ok(adapter_usdc) if adapter_usdc == *usdc => {}
+            Ok(_) => return Err(ContractError::AdapterUsdcMismatch),
+            Err(_) => return Err(ContractError::AdapterUsdcViewMissing),
         }
-        if adapter_client.get_vault() != vault {
-            return Err(ContractError::AdapterVaultMismatch);
+        match adapter_client.try_get_vault() {
+            Ok(adapter_vault) if adapter_vault == vault => {}
+            Ok(_) => return Err(ContractError::AdapterVaultMismatch),
+            Err(_) => return Err(ContractError::AdapterVaultViewMissing),
         }
         Ok(())
     }
@@ -1453,6 +1459,62 @@ mod tests {
         }
     }
     use mock_musdc::{MockMusdc, MockMusdcClient};
+
+    mod legacy_musdc {
+        use super::*;
+
+        #[contract]
+        pub struct LegacyMusdc;
+
+        #[contractimpl]
+        impl LegacyMusdc {
+            pub fn unrelated(env: Env) -> bool {
+                let _ = env;
+                true
+            }
+        }
+    }
+    use legacy_musdc::LegacyMusdc;
+
+    mod legacy_adapter {
+        use super::*;
+
+        #[contract]
+        pub struct LegacyAdapter;
+
+        #[contractimpl]
+        impl LegacyAdapter {
+            pub fn unrelated(env: Env) -> bool {
+                let _ = env;
+                true
+            }
+        }
+    }
+    use legacy_adapter::LegacyAdapter;
+
+    mod usdc_only_adapter {
+        use super::*;
+
+        #[contract]
+        pub struct UsdcOnlyAdapter;
+
+        #[contractimpl]
+        impl UsdcOnlyAdapter {
+            pub fn initialize(env: Env, usdc: Address) {
+                env.storage()
+                    .instance()
+                    .set(&symbol_short!("USDC"), &usdc);
+            }
+
+            pub fn get_usdc(env: Env) -> Address {
+                env.storage()
+                    .instance()
+                    .get(&symbol_short!("USDC"))
+                    .unwrap()
+            }
+        }
+    }
+    use usdc_only_adapter::UsdcOnlyAdapter;
 
     // -----------------------------------------------------------------------
     // MockAdapter: proportional yield-bearing adapter used in vault tests.
@@ -2876,6 +2938,26 @@ mod tests {
         assert_eq!(
             validate(&admin, &usdc, &musdc, &adapter, &treasury),
             Err(ContractError::AdapterVaultMismatch)
+        );
+        MockAdapterClient::new(&env, &adapter).set_vault(&vault_id);
+
+        let legacy_musdc = env.register(LegacyMusdc, ());
+        assert_eq!(
+            validate(&admin, &usdc, &legacy_musdc, &adapter, &treasury),
+            Err(ContractError::MusdcAdminViewMissing)
+        );
+
+        let legacy_adapter = env.register(LegacyAdapter, ());
+        assert_eq!(
+            validate(&admin, &usdc, &musdc, &legacy_adapter, &treasury),
+            Err(ContractError::AdapterUsdcViewMissing)
+        );
+
+        let usdc_only_adapter = env.register(UsdcOnlyAdapter, ());
+        UsdcOnlyAdapterClient::new(&env, &usdc_only_adapter).initialize(&usdc);
+        assert_eq!(
+            validate(&admin, &usdc, &musdc, &usdc_only_adapter, &treasury),
+            Err(ContractError::AdapterVaultViewMissing)
         );
     }
 
