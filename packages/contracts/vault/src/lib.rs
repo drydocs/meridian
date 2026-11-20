@@ -120,6 +120,29 @@ pub struct WithdrawPreview {
     pub assets_out: i128,
 }
 
+/// Snapshot of the vault's configuration and totals returned by
+/// [`MeridianVault::get_config`] in a single read.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VaultConfig {
+    /// Current admin address.
+    pub admin: Address,
+    /// Pending admin nominee from `transfer_admin`, if any.
+    pub pending_admin: Option<Address>,
+    /// Active yield adapter address.
+    pub adapter: Address,
+    /// Whether deposits are currently paused.
+    pub paused: bool,
+    /// Constructor-fixed performance-fee treasury address.
+    pub treasury: Address,
+    /// Immutable performance fee compiled into this vault, in basis points.
+    pub performance_fee_bps: i128,
+    /// Total mUSDC shares outstanding.
+    pub total_shares: i128,
+    /// Total USDC value managed by the vault as reported by the adapter.
+    pub total_assets: i128,
+}
+
 #[contract]
 pub struct MeridianVault;
 
@@ -810,6 +833,31 @@ impl MeridianVault {
     /// Returns the fee compiled into this vault deployment, in basis points.
     pub fn get_performance_fee_bps(_env: Env) -> i128 {
         PERFORMANCE_FEE_BPS
+    }
+
+    /// Returns a consistent snapshot of the vault's configuration and totals
+    /// in a single read. Fails with `NotInitialized` if the vault has not been
+    /// initialized.
+    pub fn get_config(env: Env) -> Result<VaultConfig, ContractError> {
+        let admin = Self::get_admin(env.clone())?;
+        let pending_admin = Self::get_pending_admin(env.clone());
+        let adapter = Self::get_adapter(env.clone())?;
+        let paused = Self::is_paused(env.clone());
+        let treasury = Self::get_treasury(env.clone())?;
+        let performance_fee_bps = Self::get_performance_fee_bps(env.clone());
+        let total_shares = Self::get_total_shares(env.clone());
+        let total_assets = AdapterClient::new(&env, &adapter).total_assets();
+
+        Ok(VaultConfig {
+            admin,
+            pending_admin,
+            adapter,
+            paused,
+            treasury,
+            performance_fee_bps,
+            total_shares,
+            total_assets,
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -3610,6 +3658,78 @@ mod tests {
         let vault = MeridianVaultClient::new(&env, &vault_id);
         let result = vault.try_get_total_assets();
         assert_eq!(result, Err(Ok(ContractError::NotInitialized)));
+    }
+
+    #[test]
+    fn get_config_fails_before_initialize() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let vault_id = register_uninitialized_vault(&env);
+        let vault = MeridianVaultClient::new(&env, &vault_id);
+        let result = vault.try_get_config();
+        assert_eq!(result, Err(Ok(ContractError::NotInitialized)));
+    }
+
+    #[test]
+    fn get_config_returns_fresh_vault_snapshot() {
+        let (_env, admin, user, _usdc, _musdc, adapter, vault) = setup();
+
+        let config = vault.get_config();
+        assert_eq!(
+            config,
+            VaultConfig {
+                admin: admin.clone(),
+                pending_admin: None,
+                adapter: adapter.clone(),
+                paused: false,
+                treasury: admin.clone(),
+                performance_fee_bps: PERFORMANCE_FEE_BPS,
+                total_shares: 0,
+                total_assets: 0,
+            }
+        );
+
+        let deposit_amount = 250_0000000_i128;
+        let shares = vault.deposit(&user, &deposit_amount, &0);
+        let after_deposit = vault.get_config();
+        assert_eq!(after_deposit.total_shares, shares);
+        assert_eq!(after_deposit.total_assets, deposit_amount);
+        assert_eq!(after_deposit.admin, admin);
+        assert_eq!(after_deposit.pending_admin, None);
+        assert_eq!(after_deposit.adapter, adapter);
+        assert!(!after_deposit.paused);
+        assert_eq!(after_deposit.treasury, admin);
+        assert_eq!(after_deposit.performance_fee_bps, PERFORMANCE_FEE_BPS);
+    }
+
+    #[test]
+    fn get_config_reflects_paused_state() {
+        let (_env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+
+        assert!(!vault.get_config().paused);
+        vault.set_paused(&true);
+        assert!(vault.get_config().paused);
+        vault.set_paused(&false);
+        assert!(!vault.get_config().paused);
+    }
+
+    #[test]
+    fn get_config_reflects_pending_admin() {
+        let (env, admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let nominee = Address::generate(&env);
+
+        assert_eq!(vault.get_config().admin, admin);
+        assert_eq!(vault.get_config().pending_admin, None);
+
+        vault.transfer_admin(&nominee);
+        let during_handover = vault.get_config();
+        assert_eq!(during_handover.admin, admin);
+        assert_eq!(during_handover.pending_admin, Some(nominee.clone()));
+
+        vault.accept_admin();
+        let after_handover = vault.get_config();
+        assert_eq!(after_handover.admin, nominee);
+        assert_eq!(after_handover.pending_admin, None);
     }
 
     #[test]
