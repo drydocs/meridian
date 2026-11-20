@@ -5,9 +5,7 @@ import i18n, { initialiseI18n } from "../../i18n";
 import { useDocumentLanguage } from "../../hooks/useDocumentLanguage";
 
 function fireStorageEvent(newValue: string | null, key = "language") {
-  window.dispatchEvent(
-    new StorageEvent("storage", { key, newValue })
-  );
+  window.dispatchEvent(new StorageEvent("storage", { key, newValue }));
 }
 
 describe("useDocumentLanguage", () => {
