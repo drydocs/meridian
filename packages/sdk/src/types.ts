@@ -46,6 +46,21 @@ export interface Transaction {
 }
 
 /**
+ * Quote returned by the vault's `preview_withdraw` view. All values are in
+ * stroops and match what `withdraw` pays and mints at the same vault state.
+ */
+export interface WithdrawPreview {
+  /** USDC redeemed from the adapter for the burned shares, before the fee. */
+  grossAssets: bigint;
+  /** Performance fee charged on the gain over the retired cost basis. */
+  fee: bigint;
+  /** mUSDC minted to the treasury for that fee. */
+  treasuryShares: bigint;
+  /** USDC the caller receives. */
+  assetsOut: bigint;
+}
+
+/**
  * On-chain information about the vault's currently active yield adapter.
  */
 export interface AdapterInfo {

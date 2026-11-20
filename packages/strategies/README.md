@@ -17,6 +17,30 @@ Live execution stays off unless `MERIDIAN_STRATEGIES_LIVE_EXECUTION` is exactly
 `true`. That variable is the single place a launch flips the boundary, and any
 other value leaves the engine in simulation mode.
 
+## Simulated venues and yield
+
+Strategies can use `VenueOrder` operations to deploy an asset amount to a
+named venue, harvest accrued yield, or withdraw principal. The runner tracks
+principal and yield in a `VenueLedger`; `context.venues` exposes a read-only
+`VenuePortfolioView`, and venue positions are included in portfolio valuation.
+Declare a strategy that emits these operations as `VenueStrategy<TConfig>`;
+the default `Strategy<TConfig>` order type remains spot-only.
+Withdrawals can specify a principal amount; omitting it withdraws all
+principal. A withdrawal also returns all yield accrued at that venue, even
+when principal withdrawal is partial. A harvest can instead reduce an
+explicitly opened simulation-only linked debt; any amount beyond that debt is
+credited to cash.
+
+Configure simulated venue yields with `accrual.venueRates`, keyed by venue ID.
+Each venue may use either a non-negative `ratePerSecond` or a non-negative
+`annualRate` (not both). Annual rates accrue on a 365-day year. Yield accrual
+uses fixed-point arithmetic and carries fractional-stroop remainders between
+ticks. Venue operations are charged the configured per-operation network fee.
+
+This is accounting and yield simulation only. A venue ID is a label, not a
+protocol adapter or live connection; the model contains no venue addresses,
+signing, or transaction submission.
+
 ## Fixed-point math
 
 Monetary values use `Decimal`, a fixed-point type backed by `bigint` that stores

@@ -7,6 +7,7 @@ import {
 } from "./lib/run-history";
 import type { RunRecord } from "./lib/run-history";
 import { SingleRunView } from "./views/SingleRunView";
+import type { ScenarioRun } from "./lib/scenario-run";
 import { HistoryView } from "./views/HistoryView";
 import { ComparisonView } from "./views/ComparisonView";
 
@@ -49,54 +50,9 @@ function errorMessage(error: unknown): string {
 
 export default function App() {
   const [activeView, setActiveView] = useState<StrategyView>("single-run");
-  const [runHistory, setRunHistory] = useState(initialRunHistory);
-  const [selectedRunIds, setSelectedRunIds] = useState<readonly string[]>([]);
-  const [openedRun, setOpenedRun] = useState<RunRecord | null>(null);
-
-  const handleOpenRun = (record: RunRecord) => {
-    setOpenedRun(record);
-    setActiveView("single-run");
-  };
-
-  const handleDeleteRun = (id: string) => {
-    try {
-      const history = deleteRunRecord(id);
-      setRunHistory((current) => ({
-        records: [...history.records],
-        notice:
-          history.droppedCount > 0
-            ? "Some saved runs were ignored because they were corrupted or use an unsupported version."
-            : current.notice,
-        error: null,
-      }));
-      setSelectedRunIds((current) => current.filter((runId) => runId !== id));
-      setOpenedRun((current) => (current?.id === id ? null : current));
-    } catch (error) {
-      setRunHistory((current) => ({ ...current, error: errorMessage(error) }));
-    }
-  };
-
-  const handleClearHistory = () => {
-    try {
-      clearRunHistory();
-      setRunHistory({ records: [], notice: null, error: null });
-      setSelectedRunIds([]);
-      setOpenedRun(null);
-    } catch (error) {
-      setRunHistory((current) => ({ ...current, error: errorMessage(error) }));
-    }
-  };
-
-  const toggleRunSelection = (id: string) => {
-    setSelectedRunIds((current) =>
-      current.includes(id)
-        ? current.filter((runId) => runId !== id)
-        : [...current, id]
-    );
-  };
-  const selectedRuns = runHistory.records.filter((record) =>
-    selectedRunIds.includes(record.id)
-  );
+  // Held here rather than in the view so the result and risk views can read
+  // the latest run without a reload, and it survives switching tabs.
+  const [latestRun, setLatestRun] = useState<ScenarioRun | null>(null);
 
   return (
     <div className="shell">
@@ -177,20 +133,15 @@ export default function App() {
       </header>
 
       <main className="shell__content">
-        {activeView === "single-run" && <SingleRunView run={openedRun} />}
-        {activeView === "history" && (
-          <HistoryView
-            records={runHistory.records}
-            selectedRunIds={selectedRunIds}
-            notice={runHistory.notice}
-            error={runHistory.error}
-            onOpenRun={handleOpenRun}
-            onToggleSelection={toggleRunSelection}
-            onDeleteRun={handleDeleteRun}
-            onClearHistory={handleClearHistory}
+        {activeView === "single-run" && (
+          <SingleRunView
+            latestRun={latestRun}
+            onRunComplete={setLatestRun}
+            onRunCleared={() => setLatestRun(null)}
           />
         )}
-        {activeView === "comparison" && <ComparisonView runs={selectedRuns} />}
+        {activeView === "history" && <HistoryView />}
+        {activeView === "comparison" && <ComparisonView />}
       </main>
     </div>
   );
