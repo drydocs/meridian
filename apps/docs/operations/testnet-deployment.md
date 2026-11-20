@@ -13,6 +13,7 @@ Neither script requires manual `stellar contract invoke` steps. Read them before
 
 - Stellar CLI: `cargo install stellar-cli` (the CLI binary is `stellar`, not `soroban`, since the older `soroban-cli` is deprecated)
 - Rust with the `wasm32v1-none` target: `rustup target add wasm32v1-none`. Note `stellar contract build` targets `wasm32v1-none`, not `wasm32-unknown-unknown`. If you've followed older Soroban tutorials, this is the one place that trips people up.
+- Repository dependencies installed with `pnpm install --frozen-lockfile`; the deployment script uses the checked-in TypeScript manifest writer after the on-chain transactions succeed.
 
 ## The `DEPLOYER` / `ADMIN` split
 
@@ -47,6 +48,7 @@ This builds all four contract crates (`vault`, `blend-adapter`, `defindex-adapte
 2. Deploys the `BlendAdapter` with that reserved vault address, Blend's testnet pool, and USDC passed as **constructor arguments**, so the adapter is wired inside the transaction that creates it. There is no separate adapter `initialize()` step: that gap was front-runnable ([#505](https://github.com/drydocs/meridian/issues/505)). See "Adapter deployment and initialization" in [`architecture/vault-contract.md`](../architecture/vault-contract.md).
 3. Deploys mUSDC with that same reserved vault address, decimals, name, and symbol passed as **constructor arguments** too, for the same reason: mUSDC's `admin` is set inside the transaction that creates it, so it's never observable on-ledger with the wrong admin.
 4. Deploys the vault itself, sourced by `ADMIN_KEY` and using the same salt from step 1 so it lands at the address already reserved and handed to the two contracts above, with `admin`, `usdc`, `musdc`, and `adapter` passed as constructor arguments. Its own state is set inside this deploying transaction the same way, so there is no deploy-then-initialize gap here either ([#551](https://github.com/drydocs/meridian/issues/551)), and `admin.require_auth()` inside the constructor proves `ADMIN`'s key genuinely exists and its holder consents.
+5. Atomically updates `packages/shared/deployed-contracts.json` with contract addresses, WASM hashes, salts, constructor arguments, deployment transaction hashes, and the source commit. The writer accepts no signing-key input, and the generated manifest contains public deployment facts only.
 
 It prints the three contract IDs you need at the end:
 
@@ -70,6 +72,8 @@ KNOWN_POOLS.testnet["meridian-usdc"].contractId = "..."; // VAULT_CONTRACT_ID
 CONTRACT_ADDRESSES.testnet.vault = "..."; // VAULT_CONTRACT_ID
 CONTRACT_ADDRESSES.testnet.musdc = "..."; // MUSDC_CONTRACT_ID
 ```
+
+Review and commit the generated `packages/shared/deployed-contracts.json` change with these address updates. Then run `pnpm verify:contracts -- --live`; it checks the manifest against live bytecode, admin, treasury, USDC, mUSDC, adapter wiring, and pause state.
 
 The adapter contract address is **not** hardcoded anywhere in the app. The frontend discovers the active adapter live via `vault.get_adapter()`, and that adapter's `get_pool()`/`get_protocol()`, rather than tracking it in config. This is deliberate: it means the app self-updates if the adapter is ever swapped via `set_adapter` or `migrate_adapter`, with nothing that could drift out of sync.
 
