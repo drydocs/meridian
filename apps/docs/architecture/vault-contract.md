@@ -122,6 +122,16 @@ Emergency switch. While paused, new deposits are rejected. Withdrawals remain op
 
 Returns whether deposits are currently paused.
 
+### `set_total_deposit_cap(cap: i128) -> Result<(), ContractError>` (admin only)
+
+Sets the maximum total asset amount (in USDC stroops, the same units as `get_total_assets()`) the vault will accept across all deposits. Setting `0` leaves the vault uncapped (the default). Rejecting any negative cap value with `ZeroAmount`. Emits an admin event with topic `("admin", "cap")` and data `cap`.
+
+When a positive cap is set, any `deposit` that would cause resulting total assets (`total_assets + amount`) to exceed `cap` fails with `DepositCapExceeded`. A deposit that reaches the cap exactly (`total_assets + amount == cap`) succeeds.
+
+### `get_total_deposit_cap() -> i128`
+
+Returns the current total deposit cap in USDC stroops, or `0` if deposits are uncapped.
+
 ### `transfer_admin(new_admin)` (admin only)
 
 Nominates `new_admin` as the next admin. Requires the current admin's `require_auth()`. Records the nominee in a pending slot but does **not** change who the admin is. `get_admin()` still returns the current admin until the nominee itself calls `accept_admin()`. Calling this again before that happens overwrites the pending nominee; only the most recent nomination is live.

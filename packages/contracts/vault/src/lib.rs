@@ -6,7 +6,7 @@ mod storage;
 
 pub use errors::ContractError;
 pub use storage::{
-    clear_position_records, DataKey, MigrationSnapshot, ADAPTER, ADMIN, ADPT_SH, LOCKED,
+    clear_position_records, DataKey, MigrationSnapshot, ADAPTER, ADMIN, ADPT_SH, DEP_CAP, LOCKED,
     MAX_ADMIN_SLIPPAGE_BPS, MIG_ACTIVE, MIG_SNAP, MIN_LEDGER_GAP, MUSDC, OFFSET, PAUSED, PEND_ADM,
     TOTAL_SH, TREASURY, USDC,
 };
@@ -265,6 +265,16 @@ impl MeridianVault {
 
         if shares_to_mint < min_shares_out {
             return Err(ContractError::SlippageExceeded);
+        }
+
+        let cap = Self::get_total_deposit_cap(env.clone());
+        if cap > 0 {
+            let resulting_total = total_assets
+                .checked_add(amount)
+                .ok_or(ContractError::Overflow)?;
+            if resulting_total > cap {
+                return Err(ContractError::DepositCapExceeded);
+            }
         }
 
         // A caller who currently holds no shares but still has Entry/Principal
@@ -1007,6 +1017,34 @@ impl MeridianVault {
     /// Returns whether deposits are currently paused.
     pub fn is_paused(env: Env) -> bool {
         env.storage().instance().get(&PAUSED).unwrap_or(false)
+    }
+
+    /// Admin-only: sets the maximum total asset amount the vault will accept across all deposits.
+    /// A cap of 0 means uncapped. Expressed in the same units as `get_total_assets` (USDC stroops).
+    pub fn set_total_deposit_cap(env: Env, cap: i128) -> Result<(), ContractError> {
+        Self::require_admin(&env)?;
+        if cap < 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+        Self::extend_instance(&env);
+        env.storage().instance().set(&DEP_CAP, &cap);
+        env.events().publish((ADMIN_EVT, symbol_short!("cap")), cap);
+        Ok(())
+    }
+
+    /// Returns the current total deposit cap in USDC stroops, or 0 if uncapped.
+    pub fn get_total_deposit_cap(env: Env) -> i128 {
+        env.storage().instance().get(&DEP_CAP).unwrap_or(0)
+    }
+
+    /// Alias for `set_total_deposit_cap`.
+    pub fn set_deposit_cap(env: Env, cap: i128) -> Result<(), ContractError> {
+        Self::set_total_deposit_cap(env, cap)
+    }
+
+    /// Alias for `get_total_deposit_cap`.
+    pub fn get_deposit_cap(env: Env) -> i128 {
+        Self::get_total_deposit_cap(env)
     }
 
     /// Admin-only: nominate `new_admin` as the next admin. Requires the
@@ -5140,5 +5178,103 @@ mod tests {
             assert_every_reentry_rejected(&r, &r.usdc, "migrate/usdc", attack);
             assert_migrated(&r, &new_adapter);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Total deposit cap tests (#1338)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn deposit_cap_defaults_to_zero_uncapped() {
+        let (_env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        assert_eq!(vault.get_total_deposit_cap(), 0);
+        assert_eq!(vault.get_deposit_cap(), 0);
+    }
+
+    #[test]
+    fn set_total_deposit_cap_rejects_missing_authorization() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_set_total_deposit_cap(&10_000_000_000),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert_eq!(
+            vault.try_set_deposit_cap(&10_000_000_000),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+    }
+
+    #[test]
+    fn set_total_deposit_cap_rejects_negative() {
+        let (_env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+
+        assert_eq!(
+            vault.try_set_total_deposit_cap(&-1),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.try_set_deposit_cap(&-500),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+    }
+
+    #[test]
+    fn set_total_deposit_cap_succeeds_and_publishes_event() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let cap = 500_0000000_i128;
+
+        vault.set_total_deposit_cap(&cap);
+
+        let event = find_admin_event(&env, &vault.address, symbol_short!("cap"))
+            .expect("cap admin event not found");
+        let published_cap: i128 = soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(published_cap, cap);
+
+        assert_eq!(vault.get_total_deposit_cap(), cap);
+        assert_eq!(vault.get_deposit_cap(), cap);
+    }
+
+    #[test]
+    fn deposit_cap_boundary_and_exceeded() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        let cap = 100_0000000_i128; // 100 USDC cap
+        vault.set_total_deposit_cap(&cap);
+
+        let usdc_client = StellarAssetClient::new(&env, &usdc);
+        usdc_client.mint(&user, &200_0000000);
+
+        // First deposit: 60 USDC (within cap)
+        vault.deposit(&user, &60_0000000, &0);
+        assert_eq!(vault.get_total_assets(), 60_0000000);
+
+        // Second deposit: 40 USDC (exactly at cap boundary: 60 + 40 = 100)
+        vault.deposit(&user, &40_0000000, &0);
+        assert_eq!(vault.get_total_assets(), 100_0000000);
+
+        // Third deposit: 1 stroop exceeds cap -> rejected
+        assert_eq!(
+            vault.try_deposit(&user, &1, &0),
+            Err(Ok(ContractError::DepositCapExceeded))
+        );
+
+        // Larger deposit also rejected
+        assert_eq!(
+            vault.try_deposit(&user, &10_0000000, &0),
+            Err(Ok(ContractError::DepositCapExceeded))
+        );
+
+        // Raising cap to 150 USDC allows further deposit
+        vault.set_total_deposit_cap(&150_0000000);
+        vault.deposit(&user, &50_0000000, &0);
+        assert_eq!(vault.get_total_assets(), 150_0000000);
+
+        // Resetting to 0 removes cap completely
+        vault.set_total_deposit_cap(&0);
+        assert_eq!(vault.get_total_deposit_cap(), 0);
+        usdc_client.mint(&user, &100_0000000);
+        vault.deposit(&user, &100_0000000, &0);
+        assert_eq!(vault.get_total_assets(), 250_0000000);
     }
 }

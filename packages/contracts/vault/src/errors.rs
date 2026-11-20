@@ -102,4 +102,6 @@ pub enum ContractError {
     /// `ADAPTER` or migration state is not yet final. The reentrant call is
     /// rejected and the outer call is unaffected.
     ReentrancyDetected = 26,
+    /// `deposit` would cause total assets to exceed the configured deposit cap.
+    DepositCapExceeded = 27,
 }
