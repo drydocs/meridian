@@ -108,14 +108,17 @@ function Dashboard() {
 
 export default function App() {
   useEffect(() => {
-    const revalidate = () => void useWalletStore.getState().revalidate();
-    revalidate();
+    const refreshWallet = () => {
+      void useWalletStore.getState().revalidate();
+      void useWalletStore.getState().refreshNetwork();
+    };
+    refreshWallet();
     // Re-check authorization when the window regains focus. Freighter opens
     // as an extension popup (separate window), so the page loses focus while
     // the popup is open and regains it when it closes — this catches revoked
     // site access without requiring a page reload.
-    window.addEventListener("focus", revalidate);
-    return () => window.removeEventListener("focus", revalidate);
+    window.addEventListener("focus", refreshWallet);
+    return () => window.removeEventListener("focus", refreshWallet);
   }, []);
 
   const page = isAdminRoute() ? (

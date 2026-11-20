@@ -5,6 +5,7 @@ vi.mock("@stellar/freighter-api", () => ({
   isAllowed: vi.fn(),
   requestAccess: vi.fn(),
   signTransaction: vi.fn(),
+  getNetwork: vi.fn(),
 }));
 
 vi.mock("@lobstrco/signer-extension-api", () => ({
@@ -18,6 +19,7 @@ import {
   isAllowed,
   requestAccess,
   signTransaction as freighterSign,
+  getNetwork as freighterGetNetwork,
 } from "@stellar/freighter-api";
 import { isConnected as lobstrIsConnected } from "@lobstrco/signer-extension-api";
 import {
@@ -132,6 +134,34 @@ describe("wallet — real Freighter path (no mock wallet present)", () => {
       signerAddress: ADDRESS,
     });
     await expect(wallet.sign("XDR", "passphrase")).resolves.toBe("SIGNED_XDR");
+  });
+
+  it("reports Freighter's active network and passphrase", async () => {
+    vi.mocked(freighterGetNetwork).mockResolvedValue({
+      network: "TESTNET",
+      networkPassphrase: "Test SDF Network ; September 2015",
+    });
+    await expect(wallet.getNetwork()).resolves.toEqual({
+      name: "TESTNET",
+      passphrase: "Test SDF Network ; September 2015",
+    });
+  });
+
+  it("returns an unknown network when Freighter doesn't report a passphrase", async () => {
+    vi.mocked(freighterGetNetwork).mockResolvedValue({
+      network: "",
+      networkPassphrase: "",
+    });
+    await expect(wallet.getNetwork()).resolves.toBeNull();
+  });
+
+  it("surfaces Freighter network lookup errors", async () => {
+    vi.mocked(freighterGetNetwork).mockResolvedValue({
+      network: "",
+      networkPassphrase: "",
+      error: { message: "Wallet unavailable", code: 1 },
+    });
+    await expect(wallet.getNetwork()).rejects.toThrow("Wallet unavailable");
   });
 
   it("sign throws when signing is cancelled (no signedTxXdr)", async () => {

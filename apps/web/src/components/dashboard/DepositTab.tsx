@@ -33,6 +33,7 @@ interface DepositTabProps {
   isDepositing: boolean;
   onSubmit: () => void;
   availableBalance?: number;
+  signingDisabled?: boolean;
 }
 
 export function DepositTab({
@@ -45,6 +46,7 @@ export function DepositTab({
   isDepositing,
   onSubmit,
   availableBalance,
+  signingDisabled = false,
 }: DepositTabProps) {
   const { t, i18n } = useTranslation();
   // True only when the user emptied the field themselves. A completed deposit
@@ -92,7 +94,9 @@ export function DepositTab({
       <button
         data-testid="vault-deposit-submit"
         onClick={onSubmit}
-        disabled={error !== null || !bestVault || isDepositing}
+        disabled={
+          error !== null || !bestVault || isDepositing || signingDisabled
+        }
         className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3.5 transition-all duration-150 disabled:cursor-not-allowed"
       >
         {isDepositing ? t("vaultPanel.waiting") : t("vaultPanel.deposit")}

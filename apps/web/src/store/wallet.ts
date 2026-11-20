@@ -5,10 +5,17 @@ import { wallet } from "../lib/wallet";
 import { APP_NETWORK } from "@meridian/shared";
 
 interface WalletStore extends WalletState {
+  walletNetworkName: string | null;
+  walletNetworkPassphrase: string | null;
+  walletNetworkError: string | null;
+  walletNetworkLoading: boolean;
   connect: (publicKey: string) => void;
   disconnect: () => void;
   revalidate: () => Promise<void>;
+  refreshNetwork: () => Promise<void>;
 }
+
+let networkRequestId = 0;
 
 export const useWalletStore = create<WalletStore>()(
   persist(
@@ -20,9 +27,72 @@ export const useWalletStore = create<WalletStore>()(
       // (#851). The migration below clears any stale persisted value.
       network: APP_NETWORK.network,
       connected: false,
+      walletNetworkName: null,
+      walletNetworkPassphrase: null,
+      walletNetworkError: null,
+      walletNetworkLoading: false,
 
-      connect: (publicKey) => set({ publicKey, connected: true }),
-      disconnect: () => set({ publicKey: null, connected: false }),
+      connect: (publicKey) => {
+        networkRequestId++;
+        set({
+          publicKey,
+          connected: true,
+          walletNetworkName: null,
+          walletNetworkPassphrase: null,
+          walletNetworkError: null,
+          walletNetworkLoading: false,
+        });
+      },
+      disconnect: () => {
+        networkRequestId++;
+        set({
+          publicKey: null,
+          connected: false,
+          walletNetworkName: null,
+          walletNetworkPassphrase: null,
+          walletNetworkError: null,
+          walletNetworkLoading: false,
+        });
+      },
+
+      refreshNetwork: async () => {
+        const requestId = ++networkRequestId;
+        const publicKey = get().publicKey;
+        if (!publicKey) {
+          set({
+            walletNetworkName: null,
+            walletNetworkPassphrase: null,
+            walletNetworkError: null,
+            walletNetworkLoading: false,
+          });
+          return;
+        }
+
+        set({ walletNetworkLoading: true, walletNetworkError: null });
+        try {
+          const network = await wallet.getNetwork();
+          if (requestId !== networkRequestId || get().publicKey !== publicKey)
+            return;
+          set({
+            walletNetworkName: network?.name ?? null,
+            walletNetworkPassphrase: network?.passphrase ?? null,
+            walletNetworkError: null,
+          });
+        } catch (error) {
+          if (requestId !== networkRequestId || get().publicKey !== publicKey)
+            return;
+          set({
+            walletNetworkName: null,
+            walletNetworkPassphrase: null,
+            walletNetworkError:
+              error instanceof Error ? error.message : String(error),
+          });
+        } finally {
+          if (requestId === networkRequestId) {
+            set({ walletNetworkLoading: false });
+          }
+        }
+      },
 
       // Re-check the persisted key against Freighter. Clears stale state when
       // the extension is gone or the user revoked site access between sessions.
@@ -33,7 +103,7 @@ export const useWalletStore = create<WalletStore>()(
         // The user may have connected a different wallet while the check was
         // in flight; a stale result must not clear the newer session.
         if (!authorized && get().publicKey === key) {
-          set({ publicKey: null, connected: false });
+          get().disconnect();
         }
       },
     }),
@@ -55,7 +125,13 @@ export const useWalletStore = create<WalletStore>()(
       partialize: (s) => ({ publicKey: s.publicKey, network: s.network }),
       // `connected` is never persisted — re-derive it from the restored key.
       onRehydrateStorage: () => (state) => {
-        if (state) state.connected = state.publicKey != null;
+        if (state) {
+          state.connected = state.publicKey != null;
+          state.walletNetworkName = null;
+          state.walletNetworkPassphrase = null;
+          state.walletNetworkError = null;
+          state.walletNetworkLoading = false;
+        }
       },
     }
   )

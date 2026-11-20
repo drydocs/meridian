@@ -4,6 +4,7 @@ import { KeeperHealthPanel } from "../components/admin/KeeperHealthPanel";
 import { VaultStatePanel } from "../components/admin/VaultStatePanel";
 import { AdminActionHistory } from "../components/dashboard/AdminActionHistory";
 import { ErrorBoundary } from "../components/ui/ErrorBoundary";
+import { NetworkMismatchBanner } from "../components/onboarding/NetworkMismatchBanner";
 
 // The panel shell for the admin route (#615, #616). Auth is handled entirely
 // by AdminLogin, which only renders this once the connected wallet has been
@@ -14,6 +15,7 @@ export function AdminDashboard() {
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-10 space-y-6">
+      <NetworkMismatchBanner />
       <h1 className="text-lg font-extrabold text-paper mb-6">
         {t("admin.title")}
       </h1>

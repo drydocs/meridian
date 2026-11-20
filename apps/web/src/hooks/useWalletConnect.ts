@@ -57,6 +57,7 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
       // (which dispatch off the persisted selection) go through.
       setSelectedWalletId(walletId);
       connect(key);
+      void useWalletStore.getState().refreshNetwork();
       setStatus("idle");
       push("success", t("walletConnect.walletConnected"));
     } catch (err) {

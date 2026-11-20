@@ -11,6 +11,7 @@ interface WithdrawTabProps {
   hasPosition: boolean;
   isWithdrawing: boolean;
   onSubmit: () => void;
+  signingDisabled?: boolean;
 }
 
 export function WithdrawTab({
@@ -22,6 +23,7 @@ export function WithdrawTab({
   hasPosition,
   isWithdrawing,
   onSubmit,
+  signingDisabled = false,
 }: WithdrawTabProps) {
   const { t } = useTranslation();
 
@@ -58,6 +60,7 @@ export function WithdrawTab({
               !amount ||
               !bestVault ||
               isWithdrawing ||
+              signingDisabled ||
               parseFloat(amount) <= 0 ||
               Number.isNaN(parseFloat(amount)) ||
               parseFloat(amount) > (position?.shares ?? 0)
