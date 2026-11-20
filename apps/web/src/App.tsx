@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
 import { WalletConnect } from "./components/onboarding/WalletConnect";
@@ -12,6 +12,8 @@ import { NotFound } from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+type AppRoute = "admin" | "status" | "dashboard" | "notFound";
+
 // No router dependency for a few extra routes: the app has a handful of
 // pages, and pulling in react-router for a couple of static path splits
 // would be a heavier change than the admin dashboard itself (#615) needs.
@@ -20,8 +22,7 @@ const queryClient = new QueryClient();
 // Vercel rewrite serves from /app/index.html. Admin is canonical at /admin;
 // the legacy /app/admin path is also recognized if Vercel's redirect is not
 // applied before the SPA loads.
-function isAdminRoute(): boolean {
-  const pathname = window.location.pathname;
+function isAdminRoute(pathname: string): boolean {
   return (
     pathname === "/admin" ||
     pathname.startsWith("/admin/") ||
@@ -30,16 +31,22 @@ function isAdminRoute(): boolean {
   );
 }
 
-function isStatusRoute(): boolean {
-  return window.location.pathname.startsWith("/app/status");
+function isStatusRoute(pathname: string): boolean {
+  return pathname.startsWith("/app/status");
 }
 
 // The SPA is served under /app/; only the dashboard root is a real page there.
 // Anything else (an unknown /app/* path or any other unmatched route) renders
 // the 404 page instead of silently falling back to the dashboard.
-function isDashboardRoute(): boolean {
-  const pathname = window.location.pathname;
+function isDashboardRoute(pathname: string): boolean {
   return pathname === "/app" || pathname === "/app/";
+}
+
+function resolveRoute(pathname: string): AppRoute {
+  if (isAdminRoute(pathname)) return "admin";
+  if (isStatusRoute(pathname)) return "status";
+  if (isDashboardRoute(pathname)) return "dashboard";
+  return "notFound";
 }
 
 function Dashboard() {
@@ -97,7 +104,12 @@ function Dashboard() {
         </div>
       </header>
 
-      <main className="relative z-10 max-w-xl mx-auto px-6 py-10">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="relative z-10 max-w-xl mx-auto px-6 py-10 focus:outline-none"
+      >
+        <h1 className="sr-only">{t("header.title")}</h1>
         <ErrorBoundary>
           <VaultPanel />
         </ErrorBoundary>
@@ -107,6 +119,10 @@ function Dashboard() {
 }
 
 export default function App() {
+  const { t } = useTranslation();
+  const [pathname, setPathname] = useState(() => window.location.pathname);
+  const hasMountedRef = useRef(false);
+
   useEffect(() => {
     const revalidate = () => void useWalletStore.getState().revalidate();
     revalidate();
@@ -118,18 +134,75 @@ export default function App() {
     return () => window.removeEventListener("focus", revalidate);
   }, []);
 
-  const page = isAdminRoute() ? (
-    <AdminLogin />
-  ) : isStatusRoute() ? (
-    <StatusPage />
-  ) : isDashboardRoute() ? (
-    <Dashboard />
-  ) : (
-    <NotFound />
+  useEffect(() => {
+    const handlePopState = () => setPathname(window.location.pathname);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const route = resolveRoute(pathname);
+
+  useEffect(() => {
+    document.title = t(`a11y.titles.${route}`);
+  }, [route, t]);
+
+  useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+
+    const activeDialog = document.querySelector(
+      '[role="dialog"][aria-modal="true"]'
+    );
+    if (activeDialog && activeDialog.contains(document.activeElement)) {
+      return;
+    }
+
+    const target =
+      document.querySelector<HTMLElement>("#main-content h1, main h1, h1") ??
+      document.getElementById("main-content");
+    if (!target) return;
+
+    if (!target.hasAttribute("tabindex")) {
+      target.setAttribute("tabindex", "-1");
+    }
+    target.focus();
+  }, [pathname]);
+
+  const handleSkipToMain = useCallback(
+    (event: React.MouseEvent<HTMLAnchorElement>) => {
+      const main = document.getElementById("main-content");
+      if (!main) return;
+      event.preventDefault();
+      if (!main.hasAttribute("tabindex")) {
+        main.setAttribute("tabindex", "-1");
+      }
+      main.focus();
+    },
+    []
   );
+
+  const page =
+    route === "admin" ? (
+      <AdminLogin />
+    ) : route === "status" ? (
+      <StatusPage />
+    ) : route === "dashboard" ? (
+      <Dashboard />
+    ) : (
+      <NotFound />
+    );
 
   return (
     <QueryClientProvider client={queryClient}>
+      <a
+        href="#main-content"
+        onClick={handleSkipToMain}
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-entry focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white focus:outline-none focus:ring-2 focus:ring-paper"
+      >
+        {t("a11y.skipToMain")}
+      </a>
       {page}
       <Toasts />
     </QueryClientProvider>

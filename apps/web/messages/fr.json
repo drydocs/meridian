@@ -177,5 +177,15 @@
       "title": "Audit de sécurité",
       "notYetAvailable": "Aucun audit de sécurité indépendant n'a encore été réalisé. Un rapport sera lié ici dès qu'il existera."
     }
+  },
+
+  "a11y": {
+    "skipToMain": "Aller au contenu principal",
+    "titles": {
+      "dashboard": "Tableau de bord — Meridian",
+      "status": "Statut du protocole — Meridian",
+      "admin": "Tableau de bord admin — Meridian",
+      "notFound": "Page introuvable — Meridian"
+    }
   }
 }

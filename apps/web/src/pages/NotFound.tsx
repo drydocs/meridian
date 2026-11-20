@@ -8,7 +8,11 @@
  */
 export function NotFound() {
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-night px-6 text-paper">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-night px-6 text-paper focus:outline-none"
+    >
       <div className="relative z-10 w-full max-w-md text-center">
         <p className="text-sm font-semibold uppercase tracking-widest text-gray-500">
           404
@@ -34,6 +38,6 @@ export function NotFound() {
           </a>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

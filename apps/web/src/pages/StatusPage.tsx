@@ -83,7 +83,11 @@ export function StatusPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-night text-paper">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="min-h-screen bg-night text-paper focus:outline-none"
+    >
       <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
         <div>
           <div className="flex items-center gap-3 mb-2">
@@ -143,6 +147,6 @@ export function StatusPage() {
           </p>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
