@@ -41,8 +41,9 @@ Also confirm before building: `CONTRACT_ADDRESSES.mainnet` and `KNOWN_POOLS.main
 2. Deploy the Blend adapter with that reserved vault address and USDC as constructor arguments, using the allow-listed **mainnet** Blend pool address, not a testnet one.
 3. Deploy mUSDC with that same reserved vault address and its constructor arguments.
 4. Deploy the vault itself, **sourced by `ADMIN_KEY`** (the hardware-backed or multisig key from the prerequisites above, not `DEPLOYER`), using the same salt from step 1, with `admin`, `usdc`, `musdc`, and `adapter` as constructor arguments. The script verifies the vault actually landed at the precomputed address before declaring success.
-5. Run the exact same verification chain as "Verifying the deployment" in the testnet doc (`get_total_assets` returns `0`, `get_adapter` → `get_pool`/`get_protocol` resolve) before treating the deployment as live. A `HostError: Error(WasmVm, MissingValue)` here means the same thing it means on testnet: you're pointed at a stale build.
-6. Confirm the deployed bytecode against a from-source CI rebuild, the same way and for the same reason as "A note on reproducible builds" in the testnet doc. This matters more on mainnet, not less, since a locally-built WASM that silently drifted from source is now backing real funds.
+5. Review the generated `packages/shared/deployed-contracts.json` diff. It records public addresses, WASM hashes, salts, constructor arguments, deployment transactions, and the source commit; signing keys are never passed to the writer or stored.
+6. Run the exact same verification chain as "Verifying the deployment" in the testnet doc (`get_total_assets` returns `0`, `get_adapter` → `get_pool`/`get_protocol` resolve) before treating the deployment as live. A `HostError: Error(WasmVm, MissingValue)` here means the same thing it means on testnet: you're pointed at a stale build.
+7. Run `pnpm verify:contracts -- --live`, then confirm the deployed bytecode against a from-source CI rebuild, the same way and for the same reason as "A note on reproducible builds" in the testnet doc. This matters more on mainnet, not less, since a locally-built WASM that silently drifted from source is now backing real funds.
 
 ## Updating the app to use the new deployment
 
