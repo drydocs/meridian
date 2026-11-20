@@ -20,8 +20,27 @@ use soroban_sdk::{
 // Event topics
 // ---------------------------------------------------------------------------
 
+/// Bump when any vault event topic or payload shape changes.
+const EVENT_SCHEMA_VERSION: u32 = 1;
+
 /// Top-level topic shared by all vault admin-action events.
 const ADMIN_EVT: Symbol = symbol_short!("admin");
+
+const DEPOSIT_EVT: (Symbol, u32) = (symbol_short!("deposit"), EVENT_SCHEMA_VERSION);
+const PERF_FEE_EVT: (Symbol, u32) = (symbol_short!("perf_fee"), EVENT_SCHEMA_VERSION);
+const WITHDRAW_EVT: (Symbol, u32) = (symbol_short!("withdraw"), EVENT_SCHEMA_VERSION);
+const PAUSED_EVT: (Symbol, Symbol, u32) =
+    (ADMIN_EVT, symbol_short!("paused"), EVENT_SCHEMA_VERSION);
+const TRANSFER_EVT: (Symbol, Symbol, u32) =
+    (ADMIN_EVT, symbol_short!("transfer"), EVENT_SCHEMA_VERSION);
+const ACCEPT_EVT: (Symbol, Symbol, u32) =
+    (ADMIN_EVT, symbol_short!("accept"), EVENT_SCHEMA_VERSION);
+const ADAPTER_EVT: (Symbol, Symbol, u32) =
+    (ADMIN_EVT, symbol_short!("adapter"), EVENT_SCHEMA_VERSION);
+const MIG_BEGIN_EVT: (Symbol, Symbol, u32) =
+    (ADMIN_EVT, symbol_short!("mig_begin"), EVENT_SCHEMA_VERSION);
+const MIGRATE_EVT: (Symbol, Symbol, u32) =
+    (ADMIN_EVT, symbol_short!("migrate"), EVENT_SCHEMA_VERSION);
 
 // ---------------------------------------------------------------------------
 // TTL constants
@@ -332,10 +351,8 @@ impl MeridianVault {
 
         Self::extend_position(&env, &caller);
 
-        env.events().publish(
-            (symbol_short!("deposit"),),
-            (caller, amount, shares_to_mint),
-        );
+        env.events()
+            .publish(DEPOSIT_EVT, (caller, amount, shares_to_mint));
 
         Ok(shares_to_mint)
     }
@@ -492,7 +509,7 @@ impl MeridianVault {
                 MusdcAdminClient::new(&env, &musdc).mint(&treasury, &treasury_shares);
 
                 env.events().publish(
-                    (symbol_short!("perf_fee"),),
+                    PERF_FEE_EVT,
                     (caller.clone(), treasury, fee, treasury_shares),
                 );
             } else {
@@ -534,10 +551,8 @@ impl MeridianVault {
 
         Self::extend_position(&env, &caller);
 
-        env.events().publish(
-            (symbol_short!("withdraw"),),
-            (caller, shares, actual_usdc_out),
-        );
+        env.events()
+            .publish(WITHDRAW_EVT, (caller, shares, actual_usdc_out));
 
         Ok(actual_usdc_out)
     }
@@ -999,8 +1014,7 @@ impl MeridianVault {
         Self::require_admin(&env)?;
         Self::extend_instance(&env);
         env.storage().instance().set(&PAUSED, &paused);
-        env.events()
-            .publish((ADMIN_EVT, symbol_short!("paused")), paused);
+        env.events().publish(PAUSED_EVT, paused);
         Ok(())
     }
 
@@ -1020,8 +1034,7 @@ impl MeridianVault {
         Self::require_admin(&env)?;
         Self::extend_instance(&env);
         env.storage().instance().set(&PEND_ADM, &new_admin);
-        env.events()
-            .publish((ADMIN_EVT, symbol_short!("transfer")), new_admin.clone());
+        env.events().publish(TRANSFER_EVT, new_admin.clone());
         Ok(())
     }
 
@@ -1040,8 +1053,7 @@ impl MeridianVault {
         Self::extend_instance(&env);
         env.storage().instance().set(&ADMIN, &pending);
         env.storage().instance().remove(&PEND_ADM);
-        env.events()
-            .publish((ADMIN_EVT, symbol_short!("accept")), pending.clone());
+        env.events().publish(ACCEPT_EVT, pending.clone());
         Ok(())
     }
 
@@ -1080,8 +1092,7 @@ impl MeridianVault {
             return Err(ContractError::AdapterSwapUnsafe);
         }
         env.storage().instance().set(&ADAPTER, &new_adapter);
-        env.events()
-            .publish((ADMIN_EVT, symbol_short!("adapter")), new_adapter.clone());
+        env.events().publish(ADAPTER_EVT, new_adapter.clone());
         Ok(())
     }
 
@@ -1145,7 +1156,7 @@ impl MeridianVault {
         env.storage().instance().set(&MIG_SNAP, &snapshot);
         env.storage().instance().set(&MIG_ACTIVE, &1_i128);
         env.events().publish(
-            (ADMIN_EVT, symbol_short!("mig_begin")),
+            MIG_BEGIN_EVT,
             (new_adapter, snapshot_ledger + MIN_LEDGER_GAP),
         );
 
@@ -1349,10 +1360,8 @@ impl MeridianVault {
         env.storage()
             .instance()
             .set(&ADPT_SH, &new_adapter_client.total_shares());
-        env.events().publish(
-            (ADMIN_EVT, symbol_short!("migrate")),
-            (old_adapter_addr.clone(), new_adapter.clone()),
-        );
+        env.events()
+            .publish(MIGRATE_EVT, (old_adapter_addr.clone(), new_adapter.clone()));
         env.storage().instance().set(&MIG_ACTIVE, &0_i128);
         Ok(())
     }
@@ -4097,7 +4106,13 @@ mod tests {
         assert!(!vault.is_paused());
     }
 
-    /// Finds the single-topic event published under `topic` from `address`.
+    fn has_event_schema_version(env: &Env, value: &soroban_sdk::Val) -> bool {
+        soroban_sdk::TryIntoVal::<_, u32>::try_into_val(value, env)
+            .map(|version: u32| version == EVENT_SCHEMA_VERSION)
+            .unwrap_or(false)
+    }
+
+    /// Finds the event published under `(topic, schema_version)` from `address`.
     fn find_event(
         env: &Env,
         address: &Address,
@@ -4109,10 +4124,11 @@ mod tests {
     )> {
         env.events().all().into_iter().find(|e| {
             e.0 == *address
-                && e.1.len() == 1
+                && e.1.len() == 2
                 && soroban_sdk::TryIntoVal::<_, Symbol>::try_into_val(&e.1.get(0).unwrap(), env)
                     .map(|t: Symbol| t == topic)
                     .unwrap_or(false)
+                && has_event_schema_version(env, &e.1.get(1).unwrap())
         })
     }
 
@@ -4145,7 +4161,24 @@ mod tests {
         assert_eq!(data, (user, shares, usdc_out));
     }
 
-    /// Finds the two-topic admin event published under `(admin, action)` from `address`.
+    #[test]
+    fn perf_fee_publishes_event_with_caller_treasury_fee_and_treasury_shares() {
+        let (env, treasury, user, usdc, _musdc, adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+        StellarAssetClient::new(&env, &usdc).mint(&adapter, &10_0000000_i128);
+
+        let shares = vault.get_position(&user);
+        let preview = vault.preview_withdraw(&user, &shares);
+        vault.withdraw(&user, &shares, &0_i128);
+
+        let event = find_event(&env, &vault.address, symbol_short!("perf_fee"))
+            .expect("perf_fee event not found");
+        let data: (Address, Address, i128, i128) =
+            soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(data, (user, treasury, preview.fee, preview.treasury_shares));
+    }
+
+    /// Finds the event published under `(admin, action, schema_version)` from `address`.
     fn find_admin_event(
         env: &Env,
         address: &Address,
@@ -4157,14 +4190,68 @@ mod tests {
     )> {
         env.events().all().into_iter().find(|e| {
             e.0 == *address
-                && e.1.len() == 2
+                && e.1.len() == 3
                 && soroban_sdk::TryIntoVal::<_, Symbol>::try_into_val(&e.1.get(0).unwrap(), env)
-                    .map(|t: Symbol| t == symbol_short!("admin"))
+                    .map(|t: Symbol| t == ADMIN_EVT)
                     .unwrap_or(false)
                 && soroban_sdk::TryIntoVal::<_, Symbol>::try_into_val(&e.1.get(1).unwrap(), env)
                     .map(|t: Symbol| t == action)
                     .unwrap_or(false)
+                && has_event_schema_version(env, &e.1.get(2).unwrap())
         })
+    }
+
+    #[test]
+    fn paused_publishes_event_with_pause_state() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+
+        vault.set_paused(&true);
+
+        let event = find_admin_event(&env, &vault.address, symbol_short!("paused"))
+            .expect("paused event not found");
+        let data: bool = soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert!(data);
+    }
+
+    #[test]
+    fn transfer_publishes_event_with_nominee() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let new_admin = Address::generate(&env);
+
+        vault.transfer_admin(&new_admin);
+
+        let event = find_admin_event(&env, &vault.address, symbol_short!("transfer"))
+            .expect("transfer event not found");
+        let data: Address = soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(data, new_admin);
+    }
+
+    #[test]
+    fn accept_publishes_event_with_new_admin() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let new_admin = Address::generate(&env);
+        vault.transfer_admin(&new_admin);
+
+        vault.accept_admin();
+
+        let event = find_admin_event(&env, &vault.address, symbol_short!("accept"))
+            .expect("accept event not found");
+        let data: Address = soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(data, new_admin);
+    }
+
+    #[test]
+    fn adapter_publishes_event_with_new_adapter() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+
+        vault.set_adapter(&new_adapter);
+
+        let event = find_admin_event(&env, &vault.address, symbol_short!("adapter"))
+            .expect("adapter event not found");
+        let data: Address = soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(data, new_adapter);
     }
 
     #[test]
@@ -4182,6 +4269,26 @@ mod tests {
             soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
         assert_eq!(target_adapter, new_adapter_id);
         assert_eq!(earliest_ledger, current_ledger + MIN_LEDGER_GAP);
+    }
+
+    #[test]
+    fn migrate_publishes_event_with_old_and_new_adapter() {
+        let (env, _admin, user, usdc, _musdc, old_adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        vault.begin_migration(&new_adapter);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += MIN_LEDGER_GAP);
+
+        vault.migrate_adapter(&new_adapter, &0);
+
+        let event = find_admin_event(&env, &vault.address, symbol_short!("migrate"))
+            .expect("migrate event not found");
+        let data: (Address, Address) =
+            soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(data, (old_adapter, new_adapter));
     }
 
     // -----------------------------------------------------------------------
