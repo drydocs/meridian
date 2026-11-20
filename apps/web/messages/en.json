@@ -17,7 +17,11 @@
     "walletConnected": "Wallet Connected",
     "chooseWallet": "Choose a wallet",
     "installed": "Installed",
-    "install": "Install"
+    "install": "Install",
+    "timeout": "The wallet didn't respond. It may be open behind this window — check for it, then retry.",
+    "timeoutHint": "The wallet window may be behind this window.",
+    "cancel": "Cancel",
+    "retry": "Retry"
   },
 
   "vaultPanel": {

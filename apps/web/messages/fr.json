@@ -17,7 +17,11 @@
     "walletConnected": "Portefeuille connecté",
     "chooseWallet": "Choisir un portefeuille",
     "installed": "Installé",
-    "install": "Installer"
+    "install": "Installer",
+    "timeout": "Le portefeuille n'a pas répondu. Il est peut-être ouvert derrière cette fenêtre — vérifiez, puis réessayez.",
+    "timeoutHint": "La fenêtre du portefeuille est peut-être derrière cette fenêtre.",
+    "cancel": "Annuler",
+    "retry": "Réessayer"
   },
 
   "vaultPanel": {

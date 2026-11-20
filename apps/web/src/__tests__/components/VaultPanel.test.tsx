@@ -11,6 +11,7 @@ import { useUsdcBalance } from "../../hooks/useUsdcBalance";
 const refetchPositions = vi.fn();
 const deposit = vi.fn(async () => true);
 const withdraw = vi.fn(async () => true);
+const cancelSigning = vi.fn();
 const handleConnect = vi.fn();
 const acceptRiskDisclosure = vi.fn();
 const cancelRiskDisclosure = vi.fn();
@@ -72,6 +73,7 @@ function mockConnect(overrides: Partial<ReturnType<typeof useWalletConnect>>) {
     handleConnect,
     status: "idle",
     attemptedWalletId: "freighter",
+    cancelConnect: vi.fn(),
     showRiskDisclosure: false,
     acceptRiskDisclosure,
     cancelRiskDisclosure,
@@ -94,6 +96,7 @@ beforeEach(() => {
     withdraw,
     isDepositing: false,
     isWithdrawing: false,
+    cancelSigning,
   } as unknown as ReturnType<typeof useVaultActions>);
   mockConnect({});
   // Default: no balance information — DepositTab's guard is skipped.
@@ -492,5 +495,50 @@ describe("VaultPanel — refetches USDC balance after a successful deposit (#106
     });
 
     expect(refetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("VaultPanel — cancelling a stuck wallet popup (#1301)", () => {
+  it("offers a cancel control while a deposit is awaiting the wallet", () => {
+    window.localStorage.setItem("meridian-risk-disclosure-accepted", "true");
+    vi.mocked(useUsdcBalance).mockReturnValue({
+      balance: 100,
+      refetch: vi.fn(),
+    });
+    vi.mocked(useVaultActions).mockReturnValue({
+      deposit,
+      withdraw,
+      isDepositing: true,
+      isWithdrawing: false,
+      cancelSigning,
+    } as unknown as ReturnType<typeof useVaultActions>);
+    render(<VaultPanel />);
+
+    fireEvent.click(screen.getByTestId("vault-deposit-cancel"));
+
+    expect(cancelSigning).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a cancel control while a withdrawal is awaiting the wallet", () => {
+    mockPositions({ isError: false, data: [POSITION] });
+    vi.mocked(useVaultActions).mockReturnValue({
+      deposit,
+      withdraw,
+      isDepositing: false,
+      isWithdrawing: true,
+      cancelSigning,
+    } as unknown as ReturnType<typeof useVaultActions>);
+    render(<VaultPanel />);
+
+    fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
+    fireEvent.click(screen.getByTestId("vault-withdraw-cancel"));
+
+    expect(cancelSigning).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the cancel control once the wallet flow finishes", () => {
+    render(<VaultPanel />);
+
+    expect(screen.queryByTestId("vault-deposit-cancel")).toBeNull();
   });
 });

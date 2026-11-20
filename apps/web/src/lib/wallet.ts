@@ -86,18 +86,131 @@ function mockWallet(): E2EMockWallet | undefined {
 }
 
 /**
+ * The wallet operations that can hang. A popup the browser blocked, or one
+ * that opened behind the browser window, never resolves, so each operation
+ * needs its own deadline rather than waiting on the wallet to fail.
+ */
+export type WalletOperation =
+  "isInstalled" | "isAuthorized" | "connect" | "sign";
+
+/**
+ * Per-operation deadlines in ms. Connect and sign wait on a human approving
+ * something in another window, so they get a long leash; the passive checks
+ * should answer almost immediately or not at all.
+ */
+export const WALLET_TIMEOUTS: Record<WalletOperation, number> = {
+  isInstalled: 10_000,
+  isAuthorized: 15_000,
+  connect: 45_000,
+  sign: 120_000,
+};
+
+/** A wallet operation that neither resolved nor rejected before its deadline. */
+export class WalletTimeoutError extends Error {
+  readonly code = "WALLET_TIMEOUT";
+  constructor(
+    readonly operation: WalletOperation,
+    readonly timeoutMs: number
+  ) {
+    super(
+      `Wallet ${operation} did not respond within ${Math.round(
+        timeoutMs / 1000
+      )}s`
+    );
+    this.name = "WalletTimeoutError";
+  }
+}
+
+/** The user abandoned a pending wallet operation from inside the app. */
+export class WalletCancelledError extends Error {
+  readonly code = "WALLET_CANCELLED";
+  constructor(readonly operation: WalletOperation) {
+    super(`Wallet ${operation} was cancelled`);
+    this.name = "WalletCancelledError";
+  }
+}
+
+/** True for a deadline expiring rather than a wallet-reported failure. */
+export function isWalletTimeout(err: unknown): err is WalletTimeoutError {
+  return err instanceof WalletTimeoutError;
+}
+
+/** True for a user cancel, which should return the UI to idle silently. */
+export function isWalletCancellation(
+  err: unknown
+): err is WalletCancelledError {
+  return err instanceof WalletCancelledError;
+}
+
+export interface WalletOperationOptions {
+  /**
+   * Abandons the wait. The wallet's own request cannot be cancelled, so its
+   * eventual result is dropped rather than allowed to update state.
+   */
+  signal?: AbortSignal;
+  /** Overrides the per-operation deadline, for tests and call sites. */
+  timeoutMs?: number;
+}
+
+/**
+ * Races a wallet call against its deadline and an abort signal. Whichever
+ * settles first wins and every later settlement of the wallet promise is
+ * dropped, so a popup that answers minutes later cannot revive state the
+ * user already left behind.
+ */
+function runWalletOperation<T>(
+  operation: WalletOperation,
+  options: WalletOperationOptions | undefined,
+  run: () => Promise<T>
+): Promise<T> {
+  const signal = options?.signal;
+  if (signal?.aborted) {
+    return Promise.reject(new WalletCancelledError(operation));
+  }
+
+  const timeoutMs = options?.timeoutMs ?? WALLET_TIMEOUTS[operation];
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    function finish(settle: () => void): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      settle();
+    }
+    const onAbort = () =>
+      finish(() => reject(new WalletCancelledError(operation)));
+    const timer = setTimeout(
+      () => finish(() => reject(new WalletTimeoutError(operation, timeoutMs))),
+      timeoutMs
+    );
+    signal?.addEventListener("abort", onAbort);
+    void Promise.resolve()
+      .then(run)
+      .then(
+        (value) => finish(() => resolve(value)),
+        (err: unknown) => finish(() => reject(err))
+      );
+  });
+}
+
+/**
  * Runs `real` unless the e2e mock wallet is present, in which case it runs
  * `mocked` instead. Every adapter method short-circuits through this so the
  * `const mock = mockWallet(); if (mock) ...` dance lives in one place instead
- * of being duplicated in each wallet adapter.
+ * of being duplicated in each wallet adapter, and so every method gets the
+ * same deadline and cancellation handling.
  */
 async function withMockWallet<T>(
+  operation: WalletOperation,
+  options: WalletOperationOptions | undefined,
   mocked: (mock: E2EMockWallet) => T | Promise<T>,
   real: () => T | Promise<T>
 ): Promise<T> {
   const mock = mockWallet();
-  if (mock) return mocked(mock);
-  return real();
+  return runWalletOperation(operation, options, async () =>
+    mock ? mocked(mock) : real()
+  );
 }
 
 /**
@@ -106,17 +219,24 @@ async function withMockWallet<T>(
  * implementation and selecting it below, not touching callers.
  */
 export interface WalletAdapter {
-  isInstalled(): Promise<boolean>;
+  isInstalled(options?: WalletOperationOptions): Promise<boolean>;
   // Whether the user has granted this site access. False if the wallet is
   // absent or the site permission was revoked.
-  isAuthorized(): Promise<boolean>;
-  connect(): Promise<string>;
-  sign(xdr: string, networkPassphrase: string): Promise<string>;
+  isAuthorized(options?: WalletOperationOptions): Promise<boolean>;
+  connect(options?: WalletOperationOptions): Promise<string>;
+  sign(
+    xdr: string,
+    networkPassphrase: string,
+    options?: WalletOperationOptions
+  ): Promise<string>;
 }
 
-class FreighterWallet implements WalletAdapter {
-  async isInstalled(): Promise<boolean> {
+export class FreighterWallet implements WalletAdapter {
+  async isInstalled(options?: WalletOperationOptions): Promise<boolean> {
     return withMockWallet(
+      "isInstalled",
+      options,
+
       (mock) => mock.installed,
       async () => {
         const result = await isConnected();
@@ -125,11 +245,14 @@ class FreighterWallet implements WalletAdapter {
     );
   }
 
-  async isAuthorized(): Promise<boolean> {
+  async isAuthorized(options?: WalletOperationOptions): Promise<boolean> {
     return withMockWallet(
+      "isAuthorized",
+      options,
+
       (mock) => mock.installed && mock.authorized,
       async () => {
-        const installed = await this.isInstalled();
+        const installed = await this.isInstalled(options);
         if (!installed) return false;
         const result = await isAllowed();
         return result.isAllowed;
@@ -137,8 +260,11 @@ class FreighterWallet implements WalletAdapter {
     );
   }
 
-  async connect(): Promise<string> {
+  async connect(options?: WalletOperationOptions): Promise<string> {
     return withMockWallet(
+      "connect",
+      options,
+
       (mock) => mock.address,
       async () => {
         const result = await requestAccess();
@@ -148,8 +274,15 @@ class FreighterWallet implements WalletAdapter {
     );
   }
 
-  async sign(xdr: string, networkPassphrase: string): Promise<string> {
+  async sign(
+    xdr: string,
+    networkPassphrase: string,
+    options?: WalletOperationOptions
+  ): Promise<string> {
     return withMockWallet(
+      "sign",
+      options,
+
       (mock) => mock.sign(xdr, networkPassphrase),
       async () => {
         const result = await freighterSign(xdr, { networkPassphrase });
@@ -190,8 +323,13 @@ const LOBSTR_PUBLIC_KEY_STORAGE_KEY = "meridian-lobstr-public-key";
 //   2. signTransaction() takes only the XDR; the extension derives the network
 //      from its own pairing with the mobile app.
 export class LobstrWallet implements WalletAdapter {
-  async isInstalled(): Promise<boolean> {
-    return withMockWallet((mock) => mock.installed, lobstrIsConnected);
+  async isInstalled(options?: WalletOperationOptions): Promise<boolean> {
+    return withMockWallet(
+      "isInstalled",
+      options,
+      (mock) => mock.installed,
+      lobstrIsConnected
+    );
   }
 
   // LOBSTR's API offers no passive "is site authorized" query like Freighter's
@@ -202,19 +340,25 @@ export class LobstrWallet implements WalletAdapter {
   // authorized instead. This cannot detect a revocation made inside the
   // extension since the last connect(), but LOBSTR exposes no non-prompting
   // signal for that.
-  async isAuthorized(): Promise<boolean> {
+  async isAuthorized(options?: WalletOperationOptions): Promise<boolean> {
     return withMockWallet(
+      "isAuthorized",
+      options,
+
       (mock) => mock.installed && mock.authorized,
       async () => {
-        const installed = await this.isInstalled();
+        const installed = await this.isInstalled(options);
         if (!installed) return false;
         return readStoredPublicKey(LOBSTR_PUBLIC_KEY_STORAGE_KEY) !== null;
       }
     );
   }
 
-  async connect(): Promise<string> {
+  async connect(options?: WalletOperationOptions): Promise<string> {
     return withMockWallet(
+      "connect",
+      options,
+
       (mock) => mock.address,
       async () => {
         const publicKey = await lobstrGetPublicKey();
@@ -225,8 +369,15 @@ export class LobstrWallet implements WalletAdapter {
     );
   }
 
-  async sign(xdr: string, networkPassphrase: string): Promise<string> {
+  async sign(
+    xdr: string,
+    networkPassphrase: string,
+    options?: WalletOperationOptions
+  ): Promise<string> {
     return withMockWallet(
+      "sign",
+      options,
+
       (mock) => mock.sign(xdr, networkPassphrase),
       async () => {
         // LOBSTR's signTransaction does not accept a networkPassphrase; the
@@ -267,26 +418,35 @@ function isXBullExtensionPresent(): boolean {
 // guidance, and always closes it via closeConnections() in a finally block to
 // avoid leaking listeners into the next bridge instance.
 export class XBullWallet implements WalletAdapter {
-  async isInstalled(): Promise<boolean> {
+  async isInstalled(options?: WalletOperationOptions): Promise<boolean> {
     return withMockWallet(
+      "isInstalled",
+      options,
+
       (mock) => mock.installed,
       async () => isXBullExtensionPresent()
     );
   }
 
-  async isAuthorized(): Promise<boolean> {
+  async isAuthorized(options?: WalletOperationOptions): Promise<boolean> {
     return withMockWallet(
+      "isAuthorized",
+      options,
+
       (mock) => mock.installed && mock.authorized,
       async () => {
-        const installed = await this.isInstalled();
+        const installed = await this.isInstalled(options);
         if (!installed) return false;
         return readStoredPublicKey(XBULL_PUBLIC_KEY_STORAGE_KEY) !== null;
       }
     );
   }
 
-  async connect(): Promise<string> {
+  async connect(options?: WalletOperationOptions): Promise<string> {
     return withMockWallet(
+      "connect",
+      options,
+
       (mock) => mock.address,
       async () => {
         const bridge = new xBullWalletConnect();
@@ -303,8 +463,15 @@ export class XBullWallet implements WalletAdapter {
     );
   }
 
-  async sign(xdr: string, networkPassphrase: string): Promise<string> {
+  async sign(
+    xdr: string,
+    networkPassphrase: string,
+    options?: WalletOperationOptions
+  ): Promise<string> {
     return withMockWallet(
+      "sign",
+      options,
+
       (mock) => mock.sign(xdr, networkPassphrase),
       async () => {
         const bridge = new xBullWalletConnect();
@@ -342,8 +509,11 @@ function albedoNetworkFromPassphrase(passphrase: string): string {
 }
 
 export class AlbedoWallet implements WalletAdapter {
-  async isInstalled(): Promise<boolean> {
+  async isInstalled(options?: WalletOperationOptions): Promise<boolean> {
     return withMockWallet(
+      "isInstalled",
+      options,
+
       (mock) => mock.installed,
       async () => true
     );
@@ -354,19 +524,25 @@ export class AlbedoWallet implements WalletAdapter {
   // tab focus (store/wallet.ts revalidate() runs isAuthorized on mount and
   // focus). Treat "installed + a public key stored by a prior connect()" as
   // authorized instead.
-  async isAuthorized(): Promise<boolean> {
+  async isAuthorized(options?: WalletOperationOptions): Promise<boolean> {
     return withMockWallet(
+      "isAuthorized",
+      options,
+
       (mock) => mock.installed && mock.authorized,
       async () => {
-        const installed = await this.isInstalled();
+        const installed = await this.isInstalled(options);
         if (!installed) return false;
         return readStoredPublicKey(ALBEDO_PUBLIC_KEY_STORAGE_KEY) !== null;
       }
     );
   }
 
-  async connect(): Promise<string> {
+  async connect(options?: WalletOperationOptions): Promise<string> {
     return withMockWallet(
+      "connect",
+      options,
+
       (mock) => mock.address,
       async () => {
         const albedo = await getAlbedo();
@@ -382,8 +558,15 @@ export class AlbedoWallet implements WalletAdapter {
     );
   }
 
-  async sign(xdr: string, networkPassphrase: string): Promise<string> {
+  async sign(
+    xdr: string,
+    networkPassphrase: string,
+    options?: WalletOperationOptions
+  ): Promise<string> {
     return withMockWallet(
+      "sign",
+      options,
+
       (mock) => mock.sign(xdr, networkPassphrase),
       async () => {
         const albedo = await getAlbedo();
@@ -487,9 +670,16 @@ export function getWalletAdapter(id: WalletId): WalletAdapter {
 // user's choice; callers that need to act on a *specific* wallet before it
 // becomes the selection (the connect picker) use getWalletAdapter directly.
 export const wallet: WalletAdapter = {
-  isInstalled: () => getWalletAdapter(getSelectedWalletId()).isInstalled(),
-  isAuthorized: () => getWalletAdapter(getSelectedWalletId()).isAuthorized(),
-  connect: () => getWalletAdapter(getSelectedWalletId()).connect(),
-  sign: (xdr, networkPassphrase) =>
-    getWalletAdapter(getSelectedWalletId()).sign(xdr, networkPassphrase),
+  isInstalled: (options) =>
+    getWalletAdapter(getSelectedWalletId()).isInstalled(options),
+  isAuthorized: (options) =>
+    getWalletAdapter(getSelectedWalletId()).isAuthorized(options),
+  connect: (options) =>
+    getWalletAdapter(getSelectedWalletId()).connect(options),
+  sign: (xdr, networkPassphrase, options) =>
+    getWalletAdapter(getSelectedWalletId()).sign(
+      xdr,
+      networkPassphrase,
+      options
+    ),
 };

@@ -1,6 +1,6 @@
 import { APP_NETWORK } from "@meridian/shared";
 import { useWalletStore } from "../store/wallet";
-import { wallet } from "../lib/wallet";
+import { wallet, type WalletOperationOptions } from "../lib/wallet";
 import { api } from "../lib/api";
 import { useTranslation } from "react-i18next";
 
@@ -13,12 +13,17 @@ export function useSignAndSubmit() {
   // the wrong network hash.
   const passphrase = APP_NETWORK.passphrase;
 
-  async function signAndSubmit(xdr: string) {
+  // `options` carries the caller's abort signal and timeout override, so a
+  // deposit or withdrawal can be cancelled while the wallet popup is open
+  // (#1301). Without one, the adapter's own sign deadline still applies.
+  async function signAndSubmit(xdr: string, options?: WalletOperationOptions) {
     await revalidate();
     if (!useWalletStore.getState().connected) {
       throw new Error(t("walletConnect.walletDisconnected"));
     }
-    const signedXdr = await wallet.sign(xdr, passphrase);
+    const signedXdr = options
+      ? await wallet.sign(xdr, passphrase, options)
+      : await wallet.sign(xdr, passphrase);
     await api.submitTx({ xdr: signedXdr });
   }
 

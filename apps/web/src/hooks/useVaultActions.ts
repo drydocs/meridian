@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { APP_NETWORK } from "@meridian/shared";
 import { useWalletStore } from "../store/wallet";
 import { api, type ApiPosition, type VaultState } from "../lib/api";
 import { useToastStore } from "../store/toast";
 import { useSignAndSubmit } from "./useSignAndSubmit";
+import { isWalletCancellation, isWalletTimeout } from "../lib/wallet";
 import { useTrustlines } from "./useTrustlines";
 import { useBlendFaucet } from "./useBlendFaucet";
 import { usePositionPolling } from "./usePositionPolling";
@@ -51,6 +52,10 @@ export function useVaultActions() {
   const { push } = useToastStore();
   const [isDepositing, setIsDepositing] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  // Aborts the wallet signature currently being awaited. The wallet request
+  // itself cannot be cancelled, so this only stops the flow waiting on it
+  // (#1301). Shared by deposit and withdraw: only one can run at a time.
+  const signAbortRef = useRef<AbortController | null>(null);
 
   const { signAndSubmit, passphrase } = useSignAndSubmit();
   const { hasRequiredTrustlines, addTrustline } = useTrustlines();
@@ -67,6 +72,8 @@ export function useVaultActions() {
     if (!riskAcknowledged) return false;
     if (!publicKey || !passphrase) return false;
     setIsDepositing(true);
+    const controller = new AbortController();
+    signAbortRef.current = controller;
     try {
       // Snapshot the cached positions before any async work so the optimistic
       // update and the poll share a baseline, the same shape as `withdraw`.
@@ -124,7 +131,8 @@ export function useVaultActions() {
         min_shares_out: resolvedMinSharesOut,
         riskAcknowledged: true,
       });
-      await signAndSubmit(xdr);
+      await signAndSubmit(xdr, { signal: controller.signal });
+      if (controller.signal.aborted) return false;
 
       // Without this, the vault panel's TVL/APY keep serving their cached
       // value for up to staleTime (5 min) after a deposit actually lands.
@@ -168,11 +176,19 @@ export function useVaultActions() {
       push("success", `${t("vaultActions.deposited")} ${amount} ${asset}`);
       return true;
     } catch (err) {
+      // A cancel is the user's own choice, and a timeout already explains
+      // itself, so neither is surfaced as a failure toast.
+      if (isWalletCancellation(err)) return false;
+      if (isWalletTimeout(err)) {
+        push("error", t("walletConnect.timeout"));
+        return false;
+      }
       const msg =
         err instanceof Error ? err.message : t("vaultActions.depositFailed");
       push("error", msg);
       return false;
     } finally {
+      if (signAbortRef.current === controller) signAbortRef.current = null;
       setIsDepositing(false);
     }
   }
@@ -185,6 +201,8 @@ export function useVaultActions() {
   ): Promise<boolean> {
     if (!publicKey || !passphrase) return false;
     setIsWithdrawing(true);
+    const controller = new AbortController();
+    signAbortRef.current = controller;
     try {
       // Snapshot the current positions before any async work so the optimistic
       // update and poll have a consistent baseline.
@@ -227,7 +245,8 @@ export function useVaultActions() {
         min_usdc_out: resolvedMinUsdcOut,
       });
 
-      await signAndSubmit(xdr);
+      await signAndSubmit(xdr, { signal: controller.signal });
+      if (controller.signal.aborted) return false;
 
       // Without this, the vault panel's TVL/APY keep serving their cached
       // value for up to staleTime (5 min) after a withdrawal actually lands.
@@ -262,14 +281,27 @@ export function useVaultActions() {
       push("success", `${t("vaultActions.withdrew")} ${shares} ${asset}`);
       return true;
     } catch (err) {
+      if (isWalletCancellation(err)) return false;
+      if (isWalletTimeout(err)) {
+        push("error", t("walletConnect.timeout"));
+        return false;
+      }
       push(
         "error",
         err instanceof Error ? err.message : t("vaultActions.withdrawalFailed")
       );
       return false;
     } finally {
+      if (signAbortRef.current === controller) signAbortRef.current = null;
       setIsWithdrawing(false);
     }
+  }
+
+  // Stops waiting on an open wallet popup. The deposit/withdraw promise
+  // settles as cancelled and the form returns to its normal state.
+  function cancelSigning() {
+    signAbortRef.current?.abort();
+    signAbortRef.current = null;
   }
 
   return {
@@ -277,5 +309,6 @@ export function useVaultActions() {
     withdraw,
     isDepositing,
     isWithdrawing,
+    cancelSigning,
   };
 }
