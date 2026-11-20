@@ -53,6 +53,12 @@ const SERVER_MESSAGE_TO_KEY: Record<string, string> = {
 
   // wallet.sign() — wallet disconnected
   "Wallet Disconnected": "errors.walletDisconnected",
+
+  // wallet.sign() / wallet.connect() — user closed the popup
+  "User declined access": "errors.walletDeclined",
+  "User declined request": "errors.walletDeclined",
+  "User cancelled": "errors.walletDeclined",
+  "User rejected": "errors.walletDeclined",
 };
 
 /**
@@ -65,6 +71,15 @@ function isMissingTrustlineMessage(message: string): boolean {
     message.includes("trustline") &&
     message.includes("add-trustline")
   );
+}
+
+/**
+ * Check whether the error message represents a user-initiated wallet decline
+ * (user closed the popup, rejected the request, etc.). These share a pattern
+ * but can arrive with different exact phrasings from different wallet adapters.
+ */
+function isWalletDeclineMessage(message: string): boolean {
+  return /cancel|decline|reject/i.test(message);
 }
 
 /**
@@ -125,15 +140,30 @@ export function mapError(
     return { message: t("errors.missingTrustline") };
   }
 
-  // 3. Named per-action fallback when the caller provides one.
-  if (fallbackKey) {
-    console.error("[Meridian] unmapped error (key=%s):", fallbackKey, err);
-    return { message: t(fallbackKey) };
+  // 3. Dynamic wallet decline pattern — catches adapter-specific phrasings
+  //    not covered by the exact-match table above.
+  if (isWalletDeclineMessage(raw)) {
+    return { message: t("errors.walletDeclined") };
   }
 
-  // 4. Fully unknown — show generic message + reference code, log the raw.
+  // 4. Unmapped error: always compute a reference code and log the raw error,
+  //    regardless of whether the caller supplied a fallbackKey. The fallbackKey
+  //    changes only the visible label (e.g. "Deposit failed (ref: A1B2C3)"),
+  //    so callers still get a contextual message while every unmapped path
+  //    remains traceable via the reference code.
   const code = referenceCode(raw);
-  console.error("[Meridian] unknown error (ref=%s):", code, err);
+  console.error("[Meridian] unmapped error (ref=%s):", code, err);
+
+  if (fallbackKey) {
+    return {
+      message: t("errors.fallbackWithRef", {
+        action: t(fallbackKey),
+        ref: code,
+      }),
+      referenceCode: code,
+    };
+  }
+
   return {
     message: t("errors.unknownWithRef", { ref: code }),
     referenceCode: code,

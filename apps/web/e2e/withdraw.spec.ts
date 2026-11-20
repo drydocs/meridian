@@ -84,7 +84,7 @@ test.describe("withdraw", () => {
     await expect(
       page.getByText(
         new RegExp(
-          `Your wallet is missing the USDC trustline|Something went wrong|Could not prepare the withdrawal|${USER_FIXABLE_TX_ERRORS}`
+          `Your wallet is missing the USDC trustline|Something went wrong|You declined the request|Could not prepare the withdrawal|${USER_FIXABLE_TX_ERRORS}`
         )
       )
     ).toBeVisible({ timeout: 20_000 });

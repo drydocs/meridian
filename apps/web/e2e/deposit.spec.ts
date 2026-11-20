@@ -49,7 +49,7 @@ test.describe("deposit", () => {
     await expect(
       page.getByText(
         new RegExp(
-          `Something went wrong|Your wallet is missing the USDC trustline|${USER_FIXABLE_TX_ERRORS}`
+          `Something went wrong|You declined the request|Your wallet is missing the USDC trustline|${USER_FIXABLE_TX_ERRORS}`
         )
       )
     ).toBeVisible({ timeout: 25_000 });
@@ -60,8 +60,11 @@ test.describe("deposit", () => {
     // signing was attempted. Either way the toast above was already asserted;
     // this just sanity-checks that XDRs were only collected when signing ran.
     if (signed.length > 0) {
-      // Signing was requested → the error came from the wallet decline path.
-      await expect(page.getByText(/Something went wrong/)).toBeVisible();
+      // Signing was requested → the mock wallet threw "User declined access",
+      // which mapError maps to errors.walletDeclined ("You declined the request…").
+      await expect(
+        page.getByText(/You declined the request/)
+      ).toBeVisible();
     }
   });
 

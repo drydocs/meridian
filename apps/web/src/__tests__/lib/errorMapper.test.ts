@@ -67,6 +67,10 @@ describe("mapError", () => {
     ["Failed to build trustline transaction", "errors.trustlineBuildFailed"],
     ["Failed to submit transaction", "errors.submitFailed"],
     ["Wallet Disconnected", "errors.walletDisconnected"],
+    ["User declined access", "errors.walletDeclined"],
+    ["User declined request", "errors.walletDeclined"],
+    ["User cancelled", "errors.walletDeclined"],
+    ["User rejected", "errors.walletDeclined"],
   ];
 
   knownCases.forEach(([serverMessage, expectedKey]) => {
@@ -94,16 +98,31 @@ describe("mapError", () => {
     expect(result.message).toBe("errors.missingTrustline");
   });
 
-  // ---- named fallback ---------------------------------------------------------
+  // ---- wallet decline dynamic variants ----------------------------------------
 
-  it("uses the named fallback for unrecognised Error messages", () => {
+  it("maps dynamic wallet decline messages via pattern match", () => {
+    const declineMessages = [
+      "User cancelled the request",
+      "Request rejected by user",
+      "Transaction declined",
+    ];
+    for (const msg of declineMessages) {
+      const result = mapError(new Error(msg), t);
+      expect(result.message).toBe("errors.walletDeclined");
+    }
+  });
+
+  // ---- named fallback with ref code ------------------------------------------
+
+  it("uses the named fallback with a reference code for unrecognised Error messages", () => {
     const result = mapError(
       new Error("Transaction ${hash} failed on-chain"),
       t,
       "vaultActions.depositFailed"
     );
-    expect(result.message).toBe("vaultActions.depositFailed");
-    expect(result.referenceCode).toBeUndefined();
+    // fallbackWithRef interpolates the action label and ref code
+    expect(result.message).toMatch(/errors\.fallbackWithRef/);
+    expect(result.referenceCode).toMatch(/^[0-9A-F]{6}$/);
     expect(console.error).toHaveBeenCalledOnce();
   });
 
@@ -112,7 +131,7 @@ describe("mapError", () => {
     mapError(err, t, "vaultActions.withdrawalFailed");
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining("unmapped error"),
-      expect.stringContaining("vaultActions.withdrawalFailed"),
+      expect.stringMatching(/^[0-9A-F]{6}$/),
       err
     );
   });
@@ -142,11 +161,11 @@ describe("mapError", () => {
     const err = new Error("HostError: opaque");
     mapError(err, t);
     // console.error is called as:
-    //   console.error("[Meridian] unknown error (ref=%s):", code, err)
+    //   console.error("[Meridian] unmapped error (ref=%s):", code, err)
     // The second argument is the reference code string itself, not a
     // "ref=…" formatted string; the format specifier lives in arg 1.
     expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining("unknown error"),
+      expect.stringContaining("unmapped error"),
       expect.stringMatching(/^[0-9A-F]{6}$/),
       err
     );
@@ -181,21 +200,25 @@ describe("errors i18n keys", () => {
     "trustlineBuildFailed",
     "submitFailed",
     "walletDisconnected",
+    "walletDeclined",
     "unknown",
     "unknownWithRef",
+    "fallbackWithRef",
   ];
+
+  type TranslationFile = { errors?: Record<string, string> };
 
   errorKeys.forEach((key) => {
     it(`en has errors.${key}`, () => {
-      expect(
-        typeof (en as Record<string, Record<string, string>>)["errors"]?.[key]
-      ).toBe("string");
+      expect(typeof (en as unknown as TranslationFile).errors?.[key]).toBe(
+        "string"
+      );
     });
 
     it(`fr has errors.${key}`, () => {
-      expect(
-        typeof (fr as Record<string, Record<string, string>>)["errors"]?.[key]
-      ).toBe("string");
+      expect(typeof (fr as unknown as TranslationFile).errors?.[key]).toBe(
+        "string"
+      );
     });
   });
 });
