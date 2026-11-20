@@ -3483,11 +3483,12 @@ mod tests {
         let zero_share_adapter_id = env.register(ZeroShareMockAdapter, ());
         ZeroShareMockAdapterClient::new(&env, &zero_share_adapter_id).initialize(&usdc);
 
-        // Deploy a vault configured with the zero-share adapter
-        let musdc_id = env
-            .register_stellar_asset_contract_v2(admin.clone())
-            .address();
-        let vault_id = env.register(
+        // Deploy a vault configured with the zero-share adapter.
+        let musdc_id = env.register(MockMusdc, ());
+        let vault_id = Address::generate(&env);
+        MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
+        env.register_at(
+            &vault_id,
             MeridianVault,
             (&admin, &usdc, &musdc_id, &zero_share_adapter_id, &admin),
         );
