@@ -4,17 +4,18 @@
 extern crate std;
 
 mod errors;
+pub mod pricing;
 mod storage;
 
 pub use errors::ContractError;
 pub use storage::{
-    clear_position_records, DataKey, MigrationSnapshot, ADAPTER, ADMIN, ADPT_SH,
+    clear_position_records, DataKey, MigrationSnapshot, ADAPTER, ADMIN, ADPT_SH, LOCKED,
     MAX_ADMIN_SLIPPAGE_BPS, MIG_ACTIVE, MIG_SNAP, MIN_LEDGER_GAP, MUSDC, OFFSET, PAUSED, PEND_ADM,
     TOTAL_SH, TREASURY, USDC,
 };
 
 use soroban_sdk::{
-    contract, contractclient, contractimpl, panic_with_error, symbol_short, token::TokenClient,
+    contract, contractclient, contractimpl, contracttype, symbol_short, token::TokenClient,
     Address, Env, Symbol,
 };
 
@@ -110,6 +111,22 @@ pub trait MusdcAdminInterface {
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
+
+/// Result of [`MeridianVault::preview_withdraw`]: what `withdraw` would do for
+/// a given holder and share count at the current vault state.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WithdrawPreview {
+    /// USDC the adapter would redeem for the burned shares, before any fee.
+    pub gross_assets: i128,
+    /// Performance fee on the gain over the retired cost basis (0 if none).
+    pub fee: i128,
+    /// mUSDC minted to the treasury for the fee (0 if no fee, or if the fee
+    /// is too small to mint one share and is returned to the caller instead).
+    pub treasury_shares: i128,
+    /// USDC the caller receives, exactly what `withdraw` returns.
+    pub assets_out: i128,
+}
 
 #[contract]
 pub struct MeridianVault;
@@ -281,7 +298,21 @@ impl MeridianVault {
     /// adapter, which deploys it to the underlying protocol.
     ///
     /// Returns the number of mUSDC shares minted to the caller.
+    ///
+    /// Guarded against reentrancy: a call back into any guarded entry point
+    /// while this one is running fails with `ReentrancyDetected`.
     pub fn deposit(
+        env: Env,
+        caller: Address,
+        amount: i128,
+        min_shares_out: i128,
+    ) -> Result<i128, ContractError> {
+        Self::with_lock(&env, || {
+            Self::deposit_unlocked(env.clone(), caller, amount, min_shares_out)
+        })
+    }
+
+    fn deposit_unlocked(
         env: Env,
         caller: Address,
         amount: i128,
@@ -321,19 +352,7 @@ impl MeridianVault {
         // shares_to_mint = amount * (total_shares + OFFSET) / (total_assets + OFFSET)
         // The virtual offset makes the first-deposit price 1 share = 1 stroop while
         // neutralising the inflation attack on every subsequent deposit.
-        let shares_to_mint = amount
-            .checked_mul(
-                total_shares
-                    .checked_add(OFFSET)
-                    .ok_or(ContractError::Overflow)?,
-            )
-            .ok_or(ContractError::Overflow)?
-            .checked_div(
-                total_assets
-                    .checked_add(OFFSET)
-                    .ok_or(ContractError::Overflow)?,
-            )
-            .ok_or(ContractError::DivisionByZero)?;
+        let shares_to_mint = pricing::shares_for_assets(amount, total_shares, total_assets)?;
 
         if shares_to_mint <= 0 {
             return Err(ContractError::DepositTooSmall);
@@ -355,28 +374,17 @@ impl MeridianVault {
             clear_position_records(&env, &caller);
         }
 
-        // Pull USDC from caller directly to the adapter.
-        // The adapter address is known at this point, and the intermediate
-        // vault-owned balance is never used.
-        TokenClient::new(&env, &usdc).transfer(&caller, &adapter_addr, &amount);
-
-        // Adapter deploys USDC to the underlying protocol and returns its own shares.
-        let adapter_client = AdapterClient::new(&env, &adapter_addr);
-        let adapter_shares = adapter_client.deposit(&amount);
-        if adapter_shares <= 0 {
-            return Err(ContractError::AdapterCreditedNothing);
-        }
-
-        // Mint mUSDC shares to caller.
-        MusdcAdminClient::new(&env, &musdc).mint(&caller, &shares_to_mint);
-
-        // Update global share and adapter-share counters.
+        // Effects before interactions: everything below that depends only on
+        // values already computed above is committed before the first
+        // external call (USDC transfer, adapter deposit, mUSDC mint), so those
+        // calls never observe a stale TOTAL_SH or missing position records.
+        // This is safe to do early because a failure in any later step
+        // returns `Err` and the whole invocation, these writes included, is
+        // rolled back. ADPT_SH is the exception: it is read back from the
+        // adapter, so it can only be written after the adapter call.
         env.storage()
             .instance()
             .set(&TOTAL_SH, &(total_shares + shares_to_mint));
-        env.storage()
-            .instance()
-            .set(&ADPT_SH, &adapter_client.total_shares());
 
         // Stamp the entry time on the caller's first deposit; top-ups keep
         // the original time. Keyed off whether an entry record exists rather
@@ -396,6 +404,26 @@ impl MeridianVault {
         env.storage()
             .persistent()
             .set(&principal_key, &(prev_principal + amount));
+
+        // Pull USDC from caller directly to the adapter.
+        // The adapter address is known at this point, and the intermediate
+        // vault-owned balance is never used.
+        TokenClient::new(&env, &usdc).transfer(&caller, &adapter_addr, &amount);
+
+        // Adapter deploys USDC to the underlying protocol and returns its own shares.
+        let adapter_client = AdapterClient::new(&env, &adapter_addr);
+        let adapter_shares = adapter_client.deposit(&amount);
+        if adapter_shares <= 0 {
+            return Err(ContractError::AdapterCreditedNothing);
+        }
+
+        // Mint mUSDC shares to caller.
+        MusdcAdminClient::new(&env, &musdc).mint(&caller, &shares_to_mint);
+
+        // Update the adapter-share counter from the adapter's own ledger.
+        env.storage()
+            .instance()
+            .set(&ADPT_SH, &adapter_client.total_shares());
 
         Self::extend_position(&env, &caller);
 
@@ -420,7 +448,25 @@ impl MeridianVault {
     /// depositor changes the shared `ADPT_SH/TOTAL_SH` ratio before this
     /// transaction lands, silently shrinking the payout. With `min_usdc_out`
     /// the caller can bound how much shrinkage they are willing to accept.
+    ///
+    /// Guarded against reentrancy: a call back into any guarded entry point
+    /// while this one is running fails with `ReentrancyDetected`. Unlike
+    /// `deposit`, the counters written at the end depend on values returned
+    /// by the adapter and token calls (`usdc_out`, the fee, the treasury
+    /// mint, `total_shares()`), so they cannot be moved ahead of those calls;
+    /// the lock is what keeps the stale window unreachable.
     pub fn withdraw(
+        env: Env,
+        caller: Address,
+        shares: i128,
+        min_usdc_out: i128,
+    ) -> Result<i128, ContractError> {
+        Self::with_lock(&env, || {
+            Self::withdraw_unlocked(env.clone(), caller, shares, min_usdc_out)
+        })
+    }
+
+    fn withdraw_unlocked(
         env: Env,
         caller: Address,
         shares: i128,
@@ -466,11 +512,8 @@ impl MeridianVault {
 
         // Proportional adapter-share burn: caller_shares/total_shares of the
         // total adapter shares are redeemed.
-        let adapter_shares_to_burn = shares
-            .checked_mul(total_adapter_shares)
-            .ok_or(ContractError::Overflow)?
-            .checked_div(total_shares)
-            .ok_or(ContractError::DivisionByZero)?;
+        let adapter_shares_to_burn =
+            pricing::adapter_shares_for_shares(shares, total_shares, total_adapter_shares)?;
 
         // Adapter redeems protocol shares, delivers USDC to vault, returns amount.
         let adapter_client = AdapterClient::new(&env, &adapter_addr);
@@ -486,23 +529,13 @@ impl MeridianVault {
         // and loss recovery are never charged.
         let principal_key = DataKey::Principal(caller.clone());
         let principal: i128 = env.storage().persistent().get(&principal_key).unwrap_or(0);
-        let principal_out = principal
-            .checked_mul(shares)
-            .ok_or(ContractError::Overflow)?
-            .checked_div(caller_shares)
-            .ok_or(ContractError::DivisionByZero)?;
-        let gain = if usdc_out > principal_out {
-            usdc_out
-                .checked_sub(principal_out)
-                .ok_or(ContractError::Overflow)?
-        } else {
-            0
-        };
-        let fee = gain
-            .checked_mul(PERFORMANCE_FEE_BPS)
-            .ok_or(ContractError::Overflow)?
-            .checked_div(BPS_DENOMINATOR)
-            .ok_or(ContractError::DivisionByZero)?;
+        let principal_out = pricing::principal_retired(principal, shares, caller_shares)?;
+        let (_, fee) = pricing::performance_fee(
+            usdc_out,
+            principal_out,
+            PERFORMANCE_FEE_BPS,
+            BPS_DENOMINATOR,
+        )?;
         let net_usdc_out = usdc_out.checked_sub(fee).ok_or(ContractError::Overflow)?;
         let mut actual_usdc_out = net_usdc_out;
 
@@ -539,19 +572,7 @@ impl MeridianVault {
             // Price the treasury mint exactly like a deposit against the
             // post-withdrawal vault. OFFSET also gives a full-exit fee a
             // well-defined 1:1 price when no user shares/assets remain.
-            treasury_shares = fee
-                .checked_mul(
-                    remaining_shares
-                        .checked_add(OFFSET)
-                        .ok_or(ContractError::Overflow)?,
-                )
-                .ok_or(ContractError::Overflow)?
-                .checked_div(
-                    remaining_assets
-                        .checked_add(OFFSET)
-                        .ok_or(ContractError::Overflow)?,
-                )
-                .ok_or(ContractError::DivisionByZero)?;
+            treasury_shares = pricing::shares_for_assets(fee, remaining_shares, remaining_assets)?;
 
             if treasury_shares > 0 {
                 TokenClient::new(&env, &usdc).transfer(
@@ -591,12 +612,14 @@ impl MeridianVault {
 
         let remaining = caller_shares - shares;
 
-        // Retire the withdrawn basis and ratchet the high-water mark by the
-        // gain already taxed, so that gain cannot be charged a second time.
-        env.storage().persistent().set(
-            &principal_key,
-            &(principal - principal_out + if treasury_shares > 0 { gain } else { 0 }),
-        );
+        // Retire the withdrawn basis strictly in proportion to the shares
+        // burned. The retained shares keep their own untaxed basis, so their
+        // gain is charged when they are withdrawn. Folding the taxed gain back
+        // into the basis instead (a high-water ratchet) would shelter that
+        // gain from the fee forever, under-collecting on every partial exit.
+        env.storage()
+            .persistent()
+            .set(&principal_key, &(principal - principal_out));
 
         // A full exit clears the entry time and cost basis so a later re-deposit
         // starts fresh.
@@ -638,7 +661,33 @@ impl MeridianVault {
     /// token since it already has both on hand from computing the transfer
     /// itself — see `meridian-musdc-token`'s `VaultCallback` trait doc
     /// comment (`packages/contracts/musdc-token/src/lib.rs`).
+    ///
+    /// Guarded against reentrancy: an mUSDC transfer made from inside a
+    /// guarded entry point (for example by a malicious adapter) reaches this
+    /// callback while accounting state is not yet final, and fails with
+    /// `ReentrancyDetected`. Ordinary user transfers happen outside any
+    /// guarded call, so they are unaffected.
     pub fn on_transfer(
+        env: Env,
+        from: Address,
+        to: Address,
+        amount: i128,
+        sender_balance_before: i128,
+        receiver_balance_before: i128,
+    ) -> Result<(), ContractError> {
+        Self::with_lock(&env, || {
+            Self::on_transfer_unlocked(
+                env.clone(),
+                from,
+                to,
+                amount,
+                sender_balance_before,
+                receiver_balance_before,
+            )
+        })
+    }
+
+    fn on_transfer_unlocked(
         env: Env,
         from: Address,
         to: Address,
@@ -859,6 +908,183 @@ impl MeridianVault {
     }
 
     // -----------------------------------------------------------------------
+    // Preview and conversion views (#1265)
+    //
+    // All of these run the same `pricing` helpers as `deposit`/`withdraw`, so
+    // a quote and the execution that follows it cannot drift apart.
+    //
+    // `convert_to_*` and `get_share_price` read the adapter's *reported*
+    // state. `preview_deposit` and `preview_withdraw` additionally call the
+    // adapter's `refresh()` first, exactly as `deposit`/`withdraw` do, so they
+    // price against the same refreshed totals. That makes them intended for
+    // off-chain simulation, not for committing in a transaction.
+    //
+    // Zero and negative inputs: a zero amount quotes zero; a negative amount
+    // returns `ZeroAmount`, the error the entry points use for non-positive
+    // input.
+    // -----------------------------------------------------------------------
+
+    /// Shares `assets` USDC would buy at the current price (rounded down),
+    /// without the deposit-only guards (pause, minimum size).
+    ///
+    /// * Empty vault: 1 share per stroop (the virtual offset cancels).
+    /// * `assets == 0`: `0`.
+    /// * Shares outstanding but the adapter reports no assets:
+    ///   `AdapterReportedNoAssets`, as `deposit` would.
+    pub fn convert_to_shares(env: Env, assets: i128) -> Result<i128, ContractError> {
+        if assets < 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+        if assets == 0 {
+            return Ok(0);
+        }
+        let (total_shares, total_assets) = Self::pricing_state(&env)?;
+        if total_shares > 0 && total_assets <= 0 {
+            return Err(ContractError::AdapterReportedNoAssets);
+        }
+        pricing::shares_for_assets(assets, total_shares, total_assets)
+    }
+
+    /// Gross USDC value of `shares` at the current price (rounded down),
+    /// before any performance fee. Equals `preview_withdraw(..).gross_assets`.
+    ///
+    /// Returns `0` for `shares == 0`, an empty vault, or when the adapter
+    /// holds no shares or no assets.
+    pub fn convert_to_assets(env: Env, shares: i128) -> Result<i128, ContractError> {
+        if shares < 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+        if shares == 0 {
+            return Ok(0);
+        }
+        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        if total_shares <= 0 {
+            return Ok(0);
+        }
+        let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
+        let (_, total_assets) = Self::pricing_state(&env)?;
+        let adapter_shares =
+            pricing::adapter_shares_for_shares(shares, total_shares, total_adapter_shares)?;
+        pricing::assets_for_adapter_shares(adapter_shares, total_assets, total_adapter_shares)
+    }
+
+    /// Price of one share in USDC, scaled by `pricing::PRICE_SCALE` (1e7, so
+    /// `10_000_000` is 1.0). Uses the deposit pricing (virtual offset), so an
+    /// empty vault is exactly `10_000_000` and a vault with shares but no
+    /// assets prices near zero instead of erroring.
+    pub fn get_share_price(env: Env) -> Result<i128, ContractError> {
+        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let (_, total_assets) = Self::pricing_state(&env)?;
+        pricing::share_price(total_assets, total_shares)
+    }
+
+    /// Shares `deposit(amount)` would mint right now, or the error it would
+    /// revert with (`DepositsPaused`, `AdapterReportedNoAssets`,
+    /// `DepositTooSmall`). `amount == 0` quotes `0`.
+    pub fn preview_deposit(env: Env, amount: i128) -> Result<i128, ContractError> {
+        if Self::is_paused(env.clone()) {
+            return Err(ContractError::DepositsPaused);
+        }
+        if amount < 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+        if amount == 0 {
+            return Ok(0);
+        }
+        let adapter = Self::adapter(&env)?;
+        AdapterClient::new(&env, &adapter).refresh();
+        let (total_shares, total_assets) = Self::pricing_state(&env)?;
+        if total_shares > 0 && total_assets <= 0 {
+            return Err(ContractError::AdapterReportedNoAssets);
+        }
+        let shares = pricing::shares_for_assets(amount, total_shares, total_assets)?;
+        if shares <= 0 {
+            return Err(ContractError::DepositTooSmall);
+        }
+        Ok(shares)
+    }
+
+    /// What `withdraw(holder, shares, _)` would do right now: gross redemption,
+    /// performance fee on the holder's own cost basis (including basis moved
+    /// by mUSDC transfers), treasury shares minted and the net payout. Returns
+    /// the error `withdraw` would revert with (`NoSharesOutstanding`,
+    /// `InsufficientShares`, `WithdrawalTooSmall`). `shares == 0` quotes zeros.
+    ///
+    /// The redemption assumes the adapter pays out proportionally to its
+    /// reported assets; an adapter with extra redemption rounding can pay a
+    /// few stroops less. The treasury mint is priced against the vault after
+    /// the redemption.
+    pub fn preview_withdraw(
+        env: Env,
+        holder: Address,
+        shares: i128,
+    ) -> Result<WithdrawPreview, ContractError> {
+        if shares < 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+        if shares == 0 {
+            return Ok(WithdrawPreview {
+                gross_assets: 0,
+                fee: 0,
+                treasury_shares: 0,
+                assets_out: 0,
+            });
+        }
+        let musdc = Self::musdc(&env)?;
+        let adapter = Self::adapter(&env)?;
+        AdapterClient::new(&env, &adapter).refresh();
+
+        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
+        if total_shares <= 0 {
+            return Err(ContractError::NoSharesOutstanding);
+        }
+        let holder_shares = TokenClient::new(&env, &musdc).balance(&holder);
+        if holder_shares < shares {
+            return Err(ContractError::InsufficientShares);
+        }
+
+        let total_assets = AdapterClient::new(&env, &adapter).total_assets();
+        let adapter_shares =
+            pricing::adapter_shares_for_shares(shares, total_shares, total_adapter_shares)?;
+        let gross =
+            pricing::assets_for_adapter_shares(adapter_shares, total_assets, total_adapter_shares)?;
+        if gross <= 0 {
+            return Err(ContractError::WithdrawalTooSmall);
+        }
+
+        let principal: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Principal(holder))
+            .unwrap_or(0);
+        let principal_out = pricing::principal_retired(principal, shares, holder_shares)?;
+        let (_, fee) =
+            pricing::performance_fee(gross, principal_out, PERFORMANCE_FEE_BPS, BPS_DENOMINATOR)?;
+
+        let mut treasury_shares = 0_i128;
+        let mut assets_out = gross.checked_sub(fee).ok_or(ContractError::Overflow)?;
+        if fee > 0 {
+            let remaining_shares = total_shares
+                .checked_sub(shares)
+                .ok_or(ContractError::Overflow)?;
+            let remaining_assets = total_assets.saturating_sub(gross);
+            treasury_shares = pricing::shares_for_assets(fee, remaining_shares, remaining_assets)?;
+            if treasury_shares == 0 {
+                // Dust fee: returned to the holder, as `withdraw` does.
+                assets_out = gross;
+            }
+        }
+
+        Ok(WithdrawPreview {
+            gross_assets: gross,
+            fee,
+            treasury_shares,
+            assets_out,
+        })
+    }
+
+    // -----------------------------------------------------------------------
     // Admin / safety rails
     // -----------------------------------------------------------------------
 
@@ -980,7 +1206,16 @@ impl MeridianVault {
     /// Can be called repeatedly for the same or different adapters; each
     /// call overwrites the previous snapshot. The admin must then wait for
     /// the ledger gap to elapse before calling `migrate_adapter`.
+    ///
+    /// Guarded against reentrancy: it calls out to the target adapter before
+    /// writing the snapshot.
     pub fn begin_migration(env: Env, new_adapter: Address) -> Result<(), ContractError> {
+        Self::with_lock(&env, || {
+            Self::begin_migration_unlocked(env.clone(), new_adapter)
+        })
+    }
+
+    fn begin_migration_unlocked(env: Env, new_adapter: Address) -> Result<(), ContractError> {
         Self::require_admin(&env)?;
         Self::extend_instance(&env);
 
@@ -1078,7 +1313,21 @@ impl MeridianVault {
     /// independently before and after), not a `BlendAdapter` that
     /// silently fails to actually supply the funds to its pool while
     /// still returning success.
+    ///
+    /// Guarded against reentrancy: it makes several adapter and token calls
+    /// before committing `ADAPTER`/`ADPT_SH`, and those writes depend on the
+    /// values those calls return, so they cannot be moved ahead of them.
     pub fn migrate_adapter(
+        env: Env,
+        new_adapter: Address,
+        max_slippage_bps: u32,
+    ) -> Result<(), ContractError> {
+        Self::with_lock(&env, || {
+            Self::migrate_adapter_unlocked(env.clone(), new_adapter, max_slippage_bps)
+        })
+    }
+
+    fn migrate_adapter_unlocked(
         env: Env,
         new_adapter: Address,
         max_slippage_bps: u32,
@@ -1207,6 +1456,27 @@ impl MeridianVault {
     // Helpers
     // -----------------------------------------------------------------------
 
+    /// Runs `f` while holding the reentrancy lock.
+    ///
+    /// If the lock is already held, `f` is not run and the call fails with
+    /// `ReentrancyDetected` without touching any state. The lock is released
+    /// on both the `Ok` and `Err` paths before returning. (A returned `Err`
+    /// also rolls back the whole invocation, including the lock write, so
+    /// the explicit release is belt and braces rather than the only thing
+    /// keeping the vault from locking itself.)
+    fn with_lock<T>(
+        env: &Env,
+        f: impl FnOnce() -> Result<T, ContractError>,
+    ) -> Result<T, ContractError> {
+        if env.storage().instance().get(&LOCKED).unwrap_or(false) {
+            return Err(ContractError::ReentrancyDetected);
+        }
+        env.storage().instance().set(&LOCKED, &true);
+        let result = f();
+        env.storage().instance().remove(&LOCKED);
+        result
+    }
+
     fn require_admin(env: &Env) -> Result<(), ContractError> {
         let admin: Address = env
             .storage()
@@ -1237,6 +1507,23 @@ impl MeridianVault {
             .instance()
             .get(&USDC)
             .ok_or(ContractError::NotInitialized)
+    }
+
+    fn adapter(env: &Env) -> Result<Address, ContractError> {
+        env.storage()
+            .instance()
+            .get(&ADAPTER)
+            .ok_or(ContractError::NotInitialized)
+    }
+
+    /// `(total_shares, total_assets)` as the adapter currently reports them.
+    fn pricing_state(env: &Env) -> Result<(i128, i128), ContractError> {
+        let adapter = Self::adapter(env)?;
+        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        Ok((
+            total_shares,
+            AdapterClient::new(env, &adapter).total_assets(),
+        ))
     }
 
     fn musdc(env: &Env) -> Result<Address, ContractError> {
@@ -2265,7 +2552,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_profitable_withdrawal_ratchets_principal_by_taxed_gain() {
+    fn partial_profitable_withdrawal_retires_basis_proportionally() {
         let (env, _treasury, user, usdc_id, _musdc, adapter_id, vault) = setup();
         let principal = 100_0000000_i128;
         let yield_amount = 10_0000000_i128;
@@ -2275,9 +2562,46 @@ mod tests {
         let half = vault.get_position(&user) / 2;
         vault.withdraw(&user, &half, &0);
 
-        // Half the original basis is retired and the withdrawn slice's
-        // 5-USDC gain becomes part of the high-water mark.
-        assert_eq!(vault.get_principal(&user), 55_0000000_i128);
+        // Only the withdrawn half of the original basis is retired. The
+        // retained shares keep their own basis, which is what makes their
+        // gain chargeable on their own exit (#1039).
+        assert_eq!(vault.get_principal(&user), 50_0000000_i128);
+    }
+
+    #[test]
+    fn two_step_profitable_exit_charges_the_same_total_fee_as_a_single_exit() {
+        let principal = 10_000_000_000_i128;
+        let yield_amount = 2_000_000_000_i128;
+
+        // Exit the whole position at once.
+        let (env, _admin, user, usdc_id, _musdc, adapter_id, vault) = setup();
+        vault.deposit(&user, &principal, &0);
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &yield_amount);
+        let shares = vault.get_position(&user);
+        let single_out = vault.withdraw(&user, &shares, &0);
+        assert_eq!(
+            single_out,
+            principal + yield_amount - yield_amount * PERFORMANCE_FEE_BPS / BPS_DENOMINATOR
+        );
+
+        // Same position, exited in two equal steps. The second step is taxed
+        // on the retained shares' own gain rather than inheriting a basis
+        // that already absorbed it.
+        let (env2, _admin2, user2, usdc_id2, _musdc2, adapter_id2, vault2) = setup();
+        vault2.deposit(&user2, &principal, &0);
+        StellarAssetClient::new(&env2, &usdc_id2).mint(&adapter_id2, &yield_amount);
+        let half = vault2.get_position(&user2) / 2;
+        let first_out = vault2.withdraw(&user2, &half, &0);
+        assert_eq!(vault2.get_principal(&user2), principal / 2);
+        let second_out = vault2.withdraw(&user2, &half, &0);
+
+        // Equal to a few stroops of rounding from pricing the treasury mint
+        // between the two steps, but the fee is no longer deferred.
+        let two_step_out = first_out + second_out;
+        assert!(
+            (two_step_out - single_out).abs() <= 10,
+            "two-step exit collected {two_step_out}, single exit {single_out}"
+        );
     }
 
     #[test]
@@ -4321,5 +4645,963 @@ mod tests {
             soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
         assert_eq!(target_adapter, new_adapter_id);
         assert_eq!(earliest_ledger, current_ledger + MIN_LEDGER_GAP);
+    }
+
+    // -----------------------------------------------------------------------
+    // Preview and conversion views (#1265)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn views_on_an_empty_vault_return_documented_values() {
+        let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+
+        // Empty vault: 1 share per stroop, price exactly 1.0.
+        assert_eq!(vault.convert_to_shares(&1_234_567), 1_234_567);
+        assert_eq!(vault.convert_to_assets(&1_234_567), 0);
+        assert_eq!(vault.get_share_price(), pricing::PRICE_SCALE);
+        assert_eq!(vault.preview_deposit(&1_234_567), 1_234_567);
+
+        // Zero quotes zero; negative is the entry points' ZeroAmount.
+        assert_eq!(vault.convert_to_shares(&0), 0);
+        assert_eq!(vault.convert_to_assets(&0), 0);
+        assert_eq!(vault.preview_deposit(&0), 0);
+        assert_eq!(
+            vault.try_convert_to_shares(&-1),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.try_convert_to_assets(&-1),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.try_preview_deposit(&-1),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.try_preview_withdraw(&user, &-1),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.preview_withdraw(&user, &0),
+            WithdrawPreview {
+                gross_assets: 0,
+                fee: 0,
+                treasury_shares: 0,
+                assets_out: 0
+            }
+        );
+        assert_eq!(
+            vault.try_preview_withdraw(&user, &1),
+            Err(Ok(ContractError::NoSharesOutstanding))
+        );
+    }
+
+    #[test]
+    fn preview_deposit_reflects_pause_and_dust() {
+        let (env, _admin, user, usdc_id, _musdc, adapter_id, vault) = setup();
+        vault.deposit(&user, &100_0000000, &0);
+        // Donate so one stroop prices below one share.
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &10_000_000_000_i128);
+        assert_eq!(
+            vault.try_preview_deposit(&1),
+            Err(Ok(ContractError::DepositTooSmall))
+        );
+        vault.set_paused(&true);
+        assert_eq!(
+            vault.try_preview_deposit(&1_0000000),
+            Err(Ok(ContractError::DepositsPaused))
+        );
+    }
+
+    #[test]
+    fn views_report_shares_outstanding_with_no_assets() {
+        let (env, _admin, user, usdc_id, _musdc, adapter_id, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0);
+        let sink = Address::generate(&env);
+        TokenClient::new(&env, &usdc_id).transfer(&adapter_id, &sink, &amount);
+
+        assert_eq!(
+            vault.try_convert_to_shares(&1_0000000),
+            Err(Ok(ContractError::AdapterReportedNoAssets))
+        );
+        assert_eq!(
+            vault.try_preview_deposit(&1_0000000),
+            Err(Ok(ContractError::AdapterReportedNoAssets))
+        );
+        // Value of the held shares is zero, and the price is near zero but
+        // defined: no panic, no error.
+        assert_eq!(vault.convert_to_assets(&amount), 0);
+        assert!(vault.get_share_price() < pricing::PRICE_SCALE / 1_000);
+        assert_eq!(
+            vault.try_preview_withdraw(&user, &amount),
+            Err(Ok(ContractError::WithdrawalTooSmall))
+        );
+    }
+
+    #[test]
+    fn preview_withdraw_matches_withdraw_with_fee_and_treasury_mint() {
+        let (env, treasury, user, usdc_id, musdc_id, adapter_id, vault) = setup();
+        vault.deposit(&user, &100_0000000, &0);
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &10_0000000_i128);
+
+        let shares = vault.get_position(&user);
+        let preview = vault.preview_withdraw(&user, &shares);
+        assert_eq!(vault.convert_to_assets(&shares), preview.gross_assets);
+        assert_eq!(preview.fee, 1_0000000);
+
+        let usdc = TokenClient::new(&env, &usdc_id);
+        let musdc = TokenClient::new(&env, &musdc_id);
+        let usdc_before = usdc.balance(&user);
+        let treasury_before = musdc.balance(&treasury);
+        let received = vault.withdraw(&user, &shares, &0);
+
+        assert_eq!(received, preview.assets_out);
+        assert_eq!(usdc.balance(&user) - usdc_before, preview.assets_out);
+        assert_eq!(
+            musdc.balance(&treasury) - treasury_before,
+            preview.treasury_shares
+        );
+    }
+
+    #[test]
+    fn preview_withdraw_uses_basis_moved_by_transfer() {
+        let (env, treasury, user, usdc_id, musdc_id, adapter_id, vault) = setup();
+        vault.deposit(&user, &100_0000000, &0);
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &20_0000000_i128);
+
+        // Half the position, and half its basis, moves to a receiver.
+        let receiver = Address::generate(&env);
+        let half = vault.get_position(&user) / 2;
+        TokenClient::new(&env, &musdc_id).transfer(&user, &receiver, &half);
+
+        let shares = vault.get_position(&receiver);
+        let preview = vault.preview_withdraw(&receiver, &shares);
+        assert!(preview.fee > 0);
+        let treasury_before = TokenClient::new(&env, &musdc_id).balance(&treasury);
+        let received = vault.withdraw(&receiver, &shares, &0);
+        assert_eq!(received, preview.assets_out);
+        assert_eq!(
+            TokenClient::new(&env, &musdc_id).balance(&treasury) - treasury_before,
+            preview.treasury_shares
+        );
+    }
+
+    #[test]
+    fn preview_withdraw_dust_fee_is_returned_to_holder() {
+        let (env, treasury, user, usdc_id, musdc_id, adapter_id, vault) = setup();
+        vault.deposit(&user, &100_0000000, &0);
+        // Gain of 9 stroops -> fee 0 (rounds down): payout is the gross.
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &9_i128);
+        let shares = vault.get_position(&user);
+        let preview = vault.preview_withdraw(&user, &shares);
+        assert_eq!(preview.fee, 0);
+        assert_eq!(preview.assets_out, preview.gross_assets);
+        let received = vault.withdraw(&user, &shares, &0);
+        assert_eq!(received, preview.assets_out);
+        assert_eq!(TokenClient::new(&env, &musdc_id).balance(&treasury), 0);
+    }
+
+    // Deterministic pseudo-random scenarios (no extra dev-dependency): every
+    // preview must equal what the real call mints or pays, or fail with the
+    // same error.
+    #[test]
+    fn previews_match_execution_across_random_scenarios() {
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = move |lo: i128, hi: i128| -> i128 {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            lo + ((state >> 33) as i128) % (hi - lo + 1)
+        };
+
+        for _ in 0..40 {
+            let (env, treasury, user, usdc_id, musdc_id, adapter_id, vault) = setup();
+            let usdc_admin = StellarAssetClient::new(&env, &usdc_id);
+            let usdc = TokenClient::new(&env, &usdc_id);
+            let musdc = TokenClient::new(&env, &musdc_id);
+            let user2 = Address::generate(&env);
+            usdc_admin.mint(&user2, &10_000_000_000_i128);
+
+            // Deposits: preview == minted shares.
+            for depositor in [&user, &user2] {
+                let amount = next(1, 3_000_000_000);
+                let quoted = vault.try_preview_deposit(&amount);
+                let actual = vault.try_deposit(depositor, &amount, &0);
+                assert_eq!(quoted, actual);
+                if let Ok(Ok(minted)) = actual {
+                    assert_eq!(vault.convert_to_shares(&amount), minted);
+                }
+                if next(0, 1) == 1 {
+                    usdc_admin.mint(&adapter_id, &next(0, 1_500_000_000));
+                }
+            }
+
+            // Optionally move part of user's position (and basis) to a third party.
+            let user3 = Address::generate(&env);
+            let user_shares = vault.get_position(&user);
+            if user_shares > 1 && next(0, 1) == 1 {
+                musdc.transfer(&user, &user3, &next(1, user_shares - 1));
+            }
+
+            // Withdrawals: preview == payout and treasury mint.
+            for holder in [&user, &user2, &user3] {
+                let balance = musdc.balance(holder);
+                if balance == 0 {
+                    continue;
+                }
+                let shares = next(1, balance);
+                let quoted = vault.try_preview_withdraw(holder, &shares);
+                let usdc_before = usdc.balance(holder);
+                let treasury_before = musdc.balance(&treasury);
+                let actual = vault.try_withdraw(holder, &shares, &0);
+                match (quoted, actual) {
+                    (Ok(Ok(p)), Ok(Ok(received))) => {
+                        assert_eq!(received, p.assets_out);
+                        assert_eq!(usdc.balance(holder) - usdc_before, p.assets_out);
+                        assert_eq!(
+                            musdc.balance(&treasury) - treasury_before,
+                            p.treasury_shares
+                        );
+                    }
+                    (Err(q), Err(a)) => assert_eq!(q, a),
+                    (q, a) => panic!("preview {q:?} disagrees with execution {a:?}"),
+                }
+            }
+        }
+    }
+
+    // Reentrancy guard (#1264)
+    //
+    // `reentrant_hooks` holds the shared "attack" logic; `ReentrantAdapter`
+    // and `ReentrantToken` are mocks that run it from inside the external
+    // calls the vault makes (adapter refresh/deposit/withdraw, token
+    // transfer/mint/burn). Each mock lives in its own module for the same
+    // reason as `lossy_mock`/`mock_musdc` above: contractimpl-generated
+    // helper items aren't namespaced by type.
+    // -----------------------------------------------------------------------
+    mod reentrant_hooks {
+        use super::*;
+
+        // Where in a mock's own execution the attack fires.
+        pub const HOOK_REFRESH: u32 = 1;
+        pub const HOOK_DEPOSIT: u32 = 2;
+        pub const HOOK_WITHDRAW: u32 = 3;
+        pub const HOOK_TRANSFER: u32 = 4;
+        pub const HOOK_MINT: u32 = 5;
+        pub const HOOK_BURN: u32 = 6;
+
+        // Which vault entry point the attack calls back into.
+        pub const ATK_DEPOSIT: u32 = 1;
+        pub const ATK_WITHDRAW: u32 = 2;
+        pub const ATK_BEGIN_MIGRATION: u32 = 3;
+        pub const ATK_MIGRATE: u32 = 4;
+        pub const ATK_ON_TRANSFER: u32 = 5;
+        pub const ALL_ATTACKS: [u32; 5] = [
+            ATK_DEPOSIT,
+            ATK_WITHDRAW,
+            ATK_BEGIN_MIGRATION,
+            ATK_MIGRATE,
+            ATK_ON_TRANSFER,
+        ];
+
+        // Outcome codes for each attempt. A typed vault error is its own
+        // discriminant (`ContractError as u32`); anything else that failed
+        // (e.g. the Soroban host refusing the re-entry itself) is
+        // OUTCOME_OTHER_ERROR.
+        pub const OUTCOME_SUCCEEDED: u32 = 1000;
+        pub const OUTCOME_OTHER_ERROR: u32 = 2000;
+
+        const RE_VAULT: Symbol = symbol_short!("RE_VAULT");
+        const RE_HOOK: Symbol = symbol_short!("RE_HOOK");
+        const RE_ATK: Symbol = symbol_short!("RE_ATK");
+        const RE_TRIES: Symbol = symbol_short!("RE_TRIES");
+        const RE_OK: Symbol = symbol_short!("RE_OK");
+
+        pub fn arm(env: &Env, vault: &Address, hook: u32, attack: u32) {
+            env.storage().instance().set(&RE_VAULT, vault);
+            env.storage().instance().set(&RE_HOOK, &hook);
+            env.storage().instance().set(&RE_ATK, &attack);
+            env.storage().instance().set(&RE_TRIES, &0_u32);
+            env.storage().instance().set(&RE_OK, &0_u32);
+        }
+
+        pub fn tries(env: &Env) -> u32 {
+            env.storage().instance().get(&RE_TRIES).unwrap_or(0)
+        }
+
+        /// How many reentrant calls were *not* rejected. Must stay 0.
+        pub fn succeeded(env: &Env) -> u32 {
+            env.storage().instance().get(&RE_OK).unwrap_or(0)
+        }
+
+        fn code<T, E>(
+            r: Result<Result<T, E>, Result<ContractError, soroban_sdk::InvokeError>>,
+        ) -> u32 {
+            match r {
+                Ok(_) => OUTCOME_SUCCEEDED,
+                Err(Ok(e)) => e as u32,
+                Err(Err(_)) => OUTCOME_OTHER_ERROR,
+            }
+        }
+
+        /// If armed for `hook`, calls back into the vault and records the
+        /// outcome. The arguments are deliberately well-formed: a reentrant
+        /// call that got past the guard would be a real, valid operation.
+        pub fn fire(env: &Env, hook: u32) {
+            let armed: u32 = env.storage().instance().get(&RE_HOOK).unwrap_or(0);
+            if armed != hook {
+                return;
+            }
+            let vault: Address = env.storage().instance().get(&RE_VAULT).unwrap();
+            let attack: u32 = env.storage().instance().get(&RE_ATK).unwrap();
+            let v = MeridianVaultClient::new(env, &vault);
+            let me = env.current_contract_address();
+            let other = Address::generate(env);
+
+            let outcome = match attack {
+                ATK_DEPOSIT => code(v.try_deposit(&me, &1_0000000_i128, &0)),
+                ATK_WITHDRAW => code(v.try_withdraw(&me, &1_i128, &0)),
+                ATK_BEGIN_MIGRATION => code(v.try_begin_migration(&other)),
+                ATK_MIGRATE => code(v.try_migrate_adapter(&other, &0)),
+                ATK_ON_TRANSFER => code(v.try_on_transfer(&me, &other, &1_i128, &1_i128, &0_i128)),
+                _ => panic!("unknown attack"),
+            };
+            env.storage().instance().set(&RE_TRIES, &(tries(env) + 1));
+            if outcome == OUTCOME_SUCCEEDED {
+                env.storage().instance().set(&RE_OK, &(succeeded(env) + 1));
+            }
+        }
+    }
+
+    // MockAdapter's behavior (proportional, live-priced) plus the attack hook
+    // in refresh/deposit/withdraw.
+    mod reentrant_adapter {
+        use super::reentrant_hooks::*;
+        use super::*;
+
+        const RA_USDC: Symbol = symbol_short!("RA_USDC");
+        const RA_SH: Symbol = symbol_short!("RA_SH");
+
+        #[contract]
+        pub struct ReentrantAdapter;
+
+        #[contractimpl]
+        impl ReentrantAdapter {
+            pub fn initialize(env: Env, usdc: Address) {
+                env.storage().instance().set(&RA_USDC, &usdc);
+                env.storage().instance().set(&RA_SH, &0_i128);
+            }
+
+            pub fn arm(env: Env, vault: Address, hook: u32, attack: u32) {
+                super::reentrant_hooks::arm(&env, &vault, hook, attack);
+            }
+
+            pub fn tries(env: Env) -> u32 {
+                super::reentrant_hooks::tries(&env)
+            }
+
+            pub fn succeeded(env: Env) -> u32 {
+                super::reentrant_hooks::succeeded(&env)
+            }
+
+            pub fn deposit(env: Env, amount: i128) -> i128 {
+                env.storage()
+                    .instance()
+                    .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+                fire(&env, HOOK_DEPOSIT);
+                let prev: i128 = env.storage().instance().get(&RA_SH).unwrap_or(0);
+                env.storage().instance().set(&RA_SH, &(prev + amount));
+                amount
+            }
+
+            pub fn withdraw(env: Env, shares: i128, recipient: Address) -> i128 {
+                fire(&env, HOOK_WITHDRAW);
+                let usdc: Address =
+                    get_or_not_initialized(&env, env.storage().instance().get(&RA_USDC));
+                mock_proportional_withdraw(&env, &usdc, &RA_SH, shares, &recipient)
+            }
+
+            pub fn total_assets(env: Env) -> i128 {
+                let usdc: Address =
+                    get_or_not_initialized(&env, env.storage().instance().get(&RA_USDC));
+                mock_total_assets(&env, &usdc)
+            }
+
+            pub fn total_shares(env: Env) -> i128 {
+                env.storage().instance().get(&RA_SH).unwrap_or(0)
+            }
+
+            pub fn refresh(env: Env) {
+                env.storage()
+                    .instance()
+                    .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+                fire(&env, HOOK_REFRESH);
+            }
+        }
+    }
+    use reentrant_adapter::{ReentrantAdapter, ReentrantAdapterClient};
+
+    // A minimal token (balance/mint/transfer/burn) whose transfer, mint and
+    // burn call back into the vault, standing in for a callback-capable USDC
+    // or mUSDC.
+    mod reentrant_token {
+        use super::reentrant_hooks::*;
+        use super::*;
+
+        #[contracttype]
+        #[derive(Clone)]
+        pub enum ReentrantTokenKey {
+            Balance(Address),
+        }
+
+        #[contract]
+        pub struct ReentrantToken;
+
+        #[contractimpl]
+        impl ReentrantToken {
+            pub fn arm(env: Env, vault: Address, hook: u32, attack: u32) {
+                super::reentrant_hooks::arm(&env, &vault, hook, attack);
+            }
+
+            pub fn tries(env: Env) -> u32 {
+                super::reentrant_hooks::tries(&env)
+            }
+
+            pub fn succeeded(env: Env) -> u32 {
+                super::reentrant_hooks::succeeded(&env)
+            }
+
+            pub fn mint(env: Env, to: Address, amount: i128) {
+                env.storage()
+                    .instance()
+                    .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+                let balance = Self::read_balance(&env, &to);
+                Self::write_balance(&env, &to, balance + amount);
+                fire(&env, HOOK_MINT);
+            }
+
+            pub fn balance(env: Env, id: Address) -> i128 {
+                Self::read_balance(&env, &id)
+            }
+
+            pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+                from.require_auth();
+                env.storage()
+                    .instance()
+                    .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+                let from_balance = Self::read_balance(&env, &from);
+                let to_balance = Self::read_balance(&env, &to);
+                Self::write_balance(&env, &from, from_balance - amount);
+                Self::write_balance(&env, &to, to_balance + amount);
+                fire(&env, HOOK_TRANSFER);
+            }
+
+            pub fn burn(env: Env, from: Address, amount: i128) {
+                from.require_auth();
+                env.storage()
+                    .instance()
+                    .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
+                let balance = Self::read_balance(&env, &from);
+                Self::write_balance(&env, &from, balance - amount);
+                fire(&env, HOOK_BURN);
+            }
+
+            fn read_balance(env: &Env, id: &Address) -> i128 {
+                env.storage()
+                    .persistent()
+                    .get(&ReentrantTokenKey::Balance(id.clone()))
+                    .unwrap_or(0)
+            }
+
+            fn write_balance(env: &Env, id: &Address, amount: i128) {
+                let key = ReentrantTokenKey::Balance(id.clone());
+                env.storage().persistent().set(&key, &amount);
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&key, INSTANCE_THRESHOLD, INSTANCE_BUMP);
+            }
+        }
+    }
+    use reentrant_hooks::*;
+    use reentrant_token::{ReentrantToken, ReentrantTokenClient};
+
+    struct Rig {
+        env: Env,
+        user: Address,
+        usdc: Address,
+        musdc: Address,
+        adapter: Address,
+        vault: MeridianVaultClient<'static>,
+    }
+
+    /// A vault wired to the normal mocks, with any of its three external
+    /// dependencies swapped for the reentrant version.
+    fn rig(reentrant_adapter: bool, reentrant_usdc: bool, reentrant_musdc: bool) -> Rig {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+        let vault_id = Address::generate(&env);
+
+        let usdc = if reentrant_usdc {
+            env.register(ReentrantToken, ())
+        } else {
+            env.register_stellar_asset_contract_v2(admin.clone())
+                .address()
+        };
+        let adapter = if reentrant_adapter {
+            let id = env.register(ReentrantAdapter, ());
+            ReentrantAdapterClient::new(&env, &id).initialize(&usdc);
+            id
+        } else {
+            let id = env.register(MockAdapter, ());
+            MockAdapterClient::new(&env, &id).initialize(&usdc);
+            id
+        };
+        let musdc = if reentrant_musdc {
+            env.register(ReentrantToken, ())
+        } else {
+            let id = env.register(MockMusdc, ());
+            MockMusdcClient::new(&env, &id).initialize(&vault_id);
+            id
+        };
+
+        env.register_at(
+            &vault_id,
+            MeridianVault,
+            (&admin, &usdc, &musdc, &adapter, &admin),
+        );
+        let vault = MeridianVaultClient::new(&env, &vault_id);
+        // StellarAssetClient dispatches by name, so it also funds the
+        // reentrant token.
+        StellarAssetClient::new(&env, &usdc).mint(&user, &10_000_000_000_i128);
+
+        Rig {
+            env,
+            user,
+            usdc,
+            musdc,
+            adapter,
+            vault,
+        }
+    }
+
+    const REENTRY_AMOUNT: i128 = 100_0000000;
+
+    fn is_locked(r: &Rig) -> bool {
+        r.env
+            .as_contract(&r.vault.address, || r.env.storage().instance().has(&LOCKED))
+    }
+
+    fn hold_lock(r: &Rig) {
+        r.env.as_contract(&r.vault.address, || {
+            r.env.storage().instance().set(&LOCKED, &true)
+        });
+    }
+
+    /// Arms a reentrant mock (adapter or token: both expose the same `arm`).
+    fn arm_at(r: &Rig, target: &Address, hook: u32, attack: u32) {
+        ReentrantTokenClient::new(&r.env, target).arm(&r.vault.address, &hook, &attack);
+    }
+
+    /// The hook must actually have fired, and no reentrant call may have
+    /// succeeded.
+    fn assert_every_reentry_rejected(r: &Rig, target: &Address, what: &str, attack: u32) {
+        let c = ReentrantTokenClient::new(&r.env, target);
+        assert!(c.tries() > 0, "{what} (attack {attack}): hook never fired");
+        assert_eq!(
+            c.succeeded(),
+            0,
+            "{what} (attack {attack}): a reentrant call succeeded"
+        );
+    }
+
+    fn new_mock_adapter(r: &Rig) -> Address {
+        let id = r.env.register(MockAdapter, ());
+        MockAdapterClient::new(&r.env, &id).initialize(&r.usdc);
+        id
+    }
+
+    fn pass_migration_cooldown(r: &Rig) {
+        r.env
+            .ledger()
+            .with_mut(|li| li.sequence_number += MIN_LEDGER_GAP);
+    }
+
+    // --- The guard itself ---------------------------------------------------
+
+    #[test]
+    fn guarded_entry_points_reject_calls_while_the_lock_is_held() {
+        let r = rig(false, false, false);
+        r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+        let new_adapter = new_mock_adapter(&r);
+        let other = Address::generate(&r.env);
+        let usdc = TokenClient::new(&r.env, &r.usdc);
+        let user_usdc_before = usdc.balance(&r.user);
+
+        hold_lock(&r);
+        assert_eq!(
+            r.vault.try_deposit(&r.user, &REENTRY_AMOUNT, &0),
+            Err(Ok(ContractError::ReentrancyDetected))
+        );
+        assert_eq!(
+            r.vault.try_withdraw(&r.user, &REENTRY_AMOUNT, &0),
+            Err(Ok(ContractError::ReentrancyDetected))
+        );
+        assert_eq!(
+            r.vault.try_begin_migration(&new_adapter),
+            Err(Ok(ContractError::ReentrancyDetected))
+        );
+        assert_eq!(
+            r.vault.try_migrate_adapter(&new_adapter, &0),
+            Err(Ok(ContractError::ReentrancyDetected))
+        );
+        assert_eq!(
+            r.vault
+                .try_on_transfer(&r.user, &other, &1, &REENTRY_AMOUNT, &0),
+            Err(Ok(ContractError::ReentrancyDetected))
+        );
+
+        // A rejected reentrant call changes nothing.
+        assert_eq!(r.vault.get_total_shares(), REENTRY_AMOUNT);
+        assert_eq!(r.vault.get_position(&r.user), REENTRY_AMOUNT);
+        assert_eq!(r.vault.get_principal(&r.user), REENTRY_AMOUNT);
+        assert_eq!(r.vault.get_adapter(), r.adapter);
+        assert_eq!(usdc.balance(&r.user), user_usdc_before);
+        assert_eq!(
+            r.vault.try_get_migration_snapshot(),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+        // Still locked: the rejections must not have released it.
+        assert!(is_locked(&r));
+    }
+
+    #[test]
+    fn lock_is_released_after_successful_calls() {
+        let r = rig(false, false, false);
+        let bob = Address::generate(&r.env);
+
+        r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+        assert!(!is_locked(&r), "deposit left the lock held");
+
+        // A plain mUSDC transfer runs the on_transfer callback.
+        TokenClient::new(&r.env, &r.musdc).transfer(&r.user, &bob, &(REENTRY_AMOUNT / 10));
+        assert!(!is_locked(&r), "on_transfer left the lock held");
+
+        r.vault.withdraw(&r.user, &(REENTRY_AMOUNT / 10), &0);
+        assert!(!is_locked(&r), "withdraw left the lock held");
+
+        let new_adapter = new_mock_adapter(&r);
+        r.vault.begin_migration(&new_adapter);
+        assert!(!is_locked(&r), "begin_migration left the lock held");
+
+        pass_migration_cooldown(&r);
+        r.vault.migrate_adapter(&new_adapter, &0);
+        assert!(!is_locked(&r), "migrate_adapter left the lock held");
+
+        // And the vault is still usable.
+        r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+    }
+
+    #[test]
+    fn lock_is_released_after_failed_calls() {
+        let r = rig(false, false, false);
+        let bob = Address::generate(&r.env);
+
+        assert_eq!(
+            r.vault.try_deposit(&r.user, &0, &0),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert!(!is_locked(&r), "failed deposit left the lock held");
+
+        assert_eq!(
+            r.vault.try_withdraw(&r.user, &1, &0),
+            Err(Ok(ContractError::NoSharesOutstanding))
+        );
+        assert!(!is_locked(&r), "failed withdraw left the lock held");
+
+        assert_eq!(
+            r.vault.try_begin_migration(&r.adapter),
+            Err(Ok(ContractError::SameAdapter))
+        );
+        assert!(!is_locked(&r), "failed begin_migration left the lock held");
+
+        let new_adapter = new_mock_adapter(&r);
+        assert_eq!(
+            r.vault
+                .try_migrate_adapter(&new_adapter, &(MAX_ADMIN_SLIPPAGE_BPS + 1)),
+            Err(Ok(ContractError::InvalidSlippageBps))
+        );
+        assert!(!is_locked(&r), "failed migrate_adapter left the lock held");
+
+        // sender_balance_before == 0 makes the pro-rata split divide by zero.
+        assert_eq!(
+            r.vault.try_on_transfer(&r.user, &bob, &1, &0, &0),
+            Err(Ok(ContractError::DivisionByZero))
+        );
+        assert!(!is_locked(&r), "failed on_transfer left the lock held");
+
+        // A failure after real work has started (not just a precondition
+        // check) also leaves nothing behind: the withdrawal below is
+        // rejected only after the adapter call.
+        r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+        assert_eq!(
+            r.vault
+                .try_withdraw(&r.user, &REENTRY_AMOUNT, &(REENTRY_AMOUNT + 1)),
+            Err(Ok(ContractError::MinAmountOutNotMet))
+        );
+        assert!(!is_locked(&r), "late-failing withdraw left the lock held");
+        assert_eq!(r.vault.get_total_shares(), REENTRY_AMOUNT);
+
+        // The vault is still usable after every failure above.
+        r.vault.withdraw(&r.user, &REENTRY_AMOUNT, &0);
+    }
+
+    // The two tests above go through the contract boundary, where a returned
+    // `Err` also rolls back the whole invocation (lock write included). This
+    // one calls `with_lock` directly, so it only passes if the lock is
+    // released explicitly, and it checks nesting without the host's help.
+    #[test]
+    fn with_lock_releases_on_error_and_refuses_nesting() {
+        let r = rig(false, false, false);
+        let env = &r.env;
+        env.as_contract(&r.vault.address, || {
+            let failed = MeridianVault::with_lock(env, || Err::<(), _>(ContractError::ZeroAmount));
+            assert_eq!(failed, Err(ContractError::ZeroAmount));
+            assert!(!env.storage().instance().has(&LOCKED));
+
+            let outer = MeridianVault::with_lock(env, || {
+                let inner = MeridianVault::with_lock(env, || Ok(()));
+                assert_eq!(inner, Err(ContractError::ReentrancyDetected));
+                assert!(
+                    env.storage().instance().has(&LOCKED),
+                    "a rejected nested call must not release the outer lock"
+                );
+                Ok(())
+            });
+            assert_eq!(outer, Ok(()));
+            assert!(!env.storage().instance().has(&LOCKED));
+        });
+    }
+
+    // --- Reentrant adapters and tokens ---------------------------------------
+    //
+    // Note: the Soroban host itself refuses to re-enter a contract that is
+    // already on the call stack ("Contract re-entry is not allowed"), so
+    // these nested calls are rejected by the host before the vault's lock is
+    // reached; the typed `ReentrancyDetected` path is covered above by
+    // holding the lock directly. These tests pin down the behavior that
+    // matters either way: every reentrant attempt is rejected, none changes
+    // state, and the outer call still completes correctly.
+
+    #[test]
+    fn deposit_is_safe_against_a_reentrant_adapter() {
+        for hook in [HOOK_REFRESH, HOOK_DEPOSIT] {
+            for attack in ALL_ATTACKS {
+                let r = rig(true, false, false);
+                arm_at(&r, &r.adapter, hook, attack);
+
+                r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+
+                assert_every_reentry_rejected(&r, &r.adapter, "deposit/adapter", attack);
+                assert_eq!(r.vault.get_total_shares(), REENTRY_AMOUNT);
+                assert_eq!(r.vault.get_position(&r.user), REENTRY_AMOUNT);
+                assert_eq!(r.vault.get_principal(&r.user), REENTRY_AMOUNT);
+                assert!(!is_locked(&r));
+            }
+        }
+    }
+
+    #[test]
+    fn pricing_helpers_preserve_checked_error_mapping() {
+        assert_eq!(
+            pricing::shares_for_assets(i128::MAX, 1, 0),
+            Err(ContractError::Overflow)
+        );
+        assert_eq!(pricing::shares_for_assets(5, 0, 0), Ok(5));
+        assert_eq!(
+            pricing::adapter_shares_for_shares(1, 0, 1),
+            Err(ContractError::DivisionByZero)
+        );
+        assert_eq!(pricing::assets_for_adapter_shares(5, 100, 0), Ok(0));
+        assert_eq!(pricing::performance_fee(90, 100, 1_000, 10_000), Ok((0, 0)));
+        assert_eq!(
+            pricing::performance_fee(200, 100, 1_000, 10_000),
+            Ok((100, 10))
+        );
+    }
+
+    #[test]
+    fn deposit_is_safe_against_a_reentrant_usdc_token() {
+        for attack in ALL_ATTACKS {
+            let r = rig(false, true, false);
+            arm_at(&r, &r.usdc, HOOK_TRANSFER, attack);
+
+            r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+
+            assert_every_reentry_rejected(&r, &r.usdc, "deposit/usdc", attack);
+            assert_eq!(r.vault.get_total_shares(), REENTRY_AMOUNT);
+            assert_eq!(r.vault.get_position(&r.user), REENTRY_AMOUNT);
+            assert!(!is_locked(&r));
+        }
+    }
+
+    #[test]
+    fn deposit_is_safe_against_a_reentrant_musdc_token() {
+        for attack in ALL_ATTACKS {
+            let r = rig(false, false, true);
+            arm_at(&r, &r.musdc, HOOK_MINT, attack);
+
+            r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+
+            assert_every_reentry_rejected(&r, &r.musdc, "deposit/musdc", attack);
+            assert_eq!(r.vault.get_total_shares(), REENTRY_AMOUNT);
+            assert_eq!(r.vault.get_position(&r.user), REENTRY_AMOUNT);
+            assert!(!is_locked(&r));
+        }
+    }
+
+    /// Full-exit checks shared by the withdraw tests.
+    fn assert_fully_withdrawn(r: &Rig, usdc_before_deposit: i128) {
+        assert_eq!(r.vault.get_total_shares(), 0);
+        assert_eq!(r.vault.get_position(&r.user), 0);
+        assert_eq!(r.vault.get_principal(&r.user), 0);
+        assert_eq!(
+            TokenClient::new(&r.env, &r.usdc).balance(&r.user),
+            usdc_before_deposit
+        );
+        assert!(!is_locked(r));
+    }
+
+    #[test]
+    fn withdraw_is_safe_against_a_reentrant_adapter() {
+        for hook in [HOOK_REFRESH, HOOK_WITHDRAW] {
+            for attack in ALL_ATTACKS {
+                let r = rig(true, false, false);
+                let before = TokenClient::new(&r.env, &r.usdc).balance(&r.user);
+                r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+                arm_at(&r, &r.adapter, hook, attack);
+
+                r.vault.withdraw(&r.user, &REENTRY_AMOUNT, &0);
+
+                assert_every_reentry_rejected(&r, &r.adapter, "withdraw/adapter", attack);
+                assert_fully_withdrawn(&r, before);
+            }
+        }
+    }
+
+    #[test]
+    fn withdraw_is_safe_against_a_reentrant_usdc_token() {
+        for attack in ALL_ATTACKS {
+            let r = rig(false, true, false);
+            let before = TokenClient::new(&r.env, &r.usdc).balance(&r.user);
+            r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+            arm_at(&r, &r.usdc, HOOK_TRANSFER, attack);
+
+            r.vault.withdraw(&r.user, &REENTRY_AMOUNT, &0);
+
+            assert_every_reentry_rejected(&r, &r.usdc, "withdraw/usdc", attack);
+            assert_fully_withdrawn(&r, before);
+        }
+    }
+
+    #[test]
+    fn withdraw_is_safe_against_a_reentrant_musdc_token() {
+        for attack in ALL_ATTACKS {
+            let r = rig(false, false, true);
+            let before = TokenClient::new(&r.env, &r.usdc).balance(&r.user);
+            r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+            arm_at(&r, &r.musdc, HOOK_BURN, attack);
+
+            r.vault.withdraw(&r.user, &REENTRY_AMOUNT, &0);
+
+            assert_every_reentry_rejected(&r, &r.musdc, "withdraw/musdc", attack);
+            assert_fully_withdrawn(&r, before);
+        }
+    }
+
+    #[test]
+    fn begin_migration_is_safe_against_a_reentrant_target_adapter() {
+        for attack in ALL_ATTACKS {
+            let r = rig(false, false, false);
+            r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+            let target = r.env.register(ReentrantAdapter, ());
+            ReentrantAdapterClient::new(&r.env, &target).initialize(&r.usdc);
+            arm_at(&r, &target, HOOK_REFRESH, attack);
+
+            r.vault.begin_migration(&target);
+
+            assert_every_reentry_rejected(&r, &target, "begin_migration/adapter", attack);
+            assert_eq!(r.vault.get_migration_snapshot().adapter, target);
+            assert_eq!(r.vault.get_adapter(), r.adapter);
+            assert!(!is_locked(&r));
+        }
+    }
+
+    /// Checks shared by the migrate_adapter tests: the migration completed
+    /// and moved the whole position.
+    fn assert_migrated(r: &Rig, new_adapter: &Address) {
+        assert_eq!(r.vault.get_adapter(), *new_adapter);
+        assert_eq!(r.vault.get_total_assets(), REENTRY_AMOUNT);
+        assert_eq!(r.vault.get_total_shares(), REENTRY_AMOUNT);
+        assert_eq!(r.vault.get_position(&r.user), REENTRY_AMOUNT);
+        assert!(!is_locked(r));
+    }
+
+    #[test]
+    fn migrate_adapter_is_safe_against_a_reentrant_old_adapter() {
+        for hook in [HOOK_REFRESH, HOOK_WITHDRAW] {
+            for attack in ALL_ATTACKS {
+                let r = rig(true, false, false);
+                r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+                let new_adapter = new_mock_adapter(&r);
+                r.vault.begin_migration(&new_adapter);
+                pass_migration_cooldown(&r);
+                arm_at(&r, &r.adapter, hook, attack);
+
+                r.vault.migrate_adapter(&new_adapter, &0);
+
+                assert_every_reentry_rejected(&r, &r.adapter, "migrate/old adapter", attack);
+                assert_migrated(&r, &new_adapter);
+            }
+        }
+    }
+
+    #[test]
+    fn migrate_adapter_is_safe_against_a_reentrant_new_adapter() {
+        for hook in [HOOK_REFRESH, HOOK_DEPOSIT] {
+            for attack in ALL_ATTACKS {
+                let r = rig(false, false, false);
+                r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+                let new_adapter = r.env.register(ReentrantAdapter, ());
+                ReentrantAdapterClient::new(&r.env, &new_adapter).initialize(&r.usdc);
+                r.vault.begin_migration(&new_adapter);
+                pass_migration_cooldown(&r);
+                arm_at(&r, &new_adapter, hook, attack);
+
+                r.vault.migrate_adapter(&new_adapter, &0);
+
+                assert_every_reentry_rejected(&r, &new_adapter, "migrate/new adapter", attack);
+                assert_migrated(&r, &new_adapter);
+            }
+        }
+    }
+
+    #[test]
+    fn migrate_adapter_is_safe_against_a_reentrant_usdc_token() {
+        for attack in ALL_ATTACKS {
+            let r = rig(false, true, false);
+            r.vault.deposit(&r.user, &REENTRY_AMOUNT, &0);
+            let new_adapter = new_mock_adapter(&r);
+            r.vault.begin_migration(&new_adapter);
+            pass_migration_cooldown(&r);
+            arm_at(&r, &r.usdc, HOOK_TRANSFER, attack);
+
+            r.vault.migrate_adapter(&new_adapter, &0);
+
+            assert_every_reentry_rejected(&r, &r.usdc, "migrate/usdc", attack);
+            assert_migrated(&r, &new_adapter);
+        }
     }
 }

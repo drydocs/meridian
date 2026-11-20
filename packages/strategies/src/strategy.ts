@@ -1,5 +1,11 @@
 import { FixedPointDecimal, STROOPS_PER_UNIT } from "./types";
 import type { AssetSymbol, SimulationTimestamp } from "./types";
+import type {
+  VenueId,
+  VenueOrder,
+  VenuePortfolioView,
+  VenuePosition,
+} from "./venue";
 
 /** Read-only view of one open position. */
 export interface PositionView {
@@ -14,13 +20,18 @@ export interface PositionView {
 /**
  * Read-only view of portfolio state handed to strategies. It intentionally
  * has no mutating methods: strategies express intent through returned
- * orders and the runner applies fills. The runner's `Portfolio` satisfies
- * this structurally.
+ * orders and the runner applies fills or venue operations. The runner's
+ * `Portfolio` satisfies this structurally.
  */
 export interface PortfolioView {
   readonly cash: FixedPointDecimal;
   getPosition(asset: AssetSymbol): PositionView | undefined;
   positions(): readonly PositionView[];
+  getVenuePosition?(
+    venueId: VenueId,
+    asset: AssetSymbol
+  ): VenuePosition | undefined;
+  venues?(): readonly VenuePosition[];
   totalValue(
     prices: ReadonlyMap<AssetSymbol, FixedPointDecimal>
   ): FixedPointDecimal;
@@ -32,14 +43,18 @@ export interface MarketState {
   readonly prices: ReadonlyMap<AssetSymbol, FixedPointDecimal>;
 }
 
-/** Intended trade. Positive size buys, negative sells. */
+/** Intended spot trade. Positive size buys, negative sells. */
 export interface Order {
+  readonly kind?: "spot";
   readonly asset: AssetSymbol;
   readonly size: FixedPointDecimal;
   readonly reason?: string;
   /** Internal portfolio namespace assigned by ComposedStrategy. */
   readonly memberId?: string;
 }
+
+/** Any order executable by the strategy engine (spot fill or venue operation). */
+export type EngineOrder = Order | VenueOrder;
 
 export interface StrategyInitParams<TConfig> {
   readonly startingCapital: FixedPointDecimal;
@@ -49,6 +64,7 @@ export interface StrategyInitParams<TConfig> {
 export interface StrategyContext {
   readonly market: MarketState;
   readonly portfolio: PortfolioView;
+  readonly venues?: VenuePortfolioView;
 }
 
 /**
@@ -62,15 +78,22 @@ export interface StrategyContext {
  *
  * `step` observes (update internal state, accrue bookkeeping) and returns
  * nothing. `rebalance` and `close` return intended orders. Strategies never
- * mutate portfolio state directly; the runner applies the orders as fills.
+ * mutate portfolio state directly; the runner applies spot orders as fills
+ * and venue orders as ledger operations.
  */
-export interface Strategy<TConfig = unknown> {
+export interface Strategy<
+  TConfig = unknown,
+  TOrder extends EngineOrder = Order,
+> {
   readonly name: string;
   init(params: StrategyInitParams<TConfig>): void;
   step(context: StrategyContext): void;
-  rebalance(context: StrategyContext): readonly Order[];
-  close(context: StrategyContext): readonly Order[];
+  rebalance(context: StrategyContext): readonly TOrder[];
+  close(context: StrategyContext): readonly TOrder[];
 }
+
+/** Convenience alias for a strategy that emits both spot and venue orders. */
+export type VenueStrategy<TConfig = unknown> = Strategy<TConfig, EngineOrder>;
 
 /**
  * Interface that strategies can optionally implement to expose their
@@ -94,7 +117,7 @@ export interface EquityReportingStrategy {
  * returns `null` so the caller can fall back to `portfolio.totalValue()`.
  */
 export function reportedEquity(
-  strategy: Strategy<unknown>
+  strategy: Strategy<unknown, EngineOrder>
 ): FixedPointDecimal | null {
   if (strategy && typeof strategy === "object" && "equity" in strategy) {
     const equity = (strategy as EquityReportingStrategy).equity;
@@ -117,12 +140,15 @@ type Phase = "new" | "ready" | "stepped" | "rebalanced" | "closed";
  * strategy only through this guard, which makes the lifecycle a checked
  * contract rather than a convention.
  */
-export class StrategyLifecycle<TConfig = unknown> {
-  readonly strategy: Strategy<TConfig>;
+export class StrategyLifecycle<
+  TConfig = unknown,
+  TOrder extends EngineOrder = Order,
+> {
+  readonly strategy: Strategy<TConfig, TOrder>;
   #phase: Phase = "new";
   #lastTimestamp: SimulationTimestamp | null = null;
 
-  constructor(strategy: Strategy<TConfig>) {
+  constructor(strategy: Strategy<TConfig, TOrder>) {
     this.strategy = strategy;
   }
 
@@ -151,7 +177,7 @@ export class StrategyLifecycle<TConfig = unknown> {
     this.#phase = "stepped";
   }
 
-  rebalance(context: StrategyContext): readonly Order[] {
+  rebalance(context: StrategyContext): readonly TOrder[] {
     this.#expect("stepped", "rebalance");
     if (context.market.timestamp !== this.#lastTimestamp) {
       throw new LifecycleOrderError(
@@ -164,7 +190,7 @@ export class StrategyLifecycle<TConfig = unknown> {
   }
 
   /** Allowed after init or after any completed tick, not mid-tick. */
-  close(context: StrategyContext): readonly Order[] {
+  close(context: StrategyContext): readonly TOrder[] {
     if (this.#phase !== "ready" && this.#phase !== "rebalanced") {
       this.#fail("close");
     }

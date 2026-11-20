@@ -94,42 +94,12 @@ pub enum ContractError {
     /// baseline collapses the floor to zero (or below) so the loss guard
     /// would always pass.
     MigrationBaselineInvalid = 25,
-    /// The vault constructor received the zero admin address.
-    ZeroAdminAddress = 27,
-    /// The vault constructor received the zero USDC address.
-    ZeroUsdcAddress = 28,
-    /// The vault constructor received the zero mUSDC address.
-    ZeroMusdcAddress = 29,
-    /// The vault constructor received the zero adapter address.
-    ZeroAdapterAddress = 30,
-    /// The vault constructor received the zero treasury address.
-    ZeroTreasuryAddress = 31,
-    /// The admin address cannot be the vault itself.
-    AdminIsVault = 32,
-    /// The USDC address cannot be the vault itself.
-    UsdcIsVault = 33,
-    /// The mUSDC address cannot be the vault itself.
-    MusdcIsVault = 34,
-    /// The adapter address cannot be the vault itself.
-    AdapterIsVault = 35,
-    /// The treasury address cannot be the vault itself.
-    TreasuryIsVault = 36,
-    /// USDC and mUSDC must be separate contracts.
-    UsdcIsMusdc = 37,
-    /// USDC and the adapter must be separate contracts.
-    UsdcIsAdapter = 38,
-    /// mUSDC and the adapter must be separate contracts.
-    MusdcIsAdapter = 39,
-    /// The mUSDC token's admin must be the vault.
-    MusdcAdminMismatch = 40,
-    /// The adapter's USDC token must match the vault's USDC token.
-    AdapterUsdcMismatch = 41,
-    /// The adapter must be bound to this vault.
-    AdapterVaultMismatch = 42,
-    /// The mUSDC token does not expose the required get_admin view.
-    MusdcAdminViewMissing = 43,
-    /// The adapter does not expose the required get_usdc view.
-    AdapterUsdcViewMissing = 44,
-    /// The adapter does not expose the required get_vault view.
-    AdapterVaultViewMissing = 45,
+    /// A guarded entry point (`deposit`, `withdraw`, `begin_migration`,
+    /// `migrate_adapter`, or the mUSDC `on_transfer` callback) was called
+    /// while another guarded call was still in progress. This happens when a
+    /// malicious or compromised adapter or token calls back into the vault
+    /// in the middle of an external call, while `TOTAL_SH`, `ADPT_SH`,
+    /// `ADAPTER` or migration state is not yet final. The reentrant call is
+    /// rejected and the outer call is unaffected.
+    ReentrancyDetected = 26,
 }

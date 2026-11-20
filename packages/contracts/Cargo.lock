@@ -845,6 +845,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "meridian-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "meridian-blend-adapter",
+ "meridian-musdc-token",
+ "meridian-vault",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "meridian-musdc-token"
 version = "0.1.0"
 dependencies = [

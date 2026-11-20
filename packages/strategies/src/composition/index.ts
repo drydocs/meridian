@@ -13,6 +13,7 @@ import type {
   StrategyContext,
   StrategyInitParams,
 } from "../strategy";
+import type { VenuePortfolioView, VenuePosition } from "../venue";
 import { allocateCapital } from "./capital-allocation";
 import {
   enforceClamp,
@@ -39,7 +40,7 @@ interface InitializedMember {
   readonly strategy: Strategy<unknown>;
   readonly allocation: FixedPointDecimal;
   readonly config: unknown;
-  readonly portfolio: (portfolio: PortfolioView) => PortfolioView;
+  readonly portfolio: (portfolio: PortfolioView) => MemberPortfolioView;
 }
 
 /**
@@ -217,9 +218,11 @@ export class ComposedStrategy implements Strategy<unknown> {
     member: InitializedMember,
     context: StrategyContext
   ): StrategyContext {
+    const portfolio = member.portfolio(context.portfolio);
     return {
       market: context.market,
-      portfolio: member.portfolio(context.portfolio),
+      portfolio,
+      ...(context.venues === undefined ? {} : { venues: portfolio }),
     };
   }
 
@@ -243,7 +246,7 @@ export class ComposedStrategy implements Strategy<unknown> {
 
 export * from "./backtest-runner";
 
-class MemberPortfolioView implements PortfolioView {
+class MemberPortfolioView implements PortfolioView, VenuePortfolioView {
   readonly #portfolio: PortfolioView;
   readonly namespace: string;
 
@@ -269,6 +272,21 @@ class MemberPortfolioView implements PortfolioView {
     return this.#portfolio
       .positions()
       .filter((position) => position.memberId === this.namespace);
+  }
+
+  getVenuePosition(
+    venueId: string,
+    asset: AssetSymbol
+  ): VenuePosition | undefined {
+    return this.venues().find(
+      (position) => position.venueId === venueId && position.asset === asset
+    );
+  }
+
+  venues(): readonly VenuePosition[] {
+    return (this.#portfolio.venues?.() ?? []).filter(
+      (position) => position.memberId === this.namespace
+    );
   }
 
   totalValue(
