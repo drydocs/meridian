@@ -94,7 +94,7 @@ Returns the currently active adapter contract address.
 
 Points the vault at a new adapter contract. **This is the only way to change which protocol a vault routes to, or to push new adapter code live**, because adapter contracts have no in-place upgrade path (no `update_current_contract_wasm`). The contract itself rejects the call with `AdapterSwapUnsafe` while the vault still has shares outstanding (`get_total_shares() > 0`) **or** while the old adapter still holds a position (`ADPT_SH > 0`). Both counters are checked because they can desync: `ADPT_SH` can remain positive after `TOTAL_SH` reaches zero (see `migrate_adapter`'s `NoAdapterPosition` doc), so a `TOTAL_SH`-only check could silently strand real value at the old adapter. Use this only when the vault has no depositors yet, e.g. right after a fresh deploy. For a vault with real depositors, use `migrate_adapter` instead: unlike `set_adapter`, calling this on a live vault does not itself move any funds out of the old adapter first. `ADPT_SH` is deliberately not reset to zero on swap: the guard now guarantees it is already zero on success, and resetting it in a genuinely-empty-but-desynced vault would destroy the only evidence that a stranded position existed. See `scripts/redeploy-blend-adapter.sh` for the supported procedure.
 
-The target is also validated before it is accepted ([#1270](https://github.com/drydocs/meridian/issues/1270)). `set_adapter` fails with `AdapterUsdcMismatch` if the target's `get_usdc()` differs from the vault's USDC, `AdapterVaultMismatch` if its `get_vault()` is not this vault, and `AdapterResidualPosition` if its `total_shares()` or `total_assets()` is nonzero. Adapters that predate the two views take a documented fallback, described under [Adapter compatibility checks](#adapter-compatibility-checks). `set_adapter` runs under the reentrancy lock.
+The target is also validated before it is accepted ([#1270](https://github.com/drydocs/meridian/issues/1270)). `set_adapter` fails with `AdapterUsdcMismatch` if the target's `get_usdc()` differs from the vault's USDC, `AdapterVaultMismatch` if its `get_vault()` is not this vault, and `AdapterResidualPosition` if its `total_shares()` or `total_assets()` is nonzero. A target that does not export the two views, or whose views fail, is rejected, as described under [Adapter compatibility checks](#adapter-compatibility-checks). `set_adapter` runs under the reentrancy lock.
 
 ### `begin_migration(new_adapter)` (admin only)
 
@@ -198,14 +198,12 @@ pub trait YieldAdapterInterface {
 
 ### Adapter compatibility checks
 
-`set_adapter` and `begin_migration` ([#1270](https://github.com/drydocs/meridian/issues/1270)) call `get_vault()` and `get_usdc()` on the target and compare them with the vault's own address and USDC. `get_vault()` returns the vault the adapter is bound to and `get_usdc()` the USDC it holds. Both are called through the non-panicking `try_` client, because adapters deployed before these views existed do not export them. Each view is judged on its own:
+`set_adapter` and `begin_migration` ([#1270](https://github.com/drydocs/meridian/issues/1270)) call `get_vault()` and `get_usdc()` on the target and compare them with the vault's own address and USDC. `get_vault()` returns the vault the adapter is bound to and `get_usdc()` the USDC it holds. Both are called through the non-panicking `try_` client, so a bad target produces a typed error instead of aborting the transaction:
 
 - The view returns this vault's value: the check passes.
-- The view returns a different value: the call fails with `AdapterUsdcMismatch` or `AdapterVaultMismatch`.
-- The view exists but fails with a typed contract error, for example because the adapter is not initialized: the call fails with the same error, so a broken view cannot be used to skip the check.
-- Any other failure: the adapter is treated as a legacy adapter without that view, and that one check is skipped. This is the compatibility fallback that keeps existing deployments usable.
+- The view returns a different value, is not exported by the target, panics, or the target is not a contract: the call fails with `AdapterUsdcMismatch` (for `get_usdc()`) or `AdapterVaultMismatch` (for `get_vault()`).
 
-The fallback cannot tell a missing export from an untyped panic inside the view. When a contract calls another through `try_call`, the Soroban host reduces every non-contract failure to a single error, so both look the same to the vault; only typed contract errors are distinguishable. The residue check in `set_adapter` has no fallback, because `total_shares()` and `total_assets()` are part of the required interface. The Blend and DeFindex adapters built from the current source export both views, so redeploying an adapter is how a legacy deployment gets the full check.
+There is no fallback for older adapters. An adapter deployed before these views existed is rejected, so it has to be redeployed from the current source before the vault will accept it; the Blend and DeFindex adapters in this repo both export the views. The residue check in `set_adapter` (`AdapterResidualPosition`) rejects a target whose `total_shares()` or `total_assets()` is nonzero.
 
 Two adapters exist today, at `packages/contracts/blend-adapter/src/lib.rs` and `packages/contracts/defindex-adapter/src/lib.rs`.
 
@@ -282,8 +280,8 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `MigrationStabilityDrift`        | 21   | `migrate_adapter`'s target adapter's pre-deposit balance fell outside `max_slippage_bps` of the `begin_migration` snapshot, indicating the target was drained or manipulated during the cooldown. |
 | `MigrationSnapshotAssetsInvalid` | 22   | `begin_migration` was called against a target adapter reporting a negative `total_assets()`.                                                                                                      |
 | `ReentrancyDetected`             | 26   | `deposit`, `withdraw`, `set_adapter`, `begin_migration`, `migrate_adapter` or `on_transfer` was called while another guarded call was still running.                                              |
-| `AdapterUsdcMismatch`            | 27   | `set_adapter` or `begin_migration` was given a target whose `get_usdc()` differs from the vault's USDC, or fails with a typed contract error.                                                     |
-| `AdapterVaultMismatch`           | 28   | `set_adapter` or `begin_migration` was given a target whose `get_vault()` is not this vault, or fails with a typed contract error.                                                                |
+| `AdapterUsdcMismatch`            | 27   | `set_adapter` or `begin_migration` was given a target whose `get_usdc()` differs from the vault's USDC, is missing, or fails.                                                                     |
+| `AdapterVaultMismatch`           | 28   | `set_adapter` or `begin_migration` was given a target whose `get_vault()` is not this vault, is missing, or fails.                                                                                |
 | `AdapterResidualPosition`        | 29   | `set_adapter` was given a target that already holds a position (nonzero `total_shares()` or `total_assets()`).                                                                                    |
 
 ## Contract storage

@@ -13,7 +13,7 @@ pub use storage::{
 
 use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, symbol_short, token::TokenClient,
-    xdr::ScErrorType, Address, Env, Symbol,
+    Address, Env, Symbol,
 };
 
 // ---------------------------------------------------------------------------
@@ -74,13 +74,13 @@ pub trait YieldAdapterInterface {
     /// interpret the address returned by `get_pool()`, without a manually
     /// maintained config mapping that could drift out of sync.
     fn get_protocol(env: Env) -> Symbol;
-    /// Returns the vault this adapter is bound to. Called through the
-    /// non-panicking `try_get_vault` in `validate_adapter_target`, because
-    /// adapters deployed before this view existed do not export it.
+    /// Returns the vault this adapter is bound to. `set_adapter` and
+    /// `begin_migration` reject a target whose `get_vault` is missing,
+    /// fails, or names a different vault.
     fn get_vault(env: Env) -> Address;
-    /// Returns the USDC token this adapter holds. Called through the
-    /// non-panicking `try_get_usdc` for the same legacy-adapter reason as
-    /// `get_vault`.
+    /// Returns the USDC token this adapter holds. `set_adapter` and
+    /// `begin_migration` reject a target whose `get_usdc` is missing, fails,
+    /// or names a different token.
     fn get_usdc(env: Env) -> Address;
 }
 
@@ -1083,8 +1083,9 @@ impl MeridianVault {
     /// (`AdapterUsdcMismatch`), be bound to this vault
     /// (`AdapterVaultMismatch`), and hold no position of its own
     /// (`AdapterResidualPosition`, nonzero `total_shares()` or
-    /// `total_assets()`). Adapters without the `get_usdc`/`get_vault` views
-    /// skip those two identity checks; the residue check always applies.
+    /// `total_assets()`). A target that does not export the `get_usdc` and
+    /// `get_vault` views, or whose views fail, is rejected with the matching
+    /// mismatch error.
     ///
     /// Guarded against reentrancy: it calls out to the target adapter before
     /// writing the new adapter address.
@@ -1118,50 +1119,24 @@ impl MeridianVault {
     /// drift apart (#1270).
     ///
     /// Both facts are read through the `get_usdc`/`get_vault` views and
-    /// compared against this vault's own state. Adapters deployed before
-    /// those views existed do not export them, so each view is called via
-    /// its non-panicking `try_` client method, and the outcome decides:
-    ///
-    /// - the view returns this vault's value: the check passes;
-    /// - the view returns anything else, or a value that is not an
-    ///   `Address`: rejected (`AdapterUsdcMismatch` / `AdapterVaultMismatch`);
-    /// - the view exists but fails with a *typed contract error* (for
-    ///   example an adapter whose state is not initialized): rejected with
-    ///   the same error, so a broken view cannot be used to skip the check;
-    /// - any other failure: treated as a legacy adapter without the view,
-    ///   and that single check is skipped, keeping existing deployments
-    ///   usable.
-    ///
-    /// Known limit of the last case: when a contract calls another through
-    /// `try_call`, the host narrows every non-contract failure down to one
-    /// error (`Context`/`InvalidAction`). A missing export and an untyped
-    /// panic or trap in the view are therefore indistinguishable to the
-    /// vault, and both take the legacy path. Not part of the contract ABI
-    /// (no `pub`).
+    /// compared against this vault's own state. The views are called through
+    /// their non-panicking `try_` client methods so that a target which does
+    /// not export them, panics, or is not a contract at all is rejected with
+    /// a typed error instead of aborting the transaction. There is no
+    /// fallback for adapters without the views: any failure of a view is a
+    /// rejection. Not part of the contract ABI (no `pub`).
     fn validate_adapter_target(env: &Env, target: &Address) -> Result<(), ContractError> {
         let client = AdapterClient::new(env, target);
 
         let vault_usdc = Self::usdc(env)?;
         match client.try_get_usdc() {
             Ok(Ok(adapter_usdc)) if adapter_usdc == vault_usdc => {}
-            // Present but wrong: a different asset, or an unreadable value.
-            Ok(_) => return Err(ContractError::AdapterUsdcMismatch),
-            // Present but failing with a typed error: never a legacy skip.
-            Err(Ok(err)) if err.is_type(ScErrorType::Contract) => {
-                return Err(ContractError::AdapterUsdcMismatch)
-            }
-            // No `get_usdc` export (legacy adapter): documented fallback.
-            Err(_) => {}
+            _ => return Err(ContractError::AdapterUsdcMismatch),
         }
 
         match client.try_get_vault() {
             Ok(Ok(adapter_vault)) if adapter_vault == env.current_contract_address() => {}
-            Ok(_) => return Err(ContractError::AdapterVaultMismatch),
-            Err(Ok(err)) if err.is_type(ScErrorType::Contract) => {
-                return Err(ContractError::AdapterVaultMismatch)
-            }
-            // No `get_vault` export (legacy adapter): documented fallback.
-            Err(_) => {}
+            _ => return Err(ContractError::AdapterVaultMismatch),
         }
 
         Ok(())
@@ -1191,8 +1166,8 @@ impl MeridianVault {
     /// controls.
     ///
     /// The target must also use this vault's USDC and be bound to this vault
-    /// (`AdapterUsdcMismatch` / `AdapterVaultMismatch`, #1270); legacy
-    /// adapters without those views skip the respective check. Residue is
+    /// (`AdapterUsdcMismatch` / `AdapterVaultMismatch`, #1270); a target
+    /// whose views are missing or fail is rejected the same way. Residue is
     /// deliberately not checked here: a migration target is expected to
     /// start empty, but the post-migration stability and slippage checks
     /// already cover value drift, and rejecting a funded target would break
@@ -1568,6 +1543,18 @@ mod tests {
         Address, Env, Symbol,
     };
 
+    // The address every test vault is registered at, and the address the mock
+    // adapters report from `get_vault()`. `set_adapter`/`begin_migration`
+    // require a target bound to the vault (#1270), and the mocks are
+    // initialized before the vault exists in several setups, so they all
+    // report this one fixed address instead of being told it.
+    fn test_vault(env: &Env) -> Address {
+        Address::from_str(
+            env,
+            "CB7H47T6PZ7H47T6PZ7H47T6PZ7H47T6PZ7H47T6PZ7H47T6PZ7H4YUV",
+        )
+    }
+
     // Reads an instance-storage value, panicking with the typed
     // NotInitialized error instead of an opaque unwrap trap if it's unset.
     // Collapses what was previously a repeated 6-line
@@ -1736,6 +1723,14 @@ mod tests {
 
     #[contractimpl]
     impl MockAdapter {
+        pub fn get_usdc(env: Env) -> Address {
+            get_or_not_initialized(&env, env.storage().instance().get(&MA_USDC))
+        }
+
+        pub fn get_vault(env: Env) -> Address {
+            test_vault(&env)
+        }
+
         pub fn initialize(env: Env, usdc: Address) {
             env.storage().instance().set(&MA_USDC, &usdc);
             env.storage().instance().set(&MA_SH, &0_i128);
@@ -1805,6 +1800,14 @@ mod tests {
 
         #[contractimpl]
         impl LossyMockAdapter {
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&LA_USDC))
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                test_vault(&env)
+            }
+
             pub fn initialize(env: Env, usdc: Address) {
                 env.storage().instance().set(&LA_USDC, &usdc);
                 env.storage().instance().set(&LA_SH, &0_i128);
@@ -1854,11 +1857,10 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // CompatMockAdapter: a set_adapter()/begin_migration() target that, unlike
-    // every other mock here, exports the `get_usdc`/`get_vault` views and
-    // lets a test choose what they (and its residual position) report. The
-    // other mocks deliberately lack the views and so double as the "legacy
-    // adapter" case. Exercises validate_adapter_target (#1270).
+    // CompatMockAdapter: a set_adapter()/begin_migration() target that lets a
+    // test choose what its `get_usdc`/`get_vault` views (and its residual
+    // position) report. The other mocks report the real USDC and the canonical
+    // `test_vault()` address. Exercises validate_adapter_target (#1270).
     // -----------------------------------------------------------------------
     mod compat_mock {
         use super::*;
@@ -2003,6 +2005,29 @@ mod tests {
     }
     use trapping_views::TrappingViewsAdapter;
 
+    // An adapter from before the views existed: the rest of the interface
+    // this vault needs, but no `get_usdc` or `get_vault`.
+    mod no_views {
+        use super::*;
+
+        #[contract]
+        pub struct NoViewsAdapter;
+
+        #[contractimpl]
+        impl NoViewsAdapter {
+            pub fn total_shares(_env: Env) -> i128 {
+                0
+            }
+
+            pub fn total_assets(_env: Env) -> i128 {
+                0
+            }
+
+            pub fn refresh(_env: Env) {}
+        }
+    }
+    use no_views::NoViewsAdapter;
+
     /// Registers a `CompatMockAdapter` reporting the given USDC, vault and
     /// residual position.
     fn register_compat_adapter(
@@ -2036,6 +2061,14 @@ mod tests {
 
         #[contractimpl]
         impl ZeroShareMockAdapter {
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&ZS_USDC))
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                test_vault(&env)
+            }
+
             pub fn initialize(env: Env, usdc: Address) {
                 env.storage().instance().set(&ZS_USDC, &usdc);
                 env.storage().instance().set(&ZS_SH, &0_i128);
@@ -2092,6 +2125,14 @@ mod tests {
 
         #[contractimpl]
         impl ManipulableMockAdapter {
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&MM_USDC))
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                test_vault(&env)
+            }
+
             pub fn initialize(env: Env, usdc: Address) {
                 env.storage().instance().set(&MM_USDC, &usdc);
                 env.storage().instance().set(&MM_SH, &0_i128);
@@ -2174,6 +2215,14 @@ mod tests {
 
         #[contractimpl]
         impl CachedMockAdapter {
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&CM_USDC))
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                test_vault(&env)
+            }
+
             pub fn initialize(env: Env, usdc: Address) {
                 env.storage().instance().set(&CM_USDC, &usdc);
                 env.storage().instance().set(&CM_SH, &0_i128);
@@ -2266,7 +2315,7 @@ mod tests {
         // See setup()'s comment below on why the vault's address is
         // pre-generated and reserved via register_at rather than registered
         // directly (#551).
-        let vault_id = Address::generate(&env);
+        let vault_id = test_vault(&env);
 
         let musdc_id = env.register(MockMusdc, ());
         MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
@@ -2321,7 +2370,7 @@ mod tests {
         // address); `register_at` is the test-env equivalent, reserving the
         // vault's address up front so mUSDC can be told about it before the
         // vault itself is actually registered.
-        let vault_id = Address::generate(&env);
+        let vault_id = test_vault(&env);
 
         let musdc_id = env.register(MockMusdc, ());
         MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
@@ -3576,33 +3625,6 @@ mod tests {
         assert_eq!(vault.get_adapter(), target);
     }
 
-    // A legacy adapter exports neither view. The identity checks are skipped
-    // (documented fallback) so existing deployments stay usable.
-    #[test]
-    fn set_adapter_accepts_a_legacy_adapter_without_the_views() {
-        let (env, _admin, _user, usdc, _musdc, _original, vault) = setup();
-        let legacy = env.register(MockAdapter, ());
-        MockAdapterClient::new(&env, &legacy).initialize(&usdc);
-
-        assert_eq!(vault.try_set_adapter(&legacy), Ok(Ok(())));
-        assert_eq!(vault.get_adapter(), legacy);
-    }
-
-    // The fallback only covers the *identity* views. A legacy adapter that
-    // holds a position is still rejected, since total_shares()/total_assets()
-    // are part of the required interface.
-    #[test]
-    fn set_adapter_still_rejects_a_legacy_adapter_holding_residue() {
-        let (env, _admin, _user, usdc, _musdc, original, vault) = setup();
-        let legacy = env.register(MockAdapter, ());
-        MockAdapterClient::new(&env, &legacy).initialize(&usdc);
-        StellarAssetClient::new(&env, &usdc).mint(&legacy, &5);
-
-        let result = vault.try_set_adapter(&legacy);
-        assert_eq!(result, Err(Ok(ContractError::AdapterResidualPosition)));
-        assert_eq!(vault.get_adapter(), original);
-    }
-
     #[test]
     fn begin_migration_rejects_a_target_with_a_different_usdc() {
         let (env, _admin, _user, _usdc, _musdc, _original, vault) = setup();
@@ -3641,9 +3663,9 @@ mod tests {
         assert_eq!(vault.get_migration_snapshot().adapter, target);
     }
 
-    // A view that exists but fails with a typed contract error must not be
-    // mistaken for a missing one: that would let a broken adapter skip the
-    // USDC and vault checks.
+    // A view that fails must reject the target, whatever the failure: a
+    // typed contract error, a trap, a missing export, or a target that is not
+    // a contract at all. There is no fallback that lets a target skip a check.
     #[test]
     fn set_adapter_rejects_a_target_whose_get_usdc_fails_with_a_typed_error() {
         let (env, _admin, _user, _usdc, _musdc, original, vault) = setup();
@@ -3663,6 +3685,71 @@ mod tests {
         let result = vault.try_set_adapter(&target);
         assert_eq!(result, Err(Ok(ContractError::AdapterVaultMismatch)));
         assert_eq!(vault.get_adapter(), original);
+    }
+
+    #[test]
+    fn set_adapter_rejects_an_adapter_without_the_views() {
+        let (env, _admin, _user, _usdc, _musdc, original, vault) = setup();
+        let target = env.register(NoViewsAdapter, ());
+
+        let result = vault.try_set_adapter(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
+        assert_eq!(vault.get_adapter(), original);
+    }
+
+    #[test]
+    fn begin_migration_rejects_an_adapter_without_the_views() {
+        let (env, _admin, _user, _usdc, _musdc, _original, vault) = setup();
+        let target = env.register(NoViewsAdapter, ());
+
+        let result = vault.try_begin_migration(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
+        assert_eq!(
+            vault.try_get_migration_snapshot(),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+    }
+
+    #[test]
+    fn set_adapter_rejects_a_target_whose_views_panic() {
+        let (env, _admin, _user, _usdc, _musdc, original, vault) = setup();
+        let target = env.register(TrappingViewsAdapter, ());
+
+        let result = vault.try_set_adapter(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
+        assert_eq!(vault.get_adapter(), original);
+    }
+
+    #[test]
+    fn begin_migration_rejects_a_target_whose_views_panic() {
+        let (env, _admin, _user, _usdc, _musdc, _original, vault) = setup();
+        let target = env.register(TrappingViewsAdapter, ());
+
+        let result = vault.try_begin_migration(&target);
+        assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
+        assert_eq!(
+            vault.try_get_migration_snapshot(),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+    }
+
+    #[test]
+    fn set_adapter_rejects_an_address_that_is_not_a_contract() {
+        let (env, _admin, _user, _usdc, _musdc, original, vault) = setup();
+        let not_a_contract = Address::generate(&env);
+
+        let result = vault.try_set_adapter(&not_a_contract);
+        assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
+        assert_eq!(vault.get_adapter(), original);
+    }
+
+    #[test]
+    fn begin_migration_rejects_an_address_that_is_not_a_contract() {
+        let (env, _admin, _user, _usdc, _musdc, _original, vault) = setup();
+        let not_a_contract = Address::generate(&env);
+
+        let result = vault.try_begin_migration(&not_a_contract);
+        assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
     }
 
     #[test]
@@ -3690,34 +3777,6 @@ mod tests {
             vault.try_get_migration_snapshot(),
             Err(Ok(ContractError::MigrationNotInitialized))
         );
-    }
-
-    // Documents a limit rather than a goal. When a contract calls another
-    // through `try_call`, the host narrows every non-contract failure to a
-    // single error (`Context`/`InvalidAction`; see soroban-env-host's
-    // `try_call`), so an untyped panic in a view looks exactly like a missing
-    // export and takes the legacy path. If the host ever exposes the
-    // difference, this test should flip to expecting a rejection.
-    #[test]
-    fn an_untyped_trap_in_a_view_is_indistinguishable_from_a_missing_export() {
-        let (env, _admin, _user, usdc, _musdc, _original, vault) = setup();
-        let trapping = env.register(TrappingViewsAdapter, ());
-        let legacy = env.register(MockAdapter, ());
-        MockAdapterClient::new(&env, &legacy).initialize(&usdc);
-
-        let view = |a: &Address| AdapterClient::new(&env, a).try_get_usdc();
-        assert_eq!(view(&trapping), view(&legacy));
-        assert_eq!(vault.try_begin_migration(&trapping), Ok(Ok(())));
-    }
-
-    #[test]
-    fn begin_migration_accepts_a_legacy_adapter_without_the_views() {
-        let (env, _admin, _user, usdc, _musdc, _original, vault) = setup();
-        let legacy = env.register(MockAdapter, ());
-        MockAdapterClient::new(&env, &legacy).initialize(&usdc);
-
-        assert_eq!(vault.try_begin_migration(&legacy), Ok(Ok(())));
-        assert_eq!(vault.get_migration_snapshot().adapter, legacy);
     }
 
     #[test]
@@ -3759,7 +3818,7 @@ mod tests {
         let old_id = env.register(ManipulableMockAdapter, ());
         ManipulableMockAdapterClient::new(&env, &old_id).initialize(&usdc);
 
-        let vault_id = Address::generate(&env);
+        let vault_id = test_vault(&env);
         let musdc_id = env.register(MockMusdc, ());
         MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
         env.register_at(
@@ -4354,7 +4413,7 @@ mod tests {
             // See setup()'s comment above on why the vault's address is
             // pre-generated and reserved via register_at rather than
             // registered directly (#551).
-            let vault_id = Address::generate(&env);
+            let vault_id = test_vault(&env);
 
             let musdc_id = env.register(MockMusdc, ());
             MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
@@ -4942,6 +5001,14 @@ mod tests {
 
         #[contractimpl]
         impl ReentrantAdapter {
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&RA_USDC))
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                test_vault(&env)
+            }
+
             pub fn initialize(env: Env, usdc: Address) {
                 env.storage().instance().set(&RA_USDC, &usdc);
                 env.storage().instance().set(&RA_SH, &0_i128);
@@ -5096,7 +5163,7 @@ mod tests {
         env.mock_all_auths();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let vault_id = Address::generate(&env);
+        let vault_id = test_vault(&env);
 
         let usdc = if reentrant_usdc {
             env.register(ReentrantToken, ())

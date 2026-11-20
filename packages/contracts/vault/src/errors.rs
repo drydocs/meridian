@@ -107,17 +107,15 @@ pub enum ContractError {
     /// `get_usdc()` differs from the vault's own USDC. Such an adapter would
     /// hold and price a different asset than the vault accounts in, so every
     /// later deposit, withdrawal and migration against it would fail or
-    /// misprice. Also raised when `get_usdc()` exists but fails with a typed
-    /// contract error, so a broken view cannot skip the check. Not raised
-    /// for legacy adapters that do not expose `get_usdc()` (see
+    /// misprice. Also raised when the target does not export `get_usdc()`,
+    /// the call fails, or the target is not a contract (see
     /// `MeridianVault::validate_adapter_target`).
     AdapterUsdcMismatch = 27,
     /// `set_adapter` or `begin_migration` was given a target adapter whose
     /// `get_vault()` is not this vault. Such an adapter only accepts calls
     /// authorized by another vault, so this vault could never operate it.
-    /// Also raised when `get_vault()` exists but fails with a typed contract
-    /// error. Not raised for legacy adapters that do not expose
-    /// `get_vault()`.
+    /// Also raised when the target does not export `get_vault()` or the call
+    /// fails.
     AdapterVaultMismatch = 28,
     /// `set_adapter` was given a target adapter that already holds a
     /// position (nonzero `total_shares()` or `total_assets()`). The vault is
