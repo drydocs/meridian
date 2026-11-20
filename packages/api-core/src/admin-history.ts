@@ -2,6 +2,7 @@ import type { RouteResult } from "./types";
 import { getAdminActionHistory } from "@meridian/stellar-sdk-helpers";
 import { APP_NETWORK } from "@meridian/shared";
 import { KNOWN_POOLS } from "@meridian/stellar-sdk-helpers";
+import { verifyAdmin } from "./admin-auth";
 
 // Horizon cannot filter invoke_host_function operations by contract, so every
 // page is network-wide (200 operations) and filtered only after download.
@@ -12,7 +13,8 @@ const ADMIN_HISTORY_MAX_PAGES = 5;
 const ADMIN_HISTORY_TIMEOUT_MS = 8_000;
 
 export async function handleGetAdminHistory(
-  vaultId: string
+  vaultId: string,
+  authorization: string | undefined
 ): Promise<RouteResult> {
   try {
     const pools =
@@ -26,6 +28,9 @@ export async function handleGetAdminHistory(
         body: { error: "vault not found or missing contractId", vaultId },
       };
     }
+
+    const authError = await verifyAdmin(vault.contractId, authorization);
+    if (authError) return authError;
 
     const actions = await getAdminActionHistory(APP_NETWORK, vault.contractId, {
       limit: 50,
