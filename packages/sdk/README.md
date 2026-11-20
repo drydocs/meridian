@@ -34,6 +34,10 @@ import { SDK_VERSION } from "@meridian/sdk";
 const { SDK_VERSION } = require("@meridian/sdk");
 ```
 
+## Error handling
+
+Soroban simulation and transaction failures return numeric `ContractError` codes scoped to each contract. See the [Contract Error Reference](../../apps/docs/architecture/contract-errors.md) for the full mapping of every vault, adapter, and mUSDC token error code to its cause and recommended client or operator action.
+
 ## Development
 
 ```bash
