@@ -340,6 +340,14 @@ impl MeridianDefindexAdapter {
         )
     }
 
+    pub fn get_usdc(env: Env) -> Address {
+        adapter_common::get_usdc(&env)
+    }
+
+    pub fn get_vault(env: Env) -> Option<Address> {
+        adapter_common::get_vault(&env)
+    }
+
     /// Returns "defindex", identifying which protocol this adapter wraps.
     pub fn get_protocol(env: Env) -> Symbol {
         Symbol::new(&env, "defindex")

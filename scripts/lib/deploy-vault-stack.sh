@@ -145,6 +145,30 @@ deploy_vault_stack() {
     echo "Skipping build (SKIP_BUILD set); using WASM already in target/wasm32v1-none/release."
   fi
 
+  # Resolve all deterministic addresses and validate the vault's wiring before
+  # any upload or deploy transaction is submitted.
+  local vault_salt="${VAULT_SALT:-$(openssl rand -hex 32)}"
+  local blend_adapter_salt="${BLEND_ADAPTER_SALT:-$(openssl rand -hex 32)}"
+  local musdc_salt="${MUSDC_SALT:-$(openssl rand -hex 32)}"
+  VAULT_ID=$(stellar contract id wasm "${STELLAR_NETWORK_FLAGS[@]}" --source-account "$ADMIN_ADDRESS" --salt "$vault_salt")
+  BLEND_ADAPTER_ID=$(stellar contract id wasm "${STELLAR_NETWORK_FLAGS[@]}" --source-account "$DEPLOYER_ADDRESS" --salt "$blend_adapter_salt")
+  MUSDC_ID=$(stellar contract id wasm "${STELLAR_NETWORK_FLAGS[@]}" --source-account "$DEPLOYER_ADDRESS" --salt "$musdc_salt")
+
+  local zero_account="GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+  local address
+  for address in "$ADMIN_ADDRESS" "$USDC_ID" "$TREASURY_ADDRESS" "$BLEND_POOL_ID"; do
+    if [[ ! "$address" =~ ^[GC][A-Z2-7]{55}$ ]] || [ "$address" = "$zero_account" ]; then
+      echo "ERROR: invalid or zero deployment address: $address" >&2
+      return 1
+    fi
+  done
+  if [ "$ADMIN_ADDRESS" = "$VAULT_ID" ] || [ "$USDC_ID" = "$VAULT_ID" ] || \
+    [ "$MUSDC_ID" = "$VAULT_ID" ] || [ "$BLEND_ADAPTER_ID" = "$VAULT_ID" ] || \
+    [ "$TREASURY_ADDRESS" = "$VAULT_ID" ]; then
+    echo "ERROR: admin, USDC, mUSDC, adapter, and treasury must not alias the vault address ($VAULT_ID)." >&2
+    return 1
+  fi
+
   # `stellar contract build` targets wasm32v1-none, not wasm32-unknown-unknown.
   local wasm_dir="target/wasm32v1-none/release"
   local wasm_vault="$wasm_dir/meridian_vault.wasm"
@@ -182,10 +206,6 @@ deploy_vault_stack() {
   # and mUSDC deploys already on-chain from the failed run stay usable
   # instead of being orphaned. Always echoed below so it can be recovered
   # from terminal scrollback even if the caller didn't set it.
-  local vault_salt="${VAULT_SALT:-$(openssl rand -hex 32)}"
-  local blend_adapter_salt="${BLEND_ADAPTER_SALT:-$(openssl rand -hex 32)}"
-  local musdc_salt="${MUSDC_SALT:-$(openssl rand -hex 32)}"
-  VAULT_ID=$(stellar contract id wasm "${STELLAR_NETWORK_FLAGS[@]}" --source-account "$ADMIN_ADDRESS" --salt "$vault_salt")
   echo "VAULT_SALT (save this: re-run with VAULT_SALT=$vault_salt to resume at the same address if this run fails partway): $vault_salt"
   echo "BLEND_ADAPTER_SALT: $blend_adapter_salt"
   echo "MUSDC_SALT: $musdc_salt"

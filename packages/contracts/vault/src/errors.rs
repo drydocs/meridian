@@ -102,4 +102,20 @@ pub enum ContractError {
     /// `ADAPTER` or migration state is not yet final. The reentrant call is
     /// rejected and the outer call is unaffected.
     ReentrancyDetected = 26,
+    /// The vault admin is the zero address or the vault itself.
+    InvalidAdminAddress = 27,
+    /// The USDC token is the zero address or the vault itself.
+    InvalidUsdcAddress = 28,
+    /// The mUSDC token is the zero address or the vault itself.
+    InvalidMusdcAddress = 29,
+    /// The adapter is the zero address or the vault itself.
+    InvalidAdapterAddress = 30,
+    /// The fee treasury is the zero address or the vault itself.
+    InvalidTreasuryAddress = 31,
+    /// The configured mUSDC token is not administered by this vault.
+    MusdcAdminMismatch = 32,
+    /// The configured adapter uses a different USDC token.
+    AdapterUsdcMismatch = 33,
+    /// The configured adapter is bound to a different vault.
+    AdapterVaultMismatch = 34,
 }
