@@ -1,6 +1,11 @@
 name: Load-test smoke
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/load-test/**"
+      - ".github/workflows/load-test-smoke.yml"
   workflow_dispatch:
   schedule:
     - cron: "23 3 * * *"
@@ -14,6 +19,7 @@ concurrency:
 
 jobs:
   smoke:
+    if: github.event_name != 'pull_request' || vars.LOAD_TEST_BASE_URL != ''
     name: Testnet API load-test smoke
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -60,6 +66,5 @@ jobs:
           name: load-test-smoke-${{ github.run_id }}
           path: |
             load-test-summary.json
-            scripts/load-test/accounts.json
           if-no-files-found: warn
           retention-days: 14
