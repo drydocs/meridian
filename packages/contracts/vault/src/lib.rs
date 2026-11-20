@@ -59,7 +59,7 @@ const POSITION_THRESHOLD: u32 = POSITION_BUMP - 7 * DAY_IN_LEDGERS;
 /// This is compiled into the vault WASM rather than stored behind an admin
 /// setter. Changing it therefore requires a fresh deployment.
 pub const PERFORMANCE_FEE_BPS: i128 = 1_000;
-const BPS_DENOMINATOR: i128 = 10_000;
+pub const BPS_DENOMINATOR: i128 = 10_000;
 
 // ---------------------------------------------------------------------------
 // Adapter interface
