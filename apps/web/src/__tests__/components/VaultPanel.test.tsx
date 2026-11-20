@@ -7,6 +7,7 @@ import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
 import { useUsdcBalance } from "../../hooks/useUsdcBalance";
+import { APP_NETWORK, STELLAR_NETWORKS } from "@meridian/shared";
 
 const refetchPositions = vi.fn();
 const deposit = vi.fn(async () => true);
@@ -86,6 +87,10 @@ beforeEach(() => {
     publicKey: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
     connected: true,
     network: "testnet",
+    walletNetworkPassphrase: APP_NETWORK.passphrase,
+    walletNetworkName: APP_NETWORK.network,
+    walletNetworkError: null,
+    walletNetworkLoading: false,
   });
   mockVaultsLoaded();
   mockPositions({ isError: false });
@@ -187,6 +192,69 @@ describe("VaultPanel — tab switcher", () => {
     expect(screen.getByTestId("vault-tab-withdraw").textContent).toBe(
       "vaultPanel.withdraw"
     );
+  });
+});
+
+describe("VaultPanel — network mismatch", () => {
+  it("disables deposit and withdraw while keeping read-only vault data visible", () => {
+    const otherNetwork =
+      APP_NETWORK.network === "mainnet"
+        ? STELLAR_NETWORKS.testnet
+        : STELLAR_NETWORKS.mainnet;
+    useWalletStore.setState({
+      walletNetworkName: otherNetwork.network,
+      walletNetworkPassphrase: otherNetwork.passphrase,
+    });
+    mockPositions({ isError: false, data: [POSITION] });
+
+    render(<VaultPanel />);
+
+    expect(screen.getByTestId("network-mismatch-banner")).toBeDefined();
+    expect(screen.getByText("8.00")).toBeDefined();
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    expect(
+      (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement).disabled
+    ).toBe(true);
+
+    fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    expect(
+      (screen.getByTestId("vault-withdraw-submit") as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+  });
+
+  it("allows signing actions when the wallet matches the app network", () => {
+    render(<VaultPanel />);
+
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    expect(
+      (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement).disabled
+    ).toBe(false);
+    expect(screen.queryByTestId("network-mismatch-banner")).toBeNull();
+  });
+
+  it("disables signing while the wallet network is unknown", () => {
+    useWalletStore.setState({
+      walletNetworkName: null,
+      walletNetworkPassphrase: null,
+    });
+
+    render(<VaultPanel />);
+
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    expect(
+      (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(screen.getByText("networkMismatch.unknown")).toBeDefined();
   });
 });
 

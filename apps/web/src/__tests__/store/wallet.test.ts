@@ -5,6 +5,7 @@ import { APP_NETWORK } from "@meridian/shared";
 vi.mock("../../lib/wallet", () => ({
   wallet: {
     isAuthorized: vi.fn(),
+    getNetwork: vi.fn(),
   },
 }));
 
@@ -19,6 +20,10 @@ beforeEach(() => {
     // Use APP_NETWORK.network so the reset matches the store's actual default
     // and doesn't mask regressions if the build network changes (#851).
     network: APP_NETWORK.network,
+    walletNetworkName: null,
+    walletNetworkPassphrase: null,
+    walletNetworkError: null,
+    walletNetworkLoading: false,
   });
   vi.clearAllMocks();
 });
@@ -44,6 +49,51 @@ describe("useWalletStore", () => {
   it("revalidate does nothing when no publicKey is set", async () => {
     await useWalletStore.getState().revalidate();
     expect(wallet.isAuthorized).not.toHaveBeenCalled();
+  });
+
+  it("refreshNetwork records the wallet-reported network", async () => {
+    useWalletStore.setState({ publicKey: KEY, connected: true });
+    vi.mocked(wallet.getNetwork).mockResolvedValue({
+      name: "TESTNET",
+      passphrase: "Test SDF Network ; September 2015",
+    });
+
+    await useWalletStore.getState().refreshNetwork();
+
+    expect(useWalletStore.getState()).toMatchObject({
+      walletNetworkName: "TESTNET",
+      walletNetworkPassphrase: "Test SDF Network ; September 2015",
+      walletNetworkError: null,
+      walletNetworkLoading: false,
+    });
+  });
+
+  it("refreshNetwork records unknown when the wallet cannot report its network", async () => {
+    useWalletStore.setState({ publicKey: KEY, connected: true });
+    vi.mocked(wallet.getNetwork).mockResolvedValue(null);
+
+    await useWalletStore.getState().refreshNetwork();
+
+    expect(useWalletStore.getState()).toMatchObject({
+      walletNetworkName: null,
+      walletNetworkPassphrase: null,
+      walletNetworkError: null,
+    });
+  });
+
+  it("refreshNetwork exposes lookup errors as an unknown network", async () => {
+    useWalletStore.setState({ publicKey: KEY, connected: true });
+    vi.mocked(wallet.getNetwork).mockRejectedValue(
+      new Error("Wallet unavailable")
+    );
+
+    await useWalletStore.getState().refreshNetwork();
+
+    expect(useWalletStore.getState()).toMatchObject({
+      walletNetworkPassphrase: null,
+      walletNetworkError: "Wallet unavailable",
+      walletNetworkLoading: false,
+    });
   });
 
   it("revalidate keeps connection when site is still authorized", async () => {

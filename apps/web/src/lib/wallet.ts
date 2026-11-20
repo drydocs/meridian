@@ -3,6 +3,7 @@ import {
   isAllowed,
   requestAccess,
   signTransaction as freighterSign,
+  getNetwork as freighterGetNetwork,
 } from "@stellar/freighter-api";
 import {
   isConnected as lobstrIsConnected,
@@ -10,6 +11,7 @@ import {
   signTransaction as lobstrSign,
 } from "@lobstrco/signer-extension-api";
 import { xBullWalletConnect } from "@creit.tech/xbull-wallet-connect";
+import { APP_NETWORK } from "@meridian/shared";
 
 // Closing the Albedo popup does not reject the request the way a genuine
 // failure does: @albedo-link/intent's transportCloseHandler() resolves every
@@ -72,6 +74,8 @@ export interface E2EMockWallet {
   installed: boolean;
   authorized: boolean;
   address: string;
+  network?: string;
+  networkPassphrase?: string | null;
   sign: (xdr: string, networkPassphrase: string) => Promise<string>;
 }
 
@@ -111,7 +115,13 @@ export interface WalletAdapter {
   // absent or the site permission was revoked.
   isAuthorized(): Promise<boolean>;
   connect(): Promise<string>;
+  getNetwork(): Promise<WalletNetwork | null>;
   sign(xdr: string, networkPassphrase: string): Promise<string>;
+}
+
+export interface WalletNetwork {
+  name: string;
+  passphrase: string;
 }
 
 class FreighterWallet implements WalletAdapter {
@@ -144,6 +154,29 @@ class FreighterWallet implements WalletAdapter {
         const result = await requestAccess();
         if (result.error) throw new Error(result.error.message);
         return result.address;
+      }
+    );
+  }
+
+  async getNetwork(): Promise<WalletNetwork | null> {
+    return withMockWallet(
+      (mock) => {
+        const passphrase =
+          mock.networkPassphrase === undefined
+            ? APP_NETWORK.passphrase
+            : mock.networkPassphrase;
+        return passphrase
+          ? {
+              name: mock.network ?? APP_NETWORK.network,
+              passphrase,
+            }
+          : null;
+      },
+      async () => {
+        const result = await freighterGetNetwork();
+        if (result.error) throw new Error(result.error.message);
+        if (!result.network || !result.networkPassphrase) return null;
+        return { name: result.network, passphrase: result.networkPassphrase };
       }
     );
   }
@@ -225,6 +258,10 @@ export class LobstrWallet implements WalletAdapter {
     );
   }
 
+  async getNetwork(): Promise<WalletNetwork | null> {
+    return null;
+  }
+
   async sign(xdr: string, networkPassphrase: string): Promise<string> {
     return withMockWallet(
       (mock) => mock.sign(xdr, networkPassphrase),
@@ -301,6 +338,10 @@ export class XBullWallet implements WalletAdapter {
         }
       }
     );
+  }
+
+  async getNetwork(): Promise<WalletNetwork | null> {
+    return null;
   }
 
   async sign(xdr: string, networkPassphrase: string): Promise<string> {
@@ -380,6 +421,10 @@ export class AlbedoWallet implements WalletAdapter {
         return result.pubkey;
       }
     );
+  }
+
+  async getNetwork(): Promise<WalletNetwork | null> {
+    return null;
   }
 
   async sign(xdr: string, networkPassphrase: string): Promise<string> {
@@ -490,6 +535,7 @@ export const wallet: WalletAdapter = {
   isInstalled: () => getWalletAdapter(getSelectedWalletId()).isInstalled(),
   isAuthorized: () => getWalletAdapter(getSelectedWalletId()).isAuthorized(),
   connect: () => getWalletAdapter(getSelectedWalletId()).connect(),
+  getNetwork: () => getWalletAdapter(getSelectedWalletId()).getNetwork(),
   sign: (xdr, networkPassphrase) =>
     getWalletAdapter(getSelectedWalletId()).sign(xdr, networkPassphrase),
 };

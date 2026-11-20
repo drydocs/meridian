@@ -14,6 +14,8 @@ import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
+import { APP_NETWORK } from "@meridian/shared";
+import { NetworkMismatchBanner } from "../onboarding/NetworkMismatchBanner";
 
 function formatTvl(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -27,7 +29,9 @@ export function VaultPanel() {
   const { data, isLoading: vaultsLoading } = useVaults();
   const vaults = data?.vaults;
   const { t } = useTranslation();
-  const { connected, publicKey } = useWalletStore();
+  const { connected, publicKey, walletNetworkPassphrase } = useWalletStore();
+  const signingDisabled =
+    walletNetworkPassphrase !== APP_NETWORK.passphrase;
   const { balance: availableBalance, refetch: refetchBalance } =
     useUsdcBalance();
   const {
@@ -258,6 +262,7 @@ export function VaultPanel() {
 
       {/* Action area */}
       <div className="px-7 py-6">
+        <NetworkMismatchBanner />
         {!connected ? (
           <div className="space-y-4">
             {showRiskDisclosure && (
@@ -303,6 +308,7 @@ export function VaultPanel() {
             isDepositing={isDepositing}
             onSubmit={handleDeposit}
             availableBalance={availableBalance}
+            signingDisabled={signingDisabled}
           />
         ) : (
           <WithdrawTab
@@ -314,6 +320,7 @@ export function VaultPanel() {
             hasPosition={!!hasPosition}
             isWithdrawing={isWithdrawing}
             onSubmit={handleWithdraw}
+            signingDisabled={signingDisabled}
           />
         )}
         {depositRiskDisclosure.show && (

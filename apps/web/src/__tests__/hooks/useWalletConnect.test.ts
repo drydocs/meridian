@@ -11,6 +11,7 @@ let selectedWalletId = "freighter";
 let riskDisclosureAccepted = true;
 
 vi.mock("../../lib/wallet", () => ({
+  wallet: { getNetwork: vi.fn().mockResolvedValue(null) },
   getSelectedWalletId: () => selectedWalletId,
   setSelectedWalletId: vi.fn((id: string) => {
     selectedWalletId = id;
