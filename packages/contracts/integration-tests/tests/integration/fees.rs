@@ -164,14 +164,14 @@ fn withdraw_assets_with_accrued_yield_charges_fee_and_delivers_exact_assets() {
     let target_assets = usdc(50);
     let out = f.withdraw_assets(&alice, target_assets, usdc(100));
 
-    // Delivers target assets within 1 stroop precision
-    assert!((out - target_assets).abs() <= 1);
-    assert!(((f.usdc_balance(&alice) - usdc(900)) - target_assets).abs() <= 1);
+    // Delivers exact target assets
+    assert_eq!(out, target_assets);
+    assert_eq!(f.usdc_balance(&alice), usdc(900) + target_assets);
 
-    // Performance fee minted to treasury
-    assert!(f.musdc_balance(&f.treasury) > 0);
+    // Performance fee minted to treasury: exactly 4,170,141 shares
+    assert_eq!(f.musdc_balance(&f.treasury), 4_170_141);
 
-    // Position records updated proportionally
-    assert!(f.vault.get_principal(&alice) > 0);
-    assert!(f.musdc_balance(&alice) > 0);
+    // Position records updated proportionally: proportional basis and burned shares
+    assert_eq!(f.vault.get_principal(&alice), 541_284_404);
+    assert_eq!(f.musdc_balance(&alice), 541_284_404);
 }

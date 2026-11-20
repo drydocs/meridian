@@ -556,6 +556,12 @@ impl MeridianVault {
     ) -> Result<i128, ContractError> {
         caller.require_auth();
         Self::extend_instance(&env);
+        let adapter_addr: Address = env
+            .storage()
+            .instance()
+            .get(&ADAPTER)
+            .ok_or(ContractError::NotInitialized)?;
+        AdapterClient::new(&env, &adapter_addr).refresh();
         Self::withdraw_internal(env, caller, shares, min_usdc_out)
     }
 
@@ -576,13 +582,6 @@ impl MeridianVault {
             .instance()
             .get(&ADAPTER)
             .ok_or(ContractError::NotInitialized)?;
-
-        // Refresh the adapter's cached total for display/cache consistency
-        // ahead of the withdrawal. BlendAdapter::withdraw() sizes its own
-        // redemption directly from the live b_rate (#486), so this refresh
-        // only keeps the cache/display in sync and does not itself change
-        // what the withdrawer receives.
-        AdapterClient::new(&env, &adapter_addr).refresh();
 
         let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
         let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
@@ -627,13 +626,34 @@ impl MeridianVault {
             PERFORMANCE_FEE_BPS,
             BPS_DENOMINATOR,
         )?;
-        let net_usdc_out = usdc_out.checked_sub(fee).ok_or(ContractError::Overflow)?;
-        let mut actual_usdc_out = net_usdc_out;
+        let remaining_shares = total_shares
+            .checked_sub(shares)
+            .ok_or(ContractError::Overflow)?;
+        let remaining_assets = if fee > 0 {
+            adapter_client.total_assets()
+        } else {
+            0
+        };
+        let outcome = pricing::calculate_withdrawal_fee_and_net(
+            usdc_out,
+            principal,
+            shares,
+            caller_shares,
+            total_shares,
+            remaining_assets,
+            PERFORMANCE_FEE_BPS,
+            BPS_DENOMINATOR,
+        )?;
+
+        let fee = outcome.fee;
+        let treasury_shares = outcome.treasury_shares;
+        let mut actual_usdc_out = outcome.net_usdc_out;
+        let base_net = usdc_out.checked_sub(fee).ok_or(ContractError::Overflow)?;
 
         // Slippage is enforced against what the caller actually receives,
         // after the performance fee, so off-chain simulations can provide a
         // meaningful minimum.
-        if net_usdc_out < min_usdc_out {
+        if actual_usdc_out < min_usdc_out {
             return Err(ContractError::MinAmountOutNotMet);
         }
 
@@ -641,31 +661,15 @@ impl MeridianVault {
         // in the vault briefly, then is re-deposited below so treasury shares
         // are fully backed rather than being an uncollateralized mint.
         TokenClient::new(&env, &musdc).burn(&caller, &shares);
-        TokenClient::new(&env, &usdc).transfer(
-            &env.current_contract_address(),
-            &caller,
-            &net_usdc_out,
-        );
-
-        let remaining_shares = total_shares
-            .checked_sub(shares)
-            .ok_or(ContractError::Overflow)?;
-        let mut treasury_shares = 0_i128;
+        TokenClient::new(&env, &usdc).transfer(&env.current_contract_address(), &caller, &base_net);
 
         if fee > 0 {
-            let treasury: Address = env
-                .storage()
-                .instance()
-                .get(&TREASURY)
-                .ok_or(ContractError::NotInitialized)?;
-            let remaining_assets = adapter_client.total_assets();
-
-            // Price the treasury mint exactly like a deposit against the
-            // post-withdrawal vault. OFFSET also gives a full-exit fee a
-            // well-defined 1:1 price when no user shares/assets remain.
-            treasury_shares = pricing::shares_for_assets(fee, remaining_shares, remaining_assets)?;
-
             if treasury_shares > 0 {
+                let treasury: Address = env
+                    .storage()
+                    .instance()
+                    .get(&TREASURY)
+                    .ok_or(ContractError::NotInitialized)?;
                 TokenClient::new(&env, &usdc).transfer(
                     &env.current_contract_address(),
                     &adapter_addr,
@@ -1147,29 +1151,23 @@ impl MeridianVault {
             .persistent()
             .get(&DataKey::Principal(holder))
             .unwrap_or(0);
-        let principal_out = pricing::principal_retired(principal, shares, holder_shares)?;
-        let (_, fee) =
-            pricing::performance_fee(gross, principal_out, PERFORMANCE_FEE_BPS, BPS_DENOMINATOR)?;
-
-        let mut treasury_shares = 0_i128;
-        let mut assets_out = gross.checked_sub(fee).ok_or(ContractError::Overflow)?;
-        if fee > 0 {
-            let remaining_shares = total_shares
-                .checked_sub(shares)
-                .ok_or(ContractError::Overflow)?;
-            let remaining_assets = total_assets.saturating_sub(gross);
-            treasury_shares = pricing::shares_for_assets(fee, remaining_shares, remaining_assets)?;
-            if treasury_shares == 0 {
-                // Dust fee: returned to the holder, as `withdraw` does.
-                assets_out = gross;
-            }
-        }
+        let remaining_assets = total_assets.saturating_sub(gross);
+        let outcome = pricing::calculate_withdrawal_fee_and_net(
+            gross,
+            principal,
+            shares,
+            holder_shares,
+            total_shares,
+            remaining_assets,
+            PERFORMANCE_FEE_BPS,
+            BPS_DENOMINATOR,
+        )?;
 
         Ok(WithdrawPreview {
             gross_assets: gross,
-            fee,
-            treasury_shares,
-            assets_out,
+            fee: outcome.fee,
+            treasury_shares: outcome.treasury_shares,
+            assets_out: outcome.net_usdc_out,
         })
     }
 
