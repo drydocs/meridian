@@ -12,6 +12,15 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
   buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
   submitTx: vi.fn(async () => ({ hash: "HASH" })),
   assertRequiredTrustlines: vi.fn(async () => undefined),
+  quoteVaultAction: vi.fn(async ({ action }: { action: "deposit" | "withdraw" }) => ({
+    action,
+    expectedShares: action === "deposit" ? "9.5" : undefined,
+    expectedAssets: action === "withdraw" ? "4.75" : undefined,
+    fee: "100",
+    ledger: 123,
+    recommendedMinimum: action === "deposit" ? "9.4525" : "4.72625",
+    slippageBps: 50,
+  })),
 }));
 
 vi.mock("./position-tracking", () => ({
@@ -23,6 +32,7 @@ import {
   handleWithdrawRequest,
   handleAddTrustlineRequest,
   handleSubmitRequest,
+  handleQuoteRequest,
 } from "./tx";
 import {
   buildDepositTx,
@@ -32,6 +42,7 @@ import {
   ContractSimulationError,
   assertRequiredTrustlines,
   MissingTrustlineError,
+  quoteVaultAction,
 } from "@meridian/stellar-sdk-helpers";
 import { trackPositionHistoryUser } from "./position-tracking";
 
@@ -169,7 +180,7 @@ describe("handleDepositRequest", () => {
       PUBKEY,
       "10",
       expect.anything(),
-      "0"
+      "9.4525"
     );
     expect(trackPositionHistoryUser).toHaveBeenCalledWith(PUBKEY);
   });
@@ -188,7 +199,7 @@ describe("handleDepositRequest", () => {
       PUBKEY,
       "10",
       expect.anything(),
-      "9.5"
+      "9.4525"
     );
   });
 
@@ -220,7 +231,7 @@ describe("handleWithdrawRequest", () => {
     });
   });
 
-  it("builds the withdraw transaction, defaulting min_usdc_out to 0", async () => {
+  it("builds the withdraw transaction, defaulting min_usdc_out to the quote minimum", async () => {
     const result = await handleWithdrawRequest({
       walletAddress: PUBKEY,
       vaultId: "blend-usdc-fixed",
@@ -232,7 +243,7 @@ describe("handleWithdrawRequest", () => {
       PUBKEY,
       "5",
       expect.anything(),
-      "0"
+      "4.72625"
     );
     expect(trackPositionHistoryUser).toHaveBeenCalledWith(PUBKEY);
   });
@@ -249,7 +260,7 @@ describe("handleWithdrawRequest", () => {
       PUBKEY,
       "5",
       expect.anything(),
-      "4.9"
+      "4.72625"
     );
   });
 
@@ -372,5 +383,62 @@ describe("handleSubmitRequest", () => {
     const result = await handleSubmitRequest({ xdr: "SIGNED" });
     expect(result.status).toBe(400);
     expect(result.body).toEqual({ error: USER_FIXABLE_MESSAGES[18] });
+  });
+});
+
+describe("handleQuoteRequest", () => {
+  it("quotes a deposit with the default slippage minimum", async () => {
+    const result = await handleQuoteRequest({
+      action: "deposit",
+      walletAddress: PUBKEY,
+      vaultId: "blend-usdc-fixed",
+      amount: "10",
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      action: "deposit",
+      expectedShares: "9.5",
+      recommendedMinimum: "9.4525",
+      slippageBps: 50,
+    });
+  });
+
+  it("quotes a withdrawal and returns expected assets", async () => {
+    const result = await handleQuoteRequest({
+      action: "withdraw",
+      walletAddress: PUBKEY,
+      vaultId: "blend-usdc-fixed",
+      shares: "5",
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      action: "withdraw",
+      expectedAssets: "4.75",
+      recommendedMinimum: "4.72625",
+      slippageBps: 50,
+    });
+  });
+
+  it("rejects missing deposit or withdrawal amounts", async () => {
+    expect((await handleQuoteRequest({
+      action: "deposit", walletAddress: PUBKEY, vaultId: "v",
+    })).status).toBe(400);
+    expect((await handleQuoteRequest({
+      action: "withdraw", walletAddress: PUBKEY, vaultId: "v",
+    })).status).toBe(400);
+  });
+
+  it("maps paused and simulation failures clearly", async () => {
+    vi.mocked(quoteVaultAction).mockRejectedValueOnce(new Error("Deposits are currently paused"));
+    expect((await handleQuoteRequest({
+      action: "deposit", walletAddress: PUBKEY, vaultId: "v", amount: "10",
+    })).body).toEqual({ error: "Deposits are currently paused" });
+
+    vi.mocked(quoteVaultAction).mockRejectedValueOnce(new Error("simulation failed"));
+    expect((await handleQuoteRequest({
+      action: "withdraw", walletAddress: PUBKEY, vaultId: "v", shares: "5",
+    })).status).toBe(500);
   });
 });

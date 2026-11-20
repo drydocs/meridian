@@ -4,6 +4,7 @@ import {
   handleWithdrawRequest,
   handleSubmitRequest,
   handleAddTrustlineRequest,
+  handleQuoteRequest,
 } from "@meridian/api-core";
 import { applyCors, checkRateLimit } from "../../_lib/middleware.js";
 
@@ -17,6 +18,7 @@ const ACTIONS = {
   withdraw: handleWithdrawRequest,
   submit: handleSubmitRequest,
   "add-trustline": handleAddTrustlineRequest,
+  quote: handleQuoteRequest,
 } as const;
 
 type Action = keyof typeof ACTIONS;
