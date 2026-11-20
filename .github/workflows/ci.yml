@@ -26,6 +26,7 @@ jobs:
       test: ${{ steps.filter.outputs.test }}
       e2e: ${{ steps.filter.outputs.e2e }}
       contracts: ${{ steps.filter.outputs.contracts }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -71,6 +72,42 @@ jobs:
               - "scripts/redeploy-*.sh"
               - "scripts/lib/**"
               - "!**/*.md"
+            docs:
+              - .github/workflows/ci.yml
+              - "**/*.md"
+              - .markdownlint.json
+              - .markdownlint-cli2.jsonc
+              - lychee.toml
+
+  # Markdown lint plus a link check over the README, root guides, docs/,
+  # apps/docs and package READMEs. Runs on PRs that touch Markdown and on
+  # every push to main. Same commands as `pnpm docs:lint` / `pnpm docs:links`.
+  docs:
+    name: Docs (Markdown Lint & Links)
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      # Config: .markdownlint.json (rules) and .markdownlint-cli2.jsonc (files).
+      - name: Lint Markdown
+        run: pnpm docs:lint
+      # Config: lychee.toml. Keep `args` in sync with the docs:links script.
+      # The token lifts GitHub's rate limit for the many github.com links.
+      - name: Check links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --config lychee.toml --no-progress './**/*.md'
+          fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   lint-typecheck:
     name: Lint & Typecheck

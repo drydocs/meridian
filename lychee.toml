@@ -1,0 +1,40 @@
+# Link checker settings for `pnpm docs:links` and the CI "Docs" job.
+# https://lychee.cli.rs/usage/config/
+#
+# Internal links (relative paths and #anchors) are always checked strictly.
+# External links are checked too, except the hosts excluded below.
+
+# Check that #anchors point at a real heading in the target file.
+include_fragments = true
+
+# 429 means "slow down", not "broken". Treat it as OK so a busy CI runner
+# does not fail the job for a link that works.
+accept = ["200..=299", "429"]
+
+max_retries = 3
+retry_wait_time = 5
+timeout = 20
+max_concurrency = 8
+
+exclude_path = [
+  "node_modules",
+  "dist",
+  "\\.turbo",
+  "target",
+  "apps/docs/\\.vitepress/cache",
+  "apps/docs/\\.vitepress/dist",
+]
+
+exclude = [
+  # Local dev servers and placeholders used in setup guides.
+  '^https?://localhost',
+  '^https?://127\.0\.0\.1',
+  '^https://your-preview\.vercel\.app',
+
+  # API endpoint, not a page: answers 400 without an `addr` query.
+  '^https://friendbot\.stellar\.org',
+
+  # CHANGELOG.md release links for a tag that is not published yet.
+  # Remove this entry once v0.1.0 is tagged.
+  '^https://github\.com/drydocs/meridian/(compare/v0\.1\.0\.\.\.HEAD|releases/tag/v0\.1\.0)$',
+]

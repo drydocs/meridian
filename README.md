@@ -36,7 +36,7 @@ Meridian is **live on Stellar mainnet**. Real USDC deposits are routed through a
 - `ADMIN` key custody (hardware-backed or multisig) and a written incident-response runbook, both prerequisites the mainnet deployment shipped ahead of rather than waited on
 - Third-party security audit
 
-Until a DeFindex vault is configured, the DeFindex deposit path throws a configuration error rather than silently routing elsewhere. Track progress in the [Roadmap](#roadmap) and [open issues](../../issues).
+Until a DeFindex vault is configured, the DeFindex deposit path throws a configuration error rather than silently routing elsewhere. Track progress in the [Roadmap](#roadmap) and [open issues](https://github.com/drydocs/meridian/issues).
 
 ---
 
@@ -165,7 +165,7 @@ DeFindex is a yield-strategy vault protocol on Stellar that composes multiple yi
 
 ## Contributing
 
-We welcome contributions. See [open issues](../../issues) for a range of tasks across TypeScript, Rust/Soroban, and UI.
+We welcome contributions. See [open issues](https://github.com/drydocs/meridian/issues) for a range of tasks across TypeScript, Rust/Soroban, and UI.
 
 1. Fork the repo and create a feature branch: `git checkout -b feat/your-feature`
 2. Follow the existing code style (no comments unless WHY is non-obvious)
@@ -188,7 +188,7 @@ Per-position yield tracking with a cost-basis model is shipped: users already se
 
 ### Shipped: automatic yield routing (built and tested, not yet live on mainnet)
 
-A scheduled keeper that compares live rates across a vault's candidate adapters and calls the vault's `migrate_adapter` when a candidate clears a configured improvement threshold is built and tested end to end (see [#469](../../issues/469)): rate comparison for both Blend and DeFindex, discovery, retry, deadline-budget handling, and slippage/threshold-bounded submission all work. What's left is operational, not code: the production migration-keeper key needs admin authority over the mainnet vault, which is deliberately blocked on deciding `ADMIN`'s custody model first (see "Project status" above) rather than handed over as a shortcut.
+A scheduled keeper that compares live rates across a vault's candidate adapters and calls the vault's `migrate_adapter` when a candidate clears a configured improvement threshold is built and tested end to end (see [#469](https://github.com/drydocs/meridian/issues/469)): rate comparison for both Blend and DeFindex, discovery, retry, deadline-budget handling, and slippage/threshold-bounded submission all work. What's left is operational, not code: the production migration-keeper key needs admin authority over the mainnet vault, which is deliberately blocked on deciding `ADMIN`'s custody model first (see "Project status" above) rather than handed over as a shortcut.
 
 ### Now: mainnet hardening
 

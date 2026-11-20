@@ -412,6 +412,20 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all
 ```
 
+### Documentation checks
+
+Pull requests that touch Markdown run a `Docs` CI job. It lints every `.md` file and checks the links in the README, root guides, `docs/`, `apps/docs` and package READMEs. Run the same checks locally before pushing docs changes:
+
+```bash
+pnpm docs:lint     # Markdown lint (markdownlint-cli2, fetched on demand)
+pnpm docs:links    # Link check (needs the lychee binary, see below)
+```
+
+`pnpm docs:links` needs [lychee](https://lychee.cli.rs) on your `PATH`. Install it with `cargo install lychee`, `brew install lychee`, or a binary from its releases page. Neither tool is added as a package dependency.
+
+- **Lint rules** live in `.markdownlint.json`. The files that get linted are set in `.markdownlint-cli2.jsonc`, which also explains each disabled rule.
+- **Link checking** is configured in `lychee.toml`. Relative links and `#anchors` are always checked strictly, so a renamed file or heading fails the job. External links are checked too. The few hosts that cannot be checked from CI (local dev URLs, placeholders, API endpoints) are excluded there, each with a comment saying why. Add a host to that list only when it blocks CI, not because a link is broken.
+
 ### End-to-end tests
 
 The e2e suite (`apps/web/e2e/`) drives the real `apps/web` and `apps/api-local` dev servers with a real headless browser via [Playwright](https://playwright.dev). It hits the real API and real Stellar testnet RPC end to end; only Freighter's wallet-signing step is mocked (see `apps/web/e2e/fixtures.ts`), since a real browser extension can't run in CI. Only needed when modifying `apps/web`, `apps/api-local`, or anything the deposit/withdraw/vault-list flows depend on.

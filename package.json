@@ -11,6 +11,8 @@
     "typecheck": "turbo run typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "docs:lint": "pnpm dlx markdownlint-cli2@0.18.1",
+    "docs:links": "lychee --config lychee.toml --no-progress \"./**/*.md\"",
     "verify:contracts": "tsx scripts/verify-contract-addresses.ts",
     "check:wasm-size": "tsx scripts/check-wasm-size.ts",
     "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts"

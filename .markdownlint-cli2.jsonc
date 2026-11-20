@@ -1,0 +1,21 @@
+// Settings for `pnpm docs:lint` (markdownlint-cli2) and the CI "Docs" job.
+// Rule settings live in .markdownlint.json:
+//   MD013 off: prose is not hard-wrapped to a line length.
+//   MD024 siblings only: CHANGELOG.md repeats "Added" / "Changed" under
+//              each release, as Keep a Changelog does.
+//   MD033 off: the README and VitePress pages use HTML on purpose (logo,
+//              brand swatches, Vue components).
+//   MD036 off: bold lines are used as small labels ("Working today"), not
+//              as missing headings.
+//   MD041 off: VitePress pages can start with frontmatter instead of an H1.
+{
+  "globs": ["**/*.md"],
+  "ignores": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.turbo/**",
+    "**/target/**",
+    "apps/docs/.vitepress/cache/**",
+    "apps/docs/.vitepress/dist/**",
+  ],
+}

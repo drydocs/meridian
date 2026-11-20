@@ -29,7 +29,7 @@ Retained as a hand-initialization path for undeployed legacy flows. Its argument
 
 Transfers `amount` USDC from the caller into the vault, forwards it to the active adapter, and mints proportional mUSDC shares. Fails with `DepositsPaused` if `set_paused(true)` is in effect, `ZeroAmount` if `amount <= 0`, `DepositTooSmall` if the amount rounds down to zero shares at the current price, or `SlippageExceeded` if the minted shares would fall below `min_shares_out`. Callers wishing to opt out of minimum-output enforcement pass `0`.
 
-```
+```text
 shares_minted = amount * (total_shares + OFFSET) / (adapter_total_assets + OFFSET)
 ```
 
@@ -47,7 +47,7 @@ Burns `shares` mUSDC from the caller, redeems the proportional adapter position,
 
 The `InsufficientShares` check reads the caller's live mUSDC balance, the same balance the burn operates on, so the two can never disagree. The check is kept rather than left to the burn's own failure so callers get the typed error instead of a panic.
 
-```
+```text
 adapter_shares_to_burn = shares * total_adapter_shares / total_shares
 usdc_out = <whatever the adapter's withdraw() returns for that many adapter shares>
 principal_out = Principal(caller) * shares / caller_shares
