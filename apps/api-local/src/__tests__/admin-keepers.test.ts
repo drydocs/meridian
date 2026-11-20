@@ -3,11 +3,15 @@ import Fastify from "fastify";
 import { adminRoute } from "../routes/admin.js";
 import { keepersRoute } from "../routes/keepers.js";
 
-vi.mock("@meridian/api-core", () => ({
-  handleGetAdminHistory: vi.fn(),
-  handleGetVaultState: vi.fn(),
-  handleGetKeeperHealth: vi.fn(),
-}));
+vi.mock("@meridian/api-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@meridian/api-core")>();
+  return {
+    ...actual,
+    handleGetAdminHistory: vi.fn(),
+    handleGetVaultState: vi.fn(),
+    handleGetKeeperHealth: vi.fn(),
+  };
+});
 
 import {
   handleGetAdminHistory,

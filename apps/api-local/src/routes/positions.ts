@@ -12,6 +12,7 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
     if (result.error) {
       app.log.error(result.error, "[positions] read failed");
     }
+    reply.header("Cache-Control", "no-store");
     reply.code(result.status).send(result.body);
   });
 
@@ -23,6 +24,27 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
     if (result.error) {
       app.log.error(result.error, "[positions] history read failed");
     }
+    reply.header("Cache-Control", "no-store");
     reply.code(result.status).send(result.body);
+  });
+
+  app.route({
+    method: ["POST", "PUT", "PATCH", "DELETE"],
+    url: "/:publicKey",
+    handler: async (_req, reply) =>
+      reply
+        .code(405)
+        .header("Allow", "GET")
+        .send({ error: "Method not allowed" }),
+  });
+
+  app.route({
+    method: ["POST", "PUT", "PATCH", "DELETE"],
+    url: "/:publicKey/history",
+    handler: async (_req, reply) =>
+      reply
+        .code(405)
+        .header("Allow", "GET")
+        .send({ error: "Method not allowed" }),
   });
 };
