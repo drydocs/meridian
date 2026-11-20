@@ -4,10 +4,16 @@ import { SimulationClock, ONE_HOUR_MS } from "../clock";
 import { BacktestPriceFeed } from "../feeds";
 import { ZERO_COSTS } from "../costs";
 import type { AccrualConfig } from "../backtest";
-import type { PortfolioView, PositionView, Strategy } from "../strategy";
+import { Portfolio } from "../portfolio";
+import type {
+  PortfolioView,
+  PositionView,
+  Strategy,
+  StrategyContext,
+} from "../strategy";
 import { BuyAndHoldStrategy } from "../strategy";
 import { FixedPointDecimal } from "../types";
-import type { AssetSymbol } from "../types";
+import type { AssetSymbol, SimulationTimestamp } from "../types";
 import { CompositionConstraintError } from "./constraint-engine";
 import { runBacktest } from "../backtest";
 import type { ExecutionConfig } from "../backtest";
@@ -120,6 +126,72 @@ function composedBacktest(
 }
 
 describe("ComposedStrategy", () => {
+  it("scopes venue positions to each composed member", () => {
+    const observed = new Map<string, readonly string[]>();
+    const observe = (id: string): Strategy<null> => ({
+      name: id,
+      init: () => undefined,
+      step: (context: StrategyContext) => {
+        observed.set(
+          id,
+          (context.venues?.venues() ?? []).map(
+            (position) => `${position.venueId}:${position.asset}`
+          )
+        );
+      },
+      rebalance: () => [],
+      close: () => [],
+    });
+    const strategy = new ComposedStrategy([
+      {
+        id: "first",
+        strategy: observe("first"),
+        allocation: amount("0.5"),
+        config: null,
+      },
+      {
+        id: "second",
+        strategy: observe("second"),
+        allocation: amount("0.5"),
+        config: null,
+      },
+    ]);
+    const portfolio = new Portfolio(amount("100"));
+    portfolio.applyVenueOrder(
+      {
+        kind: "deploy",
+        venueId: "first-venue",
+        asset: USDC,
+        amount: amount("10"),
+        memberId: "first",
+      },
+      PRICES
+    );
+    portfolio.applyVenueOrder(
+      {
+        kind: "deploy",
+        venueId: "second-venue",
+        asset: USDC,
+        amount: amount("10"),
+        memberId: "second",
+      },
+      PRICES
+    );
+
+    strategy.init({ startingCapital: amount("100"), config: undefined });
+    strategy.step({
+      market: {
+        timestamp: START as SimulationTimestamp,
+        prices: PRICES,
+      },
+      portfolio,
+      venues: portfolio,
+    });
+
+    expect(observed.get("first")).toEqual(["first-venue:USDC"]);
+    expect(observed.get("second")).toEqual(["second-venue:USDC"]);
+  });
+
   it("attributes a composition trading disjoint assets", () => {
     const strategy = new ComposedStrategy([
       {
