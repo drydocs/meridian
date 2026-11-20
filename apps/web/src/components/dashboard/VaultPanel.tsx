@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { useVaults } from "../../hooks/useVaults";
 import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
@@ -8,12 +8,17 @@ import { useRiskDisclosure } from "../../hooks/useRiskDisclosure";
 import { useUsdcBalance } from "../../hooks/useUsdcBalance";
 import { getWalletMeta, hasAcceptedRiskDisclosure } from "../../lib/wallet";
 import { PositionSummary } from "./PositionSummary";
-import { YieldHistoryChart } from "./YieldHistoryChart";
 import { DepositTab } from "./DepositTab";
 import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
+
+const YieldHistoryChart = lazy(() =>
+  import("./YieldHistoryChart").then((m) => ({
+    default: m.YieldHistoryChart,
+  }))
+);
 
 function formatTvl(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -217,7 +222,13 @@ export function VaultPanel() {
 
       {/* Yield history: position value over time, by protocol */}
       {connected && hasPosition && position && (
-        <YieldHistoryChart publicKey={publicKey} />
+        <Suspense
+          fallback={
+            <div className="mx-7 my-5 h-48 rounded-xl border border-gray-800 bg-gray-900/50 animate-pulse" />
+          }
+        >
+          <YieldHistoryChart publicKey={publicKey} />
+        </Suspense>
       )}
 
       {/* Position load error — deposit/withdraw stay usable, only the

@@ -1,0 +1,20 @@
+{
+  "baseline": {
+    "initialJsBytes": 2314547,
+    "description": "Baseline monolithic entry bundle before code-splitting (~2.26 MB)"
+  },
+  "budget": {
+    "maxInitialJsBytes": 450000,
+    "description": "Initial JavaScript budget: maximum 450 KB (down from 2.26 MB baseline)"
+  },
+  "current": {
+    "initialJsBytes": 320563,
+    "reductionPercent": 86.15,
+    "chunks": {
+      "entry": "dist/assets/index-CYa3P1NW.js",
+      "admin": "dist/assets/admin-BCZfzrkB.js",
+      "chartVendor": "dist/assets/chart-vendor-DvBoUmyH.js",
+      "chartComponent": "dist/assets/YieldHistoryChart-CFmWt3XD.js"
+    }
+  }
+}

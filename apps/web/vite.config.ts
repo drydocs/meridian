@@ -37,6 +37,31 @@ export default defineConfig(({ command }) => ({
         ? "{}"
         : JSON.stringify({ STELLAR_NETWORK: process.env.STELLAR_NETWORK }),
   },
+  build: {
+    modulePreload: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (
+            id.includes("node_modules/recharts") ||
+            id.includes("node_modules/d3-") ||
+            id.includes("node_modules/victory-vendor")
+          ) {
+            return "chart-vendor";
+          }
+          if (id.includes("node_modules/@stellar/stellar-sdk")) {
+            return "stellar-sdk";
+          }
+          if (
+            id.includes("/src/pages/Admin") ||
+            id.includes("/src/components/admin/")
+          ) {
+            return "admin";
+          }
+        },
+      },
+    },
+  },
   server: {
     port: 3000,
     strictPort: true,
