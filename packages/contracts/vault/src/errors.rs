@@ -94,12 +94,32 @@ pub enum ContractError {
     /// baseline collapses the floor to zero (or below) so the loss guard
     /// would always pass.
     MigrationBaselineInvalid = 25,
-    /// A guarded entry point (`deposit`, `withdraw`, `begin_migration`,
-    /// `migrate_adapter`, or the mUSDC `on_transfer` callback) was called
-    /// while another guarded call was still in progress. This happens when a
-    /// malicious or compromised adapter or token calls back into the vault
-    /// in the middle of an external call, while `TOTAL_SH`, `ADPT_SH`,
-    /// `ADAPTER` or migration state is not yet final. The reentrant call is
-    /// rejected and the outer call is unaffected.
+    /// A guarded entry point (`deposit`, `withdraw`, `set_adapter`,
+    /// `begin_migration`, `migrate_adapter`, or the mUSDC `on_transfer`
+    /// callback) was called while another guarded call was still in
+    /// progress. This happens when a malicious or compromised adapter or
+    /// token calls back into the vault in the middle of an external call,
+    /// while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or migration state is not yet
+    /// final. The reentrant call is rejected and the outer call is
+    /// unaffected.
     ReentrancyDetected = 26,
+    /// `set_adapter` or `begin_migration` was given a target adapter whose
+    /// `get_usdc()` differs from the vault's own USDC. Such an adapter would
+    /// hold and price a different asset than the vault accounts in, so every
+    /// later deposit, withdrawal and migration against it would fail or
+    /// misprice. Also raised when the target does not export `get_usdc()`,
+    /// the call fails, or the target is not a contract (see
+    /// `MeridianVault::validate_adapter_target`).
+    AdapterUsdcMismatch = 27,
+    /// `set_adapter` or `begin_migration` was given a target adapter whose
+    /// `get_vault()` is not this vault. Such an adapter only accepts calls
+    /// authorized by another vault, so this vault could never operate it.
+    /// Also raised when the target does not export `get_vault()` or the call
+    /// fails.
+    AdapterVaultMismatch = 28,
+    /// `set_adapter` was given a target adapter that already holds a
+    /// position (nonzero `total_shares()` or `total_assets()`). The vault is
+    /// empty at that point, so any residue would be unaccounted for in
+    /// `ADPT_SH` and would skew the share price of the first depositors.
+    AdapterResidualPosition = 29,
 }

@@ -7,6 +7,7 @@ import {
 import type { StellarNetwork } from "./types";
 import type { PositionInfo } from "./positions";
 import { KNOWN_POOLS } from "./known-pools";
+import { getRpcServer } from "./internal";
 
 /**
  * Look up the registry entry for `vaultId` on the given network. Throws if the
@@ -116,4 +117,13 @@ export async function resolvePositions(
     }
   }
   return positions;
+}
+
+/** Returns the latest closed ledger sequence for the given network. */
+export async function getLatestLedgerSequence(
+  network: StellarNetwork
+): Promise<number> {
+  const server = getRpcServer(network.rpcUrl, 12_000);
+  const latest = await server.getLatestLedger();
+  return latest.sequence;
 }
