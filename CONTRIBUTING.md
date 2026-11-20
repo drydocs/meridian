@@ -313,6 +313,7 @@ Commits that do not match the `^(feat|fix|docs|chore|refactor|test|style|ci|perf
   - `PascalCase` for types and traits
   - `UPPER_SNAKE_CASE` for constants
 - **Error handling:** Use `Result<T, E>` everywhere. No `.unwrap()` in contract code except on values that are provably infallible; explain why in an inline comment.
+- **Adding a `ContractError` variant:** When adding a new variant to `ContractError` in any contract crate (`vault`, `blend-adapter`, `defindex-adapter`, or `musdc-token`), assign the next unused `u32` discriminant (never reuse or renumber existing codes), add a `///` doc comment explaining when it is raised, and document the variant with its cause and recommended client/operator response in `apps/docs/architecture/contract-errors.md`. Run `pnpm --filter @meridian/docs test` (included in `pnpm test`) to verify every variant is cataloged.
 - **Documentation:** All public functions must have doc comments (`///`). Include a one-line summary and a note on any panics or preconditions.
 - **Security:** Validate all inputs. Assume callers are adversarial. Never read from storage without checking the key exists first.
 
