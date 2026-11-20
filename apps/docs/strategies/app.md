@@ -4,30 +4,31 @@ The Strategies app is a separate interface for exploring Meridian's strategy
 simulation engine. **It is simulation-only:** it cannot connect a signer, sign
 or submit transactions, or access live vault funds.
 
-> **Current app status:** the app currently provides its header, a simulation
-> notice, and three navigation tabs: **Single Run**, **Run History**, and
-> **Comparison**. Each tab is an empty state. Scenario editing and execution,
-> charts, an in-app risk panel, run storage, run comparison, and the opportunity
-> scanner are not available in the current app. This guide describes that
-> behavior rather than presenting planned features as usable.
+> **Current app status:** the app provides its header, a simulation notice, and
+> three navigation tabs: **Single Run**, **Run History**, and **Comparison**.
+> **Single Run** has a scenario form with synthetic market-regime presets,
+> simulation controls, and a summary for completed runs. **Run History** and
+> **Comparison** are empty states: runs are not saved or compared. The app does
+> not currently provide result charts, an in-app risk panel, or an opportunity
+> scanner.
 
 ## What the app does
 
 The app is a frontend for the strategy engine in
 [`@meridian/strategies`](https://github.com/drydocs/meridian/tree/main/packages/strategies).
 The engine provides deterministic backtesting and report and risk-metric
-utilities. The current app does not yet expose those engine workflows: opening
-it does not start a run or load saved results.
+utilities. The **Single Run** view exposes scenario configuration and execution,
+then shows a summary of a completed run. The app does not load saved results.
 
 The header displays the strategy engine name and version. The **Simulation
 only** notice describes the app's safety boundary. Use the tabs to switch
 between the three current views:
 
-| Tab             | Current behavior                                                                                                                  |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Single Run**  | Shows that no simulation is running. There is no scenario form or run control yet.                                                |
-| **Run History** | Shows that no runs are recorded. Saving, opening, deleting, and clearing runs are not available yet.                              |
-| **Comparison**  | Shows that there are no runs to compare. Selecting runs, cross-market normalization, and comparison charts are not available yet. |
+| Tab             | Current behavior                                                                                                                                                |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Single Run**  | Provides a scenario form, regime presets, a run control, and a summary after a successful simulation. Result charts and an in-app risk panel are not available. |
+| **Run History** | Shows that no runs are recorded. Saving, opening, deleting, and clearing runs are not available.                                                                |
+| **Comparison**  | Shows that there are no runs to compare. Selecting runs, cross-market normalization, and comparison charts are not available.                                   |
 
 The app has no opportunity-scanner view in the current release.
 
@@ -62,9 +63,8 @@ pnpm --filter @meridian/strategies-app preview
 
 ## Scenarios and regime presets
 
-The current app has no scenario form, so scenarios cannot be created or run
-from its interface. The engine's scenario schema is useful context for
-understanding the inputs that a run requires:
+The **Single Run** form lets you configure and execute a simulation. The
+engine's scenario schema describes the inputs represented by the form:
 
 | Engine scenario field             | Meaning                                                                      |
 | --------------------------------- | ---------------------------------------------------------------------------- |
@@ -81,16 +81,18 @@ The current schema is strict: unexpected keys are rejected. See the [scenario
 and source guides](./delta-neutral.md) and the [self-repaying loan
 guide](./self-repaying-loan.md) for engine-level strategy behavior.
 
-The engine also defines synthetic `trending`, `ranging`, and `high-funding`
-regimes. They are engine utilities, not selectable presets in the current app.
-No scenario form is available to choose or customize them from the UI.
+The form includes synthetic `trending`, `ranging`, and `high-funding` regime
+presets. Selecting a preset fills the scenario fields with that regime's
+starting values; you can then edit the fields before running the simulation.
 
 ## Results, charts, and risk metrics
 
-There are no result charts or risk panel in the current app. The engine does
-provide result snapshots and risk-metric functions; the descriptions below
-explain those engine concepts, not currently rendered app components. For the
-metric definitions and sign conventions, see the
+After a successful run, the app displays a summary with final value, total
+interest, total funding, total fees, and strategy equity. It does not currently
+render result charts or an in-app risk panel. The engine provides result
+snapshots and risk-metric functions; the descriptions below explain those
+engine concepts, not currently rendered app components. For the metric
+definitions and sign conventions, see the
 [risk-metrics reference](#risk-metrics-reference).
 
 ### Value, PnL, cash, and positions
@@ -103,9 +105,8 @@ it.
 
 PnL is the change from an explicitly chosen starting value. For a run with
 starting value `V₀` and value at step `t` of `Vₜ`, absolute PnL is `Vₜ - V₀`;
-percentage PnL is `(Vₜ / V₀) - 1` when `V₀` is positive. These are
-interpretations of the engine values, not charts currently displayed by the
-app.
+percentage PnL is `(Vₜ / V₀) - 1` when `V₀` is positive. These are interpretations of the engine values; the app does not currently
+render a value chart.
 
 Cash and position values describe different parts of the portfolio. Cash is
 the uninvested balance; positions are holdings marked using the simulation's
