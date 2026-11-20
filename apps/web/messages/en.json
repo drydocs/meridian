@@ -17,7 +17,10 @@
     "walletConnected": "Wallet Connected",
     "chooseWallet": "Choose a wallet",
     "installed": "Installed",
-    "install": "Install"
+    "install": "Install",
+    "accountChanged": "Wallet account switched to {{address}}",
+    "networkChanged": "Wallet network switched to {{network}}",
+    "networkMismatch": "Wallet network mismatch: wallet is on {{walletNetwork}}, but app requires {{appNetwork}}"
   },
 
   "vaultPanel": {

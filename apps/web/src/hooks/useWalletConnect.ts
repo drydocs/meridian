@@ -52,6 +52,16 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
     setStatus("connecting");
     try {
       const key = await adapter.connect();
+      if (typeof adapter.getNetwork === "function") {
+        try {
+          const reportedNetwork = await adapter.getNetwork();
+          if (reportedNetwork === "mainnet" || reportedNetwork === "testnet") {
+            useWalletStore.setState({ network: reportedNetwork });
+          }
+        } catch {
+          // Ignore passive reporting errors
+        }
+      }
       // Only persisted on success: a failed or cancelled connect attempt
       // must not silently switch which wallet future sign/reconnect calls
       // (which dispatch off the persisted selection) go through.
