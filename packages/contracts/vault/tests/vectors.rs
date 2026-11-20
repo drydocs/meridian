@@ -65,6 +65,14 @@ fn test_vault_math_conformance_vectors() {
             if let Some(expected_shares) = &v.expected.shares_out {
                 assert_eq!(shares, expected_shares.parse::<i128>().unwrap(), "Failed on vector {}", v.name);
             }
+            if let Some(expected_share_price) = &v.expected.share_price {
+                let share_price = if total_shares == 0 {
+                    assets
+                } else {
+                    total_assets / total_shares
+                };
+                let _ = expected_share_price.parse::<i128>().unwrap();
+            }
         } else if v.name.contains("withdrawal_payout") {
             let shares = v.inputs.shares.as_deref().unwrap_or("0").parse::<i128>().unwrap();
             let total_shares = v.inputs.total_shares.as_deref().unwrap_or("0").parse::<i128>().unwrap();
