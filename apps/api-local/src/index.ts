@@ -6,10 +6,9 @@ config({ path: resolve(process.cwd(), "../../.env.local") });
 config({ path: resolve(process.cwd(), "../../.env") });
 
 import Fastify from "fastify";
-import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import Redis from "ioredis";
-import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import { registerCors } from "./cors";
 import { vaultsRoute } from "./routes/vaults";
 import { positionsRoute } from "./routes/positions";
 import { txRoute } from "./routes/tx";
@@ -26,10 +25,7 @@ const redisClient = process.env.REDIS_URL
   ? new Redis(process.env.REDIS_URL)
   : undefined;
 
-await app.register(cors, {
-  origin: process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN,
-  methods: ["GET", "POST", "OPTIONS"],
-});
+await registerCors(app);
 await app.register(rateLimit, {
   max: 100,
   timeWindow: "1 minute",
