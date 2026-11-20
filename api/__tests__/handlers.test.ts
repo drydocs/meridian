@@ -172,6 +172,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
         passphrase: "Test SDF Network ; September 2015",
       },
       webhookUrl: "https://hooks.example.com/webhook",
+      webhookSecret: "test-secret",
       maxAttempts: 3,
       baseDelayMs: 1,
       rpcTimeoutMs: 100,
