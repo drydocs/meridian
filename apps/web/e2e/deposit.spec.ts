@@ -62,9 +62,7 @@ test.describe("deposit", () => {
     if (signed.length > 0) {
       // Signing was requested → the mock wallet threw "User declined access",
       // which mapError maps to errors.walletDeclined ("You declined the request…").
-      await expect(
-        page.getByText(/You declined the request/)
-      ).toBeVisible();
+      await expect(page.getByText(/You declined the request/)).toBeVisible();
     }
   });
 
