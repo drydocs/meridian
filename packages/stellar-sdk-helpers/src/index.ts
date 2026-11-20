@@ -5,6 +5,7 @@ export * from "./coordinator";
 export * from "./defilamma";
 export * from "./defindex";
 export * from "./horizon";
+export * from "./keeper-doctor";
 export * from "./keeper-heartbeat";
 export * from "./keeper-retry";
 export * from "./keeper-state";

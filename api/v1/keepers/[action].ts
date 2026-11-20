@@ -12,6 +12,7 @@ import {
   redactedErrorMessage,
   runAlertKeeper,
   runBlendAccrualKeeper,
+  runKeeperDoctor,
   resolvePositions,
   runMigrationKeeper,
   runPositionSnapshotKeeper,
@@ -63,7 +64,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     action !== "accrue" &&
     action !== "rebalance" &&
     action !== "alert" &&
-    action !== "snapshot"
+    action !== "snapshot" &&
+    action !== "doctor"
   ) {
     return res.status(404).json({ error: "Unknown action" });
   }
@@ -95,6 +97,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (!isCronAuthorized(req)) {
     return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  if (action === "doctor") {
+    const rawKeeper = Array.isArray(req.query.keeper)
+      ? req.query.keeper[0]
+      : req.query.keeper;
+    const keeper = rawKeeper ?? "migration";
+    if (keeper !== "migration" && keeper !== "accrual") {
+      return res
+        .status(400)
+        .json({ error: "Invalid keeper; expected 'migration' or 'accrual'" });
+    }
+    try {
+      const report = await runKeeperDoctor({
+        keeper,
+        env: process.env,
+        logger: consoleLogger,
+      });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(report.ok ? 200 : 503).json(report);
+    } catch (err) {
+      console.error("[keeper-doctor] run failed:", err);
+      return res.status(500).json({ error: redactedErrorMessage(err) });
+    }
   }
 
   if (action === "accrue") {
@@ -204,7 +230,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const config = loadMigrationKeeperConfig(process.env);
     const result = await runMigrationKeeper(config);
     const status = result.failures.length > 0 ? 500 : 200;
-    if (result.failures.length === 0) {
+    if (result.failures.length === 0 && !result.blocked) {
       const store = loadKeeperHeartbeatStore(process.env, {
         logger: consoleLogger,
       });
