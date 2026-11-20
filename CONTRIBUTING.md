@@ -390,6 +390,18 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all
 ```
 
+### Adding a new API error code
+
+When introducing a new error code or status mapping in `packages/api-core`:
+
+1. Define the error code string and handler response shape in `packages/api-core`.
+2. Add the code, status, trigger condition, retry guidance, and recommended client action to the catalog in [`apps/docs/architecture/api-errors.md`](apps/docs/architecture/api-errors.md).
+3. If introducing a new user-fixable Soroban contract error mapping, add it to `USER_FIXABLE_CONTRACT_ERRORS` in `packages/api-core/src/tx.ts` and document it in the Contract Simulation Errors table.
+4. Run the API error catalog check to verify completeness:
+   ```bash
+   pnpm --filter @meridian/docs test
+   ```
+
 ### End-to-end tests
 
 The e2e suite (`apps/web/e2e/`) drives the real `apps/web` and `apps/api-local` dev servers with a real headless browser via [Playwright](https://playwright.dev). It hits the real API and real Stellar testnet RPC end to end; only Freighter's wallet-signing step is mocked (see `apps/web/e2e/fixtures.ts`), since a real browser extension can't run in CI. Only needed when modifying `apps/web`, `apps/api-local`, or anything the deposit/withdraw/vault-list flows depend on.
