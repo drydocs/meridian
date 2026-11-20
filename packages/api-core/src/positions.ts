@@ -1,6 +1,7 @@
 import { APP_NETWORK, isValidStellarAddress } from "@meridian/shared";
 import { resolvePositions } from "@meridian/stellar-sdk-helpers";
 import type { RouteResult } from "./types";
+import { deadlineResult, withUpstreamDeadline } from "./deadline";
 
 export async function handleGetPositions(
   rawPublicKey: unknown
@@ -12,13 +13,14 @@ export async function handleGetPositions(
   }
 
   try {
-    const positions = await resolvePositions(publicKey, APP_NETWORK);
+    const positions = await withUpstreamDeadline(
+      () => resolvePositions(publicKey, APP_NETWORK),
+      "position read"
+    );
     return { status: 200, body: { positions } };
   } catch (err) {
     return {
-      status: 503,
-      body: { error: "Failed to read positions" },
-      error: err,
+      ...deadlineResult(err, "Failed to read positions"),
     };
   }
 }

@@ -7,6 +7,7 @@ import {
   loadPositionSnapshotStore,
 } from "@meridian/stellar-sdk-helpers";
 import type { RouteResult } from "./types";
+import { deadlineResult, withUpstreamDeadline } from "./deadline";
 
 /**
  * Returns the stored position-value time series for one wallet, oldest first.
@@ -41,18 +42,14 @@ export async function handleGetPositionHistory(
     const store = loadPositionSnapshotStore(process.env, {
       logger: consoleLogger,
     });
-    const snapshots = await getPositionHistory(
-      store,
-      publicKey,
-      APP_NETWORK.network,
-      days
+    const snapshots = await withUpstreamDeadline(
+      () => getPositionHistory(store, publicKey, APP_NETWORK.network, days),
+      "position history"
     );
     return { status: 200, body: { publicKey, days, snapshots } };
   } catch (err) {
     return {
-      status: 503,
-      body: { error: "Failed to read position history" },
-      error: err,
+      ...deadlineResult(err, "Failed to read position history"),
     };
   }
 }

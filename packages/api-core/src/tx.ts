@@ -16,8 +16,10 @@ import {
   assertRequiredTrustlines,
   MissingTrustlineError,
 } from "@meridian/stellar-sdk-helpers";
+import { UpstreamDeadlineError } from "@meridian/shared";
 import { trackPositionHistoryUser } from "./position-tracking";
 import type { RouteResult } from "./types";
+import { deadlineResult, withUpstreamDeadline } from "./deadline";
 
 /**
  * Vault ContractError discriminants that the caller can correct (slippage,
@@ -71,6 +73,12 @@ function txErrorResult(err: unknown, fallback: string): RouteResult {
   };
 }
 
+function txFailureResult(err: unknown, fallback: string): RouteResult {
+  return err instanceof UpstreamDeadlineError
+    ? deadlineResult(err, fallback)
+    : txErrorResult(err, fallback);
+}
+
 export async function handleDepositRequest(
   body: unknown
 ): Promise<RouteResult> {
@@ -81,13 +89,20 @@ export async function handleDepositRequest(
 
   try {
     const { walletAddress, vaultId, amount, min_shares_out } = parsed.data;
-    await assertRequiredTrustlines(walletAddress, APP_NETWORK);
-    const result = await buildDepositTx(
-      vaultId,
-      walletAddress,
-      amount,
-      APP_NETWORK,
-      min_shares_out
+    await withUpstreamDeadline(
+      () => assertRequiredTrustlines(walletAddress, APP_NETWORK),
+      "deposit trustline check"
+    );
+    const result = await withUpstreamDeadline(
+      () =>
+        buildDepositTx(
+          vaultId,
+          walletAddress,
+          amount,
+          APP_NETWORK,
+          min_shares_out
+        ),
+      "deposit simulation"
     );
     await trackPositionHistoryUser(walletAddress);
     return { status: 200, body: result };
@@ -95,7 +110,7 @@ export async function handleDepositRequest(
     if (err instanceof MissingTrustlineError) {
       return { status: 400, body: { error: err.message }, error: err };
     }
-    return txErrorResult(err, "Failed to build deposit transaction");
+    return txFailureResult(err, "Failed to build deposit transaction");
   }
 }
 
@@ -109,13 +124,20 @@ export async function handleWithdrawRequest(
 
   try {
     const { walletAddress, vaultId, shares, min_usdc_out } = parsed.data;
-    await assertRequiredTrustlines(walletAddress, APP_NETWORK);
-    const result = await buildWithdrawTx(
-      vaultId,
-      walletAddress,
-      shares,
-      APP_NETWORK,
-      min_usdc_out
+    await withUpstreamDeadline(
+      () => assertRequiredTrustlines(walletAddress, APP_NETWORK),
+      "withdraw trustline check"
+    );
+    const result = await withUpstreamDeadline(
+      () =>
+        buildWithdrawTx(
+          vaultId,
+          walletAddress,
+          shares,
+          APP_NETWORK,
+          min_usdc_out
+        ),
+      "withdraw simulation"
     );
     await trackPositionHistoryUser(walletAddress);
     return { status: 200, body: result };
@@ -123,7 +145,7 @@ export async function handleWithdrawRequest(
     if (err instanceof MissingTrustlineError) {
       return { status: 400, body: { error: err.message }, error: err };
     }
-    return txErrorResult(err, "Failed to build withdraw transaction");
+    return txFailureResult(err, "Failed to build withdraw transaction");
   }
 }
 
@@ -136,13 +158,13 @@ export async function handleAddTrustlineRequest(
   }
 
   try {
-    const result = await buildAddTrustlineTx(
-      parsed.data.walletAddress,
-      APP_NETWORK
+    const result = await withUpstreamDeadline(
+      () => buildAddTrustlineTx(parsed.data.walletAddress, APP_NETWORK),
+      "trustline transaction"
     );
     return { status: 200, body: result };
   } catch (err) {
-    return txErrorResult(err, "Failed to build trustline transaction");
+    return txFailureResult(err, "Failed to build trustline transaction");
   }
 }
 
@@ -153,9 +175,12 @@ export async function handleSubmitRequest(body: unknown): Promise<RouteResult> {
   }
 
   try {
-    const result = await submitTx(parsed.data.xdr, APP_NETWORK);
+    const result = await withUpstreamDeadline(
+      () => submitTx(parsed.data.xdr, APP_NETWORK),
+      "transaction submission"
+    );
     return { status: 200, body: result };
   } catch (err) {
-    return txErrorResult(err, "Failed to submit transaction");
+    return txFailureResult(err, "Failed to submit transaction");
   }
 }
