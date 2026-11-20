@@ -64,7 +64,11 @@ export function AdminLogin() {
 
   if (!connected) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-night">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex items-center justify-center min-h-screen bg-night focus:outline-none"
+      >
         <div className="w-full max-w-md rounded-xl border border-gray-800 bg-deep p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-gray-800">
             <LockOpen className="h-5 w-5 text-gray-400" />
@@ -81,13 +85,17 @@ export function AdminLogin() {
             {t("common.connectWallet")}
           </button>
         </div>
-      </div>
+      </main>
     );
   }
 
   if (status === "error") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-night">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex items-center justify-center min-h-screen bg-night focus:outline-none"
+      >
         <div className="w-full max-w-md rounded-xl border border-gray-800 bg-deep p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-amber-500/10">
             <AlertCircle className="h-5 w-5 text-amber-400" />
@@ -117,13 +125,17 @@ export function AdminLogin() {
             </button>
           </div>
         </div>
-      </div>
+      </main>
     );
   }
 
   if (status === "blocked") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-night">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex items-center justify-center min-h-screen bg-night focus:outline-none"
+      >
         <div className="w-full max-w-md rounded-xl border border-gray-800 bg-deep p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-red-500/10">
             <Lock className="h-5 w-5 text-red-400" />
@@ -146,21 +158,29 @@ export function AdminLogin() {
             {t("admin.switchWallet")}
           </button>
         </div>
-      </div>
+      </main>
     );
   }
 
   if (status === "allowed") {
     return (
-      <div className="min-h-screen bg-night text-paper">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="min-h-screen bg-night text-paper focus:outline-none"
+      >
         <AdminDashboard />
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-night text-gray-400">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="flex items-center justify-center min-h-screen bg-night text-gray-400 focus:outline-none"
+    >
       {t("admin.loading")}
-    </div>
+    </main>
   );
 }

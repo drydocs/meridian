@@ -177,5 +177,15 @@
       "title": "Security Audit",
       "notYetAvailable": "No independent security audit has been completed yet. A report will be linked here once one exists."
     }
+  },
+
+  "a11y": {
+    "skipToMain": "Skip to main content",
+    "titles": {
+      "dashboard": "Dashboard — Meridian",
+      "status": "Protocol Status — Meridian",
+      "admin": "Admin Dashboard — Meridian",
+      "notFound": "Page not found — Meridian"
+    }
   }
 }
