@@ -443,7 +443,7 @@ impl MeridianVault {
         let principal_key = DataKey::Principal(caller.clone());
         let principal: i128 = env.storage().persistent().get(&principal_key).unwrap_or(0);
         let principal_out = pricing::principal_retired(principal, shares, caller_shares)?;
-        let (gain, fee) = pricing::performance_fee(
+        let (_, fee) = pricing::performance_fee(
             usdc_out,
             principal_out,
             PERFORMANCE_FEE_BPS,
@@ -525,12 +525,14 @@ impl MeridianVault {
 
         let remaining = caller_shares - shares;
 
-        // Retire the withdrawn basis and ratchet the high-water mark by the
-        // gain already taxed, so that gain cannot be charged a second time.
-        env.storage().persistent().set(
-            &principal_key,
-            &(principal - principal_out + if treasury_shares > 0 { gain } else { 0 }),
-        );
+        // Retire the withdrawn basis strictly in proportion to the shares
+        // burned. The retained shares keep their own untaxed basis, so their
+        // gain is charged when they are withdrawn. Folding the taxed gain back
+        // into the basis instead (a high-water ratchet) would shelter that
+        // gain from the fee forever, under-collecting on every partial exit.
+        env.storage()
+            .persistent()
+            .set(&principal_key, &(principal - principal_out));
 
         // A full exit clears the entry time and cost basis so a later re-deposit
         // starts fresh.
@@ -2612,7 +2614,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_profitable_withdrawal_ratchets_principal_by_taxed_gain() {
+    fn partial_profitable_withdrawal_retires_basis_proportionally() {
         let (env, _treasury, user, usdc_id, _musdc, adapter_id, vault) = setup();
         let principal = 100_0000000_i128;
         let yield_amount = 10_0000000_i128;
@@ -2622,9 +2624,46 @@ mod tests {
         let half = vault.get_position(&user) / 2;
         vault.withdraw(&user, &half, &0);
 
-        // Half the original basis is retired and the withdrawn slice's
-        // 5-USDC gain becomes part of the high-water mark.
-        assert_eq!(vault.get_principal(&user), 55_0000000_i128);
+        // Only the withdrawn half of the original basis is retired. The
+        // retained shares keep their own basis, which is what makes their
+        // gain chargeable on their own exit (#1039).
+        assert_eq!(vault.get_principal(&user), 50_0000000_i128);
+    }
+
+    #[test]
+    fn two_step_profitable_exit_charges_the_same_total_fee_as_a_single_exit() {
+        let principal = 10_000_000_000_i128;
+        let yield_amount = 2_000_000_000_i128;
+
+        // Exit the whole position at once.
+        let (env, _admin, user, usdc_id, _musdc, adapter_id, vault) = setup();
+        vault.deposit(&user, &principal, &0);
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &yield_amount);
+        let shares = vault.get_position(&user);
+        let single_out = vault.withdraw(&user, &shares, &0);
+        assert_eq!(
+            single_out,
+            principal + yield_amount - yield_amount * PERFORMANCE_FEE_BPS / BPS_DENOMINATOR
+        );
+
+        // Same position, exited in two equal steps. The second step is taxed
+        // on the retained shares' own gain rather than inheriting a basis
+        // that already absorbed it.
+        let (env2, _admin2, user2, usdc_id2, _musdc2, adapter_id2, vault2) = setup();
+        vault2.deposit(&user2, &principal, &0);
+        StellarAssetClient::new(&env2, &usdc_id2).mint(&adapter_id2, &yield_amount);
+        let half = vault2.get_position(&user2) / 2;
+        let first_out = vault2.withdraw(&user2, &half, &0);
+        assert_eq!(vault2.get_principal(&user2), principal / 2);
+        let second_out = vault2.withdraw(&user2, &half, &0);
+
+        // Equal to a few stroops of rounding from pricing the treasury mint
+        // between the two steps, but the fee is no longer deferred.
+        let two_step_out = first_out + second_out;
+        assert!(
+            (two_step_out - single_out).abs() <= 10,
+            "two-step exit collected {two_step_out}, single exit {single_out}"
+        );
     }
 
     #[test]
