@@ -50,6 +50,7 @@ struct VectorExpected {
 fn test_vault_math_conformance_vectors() {
     let data = fs::read_to_string("../../shared/vectors/vault_math_v1.json")
         .or_else(|_| fs::read_to_string("packages/shared/vectors/vault_math_v1.json"))
+        .or_else(|_| fs::read_to_string("../shared/vectors/vault_math_v1.json"))
         .expect("Failed to read vault_math_v1.json vector file");
     let suite: VectorFile = serde_json::from_str(&data).unwrap();
 
