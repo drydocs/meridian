@@ -10,6 +10,7 @@ pub const TREASURY: Symbol = symbol_short!("TREASURY");
 pub const TOTAL_SH: Symbol = symbol_short!("TOTAL_SH");
 pub const ADPT_SH: Symbol = symbol_short!("ADPT_SH");
 pub const PAUSED: Symbol = symbol_short!("PAUSED");
+pub const DEP_CAP: Symbol = symbol_short!("DEP_CAP");
 pub const MIG_SNAP: Symbol = symbol_short!("MIG_SNAP");
 pub const MIG_ACTIVE: Symbol = symbol_short!("MIG_ACT");
 // Reentrancy lock. Present (true) only while a guarded entry point is
