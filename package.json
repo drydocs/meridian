@@ -12,7 +12,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "verify:contracts": "tsx scripts/verify-contract-addresses.ts",
-    "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts"
+    "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts",
+    "keeper:doctor": "tsx scripts/keeper-doctor.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.6.1"
