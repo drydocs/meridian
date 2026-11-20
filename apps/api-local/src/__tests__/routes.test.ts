@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Fastify from "fastify";
-import rateLimit from "@fastify/rate-limit";
 import { positionsRoute } from "../routes/positions.js";
 import { txRoute } from "../routes/tx.js";
 import { vaultsRoute } from "../routes/vaults.js";
@@ -484,50 +483,6 @@ describe("GET /api/v1/vaults", () => {
     expect(res.statusCode).toBe(405);
     expect(res.headers.allow).toBe("GET");
     expect(fetchAllVaults).not.toHaveBeenCalled();
-  });
-});
-
-describe("rate limiting on /api/v1/tx", () => {
-  it("shares one 100 request budget across tx routes", async () => {
-    const app = Fastify({ logger: false });
-    await app.register(rateLimit, { max: 100, timeWindow: "1 minute" });
-    app.register(txRoute, { prefix: "/api/v1/tx" });
-    await app.ready();
-
-    vi.mocked(buildDepositTx).mockResolvedValue({ xdr: "TXXDR", fee: "100" });
-    vi.mocked(buildWithdrawTx).mockResolvedValue({
-      xdr: "WITHDRAWXDR",
-      fee: "100",
-    });
-
-    const deposit = {
-      method: "POST" as const,
-      url: "/api/v1/tx/deposit",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        walletAddress: WALLET,
-        vaultId: "blend-usdc-fixed",
-        amount: "10",
-        riskAcknowledged: true,
-      }),
-    };
-    const withdraw = {
-      method: "POST" as const,
-      url: "/api/v1/tx/withdraw",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        walletAddress: WALLET,
-        vaultId: "blend-usdc-fixed",
-        shares: "5",
-      }),
-    };
-
-    for (let i = 0; i < 50; i++) {
-      expect((await app.inject(deposit)).statusCode).toBe(200);
-      expect((await app.inject(withdraw)).statusCode).toBe(200);
-    }
-
-    expect((await app.inject(deposit)).statusCode).toBe(429);
   });
 });
 

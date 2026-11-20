@@ -15,6 +15,7 @@ export function WalletConnect() {
   const {
     handleConnect,
     status,
+    cancelConnect,
     showRiskDisclosure,
     acceptRiskDisclosure,
     cancelRiskDisclosure,
@@ -234,6 +235,37 @@ export function WalletConnect() {
           : t("common.connectWallet")}
         <ChevronDown size={14} />
       </button>
+
+      {/* A wallet popup that never answers would otherwise leave the button
+          stuck on "Connecting..." with no way back to idle (#1301). */}
+      {status === "connecting" && (
+        <button
+          data-testid="wallet-connect-cancel"
+          onClick={cancelConnect}
+          className="ml-2 text-sm border border-gray-700 rounded-lg px-3 py-2 font-medium text-gray-400 hover:border-gray-600 hover:text-paper transition-colors duration-150"
+        >
+          {t("walletConnect.cancel")}
+        </button>
+      )}
+
+      {/* The wallet window can open behind the browser, so the timeout is
+          framed as "go look for it" with a retry rather than a dead end. */}
+      {status === "timeout" && (
+        <div
+          role="alert"
+          data-testid="wallet-connect-timeout"
+          className="ml-2 flex items-center gap-2 text-xs text-amber-400"
+        >
+          <span>{t("walletConnect.timeoutHint")}</span>
+          <button
+            data-testid="wallet-connect-retry"
+            onClick={() => void handleConnect()}
+            className="rounded-lg border border-gray-700 px-2 py-1 font-medium text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150"
+          >
+            {t("walletConnect.retry")}
+          </button>
+        </div>
+      )}
 
       {pickerOpen && (
         <div

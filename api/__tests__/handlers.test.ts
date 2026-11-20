@@ -25,6 +25,9 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
   return {
     ContractSimulationError: actual.ContractSimulationError,
     MissingTrustlineError: actual.MissingTrustlineError,
+    // Pure XDR parsing, so the real implementation is what the rate limiter
+    // should see when it bills a submit request to its source account.
+    submissionSourceAccount: actual.submissionSourceAccount,
     redactedErrorMessage: vi.fn((err: unknown) => {
       if (!(err instanceof Error)) return "Keeper operation failed";
       const first = err.message.split("\n")[0]?.trim();

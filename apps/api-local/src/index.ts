@@ -7,7 +7,6 @@ config({ path: resolve(process.cwd(), "../../.env") });
 
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import rateLimit from "@fastify/rate-limit";
 import Redis from "ioredis";
 import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
 import { vaultsRoute } from "./routes/vaults";
@@ -15,9 +14,11 @@ import { positionsRoute } from "./routes/positions";
 import { txRoute } from "./routes/tx";
 import { keepersRoute } from "./routes/keepers";
 import { adminRoute } from "./routes/admin";
+import { redisRateLimitStore, registerRateLimit } from "./rate-limit";
 
-// Rate limits: one shared 100 req/min limiter across all routes, matching the
-// deployed handlers' shared Upstash sliding window (api/_lib/middleware.ts).
+// Rate limits: the shared policy table from @meridian/api-core, so each route
+// class (read / admin / tx build / tx submit / keeper) has its own budget
+// instead of all routes competing for one bucket.
 // Body limit: 10 KB on all routes to block oversized payload attacks.
 // Security headers: X-Content-Type-Options and X-Frame-Options on every response.
 const app = Fastify({ logger: true, bodyLimit: 10 * 1024 });
@@ -30,10 +31,11 @@ await app.register(cors, {
   origin: process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN,
   methods: ["GET", "POST", "OPTIONS"],
 });
-await app.register(rateLimit, {
-  max: 100,
-  timeWindow: "1 minute",
-  ...(redisClient ? { redis: redisClient } : {}),
+await registerRateLimit(app, {
+  ...(redisClient ? { store: redisRateLimitStore(redisClient) } : {}),
+  // A local server is a single process, so the in-memory fallback is a real
+  // limiter here rather than the per-instance approximation it is on Vercel.
+  requireDistributed: false,
 });
 
 app.addHook("onSend", (_req, reply, _payload, done) => {

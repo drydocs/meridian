@@ -43,7 +43,8 @@ export function VaultPanel() {
     isError: positionsError,
     refetch: refetchPositions,
   } = usePositions(publicKey);
-  const { deposit, withdraw, isDepositing, isWithdrawing } = useVaultActions();
+  const { deposit, withdraw, isDepositing, isWithdrawing, cancelSigning } =
+    useVaultActions();
 
   const [tab, setTab] = useState<Tab>("deposit");
   const [amount, setAmount] = useState("");
@@ -302,6 +303,7 @@ export function VaultPanel() {
             hasPosition={!!hasPosition}
             isDepositing={isDepositing}
             onSubmit={handleDeposit}
+            onCancelSigning={cancelSigning}
             availableBalance={availableBalance}
           />
         ) : (
@@ -314,6 +316,7 @@ export function VaultPanel() {
             hasPosition={!!hasPosition}
             isWithdrawing={isWithdrawing}
             onSubmit={handleWithdraw}
+            onCancelSigning={cancelSigning}
           />
         )}
         {depositRiskDisclosure.show && (

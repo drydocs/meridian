@@ -18,7 +18,7 @@ const HISTORY_CACHE_CONTROL = "public, s-maxage=30, stale-while-revalidate=120";
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   try {
-    if (!(await checkRateLimit(req, res))) return;
+    if (!(await checkRateLimit(req, res, { policy: "admin" }))) return;
   } catch (err) {
     console.error("[admin] rate limit check failed:", err);
     return res

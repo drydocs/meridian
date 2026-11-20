@@ -46,7 +46,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (action === "health") {
     if (applyCors(req, res)) return;
     try {
-      if (!(await checkRateLimit(req, res))) return;
+      if (!(await checkRateLimit(req, res, { policy: "keeperHealth" }))) return;
     } catch (err) {
       console.error("[keepers/health] rate limit check failed:", err);
       return res
@@ -82,7 +82,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // a successful auth check, unauthenticated or wrong-token spam would be
   // entirely unbounded.
   try {
-    if (!(await checkRateLimit(req, res, { strict: true }))) return;
+    if (!(await checkRateLimit(req, res, { policy: "keeper" }))) return;
   } catch (err) {
     console.error(`[keepers/${action}] rate limit check failed:`, err);
     return res

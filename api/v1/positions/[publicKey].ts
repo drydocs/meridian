@@ -10,7 +10,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   if (requireGetMethod(req, res)) return;
   try {
-    if (!(await checkRateLimit(req, res))) return;
+    if (!(await checkRateLimit(req, res, { policy: "read" }))) return;
   } catch (err) {
     console.error("[positions] rate limit check failed:", err);
     return res
