@@ -37,12 +37,14 @@ credited_value  = adapter_shares_credited * assets_after / adapter_shares_after
 backing         = min(amount, assets_after - assets_before)
 tolerance       = amount * DEPOSIT_VALUE_TOLERANCE_BPS / 10_000 + DEPOSIT_VALUE_TOLERANCE_STROOPS
                   -> DepositValueMismatch if credited_value > backing + tolerance
+one_share       = ceil(assets_after / adapter_shares_after)
+credited_value  = backing if backing - credited_value <= one_share + 1
 credited_value  = min(credited_value, backing)
 existing_value  = assets_after - credited_value
 shares_minted   = min(credited_value * (total_shares + OFFSET) / (existing_value + OFFSET), quoted_shares)
 ```
 
-`credited_value` and `existing_value` are both taken at the adapter's post-deposit rate, so the depositor's share of the vault matches their credit's share of the adapter's position, which is also the share `withdraw` redeems for them. The mint is never larger than `quoted_shares`, the pre-deposit quote for `amount`, and `min_shares_out` is checked against the final mint. A credit worth less than `amount` is accepted and minted at its real value. Reverting on every partial fill was rejected because some protocols legitimately credit less than requested.
+`credited_value` and `existing_value` are both taken at the adapter's post-deposit rate, so the depositor's share of the vault matches their credit's share of the adapter's position, which is also the share `withdraw` redeems for them. The mint is never larger than `quoted_shares`, the pre-deposit quote for `amount`, and `min_shares_out` is checked against the final mint. A share-based adapter rounds its own mint down by less than one of its shares, so a credit short of `backing` by at most one adapter share's value plus one stroop is treated as rounding and counts as the full `backing`; with an adapter that credits at its pre-deposit rate the mint therefore equals `preview_deposit`. A credit worth less than that is accepted and minted at its real value. Reverting on every partial fill was rejected because some protocols legitimately credit less than requested.
 
 `DEPOSIT_VALUE_TOLERANCE_BPS` is 10 (0.1% of `amount`) and `DEPOSIT_VALUE_TOLERANCE_STROOPS` is 100 (0.00001 USDC). The valuation is built from integer reads that each round down, so an honest adapter's credit can land a few stroops above its exact value. The tolerance only decides whether such an excess counts as rounding or as a broken adapter: within it, the credit is still capped at `backing` before pricing, so the tolerance never lets a deposit mint more than it delivered. A credit larger than the adapter's whole post-deposit share balance is also a `DepositValueMismatch`.
 

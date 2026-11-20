@@ -1460,10 +1460,12 @@ impl MeridianVault {
     /// `deposit_value_tolerance(amount)` means the adapter's reported credit
     /// and its own ledger disagree, and fails with `DepositValueMismatch`.
     /// A credit within the tolerance is capped at its backing, so rounding
-    /// can never mint more than the deposit delivered. A credit worth less
-    /// than `amount` (partial fill, supply cap, fee on deposit) is accepted
-    /// and returned as is: the caller is minted for what was credited and
-    /// `min_shares_out` is their protection.
+    /// can never mint more than the deposit delivered. A credit short of its
+    /// backing by no more than one adapter share's value plus one stroop is
+    /// the adapter's own mint rounding and counts as the full backing. A
+    /// credit worth less than that (partial fill, supply cap, fee on
+    /// deposit) is accepted and returned as is: the caller is minted for
+    /// what was credited and `min_shares_out` is their protection.
     fn value_deposit_credit(
         amount: i128,
         credited: i128,
@@ -1493,6 +1495,23 @@ impl MeridianVault {
             .ok_or(ContractError::Overflow)?;
         if credited_value > ceiling {
             return Err(ContractError::DepositValueMismatch);
+        }
+
+        // A share-based adapter rounds its mint down by less than one of its
+        // own shares, and valuing the credit above rounds down by less than
+        // one stroop. A shortfall within that is rounding, not a partial
+        // fill, so the credit counts as its full backing and the deposit
+        // mints exactly what `preview_deposit` quoted.
+        let one_share_value = assets_after
+            .checked_add(shares_after - 1)
+            .ok_or(ContractError::Overflow)?
+            .checked_div(shares_after)
+            .ok_or(ContractError::DivisionByZero)?;
+        let rounding_slack = one_share_value
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+        if credited_value < backing && backing - credited_value <= rounding_slack {
+            return Ok(backing.max(0));
         }
 
         Ok(credited_value.min(backing).max(0))
@@ -4718,6 +4737,38 @@ mod tests {
 
         assert_eq!(result, Err(Ok(ContractError::DepositValueMismatch)));
         assert_eq!(r.vault.get_position(&r.depositor), 0);
+    }
+
+    #[test]
+    fn credit_short_by_adapter_mint_rounding_counts_as_full_amount() {
+        // Inputs from a real share-based mint: 366_532_618 USDC bought
+        // 258_070_348 adapter shares at ~1.42 USDC/share, so the credit
+        // values 2 stroops short. One share is worth 2 stroops (rounded up),
+        // so the slack is 3 and the shortfall is rounding.
+        let amount = 366_532_618;
+        let (assets_before, assets_after, shares_after) =
+            (2_468_061_454, 2_834_594_072, 1_995_796_949);
+        assert_eq!(
+            MeridianVault::value_deposit_credit(
+                amount,
+                258_070_348,
+                assets_before,
+                assets_after,
+                shares_after,
+            ),
+            Ok(amount)
+        );
+
+        // Two shares short is beyond one share of rounding: valued as is.
+        let short = MeridianVault::value_deposit_credit(
+            amount,
+            258_070_346,
+            assets_before,
+            assets_after,
+            shares_after,
+        )
+        .unwrap();
+        assert!(short < amount - 3, "{short} should be below the slack");
     }
 
     #[test]
