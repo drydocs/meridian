@@ -151,7 +151,7 @@ const VAULT_CONTRACT_ERRORS: ReadonlyArray<readonly [string, number]> = [
   ["MigrationSnapshotAssetsInvalid", 22],
   ["AdapterCreditedNothing", 23],
   ["DivisionByZero", 24],
-  ["DepositValueMismatch", 27],
+  ["DepositValueMismatch", 30],
 ];
 
 // The shape of `sim.error` for a contract error: the HostError line, then the
