@@ -361,6 +361,15 @@ Pull requests are reviewed within 72 hours of submission. You will receive one o
 - **Changes requested** -- address the comments and request a re-review
 - **Closed** -- the PR is out of scope, a duplicate, or does not meet the standards in this guide; the closing comment will explain why
 
+### CI Concurrency and Timeouts
+
+All GitHub Actions workflows under `.github/workflows/` define explicit concurrency groups and per-job timeouts:
+
+- **Concurrency groups** are keyed by workflow and ref (`${{ github.workflow }}-${{ github.ref }}`).
+- **Pull request workflows** (`ci.yml`, `pr-title.yml`, `verify-contract-addresses.yml`) set `cancel-in-progress` for pull request runs so pushing a new commit cancels superseded runs on the same ref.
+- **Default branch and keeper runs** are never cancelled by concurrency (`cancel-in-progress` is disabled for pushes to `main` and for `keepers.yml`), ensuring scheduled keeper runs and main-branch checks run to completion.
+- **Job timeouts** (`timeout-minutes`) are set explicitly on every job, sized above observed runtimes so hung installs, builds, or tests fail promptly instead of waiting for the default 6-hour limit. When adding a new job or workflow, always include both a `concurrency` block and an explicit `timeout-minutes` value.
+
 ---
 
 ## Running Checks Locally
