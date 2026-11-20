@@ -46,6 +46,16 @@
     }
   },
 
+  "positionPnl": {
+    "title": "Yield breakdown",
+    "principal": "Deposited principal",
+    "grossYield": "Gross yield",
+    "performanceFee": "Performance fee ({{percent}}%)",
+    "netYield": "Net yield",
+    "currentValue": "Current value",
+    "unavailable": "Position breakdown is currently unavailable."
+  },
+
   "yieldHistory": {
     "title": "Yield history",
     "range7": "7D",

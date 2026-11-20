@@ -6,6 +6,8 @@ export interface PositionInfo {
   deposited: number;
   earned: number;
   entryTime: number;
+  /** Recorded cost basis in USDC, when available from the vault contract. */
+  principal?: number;
 }
 
 // Raw i128/u64 figures read from the vault contract, in stroops (7 decimals).
@@ -65,6 +67,7 @@ export function computePosition(
       deposited: stroopsToUnits(currentValue),
       earned: stroopsToUnits(earned),
       entryTime: Number(raw.entryTime),
+      ...(hasBasis ? { principal: stroopsToUnits(raw.principal!) } : {}),
     },
   ];
 }
