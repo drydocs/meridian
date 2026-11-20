@@ -1906,13 +1906,13 @@ mod tests {
     use compat_mock::{CompatMockAdapter, CompatMockAdapterClient};
 
     // -----------------------------------------------------------------------
-    // Adapters whose `get_usdc`/`get_vault` views exist but fail, one module
-    // per kind (contractimpl helper items are not namespaced per type, so
+    // Targets whose `get_usdc`/`get_vault` views exist but fail, one module per
+    // kind (contractimpl helper items are not namespaced per type, so
     // same-named methods need separate modules). `typed_failing_views` fails
-    // both views with a typed contract error; `usdc_ok_vault_fails` answers
-    // `get_usdc` correctly and fails only `get_vault`; `trapping_views`
-    // panics untyped. All report an empty position so only the view failure
-    // is under test.
+    // `get_usdc` with a typed contract error; `usdc_ok_vault_fails` answers
+    // `get_usdc` correctly and fails only `get_vault`; `trapping_views` panics
+    // untyped in `get_usdc`. Validation rejects the target at the failing
+    // view, so these deliberately export nothing beyond what it reads.
     // -----------------------------------------------------------------------
     mod typed_failing_views {
         use super::*;
@@ -1925,20 +1925,6 @@ mod tests {
             pub fn get_usdc(env: Env) -> Address {
                 panic_with_error!(&env, ContractError::NotInitialized)
             }
-
-            pub fn get_vault(env: Env) -> Address {
-                panic_with_error!(&env, ContractError::NotInitialized)
-            }
-
-            pub fn total_shares(_env: Env) -> i128 {
-                0
-            }
-
-            pub fn total_assets(_env: Env) -> i128 {
-                0
-            }
-
-            pub fn refresh(_env: Env) {}
         }
     }
     use typed_failing_views::TypedFailingViewsAdapter;
@@ -1964,16 +1950,6 @@ mod tests {
             pub fn get_vault(env: Env) -> Address {
                 panic_with_error!(&env, ContractError::NotInitialized)
             }
-
-            pub fn total_shares(_env: Env) -> i128 {
-                0
-            }
-
-            pub fn total_assets(_env: Env) -> i128 {
-                0
-            }
-
-            pub fn refresh(_env: Env) {}
         }
     }
     use usdc_ok_vault_fails::{UsdcOkVaultFailsAdapter, UsdcOkVaultFailsAdapterClient};
@@ -1989,46 +1965,9 @@ mod tests {
             pub fn get_usdc(_env: Env) -> Address {
                 panic!("get_usdc trapped")
             }
-
-            pub fn get_vault(_env: Env) -> Address {
-                panic!("get_vault trapped")
-            }
-
-            pub fn total_shares(_env: Env) -> i128 {
-                0
-            }
-
-            pub fn total_assets(_env: Env) -> i128 {
-                0
-            }
-
-            pub fn refresh(_env: Env) {}
         }
     }
     use trapping_views::TrappingViewsAdapter;
-
-    // An adapter from before the views existed: the rest of the interface
-    // this vault needs, but no `get_usdc` or `get_vault`.
-    mod no_views {
-        use super::*;
-
-        #[contract]
-        pub struct NoViewsAdapter;
-
-        #[contractimpl]
-        impl NoViewsAdapter {
-            pub fn total_shares(_env: Env) -> i128 {
-                0
-            }
-
-            pub fn total_assets(_env: Env) -> i128 {
-                0
-            }
-
-            pub fn refresh(_env: Env) {}
-        }
-    }
-    use no_views::NoViewsAdapter;
 
     /// Registers a `CompatMockAdapter` reporting the given USDC, vault and
     /// residual position.
@@ -2217,14 +2156,6 @@ mod tests {
 
         #[contractimpl]
         impl CachedMockAdapter {
-            pub fn get_usdc(env: Env) -> Address {
-                get_or_not_initialized(&env, env.storage().instance().get(&CM_USDC))
-            }
-
-            pub fn get_vault(env: Env) -> Address {
-                test_vault(&env)
-            }
-
             pub fn initialize(env: Env, usdc: Address) {
                 env.storage().instance().set(&CM_USDC, &usdc);
                 env.storage().instance().set(&CM_SH, &0_i128);
@@ -3728,8 +3659,9 @@ mod tests {
 
     #[test]
     fn set_adapter_rejects_an_adapter_without_the_views() {
+        // MockMusdc stands in for any contract that does not export the views.
         let (env, _admin, _user, _usdc, _musdc, original, vault) = setup();
-        let target = env.register(NoViewsAdapter, ());
+        let target = env.register(MockMusdc, ());
 
         let result = vault.try_set_adapter(&target);
         assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
@@ -3738,8 +3670,9 @@ mod tests {
 
     #[test]
     fn begin_migration_rejects_an_adapter_without_the_views() {
+        // MockMusdc stands in for any contract that does not export the views.
         let (env, _admin, _user, _usdc, _musdc, _original, vault) = setup();
-        let target = env.register(NoViewsAdapter, ());
+        let target = env.register(MockMusdc, ());
 
         let result = vault.try_begin_migration(&target);
         assert_eq!(result, Err(Ok(ContractError::AdapterUsdcMismatch)));
