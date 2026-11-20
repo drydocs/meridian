@@ -1058,6 +1058,50 @@ impl MeridianVault {
             .ok_or(ContractError::NotInitialized)
     }
 
+    /// Admin-only: rescue unrelated tokens mistakenly sent to the vault address.
+    ///
+    /// Rejects the vault's underlying USDC, share token (mUSDC), and the active adapter.
+    /// Does not alter share, asset, principal, entry time, or adapter accounting.
+    pub fn rescue_token(
+        env: Env,
+        token: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        Self::with_lock(&env, || {
+            Self::require_admin(&env)?;
+            if amount <= 0 {
+                return Err(ContractError::ZeroAmount);
+            }
+            Self::extend_instance(&env);
+
+            let usdc = Self::usdc(&env)?;
+            let musdc = Self::musdc(&env)?;
+            let adapter_addr: Address = env
+                .storage()
+                .instance()
+                .get(&ADAPTER)
+                .ok_or(ContractError::NotInitialized)?;
+
+            if token == usdc || token == musdc || token == adapter_addr {
+                return Err(ContractError::ProtectedToken);
+            }
+
+            let token_client = TokenClient::new(&env, &token);
+            let balance = token_client.balance(&env.current_contract_address());
+            if balance < amount {
+                return Err(ContractError::InsufficientBalance);
+            }
+
+            token_client.transfer(&env.current_contract_address(), &to, &amount);
+
+            env.events()
+                .publish((ADMIN_EVT, symbol_short!("rescue")), (token, to, amount));
+
+            Ok(())
+        })
+    }
+
     /// Replace the yield adapter. The vault must have no shares outstanding
     /// (`TOTAL_SH == 0`) *and* no position left at the old adapter
     /// (`ADPT_SH == 0`) before calling this.
@@ -5140,5 +5184,122 @@ mod tests {
             assert_every_reentry_rejected(&r, &r.usdc, "migrate/usdc", attack);
             assert_migrated(&r, &new_adapter);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Rescue token tests (#1337)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn rescue_token_rejects_missing_authorization() {
+        let (env, admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let foreign_token = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let recipient = Address::generate(&env);
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_rescue_token(&foreign_token, &recipient, &100),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+    }
+
+    #[test]
+    fn rescue_token_rejects_protected_tokens() {
+        let (env, _admin, _user, usdc, musdc, adapter, vault) = setup();
+        let recipient = Address::generate(&env);
+
+        assert_eq!(
+            vault.try_rescue_token(&usdc, &recipient, &100),
+            Err(Ok(ContractError::ProtectedToken))
+        );
+        assert_eq!(
+            vault.try_rescue_token(&musdc, &recipient, &100),
+            Err(Ok(ContractError::ProtectedToken))
+        );
+        assert_eq!(
+            vault.try_rescue_token(&adapter, &recipient, &100),
+            Err(Ok(ContractError::ProtectedToken))
+        );
+    }
+
+    #[test]
+    fn rescue_token_rejects_zero_and_negative_amounts() {
+        let (env, admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let foreign_token = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let recipient = Address::generate(&env);
+
+        assert_eq!(
+            vault.try_rescue_token(&foreign_token, &recipient, &0),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.try_rescue_token(&foreign_token, &recipient, &-50),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+    }
+
+    #[test]
+    fn rescue_token_rejects_insufficient_balance() {
+        let (env, admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let foreign_token = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let recipient = Address::generate(&env);
+
+        assert_eq!(
+            vault.try_rescue_token(&foreign_token, &recipient, &500),
+            Err(Ok(ContractError::InsufficientBalance))
+        );
+    }
+
+    #[test]
+    fn rescue_token_succeeds_and_preserves_accounting() {
+        let (env, _admin, user, _usdc, _musdc, adapter, vault) = setup();
+        let issuer = Address::generate(&env);
+        let foreign_token = env.register_stellar_asset_contract_v2(issuer).address();
+        let recipient = Address::generate(&env);
+
+        // Send foreign token to vault
+        let rescue_amount = 5_000;
+        let foreign_client = StellarAssetClient::new(&env, &foreign_token);
+        foreign_client.mint(&vault.address, &rescue_amount);
+        assert_eq!(
+            TokenClient::new(&env, &foreign_token).balance(&vault.address),
+            rescue_amount
+        );
+
+        // Rescue foreign token
+        vault.rescue_token(&foreign_token, &recipient, &rescue_amount);
+
+        // Verify event was emitted
+        let event = find_admin_event(&env, &vault.address, symbol_short!("rescue"))
+            .expect("rescue event not found");
+        let (token, to, amount): (Address, Address, i128) =
+            soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(token, foreign_token);
+        assert_eq!(to, recipient);
+        assert_eq!(amount, rescue_amount);
+
+        // Foreign token is now with recipient and drained from vault
+        assert_eq!(
+            TokenClient::new(&env, &foreign_token).balance(&vault.address),
+            0
+        );
+        assert_eq!(
+            TokenClient::new(&env, &foreign_token).balance(&recipient),
+            rescue_amount
+        );
+
+        // Verify accounting invariants: none of the vault accounting moved
+        assert_eq!(vault.get_total_shares(), 0);
+        assert_eq!(vault.get_total_assets(), 0);
+        assert_eq!(vault.get_position(&user), 0);
+        assert_eq!(vault.get_principal(&user), 0);
+        assert_eq!(vault.get_entry_time(&user), 0);
+        assert_eq!(vault.get_adapter(), adapter);
     }
 }

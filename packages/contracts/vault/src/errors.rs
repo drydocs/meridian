@@ -102,4 +102,9 @@ pub enum ContractError {
     /// `ADAPTER` or migration state is not yet final. The reentrant call is
     /// rejected and the outer call is unaffected.
     ReentrancyDetected = 26,
+    /// `rescue_token` was called for a protected token: the vault's USDC,
+    /// mUSDC, or the active adapter contract.
+    ProtectedToken = 27,
+    /// The vault does not hold enough of the target token to satisfy the rescue amount.
+    InsufficientBalance = 28,
 }
