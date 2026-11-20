@@ -635,25 +635,108 @@ describe("VaultBase ERC-4626 view methods", () => {
     expect(await vault.totalSupply()).toBe(90_000_000n);
   });
 
-  it("convertToShares uses current vault state", async () => {
-    mockViewCalls({
+  // Simulates a vault deployed before the preview views existed.
+  function mockLegacyVault(returns: Record<string, unknown>): void {
+    vi.mocked(simulateView).mockImplementation(
+      (_server, _contractId, _passphrase, method) => {
+        const key = method as string;
+        if (key in returns) return Promise.resolve(returns[key]);
+        return Promise.reject(
+          new Error(
+            "HostError: Error(WasmVm, MissingValue): trying to invoke non-existent contract function"
+          )
+        );
+      }
+    );
+  }
+
+  it("convertToShares reads the contract view when it exists", async () => {
+    mockViewCalls({ convert_to_shares: 2_500_124n });
+    const vault = makeVault();
+    expect(await vault.convertToShares(5_000_000n)).toBe(2_500_124n);
+    const methods = vi.mocked(simulateView).mock.calls.map((c) => c[3]);
+    expect(methods).toEqual(["convert_to_shares"]);
+  });
+
+  it("convertToAssets reads the contract view when it exists", async () => {
+    mockViewCalls({ convert_to_assets: 10_000_000n });
+    const vault = makeVault();
+    expect(await vault.convertToAssets(5_000_000n)).toBe(10_000_000n);
+  });
+
+  it("convertToShares falls back to local math on an older deployment", async () => {
+    mockLegacyVault({
       get_total_assets: 20_000_000n,
       get_total_shares: 10_000_000n,
     });
     const vault = makeVault();
     // 5_000_000 * (10_000_000 + 1_000) / (20_000_000 + 1_000) (floor)
-    const shares = await vault.convertToShares(5_000_000n);
-    expect(shares).toBe(2_500_124n);
+    expect(await vault.convertToShares(5_000_000n)).toBe(2_500_124n);
   });
 
-  it("convertToAssets uses current vault state", async () => {
-    mockViewCalls({
+  it("convertToAssets falls back to local math on an older deployment", async () => {
+    mockLegacyVault({
       get_total_assets: 20_000_000n,
       get_total_shares: 10_000_000n,
     });
     const vault = makeVault();
-    const assets = await vault.convertToAssets(5_000_000n);
-    expect(assets).toBe(10_000_000n);
+    expect(await vault.convertToAssets(5_000_000n)).toBe(10_000_000n);
+  });
+
+  it("does not mask a real contract error with a local estimate", async () => {
+    vi.mocked(simulateView).mockRejectedValue(
+      new Error("HostError: Error(Contract, #17)")
+    );
+    const vault = makeVault();
+    await expect(vault.convertToShares(1n)).rejects.toThrow("#17");
+    await expect(vault.previewDeposit(1n)).rejects.toThrow("#17");
+  });
+
+  it("previewDeposit returns the contract quote", async () => {
+    mockViewCalls({ preview_deposit: 4_999_000n });
+    const vault = makeVault();
+    expect(await vault.previewDeposit(5_000_000n)).toBe(4_999_000n);
+  });
+
+  it("previewDeposit falls back to the local estimate on an older deployment", async () => {
+    mockLegacyVault({
+      get_total_assets: 20_000_000n,
+      get_total_shares: 10_000_000n,
+    });
+    const vault = makeVault();
+    expect(await vault.previewDeposit(5_000_000n)).toBe(2_500_124n);
+  });
+
+  it("previewWithdraw maps the contract struct to camelCase bigints", async () => {
+    mockViewCalls({
+      preview_withdraw: {
+        gross_assets: 110_000_000n,
+        fee: 1_000_000n,
+        treasury_shares: 909_000n,
+        assets_out: 109_000_000n,
+      },
+    });
+    const vault = makeVault();
+    expect(await vault.previewWithdraw(WALLET, 100_000_000n)).toEqual({
+      grossAssets: 110_000_000n,
+      fee: 1_000_000n,
+      treasuryShares: 909_000n,
+      assetsOut: 109_000_000n,
+    });
+  });
+
+  it("previewWithdraw explains when the deployment has no such view", async () => {
+    mockLegacyVault({});
+    const vault = makeVault();
+    await expect(vault.previewWithdraw(WALLET, 1n)).rejects.toThrow(
+      "not available on this vault deployment"
+    );
+  });
+
+  it("getSharePrice reads get_share_price", async () => {
+    mockViewCalls({ get_share_price: 10_500_000n });
+    const vault = makeVault();
+    expect(await vault.getSharePrice()).toBe(10_500_000n);
   });
 
   describe("pause-aware ERC-4626 limits", () => {

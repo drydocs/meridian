@@ -12,7 +12,15 @@ import type {
   Position,
   Transaction,
   AdapterInfo,
+  WithdrawPreview,
 } from "./types.js";
+
+/** Scale of `get_share_price`: this value means one asset stroop per share. */
+export const SHARE_PRICE_SCALE = 10_000_000n;
+
+// Soroban reports a call to an unexported function as a "non-existent contract
+// function" / MissingValue host error.
+const MISSING_FUNCTION_PATTERN = /non-existent contract function|MissingValue/i;
 
 // ---------------------------------------------------------------------------
 // Internal helpers (private to this module)
@@ -191,6 +199,25 @@ export abstract class VaultBase {
       method,
       ...args
     );
+  }
+
+  /**
+   * Like `view`, but resolves `undefined` when this vault deployment does not
+   * export `method` (a vault deployed before the preview views existed). Every
+   * other failure, including the contract's own typed errors, is rethrown so a
+   * real rejection is never masked by a local estimate.
+   */
+  private async optionalView(
+    method: string,
+    ...args: xdr.ScVal[]
+  ): Promise<unknown> {
+    try {
+      return await this.view(method, ...args);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (MISSING_FUNCTION_PATTERN.test(message)) return undefined;
+      throw err;
+    }
   }
 
   private async prepare(op: xdr.Operation): Promise<Transaction> {
@@ -485,6 +512,8 @@ export abstract class VaultBase {
    * @param assets Amount in stroops to convert
    */
   async convertToShares(assets: bigint): Promise<bigint> {
+    const live = await this.optionalView("convert_to_shares", i128(assets));
+    if (live !== undefined) return bigIntFrom(live);
     const [ta, ts] = await Promise.all([
       this.totalAssets(),
       this.totalSupply(),
@@ -494,17 +523,80 @@ export abstract class VaultBase {
 
   /**
    * Convert a share amount to its estimated gross asset value at the current
-   * rate, before adapter rounding and performance fees.
+   * rate, before performance fees.
    * ERC-4626 `convertToAssets(uint256 shares)`.
+   *
+   * Reads the contract's `convert_to_assets` view, which shares its math with
+   * `withdraw`. Vaults deployed before that view existed fall back to the
+   * local raw-ratio estimate.
    *
    * @param shares Share amount in stroops to convert
    */
   async convertToAssets(shares: bigint): Promise<bigint> {
+    const live = await this.optionalView("convert_to_assets", i128(shares));
+    if (live !== undefined) return bigIntFrom(live);
     const [ta, ts] = await Promise.all([
       this.totalAssets(),
       this.totalSupply(),
     ]);
     return convertSharesToAssets(shares, ta, ts);
+  }
+
+  /**
+   * Price of one share in USDC from the contract's `get_share_price` view,
+   * scaled by {@link SHARE_PRICE_SCALE} (so `SHARE_PRICE_SCALE` is 1.0).
+   * Requires a vault deployment that exposes the view.
+   */
+  async getSharePrice(): Promise<bigint> {
+    return bigIntFrom(await this.view("get_share_price"));
+  }
+
+  /**
+   * Authoritative quote for `deposit(assets)`: the exact shares the contract
+   * would mint right now, or a rejection with the contract's own error
+   * (paused, too small, adapter reporting no assets). Vaults without the
+   * `preview_deposit` view fall back to the local virtual-offset estimate.
+   *
+   * @param assets Amount in stroops (1 USDC = 10 000 000)
+   */
+  async previewDeposit(assets: bigint): Promise<bigint> {
+    const live = await this.optionalView("preview_deposit", i128(assets));
+    if (live !== undefined) return bigIntFrom(live);
+    return this.convertToShares(assets);
+  }
+
+  /**
+   * Authoritative quote for `withdraw(owner, shares)`: gross redemption,
+   * performance fee on the owner's own cost basis, treasury shares minted and
+   * the net payout. Requires a vault deployment that exposes
+   * `preview_withdraw`, since the fee cannot be reproduced client-side.
+   *
+   * @param owner  Stellar G-address that holds the shares
+   * @param shares Share amount in stroops to redeem
+   */
+  async previewWithdraw(
+    owner: string,
+    shares: bigint
+  ): Promise<WithdrawPreview> {
+    const raw = (await this.optionalView(
+      "preview_withdraw",
+      addrScVal(owner),
+      i128(shares)
+    )) as Record<string, unknown> | null | undefined;
+    if (raw === undefined) {
+      throw new Error(
+        "preview_withdraw is not available on this vault deployment"
+      );
+    }
+    if (raw === null) {
+      throw new Error("preview_withdraw returned no result");
+    }
+    return {
+      grossAssets: bigIntFrom(raw.gross_assets),
+      fee: bigIntFrom(raw.fee),
+      treasuryShares: bigIntFrom(raw.treasury_shares),
+      assetsOut: bigIntFrom(raw.assets_out),
+    };
   }
 
   /**
@@ -524,7 +616,13 @@ export abstract class VaultBase {
   async maxMint(_receiver: string): Promise<bigint> {
     const maxDep = await this.maxDeposit(_receiver);
     if (maxDep === 0n) return 0n;
-    return this.convertToShares(maxDep);
+    // Local math on purpose: `maxDep` is a sentinel far above any real
+    // deposit, and the on-chain view would reject it with an i128 overflow.
+    const [ta, ts] = await Promise.all([
+      this.totalAssets(),
+      this.totalSupply(),
+    ]);
+    return convertAssetsToShares(maxDep, ta, ts);
   }
 
   /**
