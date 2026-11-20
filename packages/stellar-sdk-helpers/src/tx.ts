@@ -487,6 +487,24 @@ export function assertSubmittable(
 }
 
 /**
+ * The source account of a signed transaction, used to bill a submit request
+ * against the wallet that actually pays for it rather than only its IP. The
+ * XDR is untrusted input, so a malformed envelope yields `undefined` and the
+ * caller falls back to IP-only limiting instead of failing the request.
+ */
+export function submissionSourceAccount(
+  signedXdr: string,
+  network: StellarNetwork
+): string | undefined {
+  try {
+    const tx = TransactionBuilder.fromXDR(signedXdr, passphraseFor(network));
+    return tx instanceof Transaction ? tx.source : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Submit a signed transaction and wait for it to actually land. Rejection at
  * submission time (ERROR / TRY_AGAIN_LATER) throws immediately; PENDING and
  * DUPLICATE are polled to a final on-chain status so a resolved promise always

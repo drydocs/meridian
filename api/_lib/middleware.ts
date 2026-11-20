@@ -2,14 +2,22 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { APP_NETWORK, DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
-import { Ratelimit } from "@upstash/ratelimit";
+import {
+  buildRateLimitHeaders,
+  evaluateRateLimit,
+  InMemoryRateLimitStore,
+  rateLimitBlockedBody,
+  RedisRateLimitStore,
+  resolveRateLimitPolicy,
+  walletAddressFromBody,
+  type RateLimitOutcome,
+  type RateLimitPolicyName,
+  type RateLimitStore,
+} from "@meridian/api-core";
+import { submissionSourceAccount } from "@meridian/stellar-sdk-helpers";
 import { Redis } from "@upstash/redis";
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN;
-
-const LIMIT = 100;
-const WINDOW = "60 s";
-const WINDOW_MS = 60_000;
 
 // Vercel's Upstash integration provisions credentials under either store-prefixed or standard names
 const UPSTASH_URL =
@@ -29,18 +37,17 @@ export function isDistributedRateLimitingConfigured(): boolean {
   return UPSTASH_CONFIGURED;
 }
 
-const ratelimit = UPSTASH_CONFIGURED
-  ? new Ratelimit({
-      redis: new Redis({ url: UPSTASH_URL!, token: UPSTASH_TOKEN! }),
-      limiter: Ratelimit.slidingWindow(LIMIT, WINDOW),
-    })
-  : null;
+const memoryStore = new InMemoryRateLimitStore();
 
-const counts = new Map<string, { n: number; resetAt: number }>();
+const redisStore: RateLimitStore | null = UPSTASH_CONFIGURED
+  ? new RedisRateLimitStore(
+      new Redis({ url: UPSTASH_URL!, token: UPSTASH_TOKEN! })
+    )
+  : null;
 
 /** Clears all in-memory rate-limit buckets. Exposed for tests only. */
 export function resetRateLimitForTesting(): void {
-  counts.clear();
+  memoryStore.reset();
 }
 
 /**
@@ -134,6 +141,9 @@ function clientIp(req: VercelRequest): string {
  * deployment. Only true local dev (no VERCEL_ENV at all) may fall back to the
  * in-memory limiter: preview deployments have their own public URL, so they
  * serve real traffic to these routes just like production.
+ *
+ * Called by `checkRateLimit` for every policy marked `failClosed`, so a route
+ * class only has to declare itself strict in `RATE_LIMIT_POLICIES`.
  */
 export function enforceStrictRateLimit(res: VercelResponse): boolean {
   const isLocalDev = process.env.VERCEL_ENV === undefined;
@@ -151,53 +161,79 @@ export function enforceStrictRateLimit(res: VercelResponse): boolean {
 }
 
 export interface RateLimitOptions {
-  strict?: boolean;
+  /**
+   * Which budget this request draws from. Defaults to `read` so existing
+   * read-only call sites keep their historical 100/min allowance.
+   */
+  policy?: RateLimitPolicyName;
+  /**
+   * Wallet the request acts for, when the handler already knows it. Body
+   * `walletAddress` is picked up automatically for build routes and the XDR
+   * source account for submit; this is for callers that resolved it first.
+   */
+  wallet?: string | undefined;
+}
+
+/** The wallet a request should be billed to, if it identifies one. */
+function walletForRequest(
+  req: VercelRequest,
+  policy: RateLimitPolicyName
+): string | undefined {
+  if (policy !== "txBuild" && policy !== "txSubmit") return undefined;
+  const fromBody = walletAddressFromBody(req.body);
+  if (fromBody) return fromBody;
+  if (policy !== "txSubmit") return undefined;
+  const xdr = (req.body as { xdr?: unknown } | undefined)?.xdr;
+  return typeof xdr === "string"
+    ? submissionSourceAccount(xdr, APP_NETWORK)
+    : undefined;
+}
+
+/** Applies the policy's `RateLimit-*` headers to a response. */
+export function applyRateLimitHeaders(
+  res: VercelResponse,
+  outcome: RateLimitOutcome
+): void {
+  for (const [name, value] of Object.entries(buildRateLimitHeaders(outcome))) {
+    res.setHeader(name, value);
+  }
 }
 
 /**
- * Check rate limit for the incoming request.
- * - If strict: true (fund-moving/keeper endpoints), returns 503 if Upstash is unconfigured on any deployment (only local dev without VERCEL_ENV falls back).
- * - For non-strict routes (read-only), falls back to the in-memory rate limiter.
- * Writes a 429 or 503 response and returns false when blocked.
+ * Check rate limit for the incoming request against the policy for its route
+ * class.
+ * - Policies marked `failClosed` (transaction build/submit and keeper routes)
+ *   return 503 when Upstash is unconfigured on any deployment; only true local
+ *   dev without `VERCEL_ENV` falls back to the in-memory limiter.
+ * - Non-strict read routes always fall back to the in-memory limiter.
+ * Always sets the `RateLimit-*` headers, and writes a 429 (with `Retry-After`)
+ * or 503 and returns false when blocked.
  */
 export async function checkRateLimit(
   req: VercelRequest,
   res: VercelResponse,
   options: RateLimitOptions = {}
 ): Promise<boolean> {
-  const { strict = false } = options;
+  const { policy = "read", wallet: explicitWallet } = options;
+  const policyConfig = resolveRateLimitPolicy(policy);
 
-  if (strict && !enforceStrictRateLimit(res)) {
+  if (policyConfig.failClosed && !enforceStrictRateLimit(res)) {
     return false;
   }
 
-  const ip = clientIp(req);
+  const store = redisStore ?? memoryStore;
+  const outcome = await evaluateRateLimit({
+    store,
+    policy,
+    ip: clientIp(req),
+    wallet: explicitWallet ?? walletForRequest(req, policy),
+  });
 
-  if (ratelimit) {
-    const { success } = await ratelimit.limit(ip);
-    if (!success) {
-      res
-        .status(429)
-        .json({ error: "Too many requests. Try again in a minute." });
-      return false;
-    }
-    return true;
-  }
-
-  // In-memory fallback
-  const now = Date.now();
-  const entry = counts.get(ip);
-  if (!entry || now > entry.resetAt) {
-    counts.set(ip, { n: 1, resetAt: now + WINDOW_MS });
-    return true;
-  }
-  if (entry.n >= LIMIT) {
-    res
-      .status(429)
-      .json({ error: "Too many requests. Try again in a minute." });
+  applyRateLimitHeaders(res, outcome);
+  if (!outcome.allowed) {
+    res.status(429).json(rateLimitBlockedBody(outcome));
     return false;
   }
-  entry.n++;
   return true;
 }
 

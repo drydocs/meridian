@@ -4,6 +4,7 @@ import {
   handleWithdrawRequest,
   handleSubmitRequest,
   handleAddTrustlineRequest,
+  type RateLimitPolicyName,
 } from "@meridian/api-core";
 import { applyCors, checkRateLimit } from "../../_lib/middleware.js";
 
@@ -28,10 +29,21 @@ function isAction(value: unknown): value is Action {
   );
 }
 
+/**
+ * Submit gets its own stricter budget because it is the only action that
+ * spends real fees and mutates on-chain state; the three build actions share
+ * the looser build budget.
+ */
+function txPolicyFor(action: unknown): RateLimitPolicyName {
+  return action === "submit" ? "txSubmit" : "txBuild";
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const { action } = req.query;
   if (applyCors(req, res)) return;
   try {
-    if (!(await checkRateLimit(req, res, { strict: true }))) return;
+    if (!(await checkRateLimit(req, res, { policy: txPolicyFor(action) })))
+      return;
   } catch (err) {
     console.error("[tx] rate limit check failed:", err);
     return res
@@ -41,7 +53,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST")
     return res.status(405).json({ error: "Method not allowed" });
 
-  const { action } = req.query;
   if (!isAction(action)) {
     return res.status(404).json({ error: "Unknown action" });
   }
