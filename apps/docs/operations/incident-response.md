@@ -15,6 +15,12 @@ what to do when the code is fine but something operational is wrong. If
 you're not sure which applies: if the fix involves deploying new contract
 code, it's [#706](https://github.com/drydocs/meridian/issues/706)'s page; if it doesn't, it's this one.
 
+**For external service and infrastructure outages** (Upstash Redis, Soroban
+RPC, DeFiLlama, Vercel, or GitHub Actions), see the
+[Outage Recovery Runbook](./outage-recovery.md) for RPO/RTO targets, Redis
+backup/restore, keeper lease and cursor recovery, RPC failover, and tabletop
+scenarios.
+
 ## Detection: what's actually watching right now
 
 **Read this before assuming an alert will tell you something is wrong.** As

@@ -97,6 +97,10 @@ export default defineConfig({
             text: "Incident Response",
             link: "/operations/incident-response",
           },
+          {
+            text: "Outage Recovery",
+            link: "/operations/outage-recovery",
+          },
         ],
       },
     ],
