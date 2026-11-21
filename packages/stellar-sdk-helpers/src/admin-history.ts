@@ -135,7 +135,43 @@ export function summarizeAction(
  * `set_adapter`, `migrate_adapter`, `transfer_admin`, and `accept_admin`
  * call made against the vault.
  */
-export interface GetAdminActionHistoryOptions {
+export interface AdminHistoryPage {
+  actions: AdminAction[];
+  nextCursor: string | null;
+}
+
+export class InvalidAdminHistoryCursorError extends Error {
+  constructor() {
+    super("Invalid cursor");
+    this.name = "InvalidAdminHistoryCursorError";
+  }
+}
+
+function encodeAdminHistoryCursor(horizonCursor: string): string {
+  return Buffer.from(
+    JSON.stringify({ v: 1, horizonCursor }),
+    "utf-8"
+  ).toString("base64url");
+}
+
+function decodeAdminHistoryCursor(cursor: string): string {
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(cursor, "base64url").toString("utf-8")
+    );
+    if (
+      parsed?.v !== 1 ||
+      typeof parsed.horizonCursor !== "string" ||
+      !parsed.horizonCursor
+    ) {
+      throw new Error("bad");
+    }
+    return parsed.horizonCursor;
+  } catch {
+    throw new InvalidAdminHistoryCursorError();
+  }
+}
+ export interface GetAdminActionHistoryOptions {
   limit?: number;
   maxPages?: number;
   /**
@@ -151,7 +187,13 @@ export interface GetAdminActionHistoryOptions {
    * Horizon cannot filter by contract, so a scan that finds few matches would
    * otherwise keep paging until `maxPages`. Unbounded when omitted.
    */
-  scanTimeoutMs?: number;
+    scanTimeoutMs?: number;
+  /**
+   * Opaque cursor from a previous call's `nextCursor`.
+   * When set, scanning resumes after that page.
+   * Malformed values throw `InvalidAdminHistoryCursorError`.
+   */
+  cursor?: string;
 }
 
 // Matches the other HTTP call sites in this package (keeper-state.ts,
@@ -162,9 +204,16 @@ const DEFAULT_HORIZON_PAGE_TIMEOUT_MS = 10_000;
 export async function getAdminActionHistory(
   network: StellarNetwork,
   vaultContractId: string,
-  options: GetAdminActionHistoryOptions = {}
-): Promise<AdminAction[]> {
-  const { limit = 50, maxPages = 20, pageTimeoutMs, scanTimeoutMs } = options;
+  options: GetAdminActionHistoryOptions = {
+    
+): Promise<AdminHistoryPage> {
+  const {
+    limit = 50,
+    maxPages = 20,
+    pageTimeoutMs,
+    scanTimeoutMs,
+    cursor: incomingCursor,
+  } = options;
   const pageTimeout = pageTimeoutMs ?? DEFAULT_HORIZON_PAGE_TIMEOUT_MS;
   const { baseUrl } = buildHorizonServer(network.network);
   const scanSignal =
@@ -172,7 +221,9 @@ export async function getAdminActionHistory(
       ? undefined
       : AbortSignal.timeout(scanTimeoutMs);
   const actions: AdminAction[] = [];
-  let cursor: string | undefined;
+  let cursor: string | undefined = incomingCursor
+    ? decodeAdminHistoryCursor(incomingCursor)
+    : undefined;
   let pages = 0;
 
   while (actions.length < limit && pages < maxPages) {
@@ -262,12 +313,18 @@ export async function getAdminActionHistory(
 
     pages++;
     const nextLink = data._links?.next?.href;
-    if (!nextLink) break;
+    if (!nextLink) {
+      cursor = undefined;
+      break;
+    }
     const nextUrl = new URL(nextLink, baseUrl);
     cursor = nextUrl.searchParams.get("cursor") ?? undefined;
   }
 
-  return actions;
+    return {
+    actions,
+    nextCursor: cursor ? encodeAdminHistoryCursor(cursor) : null,
+  };
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
