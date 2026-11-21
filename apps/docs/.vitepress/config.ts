@@ -110,6 +110,10 @@ export default defineConfig({
             text: "Wallet Signing Troubleshooting",
             link: "/operations/wallet-signing-troubleshooting",
           },
+          {
+            text: "Security Headers",
+            link: "/operations/security-headers",
+          },
         ],
       },
     ],
