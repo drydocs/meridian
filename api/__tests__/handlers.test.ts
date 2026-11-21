@@ -115,6 +115,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
         entryTime: 0,
       },
     ]),
+    getLatestLedgerSequence: vi.fn(async () => 100),
     consoleLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     loadKeeperHeartbeatStore: vi.fn(() => ({
       get: vi.fn(async () => null),
@@ -224,6 +225,7 @@ import {
   fetchAllVaults,
   fetchVaultsWithCache,
 } from "@meridian/stellar-sdk-helpers";
+import { resetPositionReadCacheForTesting } from "@meridian/api-core";
 
 // A 56-char Stellar public key shape (only the length is validated).
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -237,6 +239,7 @@ interface FakeRes {
   headers: Record<string, string>;
   status(code: number): FakeRes;
   json(payload: unknown): FakeRes;
+  end(): FakeRes;
   setHeader(key: string, value: string): void;
 }
 
@@ -253,6 +256,9 @@ function makeRes(): FakeRes & VercelResponse {
       r.body = payload;
       return r;
     },
+    end() {
+      return r;
+    },
     setHeader(key: string, value: string) {
       r.headers[key] = value;
     },
@@ -262,10 +268,16 @@ function makeRes(): FakeRes & VercelResponse {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetPositionReadCacheForTesting();
+  vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_KV_REST_API_URL", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_KV_REST_API_TOKEN", "");
   process.env.CRON_SECRET = "cron-secret";
   process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY = "S".repeat(56);
   process.env.MERIDIAN_ALERT_WEBHOOK_URL = "https://hooks.example.com/webhook";
 });
+afterEach(() => vi.unstubAllEnvs());
 
 describe("GET /api/v1/positions/[publicKey]", () => {
   it("sets an explicit Cache-Control header", async () => {
@@ -809,6 +821,66 @@ describe("GET /api/v1/positions/:publicKey", () => {
       ],
     });
     expect(resolvePositions).toHaveBeenCalledOnce();
+  });
+
+  it("omits ETag and does not cache partial position reads", async () => {
+    vi.mocked(resolvePositions).mockImplementationOnce(
+      async (_publicKey, _network, options) => {
+        options?.onVaultError?.(new Error("vault RPC down"));
+        return [];
+      }
+    );
+
+    const partial = makeRes();
+    await positionsHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY } }),
+      partial
+    );
+    expect(partial.statusCode).toBe(200);
+    expect(partial.headers.ETag).toBeUndefined();
+
+    const complete = makeRes();
+    await positionsHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY } }),
+      complete
+    );
+    expect(resolvePositions).toHaveBeenCalledTimes(2);
+    expect(complete.headers.ETag).toMatch(/^"[a-f0-9]{64}"$/);
+  });
+
+  it("returns 304 for a matching If-None-Match value", async () => {
+    const first = makeRes();
+    await positionsHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY } }),
+      first
+    );
+    const second = makeRes();
+    await positionsHandler(
+      fakeReq({
+        method: "GET",
+        query: { publicKey: PUBKEY },
+        headers: { "if-none-match": first.headers.ETag },
+      }),
+      second
+    );
+    expect(second.statusCode).toBe(304);
+    expect(second.headers.ETag).toBe(first.headers.ETag);
+    expect(second.body).toBeUndefined();
+  });
+
+  it("refresh=true bypasses the cached positions", async () => {
+    await positionsHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY } }),
+      makeRes()
+    );
+    await positionsHandler(
+      fakeReq({
+        method: "GET",
+        query: { publicKey: PUBKEY, refresh: "true" },
+      }),
+      makeRes()
+    );
+    expect(resolvePositions).toHaveBeenCalledTimes(2);
   });
 
   it("returns 503 when the Blend read throws", async () => {
