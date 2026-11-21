@@ -28,9 +28,6 @@ concurrency:
 
 jobs:
   verify:
-    permissions:
-      contents: read
-      pull-requests: read
     name: Verify On-Chain Bytecode
     runs-on: ubuntu-latest
     permissions:
@@ -119,7 +116,7 @@ jobs:
         if: steps.plan.outputs.needs_build == 'true'
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev libudev-dev pkg-config
       - name: Install Stellar CLI
-        if: steps.plan.outputs.needs_build == 'true' && steps.cache-stellar-cli.outputs.cache-hit != 'true'
+        if: steps.plan.outputs.needs_build == 'true'
         run: cargo install --locked stellar-cli --version "${{ steps.stellar-cli-version.outputs.version }}"
       - name: Verify deployment bytecode matches source
         # Only runs when the plan found a new deployment (or for a manual full
