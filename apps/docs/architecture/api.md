@@ -7,6 +7,8 @@ Meridian has two API implementations that share the same interface:
 | Vercel serverless functions | Production        | `api/v1/`         |
 | Fastify server              | Local development | `apps/api-local/` |
 
+For a complete reference of HTTP status codes, error codes, retry guidance, and client actions, see the [API Error Reference](./api-errors.md).
+
 ## Endpoints
 
 ### `GET /api/v1/vaults`
