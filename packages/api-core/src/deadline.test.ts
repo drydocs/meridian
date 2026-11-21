@@ -16,9 +16,12 @@ const timeoutCases: Array<[string | undefined, number]> = [
 ];
 
 describe("upstream deadlines", () => {
-  it.each(timeoutCases)("resolves RPC_TIMEOUT_MS %s to %i", (value, expected) => {
-    expect(resolveUpstreamTimeout(value)).toBe(expected);
-  });
+  it.each(timeoutCases)(
+    "resolves RPC_TIMEOUT_MS %s to %i",
+    (value, expected) => {
+      expect(resolveUpstreamTimeout(value)).toBe(expected);
+    }
+  );
 
   it("returns a fast upstream result", async () => {
     await expect(withUpstreamDeadline(async () => "ok", "rpc")).resolves.toBe(

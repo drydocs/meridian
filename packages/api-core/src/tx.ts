@@ -15,6 +15,7 @@ import {
   ContractSimulationError,
   assertRequiredTrustlines,
   MissingTrustlineError,
+  TransactionOutcomeUnknownError,
 } from "@meridian/stellar-sdk-helpers";
 import { UpstreamDeadlineError } from "@meridian/shared";
 import { trackPositionHistoryUser } from "./position-tracking";
@@ -89,21 +90,16 @@ export async function handleDepositRequest(
 
   try {
     const { walletAddress, vaultId, amount, min_shares_out } = parsed.data;
-    await withUpstreamDeadline(
-      () => assertRequiredTrustlines(walletAddress, APP_NETWORK),
-      "deposit trustline check"
-    );
-    const result = await withUpstreamDeadline(
-      () =>
-        buildDepositTx(
-          vaultId,
-          walletAddress,
-          amount,
-          APP_NETWORK,
-          min_shares_out
-        ),
-      "deposit simulation"
-    );
+    const result = await withUpstreamDeadline(async () => {
+      await assertRequiredTrustlines(walletAddress, APP_NETWORK);
+      return buildDepositTx(
+        vaultId,
+        walletAddress,
+        amount,
+        APP_NETWORK,
+        min_shares_out
+      );
+    }, "deposit preparation");
     await trackPositionHistoryUser(walletAddress);
     return { status: 200, body: result };
   } catch (err) {
@@ -124,21 +120,16 @@ export async function handleWithdrawRequest(
 
   try {
     const { walletAddress, vaultId, shares, min_usdc_out } = parsed.data;
-    await withUpstreamDeadline(
-      () => assertRequiredTrustlines(walletAddress, APP_NETWORK),
-      "withdraw trustline check"
-    );
-    const result = await withUpstreamDeadline(
-      () =>
-        buildWithdrawTx(
-          vaultId,
-          walletAddress,
-          shares,
-          APP_NETWORK,
-          min_usdc_out
-        ),
-      "withdraw simulation"
-    );
+    const result = await withUpstreamDeadline(async () => {
+      await assertRequiredTrustlines(walletAddress, APP_NETWORK);
+      return buildWithdrawTx(
+        vaultId,
+        walletAddress,
+        shares,
+        APP_NETWORK,
+        min_usdc_out
+      );
+    }, "withdraw preparation");
     await trackPositionHistoryUser(walletAddress);
     return { status: 200, body: result };
   } catch (err) {
@@ -175,12 +166,34 @@ export async function handleSubmitRequest(body: unknown): Promise<RouteResult> {
   }
 
   try {
-    const result = await withUpstreamDeadline(
-      () => submitTx(parsed.data.xdr, APP_NETWORK),
-      "transaction submission"
-    );
+    // Do not race a signed submission against the request deadline. The RPC
+    // helper returns an accepted-but-unconfirmed hash as an explicit 202.
+    const result = await submitTx(parsed.data.xdr, APP_NETWORK, {
+      waitForConfirmation: false,
+    });
+    if (result.status === "PENDING") {
+      return {
+        status: 202,
+        body: {
+          hash: result.hash,
+          status: "OUTCOME_UNKNOWN",
+          code: "TRANSACTION_OUTCOME_UNKNOWN",
+        },
+      };
+    }
     return { status: 200, body: result };
   } catch (err) {
+    if (err instanceof TransactionOutcomeUnknownError) {
+      return {
+        status: 202,
+        body: {
+          hash: err.hash,
+          status: "OUTCOME_UNKNOWN",
+          code: err.code,
+        },
+        error: err,
+      };
+    }
     return txFailureResult(err, "Failed to submit transaction");
   }
 }
