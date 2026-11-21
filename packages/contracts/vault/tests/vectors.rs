@@ -49,13 +49,8 @@ struct VectorExpected {
 
 #[test]
 fn test_vault_math_conformance_vectors() {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let path_buf = Path::new(manifest_dir)
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("shared/vectors/vault_math_v1.json");
+    let path_buf = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../shared/vectors/vault_math_v1.json");
     let data = fs::read_to_string(&path_buf)
         .unwrap_or_else(|_| panic!("Failed to read vault_math_v1.json at {:?}", path_buf));
     let suite: VectorFile = serde_json::from_str(&data).unwrap();
@@ -119,6 +114,8 @@ fn test_vault_math_conformance_vectors() {
                         "Failed share_price on vector {}",
                         v.name
                     );
+                } else {
+                    panic!("Missing expected share_price for vector {}", v.name);
                 }
             }
             "withdrawal_payout" => {

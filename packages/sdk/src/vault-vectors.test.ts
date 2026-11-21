@@ -68,6 +68,8 @@ describe("Vault Math Conformance Vectors", () => {
               ? assets
               : (totalAssets * 1_000_0000n) / totalSupply;
           expect(sharePrice).toBe(BigInt(vector.expected.share_price));
+        } else {
+          throw new Error(`Missing expected share_price for vector ${vector.name}`);
         }
       } else if (vector.kind === "withdrawal_payout") {
         const shares = BigInt(vector.inputs.shares ?? "0");

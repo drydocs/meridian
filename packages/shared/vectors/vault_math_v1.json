@@ -29,7 +29,8 @@
         "total_shares": "100000000"
       },
       "expected": {
-        "shares_out": "4999950"
+        "shares_out": "4999950",
+        "share_price": "10000000"
       }
     },
     {
@@ -43,6 +44,19 @@
       },
       "expected": {
         "assets_out": "11000000"
+      }
+    },
+    {
+      "name": "split_withdrawal_payout",
+      "description": "Split withdrawal payout for partial shares.",
+      "kind": "withdrawal_payout",
+      "inputs": {
+        "shares": "5000000",
+        "total_assets": "100000000",
+        "total_shares": "100000000"
+      },
+      "expected": {
+        "assets_out": "5000000"
       }
     },
     {
@@ -85,7 +99,22 @@
         "total_shares": "0"
       },
       "expected": {
-        "shares_out": "0"
+        "shares_out": "0",
+        "share_price": "0"
+      }
+    },
+    {
+      "name": "one_stroop_edge",
+      "description": "One stroop deposit edge.",
+      "kind": "edge",
+      "inputs": {
+        "assets": "1",
+        "total_assets": "0",
+        "total_shares": "0"
+      },
+      "expected": {
+        "shares_out": "1",
+        "share_price": "1"
       }
     }
   ]
