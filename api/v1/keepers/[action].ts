@@ -41,8 +41,8 @@ import {
 // rate-limit backstop. That auth split is preserved exactly as it was when
 // these were separate files.
 //
-// The OpenAPI document for these routes lives in api/v1/openapi.yaml and is
-// exercised by api/v1/__tests__/contract.test.ts. When changing a status code
+// The OpenAPI document for these routes is api/v1/openapi.yaml and is
+// exercised by api/__tests__/handlers.test.ts. When changing a status code
 // or response body shape here, update the schema and the contract test in the
 // same change (see apps/docs/contributing/api-schema.md).
 export default async function handler(req: VercelRequest, res: VercelResponse) {

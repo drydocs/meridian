@@ -10,9 +10,9 @@ import {
 /**
  * GET /api/v1/vaults
  *
- * Contract is documented in the published OpenAPI schema (see docs/openapi.yaml).
- * When changing the response shape or status codes, update the schema and the
- * contract tests in the same change.
+ * Contract is documented in the published OpenAPI schema at
+ * api/v1/openapi.yaml, exercised by api/__tests__/handlers.test.ts. When
+ * changing the response shape or status codes, update both in the same change.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;

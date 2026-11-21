@@ -18,10 +18,10 @@ const KNOWN_VAULT_IDS = new Set(
 /**
  * GET /api/v1/vaults/{vaultId}
  *
- * Documented in the OpenAPI schema (see docs/openapi/openapi.yaml).
+ * Documented in api/v1/openapi.yaml.
  * Status codes: 200, 400, 404, 405, 429, 503.
- * Keep the schema in sync when changing responses; contract tests
- * assert the documented status codes and required body keys.
+ * Keep the schema in sync when changing responses; api/__tests__/handlers.test.ts
+ * asserts the documented status codes.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
