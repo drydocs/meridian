@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { sanitizeTxError } from "./utils";
+
 export type LogLevel = "info" | "warn" | "error";
 type RequestLike = {
   headers?: Record<string, string | string[] | undefined>;
@@ -6,8 +8,9 @@ type RequestLike = {
 
 const REDACTED = "[REDACTED]";
 const SECRET_KEY =
-  /(secret|token|password|private|signed.?xdr|authorization|cookie|mnemonic|seed|credential)/i;
+  /(secret|token|password|private|xdr|authorization|cookie|mnemonic|seed|credential)/i;
 const ADDRESS_KEY = /(public.?key|wallet|address)/i;
+const REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 
 function shortAddress(value: string): string {
   if (value.length < 12) return REDACTED;
@@ -33,7 +36,43 @@ export function redact(value: unknown, key = ""): unknown {
 
 export function requestId(req: RequestLike | undefined): string {
   const raw = req?.headers?.["x-request-id"];
-  return (Array.isArray(raw) ? raw[0] : raw) || randomUUID();
+  const candidate = Array.isArray(raw) ? raw[0] : raw;
+  return candidate && REQUEST_ID.test(candidate) ? candidate : randomUUID();
+}
+
+function redactCause(value: unknown, depth = 0): unknown {
+  if (depth > 5) return REDACTED;
+  if (value instanceof Error) return errorDetails(value, depth);
+  if (typeof value === "string") {
+    return sanitizeTxError(new Error(value), REDACTED);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactCause(item, depth + 1));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key,
+        SECRET_KEY.test(key) ? REDACTED : redactCause(child, depth + 1),
+      ])
+    );
+  }
+  return value;
+}
+
+function errorDetails(error: Error, depth = 0): Record<string, unknown> {
+  return {
+    name: error.name,
+    message: sanitizeTxError(error, "Unexpected error"),
+    ...(error.stack
+      ? {
+          stack: sanitizeTxError(new Error(error.stack), "Error stack omitted"),
+        }
+      : {}),
+    ...(error.cause !== undefined
+      ? { cause: redactCause(error.cause, depth + 1) }
+      : {}),
+  };
 }
 
 export function writeLog(
@@ -50,7 +89,7 @@ export function writeLog(
   const line = JSON.stringify(record);
   if (level === "error") console.error(line);
   else if (level === "warn") console.warn(line);
-  else console.log(line);
+  else console.info(line);
 }
 
 export function log(
@@ -70,7 +109,7 @@ export function logError(
 ): void {
   const detail =
     error instanceof Error
-      ? { name: error.name, message: error.message, stack: error.stack }
-      : { message: String(error) };
+      ? errorDetails(error)
+      : { message: sanitizeTxError(error, "Unexpected error") };
   log("error", event, req, { ...context, error: detail });
 }
