@@ -234,6 +234,8 @@ jobs:
       - name: Build wasm
         working-directory: packages/contracts
         run: cargo build --target wasm32v1-none --release
+      - name: Record toolchain versions
+        run: rustc --version && cargo --version
       # Compares each contract's release WASM with its budget in
       # packages/contracts/wasm-size-budgets.json and, on PRs, with a build of
       # the base commit (same command, separate target dir). Fails when a
@@ -248,3 +250,58 @@ jobs:
         env:
           WASM_SIZE_BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: pnpm check:wasm-size
+
+  wasm-reproducibility:
+    name: WASM Reproducibility
+    needs: changes
+    if: needs.changes.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - name: Build contracts twice from clean state and compare hashes
+        working-directory: packages/contracts
+        env:
+          SOURCE_DATE_EPOCH: 0
+          CARGO_INCREMENTAL: 0
+          RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=/build"
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wasm-builds"
+          for run in 1 2; do
+            cargo clean
+            cargo build --locked --target wasm32v1-none --release
+            (cd target/wasm32v1-none/release && \
+              find . -maxdepth 1 -name '*.wasm' -print0 | sort -z | xargs -0 sha256sum) \
+              > "$RUNNER_TEMP/wasm-builds/run$run.sha256"
+          done
+          diff "$RUNNER_TEMP/wasm-builds/run1.sha256" "$RUNNER_TEMP/wasm-builds/run2.sha256" || {
+            echo "::error::Two clean builds of the same commit produced different WASM hashes."
+            exit 1
+          }
+          test "$(wc -l < "$RUNNER_TEMP/wasm-builds/run1.sha256")" -eq 5 || {
+            echo "::error::Expected hashes for all five contracts."
+            exit 1
+          }
+      - name: Write hash manifest
+        working-directory: packages/contracts
+        run: |
+          {
+            echo "{"
+            echo "  \"rustc\": \"$(rustc --version)\","
+            echo "  \"cargo\": \"$(cargo --version)\","
+            echo "  \"soroban_sdk\": \"$(grep -m1 -E '^soroban-sdk' Cargo.lock -A1 | tail -1 | sed -E 's/.*\"(.*)\".*/\1/')\","
+            echo "  \"contracts\": {"
+            sed -E 's/^([0-9a-f]+)  \.\/(.*)\.wasm$/    "\2": "\1",/' "$RUNNER_TEMP/wasm-builds/run1.sha256" | sed '$ s/,$//'
+            echo "  }"
+            echo "}"
+          } > wasm-hash-manifest.json
+          cat wasm-hash-manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-hash-manifest
+          path: packages/contracts/wasm-hash-manifest.json
+          if-no-files-found: error

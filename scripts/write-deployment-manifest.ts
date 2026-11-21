@@ -18,6 +18,12 @@ const MANIFEST_PATH = join(
   "shared",
   "deployed-contracts.json"
 );
+const BUILD_MANIFEST_PATH = join(
+  REPO_ROOT,
+  "packages",
+  "contracts",
+  "wasm-hashes.json"
+);
 
 const { values } = parseArgs({
   args: process.argv
@@ -63,6 +69,51 @@ function git(args: string[]): string {
     cwd: REPO_ROOT,
     encoding: "utf8",
   }).trim();
+}
+
+/**
+ * Verifies that the WASM hash being recorded for each contract is present in
+ * the reproducible-build hash manifest (`wasm-hashes.json`), which is only
+ * produced after two independent clean builds yield identical SHA-256 digests.
+ * Refuses to record any hash that is not verified.
+ */
+function loadVerifiedWasmHashes(): Map<string, string> {
+  let raw: string;
+  try {
+    raw = readFileSync(BUILD_MANIFEST_PATH, "utf8");
+  } catch {
+    throw new Error(
+      "Missing verified WASM hash manifest at " +
+        BUILD_MANIFEST_PATH +
+        ". Run the reproducible build (scripts/reproducible-build.sh) first."
+    );
+  }
+  const parsed = JSON.parse(raw) as {
+    contracts?: Record<string, { sha256?: string; verified?: boolean }>;
+  };
+  const verified = new Map<string, string>();
+  for (const [name, entry] of Object.entries(parsed.contracts ?? {})) {
+    if (entry.verified === true && entry.sha256) {
+      verified.set(entry.sha256.toLowerCase(), name);
+    }
+  }
+  return verified;
+}
+
+function assertVerifiedHash(
+  verified: Map<string, string>,
+  label: string,
+  hash: string
+): void {
+  if (!verified.has(hash.toLowerCase())) {
+    throw new Error(
+      "Refusing to record " +
+        label +
+        " wasmHash " +
+        hash +
+        ": not present in the verified reproducible-build manifest"
+    );
+  }
 }
 
 function optionalDefindex(
@@ -122,6 +173,8 @@ function main(): void {
     );
   }
 
+  const verifiedHashes = loadVerifiedWasmHashes();
+
   const sourceCommit = git(["rev-parse", "HEAD"]);
   const vaultAddress = required("vault-address");
   const blendAddress = required("blend-address");
@@ -130,10 +183,20 @@ function main(): void {
   const treasury = required("treasury");
   const usdc = required("usdc");
 
+  const vaultHash = required("vault-hash");
+  const blendHash = required("blend-hash");
+  const musdcHash = required("musdc-hash");
+  assertVerifiedHash(verifiedHashes, "vault", vaultHash);
+  assertVerifiedHash(verifiedHashes, "blend", blendHash);
+  assertVerifiedHash(verifiedHashes, "musdc", musdcHash);
+  if (values["defindex-hash"]?.trim()) {
+    assertVerifiedHash(verifiedHashes, "defindex", required("defindex-hash"));
+  }
+
   const deployment: NetworkDeployment = {
     vault: {
       address: vaultAddress,
-      wasmHash: required("vault-hash"),
+      wasmHash: vaultHash,
       salt: required("vault-salt"),
       deploymentTransaction: required("vault-tx"),
       sourceCommit,
@@ -147,7 +210,7 @@ function main(): void {
     },
     blendAdapter: {
       address: blendAddress,
-      wasmHash: required("blend-hash"),
+      wasmHash: blendHash,
       salt: required("blend-salt"),
       deploymentTransaction: required("blend-tx"),
       sourceCommit,
@@ -160,7 +223,7 @@ function main(): void {
     defindexAdapter: optionalDefindex(sourceCommit, vaultAddress, usdc),
     musdc: {
       address: musdcAddress,
-      wasmHash: required("musdc-hash"),
+      wasmHash: musdcHash,
       salt: required("musdc-salt"),
       deploymentTransaction: required("musdc-tx"),
       sourceCommit,

@@ -87,6 +87,13 @@ elif [ "$ADMIN_ADDRESS" != "$DEPLOYER_ADDRESS" ]; then
   echo "the vault deploy itself will be printed for the ADMIN key holder to run."
 fi
 
+# Reproducibility gate: build every contract twice with the pinned toolchain,
+# compare SHA-256 hashes, and record them in the verified manifest. The deploy
+# stack below only consumes artifacts listed in that manifest.
+# shellcheck source=lib/verify-wasm-build.sh
+source "$(dirname "$0")/lib/verify-wasm-build.sh"
+verify_reproducible_builds
+
 # The actual build/upload/deploy sequence is shared with deploy-mainnet.sh
 # (#717): see scripts/lib/deploy-vault-stack.sh's own header comment for why.
 STELLAR_NETWORK_FLAGS=(--network "$NETWORK")

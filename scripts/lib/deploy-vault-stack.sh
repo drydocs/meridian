@@ -132,6 +132,10 @@ deploy_vault_stack() {
     echo "ERROR: packages/contracts has uncommitted changes; commit them before deployment." >&2
     return 1
   fi
+  # Verified-artifact gate (issue: reproducible WASM builds). Every WASM used
+  # below must match the SHA-256 recorded in the verified manifest. SKIP_BUILD
+  # skips compilation only; it does NOT skip this hash check.
+
 
   cd "$repo_root/packages/contracts"
   # SKIP_BUILD lets a caller drop in WASM already verified elsewhere (e.g. a
@@ -150,6 +154,18 @@ deploy_vault_stack() {
   local wasm_vault="$wasm_dir/meridian_vault.wasm"
   local wasm_blend_adapter="$wasm_dir/meridian_blend_adapter.wasm"
   local wasm_musdc_token="$wasm_dir/meridian_musdc_token.wasm"
+  local wasm_file
+  for wasm_file in "$wasm_vault" "$wasm_blend_adapter" "$wasm_musdc_token"; do
+    if [ ! -f "$wasm_file" ]; then
+      echo "ERROR: missing WASM artifact: $wasm_file" >&2
+      return 1
+    fi
+    if ! node "$repo_root/scripts/verify-wasm-hash.mjs" "$wasm_file" "$repo_root/packages/shared/deployed-contracts.json"; then
+      echo "ERROR: $wasm_file is not present in the verified build manifest; refusing to deploy." >&2
+      return 1
+    fi
+  done
+
 
   echo "Uploading vault WASM..."
   local vault_hash

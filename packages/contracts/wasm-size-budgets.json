@@ -1,5 +1,5 @@
 {
-  "$comment": "Largest allowed size in bytes of each contract's release WASM (packages/contracts/target/wasm32v1-none/release/<name>.wasm). CI fails when a build exceeds its budget. To raise one after an intentional increase, update the number here in the same PR and explain the growth in the PR description; see CONTRIBUTING.md, 'Contract WASM size budgets'.",
+  "$comment": "Largest allowed size in bytes of each contract's release WASM (packages/contracts/target/wasm32v1-none/release/<name>.wasm). CI fails when a build exceeds its budget. To raise one after an intentional increase, update the number here in the same PR and explain the growth in the PR description; see CONTRIBUTING.md, 'Contract WASM size budgets'. Budgets are enforced against the reproducible build; the SHA-256 of each artifact is recorded in the hash manifest (see docs/reproducible-builds.md).",
   "budgets": {
     "meridian_blend_adapter": 31744,
     "meridian_defindex_adapter": 26624,

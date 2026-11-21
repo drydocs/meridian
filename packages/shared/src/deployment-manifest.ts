@@ -170,6 +170,29 @@ const deploymentSchema = z
     }
   });
 
+const contractBuildSchema = z
+  .object({
+    name: z.string().min(1),
+    sha256: hashSchema,
+  })
+  .strict();
+
+export const buildManifestSchema = z
+  .object({
+    version: z.literal(1),
+    compiler: z
+      .object({
+        rustc: z.string().min(1),
+        stellarCli: z.string().min(1),
+        sorobanSdk: z.string().min(1),
+        target: z.literal("wasm32v1-none"),
+      })
+      .strict(),
+    sourceCommit: z.string().regex(/^[0-9a-f]{40,64}$/),
+    contracts: z.array(contractBuildSchema).length(5),
+  })
+  .strict();
+
 export const deploymentManifestSchema = z
   .object({
     version: z.literal(2),
@@ -190,6 +213,7 @@ export const deploymentManifestSchema = z
   .strict();
 
 export type DeploymentManifest = z.infer<typeof deploymentManifestSchema>;
+export type BuildManifest = z.infer<typeof buildManifestSchema>;
 export type DeploymentNetwork = (typeof DEPLOYMENT_NETWORKS)[number];
 export type NetworkDeployment =
   DeploymentManifest["contracts"][DeploymentNetwork];
@@ -354,4 +378,67 @@ export function replaceNetworkDeployment(
       [network]: deployment,
     },
   });
+}
+
+/**
+ * Compares two build manifests produced from independent clean builds of the
+ * same commit. Returns human-readable mismatch descriptions; an empty array
+ * means the builds are byte-for-byte reproducible.
+ */
+export function buildReproducibilityMismatches(
+  first: BuildManifest,
+  second: BuildManifest
+): string[] {
+  const mismatches: string[] = [];
+  compare(
+    mismatches,
+    "compiler.rustc",
+    second.compiler.rustc,
+    first.compiler.rustc
+  );
+  compare(
+    mismatches,
+    "compiler.stellarCli",
+    second.compiler.stellarCli,
+    first.compiler.stellarCli
+  );
+  compare(
+    mismatches,
+    "compiler.sorobanSdk",
+    second.compiler.sorobanSdk,
+    first.compiler.sorobanSdk
+  );
+  compare(
+    mismatches,
+    "sourceCommit",
+    second.sourceCommit,
+    first.sourceCommit
+  );
+
+  const secondByName = new Map(second.contracts.map((c) => [c.name, c.sha256]));
+  for (const contract of first.contracts) {
+    const other = secondByName.get(contract.name);
+    compare(
+      mismatches,
+      `${contract.name}.sha256`,
+      other,
+      contract.sha256
+    );
+  }
+  return mismatches;
+}
+
+/**
+ * Returns true only when the artifact hash is listed in the verified build
+ * manifest. Deploy tooling must call this before using any local WASM.
+ */
+export function isVerifiedArtifact(
+  manifest: BuildManifest,
+  contractName: string,
+  sha256: string
+): boolean {
+  return manifest.contracts.some(
+    (contract) =>
+      contract.name === contractName && contract.sha256 === sha256
+  );
 }
