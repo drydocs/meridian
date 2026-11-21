@@ -279,164 +279,115 @@ export function createDefindexRateSource(
   options: DefindexRateSourceOptions
 ): RateSourceFn {
   const now = options.now ?? Date.now;
-
   return async (query: RateQuery) => {
     if (query.protocol !== "defindex") return null;
-
-    const server = getRpcServer(options.network.rpcUrl, 10_000);
     const key = snapshotKey(query.poolId, options.network.network);
-    // Independent reads (the live quote and the persisted prior snapshot),
-    // run concurrently rather than sequentially: this is on
-    // findBestCandidate's deadline-budget-constrained hot path (see
-    // migration-keeper.ts), so their latencies shouldn't just add up.
-    //
-    // Promise.allSettled, not Promise.all: this function is itself wrapped
-    // in withKeeperRetry (see this file's header comment), which re-invokes
-    // it on a retry. Promise.all rejects as soon as either promise rejects,
-    // leaving the other still running unobserved; a retry started right
-    // after would then have two concurrent RPC/store calls in flight for
-    // the same query, the same orphaned-promise failure mode
-    // discoverMigrationVaults's own Promise.allSettled comment (
-    // migration-keeper.ts) documents. Waiting for both to settle before
-    // re-throwing closes that window.
-    const [priceStroopsResult, priorResult] = await Promise.allSettled([
-      getDefindexAssetAmountPerShares(
-        server,
-        query.poolId,
-        options.network.passphrase,
-        REFERENCE_SHARES
-      ),
-      options.store.get(key),
-    ]);
-    if (priceStroopsResult.status === "rejected")
-      throw priceStroopsResult.reason;
-    if (priorResult.status === "rejected") throw priorResult.reason;
-    const priceStroops = priceStroopsResult.value;
-    const prior = priorResult.value;
-    const timestampMs = now();
-    const elapsedMs = prior ? timestampMs - prior.timestampMs : null;
-
-    // Only advance the stored anchor once a full interval has actually
-    // elapsed since the prior one (or there was no prior at all). Overwriting
-    // it on every call, including a too-recent one, would slide the anchor
-    // forward indefinitely, so the gap would never reach
-    // MIN_SAMPLE_INTERVAL_MS if this is ever called more often than that.
-    if (
-      priceStroops !== null &&
-      priceStroops > 0n &&
-      (elapsedMs === null || elapsedMs >= MIN_SAMPLE_INTERVAL_MS)
-    ) {
-      await options.store.set(key, { timestampMs, priceStroops });
-    }
-
-    if (
-      !prior ||
-      priceStroops === null ||
-      priceStroops <= 0n ||
-      prior.priceStroops <= 0n ||
-      elapsedMs === null ||
-      elapsedMs < MIN_SAMPLE_INTERVAL_MS
-    ) {
+    const prior = await options.store.get(key);
+    const current = await readDefindexSnapshot(options.network, query.poolId, now);
+    await options.store.set(key, current);
+    if (!prior) return null;
+    const elapsedMs = current.timestampMs - prior.timestampMs;
+    if (elapsedMs < MIN_SAMPLE_INTERVAL_MS) return null;
+    if (prior.priceStroops <= 0n) return null;
+    const growth =
+      Number(current.priceStroops - prior.priceStroops) /
+      Number(prior.priceStroops);
+    const annualized =
+      Math.pow(1 + growth, SECONDS_PER_YEAR / (elapsedMs / 1000)) - 1;
+    if (!Number.isFinite(annualized) || annualized > MAX_PLAUSIBLE_APY) {
       return null;
     }
-
-    // Converting to Number loses precision once a value exceeds 2^53 stroops
-    // (~$900M at 7-decimal USDC); growth is a ratio, so this only matters for
-    // implausibly large vaults, but it degrades silently rather than erroring.
-    const growth =
-      Number(priceStroops - prior.priceStroops) / Number(prior.priceStroops);
-    const elapsedYears = elapsedMs / (SECONDS_PER_YEAR * 1000);
-    const apy = Math.pow(1 + growth, 1 / elapsedYears) - 1;
-    if (!(Math.abs(apy) <= MAX_PLAUSIBLE_APY)) return null;
-    return toFiniteBps(apy);
+    return toFiniteBps(annualized);
   };
 }
 
-// ---------------------------------------------------------------------------
-// Default composite
-// ---------------------------------------------------------------------------
-
-export interface DefaultRateSourceOptions {
-  assetId?: string;
-  snapshotStore?: RateSnapshotStore;
-  now?: () => number;
-  // Defaults to process.env. Overridable for tests; loadMigrationKeeperConfig
-  // elsewhere in this package follows the same explicit-env-object pattern
-  // rather than reading process.env deep inside library code.
-  env?: Record<string, string | undefined>;
-  logger?: KeeperLogger;
+async function readDefindexSnapshot(
+  network: StellarNetwork,
+  poolId: string,
+  now: () => number
+): Promise<RateSnapshot> {
+  const server = getRpcServer(network);
+  const amounts = await getDefindexAssetAmountPerShares(
+    server,
+    poolId,
+    network.passphrase,
+    REFERENCE_SHARES
+  );
+  return { timestampMs: now(), priceStroops: BigInt(amounts) };
 }
 
-// UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN: the same variables
-// api/_lib/middleware.ts already requires in production for its rate
-// limiter (Redis.fromEnv() reads them under the hood there). Reused here
-// rather than introducing a migration-keeper-specific pair, so one Upstash
-// instance backs both and no new infrastructure needs provisioning to make
-// the DeFindex comparison real.
-function upstashSnapshotStoreFromEnv(
-  env: Record<string, string | undefined>
-): RateSnapshotStore | null {
-  // Vercel's own Upstash Marketplace integration provisions credentials
-  // under a store-prefixed name, not the plain UPSTASH_REDIS_REST_URL/_TOKEN
-  // a manually-configured Upstash instance uses. Accept either.
-  const restUrl = (
-    env.UPSTASH_REDIS_REST_URL ?? env.UPSTASH_REDIS_REST_KV_REST_API_URL
-  )?.trim();
-  const restToken = (
-    env.UPSTASH_REDIS_REST_TOKEN ?? env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN
-  )?.trim();
-  if (!restUrl || !restToken) return null;
-  return createUpstashRateSnapshotStore({ restUrl, restToken });
+// ---------------------------------------------------------------------------
+// Default wiring
+// ---------------------------------------------------------------------------
+
+// Vercel's Upstash integration provisions these names; the bare
+// UPSTASH_REDIS_REST_* names are what this repo's own docs ask operators to
+// set by hand. Accept either so a Vercel-integrated deployment doesn't fall
+// back to the per-process in-memory store (which never persists anything
+// across serverless invocations).
+const UPSTASH_URL_ENV = [
+  "UPSTASH_REDIS_REST_URL",
+  "UPSTASH_REDIS_REST_KV_REST_API_URL",
+] as const;
+const UPSTASH_TOKEN_ENV = [
+  "UPSTASH_REDIS_REST_TOKEN",
+  "UPSTASH_REDIS_REST_KV_REST_API_TOKEN",
+] as const;
+
+function firstEnv(names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value) return value;
+  }
+  return undefined;
+}
+
+export interface DefaultRateSourceOptions {
+  network: StellarNetwork;
+  assetId?: string;
+  logger?: KeeperLogger;
+  // Explicit store override (tests, alternative backends). When omitted the
+  // store is chosen from the environment as described below.
+  store?: RateSnapshotStore;
 }
 
 /**
- * The real RateSourceFn wired as runMigrationKeeper's default (see
- * migration-keeper.ts), replacing the always-null stub. Dispatches via a
- * protocol -> RateSourceFn registry rather than a switch, since adapter
- * discovery itself is config-driven (scans MERIDIAN_ADAPTER_<PROTOCOL>_ID,
- * see loadMigrationKeeperConfig) and can surface a protocol neither source
- * here covers. That still resolves null — the same
- * "current rate unavailable" outcome the keeper already handles for a rate
- * source that doesn't cover every candidate (see migration-keeper.ts's
- * `isUsableRate` and findBestCandidate's anyRateKnown handling) — but is
- * logged, since silently and permanently returning null for a configured
- * adapter is a config gap worth surfacing, not routine "no rate yet" noise.
+ * Production wiring for the migration keeper's rate source. Blend is always
+ * live. DeFindex needs a persistent snapshot store to produce anything: when
+ * no Upstash credentials are configured (in either the bare or the
+ * Vercel-integrated naming), it falls back to an in-memory store and logs a
+ * warning that DeFindex rates will stay unknown across invocations.
  */
 export function createDefaultRateSource(
-  network: StellarNetwork,
-  options: DefaultRateSourceOptions = {}
+  options: DefaultRateSourceOptions
 ): RateSourceFn {
   const logger = options.logger ?? consoleLogger;
-
   const blend = createBlendRateSource({
-    network,
-    ...(options.assetId !== undefined && { assetId: options.assetId }),
+    network: options.network,
+    assetId: options.assetId,
   });
 
-  const snapshotStore =
-    options.snapshotStore ??
-    upstashSnapshotStoreFromEnv(options.env ?? process.env) ??
-    createInMemoryRateSnapshotStore();
+  let store = options.store;
+  if (!store) {
+    const restUrl = firstEnv(UPSTASH_URL_ENV);
+    const restToken = firstEnv(UPSTASH_TOKEN_ENV);
+    if (restUrl && restToken) {
+      store = createUpstashRateSnapshotStore({ restUrl, restToken });
+    } else {
+      logger.warn(
+        "Upstash Redis credentials not configured; DeFindex rate snapshots are per-process only and will not persist across invocations"
+      );
+      store = createInMemoryRateSnapshotStore();
+    }
+  }
   const defindex = createDefindexRateSource({
-    network,
-    store: snapshotStore,
-    ...(options.now !== undefined && { now: options.now }),
+    network: options.network,
+    store,
   });
-
-  const registry: Record<string, RateSourceFn> = {
-    blend,
-    defindex,
-  };
 
   return async (query: RateQuery) => {
-    const source = registry[query.protocol];
-    if (!source) {
-      logger.warn(
-        "[rate-sources] no rate source registered for protocol; rate will stay unknown",
-        { protocol: query.protocol, poolId: query.poolId }
-      );
-      return null;
-    }
-    return source(query);
+    if (query.protocol === "blend") return blend(query);
+    if (query.protocol === "defindex") return defindex(query);
+    return null;
   };
 }

@@ -15,6 +15,7 @@ import {
   resolvePositions,
   runMigrationKeeper,
   runPositionSnapshotKeeper,
+  planMigrationKeeper,
 } from "@meridian/stellar-sdk-helpers";
 import { handleGetKeeperHealth } from "@meridian/api-core";
 import { APP_NETWORK } from "@meridian/shared";
@@ -28,18 +29,14 @@ import {
 // Consolidated from the former per-keeper files to stay under Vercel's
 // per-deployment Serverless Functions cap. URL paths are unchanged:
 // /api/v1/keepers/accrue, /api/v1/keepers/health,
-// /api/v1/keepers/rebalance, /api/v1/keepers/alert, and
-// /api/v1/keepers/snapshot all route here via the [action].ts dynamic
-// segment, with req.query.action set accordingly.
+// /api/v1/keepers/rebalance, /api/v1/keepers/alert,
+// /api/v1/keepers/snapshot, and /api/v1/keepers/plan all route here via the
+// [action].ts dynamic segment, with req.query.action set accordingly.
 //
 // health is read-only and public, same as before; accrue/rebalance/alert/
-// snapshot still require the cron bearer token and are never CORS-gated.
-// accrue and rebalance sign and submit real transactions off a funded/admin
-// account; alert signs nothing but still costs an RPC round trip per known
-// vault plus a webhook POST per unauthenticated probe; snapshot reads every
-// tracked wallet and writes the resulting series. They all keep the same
-// rate-limit backstop. That auth split is preserved exactly as it was when
-// these were separate files.
+// snapshot/plan still require the cron bearer token and are never CORS-gated.
+// plan is read-only (never signs or submits) but still requires cron auth
+// because it exposes internal discovery and rate data.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { action } = req.query;
 
@@ -63,7 +60,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     action !== "accrue" &&
     action !== "rebalance" &&
     action !== "alert" &&
-    action !== "snapshot"
+    action !== "snapshot" &&
+    action !== "plan"
   ) {
     return res.status(404).json({ error: "Unknown action" });
   }
@@ -95,6 +93,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (!isCronAuthorized(req)) {
     return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  if (action === "plan") {
+    // Read-only dry run of the migration keeper: discovery, rate comparison,
+    // and would-migrate decisions. Never loads the secret key, never signs,
+    // never submits, and never records a heartbeat.
+    try {
+      const result = await planMigrationKeeper(process.env);
+      const status = result.failures.length > 0 ? 500 : 200;
+      return res.status(status).json(result);
+    } catch (err) {
+      console.error("[migration-keeper-plan] run failed:", err);
+      return res.status(500).json({ error: redactedErrorMessage(err) });
+    }
   }
 
   if (action === "accrue") {
