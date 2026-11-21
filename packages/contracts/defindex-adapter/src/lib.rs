@@ -316,6 +316,16 @@ impl MeridianDefindexAdapter {
         }
     }
 
+    /// DeFindex prices live on every read, so its cached and live values are
+    /// identical and there is no accrual ledger to report.
+    pub fn live_total_assets(env: Env) -> i128 {
+        Self::total_assets(env)
+    }
+
+    pub fn last_accrual_ledger(_env: Env) -> u32 {
+        0
+    }
+
     /// Returns the adapter's current dfToken share balance read directly from
     /// the DeFindex vault's ledger.
     pub fn total_shares(env: Env) -> i128 {
@@ -343,6 +353,22 @@ impl MeridianDefindexAdapter {
     /// Returns "defindex", identifying which protocol this adapter wraps.
     pub fn get_protocol(env: Env) -> Symbol {
         Symbol::new(&env, "defindex")
+    }
+
+    /// Returns the vault this adapter is bound to. Lets the vault verify, in
+    /// `set_adapter`/`begin_migration`, that a candidate target answers to
+    /// *it* and not to some other vault.
+    pub fn get_vault(env: Env) -> Address {
+        adapter_common::get_or_not_initialized::<_, ContractError>(
+            &env,
+            adapter_common::get_vault(&env),
+        )
+    }
+
+    /// Returns the USDC token this adapter holds and deposits. Lets the vault
+    /// verify a candidate target uses the same USDC as the vault itself.
+    pub fn get_usdc(env: Env) -> Address {
+        adapter_common::get_usdc(&env)
     }
 }
 
@@ -922,6 +948,16 @@ mod tests {
             env.as_contract(&adapter.address, || adapter_common::get_vault(&env)),
             Some(vault)
         );
+    }
+
+    /// The `get_vault`/`get_usdc` views the vault's `set_adapter` and
+    /// `begin_migration` validate against (#1270) report the constructor's
+    /// wiring.
+    #[test]
+    fn exposes_vault_and_usdc_views() {
+        let (_env, vault, usdc_id, adapter, _dfx) = setup();
+        assert_eq!(adapter.get_vault(), vault);
+        assert_eq!(adapter.get_usdc(), usdc_id);
     }
 
     #[test]

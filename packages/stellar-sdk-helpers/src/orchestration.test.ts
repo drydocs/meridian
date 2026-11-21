@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { rpc } from "@stellar/stellar-sdk";
 import {
   buildDepositTx,
   buildWithdrawTx,
+  getLatestLedgerSequence,
   resolvePositions,
 } from "./orchestration";
 import type { StellarNetwork } from "./types";
@@ -79,6 +81,17 @@ const network: StellarNetwork = {
 const WALLET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
 beforeEach(() => vi.clearAllMocks());
+
+describe("getLatestLedgerSequence", () => {
+  it("returns the latest sequence from the selected network's RPC server", async () => {
+    const getLatestLedger = vi
+      .spyOn(rpc.Server.prototype, "getLatestLedger")
+      .mockResolvedValueOnce({ sequence: 123 } as never);
+
+    await expect(getLatestLedgerSequence(network)).resolves.toBe(123);
+    expect(getLatestLedger).toHaveBeenCalledOnce();
+  });
+});
 
 describe("buildDepositTx", () => {
   it("routes a meridian vault deposit through buildCoordinatorDepositTx", async () => {
@@ -159,15 +172,20 @@ describe("resolvePositions", () => {
     vi.mocked(fetchCoordinatorPosition).mockImplementationOnce(async () => {
       throw new Error("RPC down");
     });
-    const positions = await resolvePositions(WALLET, network);
+    const onVaultError = vi.fn();
+    const positions = await resolvePositions(WALLET, network, { onVaultError });
     expect(positions).toHaveLength(1);
+    expect(onVaultError).toHaveBeenCalledOnce();
+    expect(onVaultError).toHaveBeenCalledWith(expect.any(Error));
   });
 
   it("returns empty array when all vault fetches fail", async () => {
     vi.mocked(fetchCoordinatorPosition).mockRejectedValue(
       new Error("RPC down")
     );
-    const positions = await resolvePositions(WALLET, network);
+    const onVaultError = vi.fn();
+    const positions = await resolvePositions(WALLET, network, { onVaultError });
     expect(positions).toEqual([]);
+    expect(onVaultError).toHaveBeenCalledTimes(2);
   });
 });

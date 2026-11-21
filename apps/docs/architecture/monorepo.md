@@ -2,7 +2,7 @@
 
 Meridian is a pnpm workspace managed by Turborepo.
 
-```
+```text
 meridian/
 ├── api/                          # Vercel serverless functions (production API)
 │   ├── _lib/
@@ -105,7 +105,7 @@ meridian/
 
 ## Task pipeline
 
-```
+```text
 build → depends on ^build (packages built before apps)
 dev   → persistent, no cache
 test  → depends on ^build

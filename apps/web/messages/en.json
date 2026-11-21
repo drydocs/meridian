@@ -38,6 +38,8 @@
     "position": "No position in this vault.",
     "waiting": "Waiting for signature...",
     "positionsError": "Couldn't load your position. Deposits and withdrawals still work.",
+    "balanceError": "Couldn't load your balance.",
+    "retryBalance": "Reload balance",
     "validation": {
       "required": "Enter an amount to deposit.",
       "invalid": "Enter a valid number.",
@@ -146,6 +148,25 @@
       "daysAgo_one": "{{count}} day ago",
       "daysAgo_other": "{{count}} days ago"
     }
+  },
+
+  "errors": {
+    "depositsPaused": "Deposits are paused. Please try again later.",
+    "insufficientShares": "You don't have enough shares for this withdrawal.",
+    "withdrawalSlippage": "Withdrawal returned less than your minimum. Adjust slippage tolerance and retry.",
+    "slippageExceeded": "Slippage tolerance exceeded. Adjust slippage tolerance and retry.",
+    "missingUsdcTrustline": "Your wallet is missing the USDC trustline. Add it and try again.",
+    "missingTrustline": "Your wallet is missing one or more required trustlines. Add them and try again.",
+    "trustlinesAlreadyExist": "All required trustlines are already in your wallet.",
+    "depositBuildFailed": "Could not prepare the deposit. Please try again.",
+    "withdrawBuildFailed": "Could not prepare the withdrawal. Please try again.",
+    "trustlineBuildFailed": "Could not prepare the trustline transaction. Please try again.",
+    "submitFailed": "Transaction submission failed. Please try again.",
+    "walletDisconnected": "Your wallet disconnected. Reconnect and try again.",
+    "walletDeclined": "You declined the request. Try again when ready.",
+    "unknown": "Something went wrong. Please try again.",
+    "unknownWithRef": "Something went wrong (ref: {{ref}}). Please try again.",
+    "fallbackWithRef": "{{action}} (ref: {{ref}}). Please try again."
   },
 
   "errorBoundary": {

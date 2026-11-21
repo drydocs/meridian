@@ -28,8 +28,11 @@ export function VaultPanel() {
   const vaults = data?.vaults;
   const { t } = useTranslation();
   const { connected, publicKey } = useWalletStore();
-  const { balance: availableBalance, refetch: refetchBalance } =
-    useUsdcBalance();
+  const {
+    balance: availableBalance,
+    isError: balanceError,
+    refetch: refetchBalance,
+  } = useUsdcBalance();
   const {
     handleConnect,
     status: connectStatus,
@@ -116,7 +119,10 @@ export function VaultPanel() {
     if (position.vaultId !== bestVault.id) return;
     if (parseFloat(amount) > position.shares) return;
     const ok = await withdraw(amount, bestVault.id, bestVault.asset, undefined);
-    if (ok) setAmount("");
+    if (ok) {
+      setAmount("");
+      refetchBalance();
+    }
   }
 
   function handleTabChange(next: Tab) {
@@ -303,6 +309,8 @@ export function VaultPanel() {
             isDepositing={isDepositing}
             onSubmit={handleDeposit}
             availableBalance={availableBalance}
+            isBalanceError={balanceError}
+            onRetryBalance={refetchBalance}
           />
         ) : (
           <WithdrawTab

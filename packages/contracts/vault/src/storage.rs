@@ -46,6 +46,27 @@ pub const MIN_LEDGER_GAP: u32 = 17_280;
 /// sync automatically across languages.
 pub const MAX_ADMIN_SLIPPAGE_BPS: u32 = 500;
 
+/// Proportional part of the tolerance `deposit` allows between the value of
+/// the adapter shares a deposit credited and what that deposit could
+/// actually have added (#1263). 10 bps = 0.1% of the requested amount.
+///
+/// The credit is valued from integer reads (`total_assets()`,
+/// `total_shares()`, and the protocol's own share rate), each of which
+/// floors, so an honest adapter's credit can land a few stroops either side
+/// of its exact value; protocols that round per strategy can drift by an
+/// amount proportional to the deposit. The tolerance only decides whether a
+/// small excess is treated as rounding or as a broken adapter: a credit
+/// within it is still capped at what the deposit delivered before shares
+/// are minted, so widening it never lets a deposit mint more than it paid
+/// for. Anything above it fails with `DepositValueMismatch`.
+pub const DEPOSIT_VALUE_TOLERANCE_BPS: i128 = 10;
+
+/// Fixed part of the `deposit` value tolerance, in stroops, added to the
+/// `DEPOSIT_VALUE_TOLERANCE_BPS` share so small deposits, where 0.1% rounds
+/// down to nothing, still absorb per-read rounding. 100 stroops = 0.00001
+/// USDC. See `DEPOSIT_VALUE_TOLERANCE_BPS`.
+pub const DEPOSIT_VALUE_TOLERANCE_STROOPS: i128 = 100;
+
 // Virtual shares/assets offset (OpenZeppelin ERC-4626 mitigation against the
 // first-depositor inflation attack). Share price is computed against
 // `total_assets + OFFSET` over `total_shares + OFFSET` instead of the raw
