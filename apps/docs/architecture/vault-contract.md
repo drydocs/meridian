@@ -2,6 +2,8 @@
 
 The `MeridianVault` contract is a Soroban smart contract written in Rust, located at `packages/contracts/vault/src/lib.rs`. It is a protocol-agnostic coordinator: it holds no direct opinion about where funds actually earn yield. Instead it delegates all protocol-specific work to a swappable **adapter** contract (see [Adapter Contracts](#adapter-contracts) below).
 
+The architecture behind this contract is recorded in the ADRs for [one vault per asset](./adr/0001-one-vault-per-asset.md), [no separate on-chain router](./adr/0002-no-onchain-router.md), [custom mUSDC shares](./adr/0003-custom-musdc-share-token.md), [contract immutability](./adr/0004-immutable-contracts.md), [the migration timelock](./adr/0006-migration-timelock.md), and [the migration slippage cap](./adr/0007-admin-migration-slippage-cap.md).
+
 ## Tokens
 
 | Token | Role                                                                                                               |
