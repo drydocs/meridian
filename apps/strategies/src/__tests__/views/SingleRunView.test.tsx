@@ -4,6 +4,7 @@ import App from "../../App";
 import { SingleRunView } from "../../views/SingleRunView";
 import { formatDecimal } from "../../lib/format";
 import type { ScenarioRun } from "../../lib/scenario-run";
+import { summarizeRiskMetrics } from "../../lib/risk-series";
 
 function change(testId: string, value: string) {
   fireEvent.change(screen.getByTestId(testId), { target: { value } });
@@ -111,6 +112,43 @@ describe("SingleRunView", () => {
     expect(onRunComplete).not.toHaveBeenCalled();
   });
 
+  it("shows the risk metrics for the completed run", async () => {
+    const onRunComplete = vi.fn<(run: ScenarioRun) => void>();
+    render(<SingleRunView onRunComplete={onRunComplete} />);
+
+    expect(screen.queryByTestId("risk-metrics-panel")).toBeNull();
+
+    submit();
+
+    const panel = await screen.findByTestId("risk-metrics-panel");
+    expect(panel).toBeTruthy();
+    expect(screen.queryByTestId("risk-metrics-invalid")).toBeNull();
+
+    // The panel is fed the run's own snapshots and window step.
+    const run = onRunComplete.mock.calls[0]![0];
+    const summary = summarizeRiskMetrics({
+      snapshots: run.result.snapshots,
+      step: run.scenario.window.step,
+    });
+    expect(summary.kind).toBe("computed");
+    if (summary.kind !== "computed") return;
+    expect(summary.returnCount).toBe(run.result.snapshots.length - 1);
+
+    const drawdown = summary.maxDrawdown;
+    if (drawdown.status === "ok") {
+      expect(
+        screen.getByTestId("risk-metric-max-drawdown-value").textContent
+      ).toBe(`${drawdown.value.mul("100").toFixed(2)}%`);
+    } else {
+      expect(
+        screen.getByTestId("risk-metric-max-drawdown-insufficient")
+      ).toBeTruthy();
+    }
+    for (const id of ["max-drawdown", "sharpe", "var"]) {
+      expect(screen.getByTestId(`risk-metric-${id}`)).toBeTruthy();
+    }
+  });
+
   it("drops the previous run when a later submission fails", async () => {
     const onRunCleared = vi.fn();
     render(<SingleRunView onRunCleared={onRunCleared} />);
@@ -123,6 +161,7 @@ describe("SingleRunView", () => {
 
     await screen.findByTestId("run-error");
     expect(screen.queryByTestId("run-summary")).toBeNull();
+    expect(screen.queryByTestId("risk-metrics-panel")).toBeNull();
     expect(onRunCleared).toHaveBeenCalledTimes(1);
 
     change("input-startingCapital", "1000");

@@ -56,6 +56,10 @@ export default defineConfig({
             link: "/strategies/architecture",
           },
           {
+            text: "Custom Strategy Tutorial",
+            link: "/strategies/custom-strategy",
+          },
+          {
             text: "Delta-Neutral Strategy",
             link: "/strategies/delta-neutral",
           },
@@ -101,6 +105,10 @@ export default defineConfig({
           {
             text: "Incident Response",
             link: "/operations/incident-response",
+          },
+          {
+            text: "Wallet Signing Troubleshooting",
+            link: "/operations/wallet-signing-troubleshooting",
           },
         ],
       },
