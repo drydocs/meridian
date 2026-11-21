@@ -94,26 +94,44 @@ fn a_partial_withdrawal_charges_the_fee_on_its_own_slice_only() {
     let net = f.withdraw(&alice, usdc(50));
 
     assert_eq!(net, usdc(55) - usdc(1) / 2);
-    assert_eq!(f.vault.get_principal(&alice), usdc(50) + usdc(5));
+    // Only the withdrawn half's basis is retired; the retained shares keep
+    // their own basis so their gain can be charged on their own exit.
+    assert_eq!(f.vault.get_principal(&alice), usdc(50));
     assert!(f.musdc_balance(&f.treasury) > 0);
 }
 
 #[test]
-fn gain_already_charged_is_not_charged_a_second_time() {
-    let f = Fixture::new();
-    let alice = Address::generate(&f.env);
-    f.fund(&alice, usdc(1_000));
-    f.deposit(&alice, usdc(100));
-    f.simulate_yield(rate_with_yield_bps(1_000));
+fn a_two_step_exit_charges_the_same_total_fee_as_a_single_exit() {
+    // Exiting the whole position at once charges 10% of the full 10 gain.
+    let single = Fixture::new();
+    let alice = Address::generate(&single.env);
+    single.fund(&alice, usdc(1_000));
+    single.deposit(&alice, usdc(100));
+    single.simulate_yield(rate_with_yield_bps(1_000)); // 100 -> 110
+    let single_net = single.withdraw(&alice, usdc(100));
+    assert_eq!(single_net, usdc(109));
 
-    // First half: gain 5, fee 0.5. The basis ratchets up by the taxed gain.
-    f.withdraw(&alice, usdc(50));
-    let treasury_after_first = f.musdc_balance(&f.treasury);
+    // The same position exited in two halves must collect the same fee: the
+    // first exit's gain must not be folded into the retained shares' basis.
+    let split = Fixture::new();
+    let bob = Address::generate(&split.env);
+    split.fund(&bob, usdc(1_000));
+    split.deposit(&bob, usdc(100));
+    split.simulate_yield(rate_with_yield_bps(1_000)); // 100 -> 110
+    let first_net = split.withdraw(&bob, usdc(50));
+    let second_net = split.withdraw(&bob, usdc(50));
 
-    // No further yield. The remaining 50 shares are worth ~54.5 against a
-    // ratcheted basis of 55, i.e. no new gain, so no new fee.
-    f.withdraw(&alice, usdc(50));
-    assert_eq!(f.musdc_balance(&f.treasury), treasury_after_first);
+    // Equal up to a stroop or two of adapter/treasury-mint rounding, but the
+    // gain on the retained shares is no longer sheltered from the fee.
+    let two_step_net = first_net + second_net;
+    assert!(
+        (two_step_net - single_net).abs() <= 2,
+        "two-step exit received {two_step_net}, single exit {single_net}"
+    );
+    // Only the fee remains in each vault, so matching total assets prove the
+    // same total fee was retained rather than deferred into basis.
+    assert_eq!(single.vault.get_total_assets(), usdc(1));
+    assert!((split.vault.get_total_assets() - usdc(1)).abs() <= 2);
 }
 
 #[test]
@@ -133,4 +151,27 @@ fn a_transferred_position_carries_its_basis_into_the_fee_maths() {
 
     assert_eq!(net, usdc(55) - usdc(1) / 2);
     assert_eq!(f.usdc_balance(&bob), net);
+}
+
+#[test]
+fn withdraw_assets_with_accrued_yield_charges_fee_and_delivers_exact_assets() {
+    let f = Fixture::new();
+    let alice = Address::generate(&f.env);
+    f.fund(&alice, usdc(1_000));
+    f.deposit(&alice, usdc(100));
+    f.simulate_yield(rate_with_yield_bps(1_000)); // +10% yield: 100 -> 110 assets
+
+    let target_assets = usdc(50);
+    let out = f.withdraw_assets(&alice, target_assets, usdc(100));
+
+    // Delivers exact target assets
+    assert_eq!(out, target_assets);
+    assert_eq!(f.usdc_balance(&alice), usdc(900) + target_assets);
+
+    // Performance fee minted to treasury: exactly 4,170,141 shares
+    assert_eq!(f.musdc_balance(&f.treasury), 4_170_141);
+
+    // Position records updated proportionally: proportional basis and burned shares
+    assert_eq!(f.vault.get_principal(&alice), 541_284_404);
+    assert_eq!(f.musdc_balance(&alice), 541_284_404);
 }

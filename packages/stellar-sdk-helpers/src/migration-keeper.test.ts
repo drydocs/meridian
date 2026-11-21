@@ -1920,24 +1920,41 @@ describe("runMigrationKeeper", () => {
     // eat the rest of it. Submitting anyway would fire an irreversible,
     // slippage-costing transaction right as the platform is about to kill
     // the invocation.
+    //
+    // The clock is driven by the rate lookups rather than real time: it sits
+    // before the deadline until both the current and candidate rates have
+    // been read, then lands on it. A wall-clock budget made this depend on
+    // how fast the runner reached the loop.
     const submitMigration = vi.fn();
-    const deadlineAt = Date.now() + 15;
+    const deadlineAt = 1_000_000;
+    let rateLookups = 0;
+    const now = vi
+      .spyOn(Date, "now")
+      .mockImplementation(() =>
+        rateLookups >= 2 ? deadlineAt : deadlineAt - 1_000
+      );
     const rateSource = vi.fn(async ({ protocol }: { protocol: string }) => {
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      rateLookups += 1;
       return protocol === "blend" ? 500 : 700;
     });
 
-    const result = await runMigrationKeeper(CONFIG, {
-      discoverVaults: async () => ({
-        vaults: [DISCOVERED_VAULT],
-        failures: [],
-      }),
-      rateSource,
-      resolveCandidatePool: async () => "CDEFINDEXPOOL",
-      submitMigration,
-      deadlineAt,
-    });
+    let result: Awaited<ReturnType<typeof runMigrationKeeper>>;
+    try {
+      result = await runMigrationKeeper(CONFIG, {
+        discoverVaults: async () => ({
+          vaults: [DISCOVERED_VAULT],
+          failures: [],
+        }),
+        rateSource,
+        resolveCandidatePool: async () => "CDEFINDEXPOOL",
+        submitMigration,
+        deadlineAt,
+      });
+    } finally {
+      now.mockRestore();
+    }
 
+    expect(rateSource).toHaveBeenCalledTimes(2);
     expect(submitMigration).not.toHaveBeenCalled();
     // Reports the migration that was actually being skipped (best, the
     // defindex candidate), not the vault's current (blend) adapter.

@@ -4,6 +4,7 @@ import { fetchBalances } from "../lib/horizonAccount";
 import { useSignAndSubmit } from "./useSignAndSubmit";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "react-i18next";
+import { mapError } from "../lib/errorMapper";
 
 // Configurable so the faucet can be rotated or disabled without a code
 // deploy; falls back to Blend's public testnet faucet.
@@ -65,10 +66,7 @@ export function useBlendFaucet() {
         push("error", t("vaultActions.faucetTimeout"));
         return false;
       }
-      push(
-        "error",
-        err instanceof Error ? err.message : t("vaultActions.faucetFailed")
-      );
+      push("error", mapError(err, t, "vaultActions.faucetFailed").message);
       return false;
     }
   }

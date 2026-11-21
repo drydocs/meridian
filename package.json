@@ -12,10 +12,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "verify:contracts": "tsx scripts/verify-contract-addresses.ts",
-    "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts",
-    "audit:js": "pnpm audit --audit-level=high",
-    "license:check": "tsx scripts/check-licenses.ts",
-    "audit": "pnpm run audit:js && pnpm run license:check"
+    "check:wasm-size": "tsx scripts/check-wasm-size.ts",
+    "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.6.1"

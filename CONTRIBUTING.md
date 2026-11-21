@@ -316,6 +316,19 @@ Commits that do not match the `^(feat|fix|docs|chore|refactor|test|style|ci|perf
 - **Documentation:** All public functions must have doc comments (`///`). Include a one-line summary and a note on any panics or preconditions.
 - **Security:** Validate all inputs. Assume callers are adversarial. Never read from storage without checking the key exists first.
 
+#### Contract WASM size budgets
+
+Each contract's release WASM has a size budget in [`packages/contracts/wasm-size-budgets.json`](packages/contracts/wasm-size-budgets.json), keyed by the WASM file name (`meridian_vault`, `meridian_blend_adapter`, ...). The **Soroban Contract Tests** CI job builds the contracts, then runs `pnpm check:wasm-size`, which prints each contract's size, budget, share of the budget used and the delta from the PR's base commit (also shown in the job summary). It fails when a contract is over its budget, when a newly built contract has no budget, or when a budgeted contract was not built. The job only runs when contract sources, build settings or the check itself change.
+
+To check locally (needs the `wasm32v1-none` target; uses `stellar contract build` when the Stellar CLI is installed, `cargo build --target wasm32v1-none --release` otherwise):
+
+```bash
+pnpm check:wasm-size -- --build                  # sizes vs budgets
+pnpm check:wasm-size -- --build --base-ref main  # plus the delta from main
+```
+
+**Updating a budget.** When a contract grows on purpose, raise its number in `wasm-size-budgets.json` in the same PR and say in the PR description what grew and why; reviewers treat the budget change as an explicit sign-off on the larger binary. For a new contract, add an entry. Budgets are set to roughly the current size plus 10%, rounded up to a whole KiB, so routine changes don't need an update but significant growth gets a deliberate review.
+
 ---
 
 ## Pull Request Process
@@ -360,6 +373,15 @@ Pull requests are reviewed within 72 hours of submission. You will receive one o
 - **Approved** -- the PR will be merged promptly
 - **Changes requested** -- address the comments and request a re-review
 - **Closed** -- the PR is out of scope, a duplicate, or does not meet the standards in this guide; the closing comment will explain why
+
+### CI Concurrency and Timeouts
+
+All GitHub Actions workflows under `.github/workflows/` define explicit concurrency groups and per-job timeouts:
+
+- **Concurrency groups** are keyed by workflow and ref (`${{ github.workflow }}-${{ github.ref }}`).
+- **Pull request workflows** (`ci.yml`, `pr-title.yml`, `verify-contract-addresses.yml`) set `cancel-in-progress` for pull request runs so pushing a new commit cancels superseded runs on the same ref.
+- **Default branch and keeper runs** are never cancelled by concurrency (`cancel-in-progress` is disabled for pushes to `main` and for `keepers.yml`), ensuring scheduled keeper runs and main-branch checks run to completion.
+- **Job timeouts** (`timeout-minutes`) are set explicitly on every job, sized above observed runtimes so hung installs, builds, or tests fail promptly instead of waiting for the default 6-hour limit. When adding a new job or workflow, always include both a `concurrency` block and an explicit `timeout-minutes` value.
 
 ---
 

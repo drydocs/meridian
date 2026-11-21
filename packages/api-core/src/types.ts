@@ -7,6 +7,7 @@
 export interface RouteResult {
   status: number;
   body: unknown;
+  etag?: string;
   /**
    * Present when the handler caught an error building the response. Adapters
    * use this to log through their own framework-native logger (console.error
