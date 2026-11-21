@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "note": "Machine-readable deployment record. Null deployment metadata is limited to legacy deployments whose salts, transaction hashes, and source commits were not recorded; deployment scripts must populate those fields for new deployments.",
+  "note": "Machine-readable record of the on-chain MeridianVault deployments that verify:contracts checks against. Meridian's vault is immutable (no update_current_contract_wasm), so the bytecode at a recorded address never changes. Editing a vault address here declares a redeployment and forces a source-build-and-chain verification in CI; leaving an address unchanged lets the check pass without a rebuild. The toolchain block pins the stellar-cli version used on that build path so a rebuild reproduces the recorded bytecode. Null deployment metadata is limited to legacy deployments whose salts, transaction hashes, and source commits were not recorded; deployment scripts must populate those fields for new deployments.",
   "toolchain": {
     "stellarCli": "28.0.0",
     "target": "wasm32v1-none"

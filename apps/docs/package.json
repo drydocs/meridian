@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "lint": "prettier --check \"**/*.md\"",
-    "dev": "vitepress dev",
+        "dev": "vitepress dev",
     "build": "vitepress build",
     "preview": "vitepress preview"
   },
