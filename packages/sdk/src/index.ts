@@ -8,6 +8,7 @@
 export const SDK_VERSION = "0.1.0";
 
 export type {
+  TimeoutOptions,
   VaultConfig,
   Position,
   Transaction,
@@ -19,6 +20,31 @@ export {
   VaultBase,
   VIRTUAL_OFFSET,
   SHARE_PRICE_SCALE,
+  DEFAULT_RPC_TIMEOUT_MS,
   convertAssetsToShares,
   convertSharesToAssets,
 } from "./vault-base.js";
+export {
+  ErrorCode,
+  MeridianError,
+  ValidationError,
+  SimulationError,
+  SlippageError,
+  NetworkError,
+  TimeoutError,
+  UnsupportedError,
+  classifyError,
+  isMeridianError,
+} from "./errors.js";
+export type { ErrorCodeValue, MeridianErrorOptions } from "./errors.js";
+export { withRetry, retryDelayMs } from "./retry.js";
+export type { RetryPolicy } from "./retry.js";
+export { redact, redactString, REDACTED } from "./instrumentation.js";
+export type {
+  InstrumentationHooks,
+  RequestEvent,
+  RequestSuccessEvent,
+  RequestErrorEvent,
+  RetryEvent,
+  SanitizedError,
+} from "./instrumentation.js";

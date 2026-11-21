@@ -1,4 +1,17 @@
 import type { StellarNetwork } from "@meridian/stellar-sdk-helpers";
+import type { InstrumentationHooks } from "./instrumentation.js";
+import type { RetryPolicy } from "./retry.js";
+
+/** Time budgets, in milliseconds. Omitted fields keep their defaults. */
+export interface TimeoutOptions {
+  /** HTTP timeout of the Soroban RPC client. Default 12000. */
+  rpcMs?: number;
+  /**
+   * Overall budget for one SDK call attempt (all its RPC round trips).
+   * Default: none, so behaviour matches earlier releases.
+   */
+  operationMs?: number;
+}
 
 /**
  * Configuration required to connect a VaultBase instance to an on-chain
@@ -9,6 +22,12 @@ export interface VaultConfig {
   contractId: string;
   /** Stellar network context (network id, RPC URL, passphrase). */
   network: StellarNetwork;
+  /** Timeout overrides. Defaults to a 12000ms RPC timeout. */
+  timeouts?: TimeoutOptions;
+  /** Opt-in retry policy. No retries when omitted. */
+  retry?: RetryPolicy;
+  /** Optional telemetry hooks; payloads are redacted before delivery. */
+  hooks?: InstrumentationHooks;
 }
 
 /**
