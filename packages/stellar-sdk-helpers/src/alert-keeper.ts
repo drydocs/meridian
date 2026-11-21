@@ -8,14 +8,16 @@
 //
 // This keeper polls getRpcAdminHistory per known Meridian vault, starting
 // from a persisted ledger cursor and posts one webhook message per
-// qualifying action. A failed send replays its ledger on the next run,
-// which can repeat earlier successful alerts from that ledger.
-// It deliberately reuses keeper-heartbeat.ts's
-// KeeperHeartbeatStore for that cursor: the store is already a generic
-// last-write-wins numeric KV (see its own header comment), and a ledger
-// cursor has exactly the same consistency requirements as a heartbeat
-// timestamp — the last run to finish is definitionally the most recent
-// state, so no lease/CAS semantics are needed here either.
+// qualifying action.
+//
+// Delivery guarantees:
+// - Each qualifying event has a dedupe key (vault, ledger, tx hash, event
+//   index). An event is recorded as delivered only after its webhook send
+//   succeeds, so a replayed ledger never resends already-delivered alerts.
+// - The cursor advances with compare-and-set against the value read at the
+//   start of the run, so two concurrent runs cannot move it backwards.
+// - A failed send leaves only that event pending; the cursor stops before
+//   it so the next run retries it (and only it, plus later events).
 //
 // `accept_admin` is intentionally excluded from alerting even though it is
 // a recognised RpcAdminActionType: it is the second half of an
@@ -140,6 +142,27 @@ export function alertCursorKey(
   ].join(":");
 }
 
+/** Namespaced dedupe key for one delivered event. Events are identified by
+ *  vault, ledger, transaction hash and event index so a replayed ledger
+ *  maps each event to the same key. */
+export function alertDedupeKey(
+  vaultContractId: string,
+  network: string,
+  action: RpcAdminAction
+): string {
+  return [
+    "meridian",
+    "keeper",
+    "alert",
+    "delivered",
+    network,
+    vaultContractId,
+    String(action.ledgerSequence),
+    action.txHash,
+    String(action.eventIndex),
+  ].join(":");
+}
+
 function shortAddr(address: string): string {
   return `${address.slice(0, 8)}...${address.slice(-4)}`;
 }
@@ -242,7 +265,7 @@ export interface AlertSuccess {
 export interface AlertFailure {
   vaultId: string;
   vaultContractId: string;
-  stage: "discover" | "send";
+  stage: "discover" | "send" | "cursor";
   attempts: number;
   error: string;
 }
@@ -256,175 +279,57 @@ export interface AlertKeeperResult {
   failures: AlertFailure[];
 }
 
+/**
+ * Minimal store contract the alert keeper needs beyond the cursor: a
+ * compare-and-set for the cursor and an idempotent "mark delivered" set for
+ * dedupe. Kept separate from KeeperHeartbeatStore so the existing heartbeat
+ * consumers are unaffected.
+ */
+export interface AlertStateStore {
+  /** Atomically sets `key` to `next` only if its current value equals
+   *  `expected` (`null` meaning "absent"). Returns true on success. */
+  compareAndSet(
+    key: string,
+    expected: number | null,
+    next: number
+  ): Promise<boolean>;
+  get(key: string): Promise<number | null>;
+  /** Marks `key` as delivered. Returns true if this call newly set it. */
+  markDelivered(key: string): Promise<boolean>;
+  isDelivered(key: string): Promise<boolean>;
+}
+
+/** In-memory AlertStateStore. Atomic within a single process; production
+ *  deployments with multiple instances should supply a shared store. */
+export function createInMemoryAlertStateStore(): AlertStateStore {
+  const cursors = new Map<string, number>();
+  const delivered = new Set<string>();
+  return {
+    async compareAndSet(key, expected, next) {
+      const current = cursors.has(key) ? (cursors.get(key) as number) : null;
+      if (current !== expected) return false;
+      cursors.set(key, next);
+      return true;
+    },
+    async get(key) {
+      return cursors.has(key) ? (cursors.get(key) as number) : null;
+    },
+    async markDelivered(key) {
+      if (delivered.has(key)) return false;
+      delivered.add(key);
+      return true;
+    },
+    async isDelivered(key) {
+      return delivered.has(key);
+    },
+  };
+}
+
 export interface AlertKeeperDeps {
-  /** Defaults to whatever the environment provides (Upstash when
-   *  configured); an in-memory store when omitted entirely, same fallback
-   *  shape as the other keepers use for their own stores. */
-  cursorStore?: KeeperHeartbeatStore;
+  /** Cursor and dedupe store. Defaults to an in-memory store. */
+  stateStore?: AlertStateStore;
   logger?: KeeperLogger;
   fetchImpl?: typeof fetch;
   /** Overrides vault discovery; used by tests. */
   targets?: AlertVaultTarget[];
-}
-
-/**
- * Runs one alerting pass over every known Meridian vault: reads each
- * vault's admin-event history since its last-processed ledger, posts a
- * webhook alert for every qualifying action, and advances the cursor past
- * successfully processed actions (including those that needed no alert).
- * A failed send keeps the persisted cursor at or before its ledger, so the
- * failed action and anything after it in the same page are retried on the
- * next scheduled run. Earlier successful alerts in that ledger can repeat.
- */
-/** One vault's worth of work for a single run: resolve its start ledger,
- *  fetch admin history since it, alert on every qualifying action, and
- *  persist however far the cursor actually got. Extracted so `runAlertKeeper`
- *  can run every vault concurrently, the same reasoning
- *  `accrual-keeper.ts`'s discovery uses for its own per-vault work: each
- *  vault's RPC fetch and webhook sends are independent of every other
- *  vault's, so running them one at a time would let the endpoint's 60s
- *  `maxDuration` (see vercel.json) get eaten by earlier vaults before later
- *  ones are even attempted. */
-async function processVaultAlerts(
-  target: AlertVaultTarget,
-  config: AlertKeeperConfig,
-  cursorStore: KeeperHeartbeatStore,
-  fetchImpl: typeof fetch,
-  logger: KeeperLogger
-): Promise<{ alertsSent: AlertSuccess[]; failures: AlertFailure[] }> {
-  const key = alertCursorKey(target.vaultContractId, config.network.network);
-  const alertsSent: AlertSuccess[] = [];
-  const failures: AlertFailure[] = [];
-
-  let startLedger: number;
-  try {
-    const stored = await cursorStore.get(key);
-    if (stored !== null) {
-      startLedger = stored;
-    } else {
-      // No cursor yet: start from the current ledger rather than replaying
-      // this vault's entire history as alerts on first deploy. Restart
-      // safety only needs to cover events since the keeper started
-      // watching, not events that predate it.
-      const server = new rpc.Server(config.network.rpcUrl);
-      const latest = await withRaceTimeout(
-        () => server.getLatestLedger(),
-        config.rpcTimeoutMs,
-        "Soroban RPC"
-      );
-      startLedger = latest.sequence;
-    }
-  } catch (err) {
-    failures.push({
-      vaultId: target.vaultId,
-      vaultContractId: target.vaultContractId,
-      stage: "discover",
-      attempts: 1,
-      error: errorMessage(err),
-    });
-    return { alertsSent, failures };
-  }
-
-  let actions: RpcAdminAction[];
-  try {
-    const result = await withRetry(
-      () =>
-        withRaceTimeout(
-          () =>
-            getRpcAdminHistory(config.network.rpcUrl, target.vaultContractId, {
-              startLedger,
-            }),
-          config.rpcTimeoutMs,
-          "Soroban RPC"
-        ),
-      config.maxAttempts,
-      config.baseDelayMs
-    );
-    actions = result.actions;
-  } catch (err) {
-    failures.push({
-      vaultId: target.vaultId,
-      vaultContractId: target.vaultContractId,
-      stage: "discover",
-      attempts: config.maxAttempts,
-      error: errorMessage(err),
-    });
-    return { alertsSent, failures };
-  }
-
-  let cursor = startLedger;
-  for (const action of actions) {
-    if (ALERTABLE_ACTIONS.has(action.action)) {
-      try {
-        await sendAlert(
-          config.webhookUrl,
-          formatAlertMessage(target.vaultId, action),
-          {
-            maxAttempts: config.maxAttempts,
-            baseDelayMs: config.baseDelayMs,
-            timeoutMs: config.rpcTimeoutMs,
-            fetchImpl,
-          }
-        );
-        alertsSent.push({
-          vaultId: target.vaultId,
-          action: action.action,
-          ledgerSequence: action.ledgerSequence,
-        });
-      } catch (err) {
-        failures.push({
-          vaultId: target.vaultId,
-          vaultContractId: target.vaultContractId,
-          stage: "send",
-          attempts: config.maxAttempts,
-          error: errorMessage(err),
-        });
-        // A preceding action (including a skipped accept) may have already
-        // advanced past this ledger. Replay it so the failed alert is retried.
-        cursor = Math.min(cursor, action.ledgerSequence);
-        break;
-      }
-    }
-    cursor = action.ledgerSequence + 1;
-  }
-
-  try {
-    await cursorStore.set(key, cursor);
-  } catch (err) {
-    logger.warn("[alert-keeper] could not persist cursor", {
-      vaultId: target.vaultId,
-      error: errorMessage(err),
-    });
-  }
-
-  return { alertsSent, failures };
-}
-
-export async function runAlertKeeper(
-  config: AlertKeeperConfig,
-  deps: AlertKeeperDeps = {}
-): Promise<AlertKeeperResult> {
-  const startedAt = new Date().toISOString();
-  const logger = deps.logger ?? consoleLogger;
-  const fetchImpl = deps.fetchImpl ?? fetch;
-  const cursorStore = deps.cursorStore ?? createInMemoryKeeperHeartbeatStore();
-  const targets = deps.targets ?? discoverAlertVaultTargets(config.network);
-
-  const settled = await Promise.all(
-    targets.map((target) =>
-      processVaultAlerts(target, config, cursorStore, fetchImpl, logger)
-    )
-  );
-
-  const alertsSent = settled.flatMap((r) => r.alertsSent);
-  const failures = settled.flatMap((r) => r.failures);
-
-  return {
-    network: config.network.network,
-    startedAt,
-    finishedAt: new Date().toISOString(),
-    vaultsChecked: targets.length,
-    alertsSent,
-    failures,
-  };
 }
