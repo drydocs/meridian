@@ -3,6 +3,12 @@ const TWO_53 = 9_007_199_254_740_992;
 const SEED_MIX_GAMMA = 0x9e3779b97f4a7c15n;
 
 /**
+ * The sanctioned seed type for generators. Exported so correlated path code
+ * can share the same derivation as the GBM path.
+ */
+export type RngSeed = bigint;
+
+/**
  * xorshift64 over `bigint`, masked to 64 bits so the state cannot grow past a
  * machine word. Every draw is an exact integer, which is what keeps generated
  * paths identical across runs, machines and JavaScript engines.
