@@ -5,7 +5,12 @@ import {
   handleSubmitRequest,
   handleAddTrustlineRequest,
 } from "@meridian/api-core";
-import { applyCors, checkRateLimit } from "../../_lib/middleware.js";
+import {
+  applyCors,
+  checkRateLimit,
+  getRequestId,
+  sendResponse,
+} from "../../_lib/middleware.js";
 
 // Consolidated from four separate files (deposit/withdraw/submit/add-trustline)
 // to stay under Vercel's per-deployment Serverless Functions cap. URL paths
@@ -33,27 +38,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!(await checkRateLimit(req, res, { strict: true }))) return;
   } catch (err) {
-    console.error("[tx] rate limit check failed:", err);
-    return res
-      .status(503)
-      .json({ error: "Rate limiter unavailable; refusing to run" });
+    console.error("[tx] rate limit check failed:", {
+      requestId: getRequestId(req),
+      error: err,
+    });
+    return sendResponse(req, res, 503, {
+      error: "Rate limiter unavailable; refusing to run",
+    });
   }
   if (req.method !== "POST")
-    return res.status(405).json({ error: "Method not allowed" });
+    return sendResponse(req, res, 405, { error: "Method not allowed" });
 
   const { action } = req.query;
   if (!isAction(action)) {
-    return res.status(404).json({ error: "Unknown action" });
+    return sendResponse(req, res, 404, { error: "Unknown action" });
   }
 
   const result = await ACTIONS[action](req.body);
   if (result.error) {
     const cause = (result.error as { cause?: unknown } | undefined)?.cause;
-    console.error(
-      `[tx/${action}] failed:`,
-      result.error,
-      cause ? { cause } : ""
-    );
+    console.error(`[tx/${action}] failed:`, {
+      requestId: getRequestId(req),
+      error: result.error,
+      ...(cause ? { cause } : {}),
+    });
   }
-  res.status(result.status).json(result.body);
+  return sendResponse(req, res, result.status, result.body);
 }
