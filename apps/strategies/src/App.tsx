@@ -23,6 +23,13 @@ export default function App() {
   // Held here rather than in the view so the result and risk views can read
   // the latest run without a reload, and it survives switching tabs.
   const [latestRun, setLatestRun] = useState<ScenarioRun | null>(null);
+  // Completed runs collected for the comparison table.
+  const [runHistory, setRunHistory] = useState<readonly ScenarioRun[]>([]);
+
+  const handleRunComplete = (run: ScenarioRun) => {
+    setLatestRun(run);
+    setRunHistory((prev) => [...prev, run]);
+  };
 
   return (
     <div className="shell">
@@ -106,12 +113,12 @@ export default function App() {
         {activeView === "single-run" && (
           <SingleRunView
             latestRun={latestRun}
-            onRunComplete={setLatestRun}
+            onRunComplete={handleRunComplete}
             onRunCleared={() => setLatestRun(null)}
           />
         )}
         {activeView === "history" && <HistoryView />}
-        {activeView === "comparison" && <ComparisonView />}
+        {activeView === "comparison" && <ComparisonView runs={runHistory} />}
       </main>
     </div>
   );
