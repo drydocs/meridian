@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 use adapter_common::{
     extend_instance, get_usdc, require_not_initialized, require_vault_auth, store_vault_and_usdc,
     AdapterError,
@@ -375,6 +378,20 @@ mod tests {
         token::{StellarAssetClient, TokenClient},
         Address, Env,
     };
+
+    fn report_benchmark(env: &Env, name: &str) {
+        let estimate = env.cost_estimate();
+        let resources = estimate.resources();
+        let memory_bytes = estimate.budget().memory_bytes_cost();
+        let fee_stroops = estimate.fee().total;
+        std::println!(
+            "SOROBAN_BENCHMARK|{}|{}|{}|{}",
+            name,
+            resources.instructions,
+            memory_bytes,
+            fee_stroops
+        );
+    }
 
     // -----------------------------------------------------------------------
     // MockDefindexVault: a minimal DeFindex vault double. Tracks the adapter's
@@ -1104,5 +1121,25 @@ mod tests {
         let data: (i128, Address, i128) =
             soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
         assert_eq!(data, (shares, recipient, usdc_out));
+    }
+
+    #[test]
+    fn benchmark_defindex_deposit() {
+        let (env, vault, usdc_id, adapter, _dfx) = setup();
+        let amount = 100_0000000_i128;
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        adapter.deposit(&amount);
+        report_benchmark(&env, "defindex_adapter.deposit");
+    }
+
+    #[test]
+    fn benchmark_defindex_withdraw() {
+        let (env, vault, usdc_id, adapter, _dfx) = setup();
+        let amount = 100_0000000_i128;
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        adapter.deposit(&amount);
+        let recipient = Address::generate(&env);
+        adapter.withdraw(&amount, &recipient);
+        report_benchmark(&env, "defindex_adapter.withdraw");
     }
 }

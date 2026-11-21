@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 mod errors;
 mod types;
 
@@ -375,6 +378,20 @@ mod tests {
         token::{StellarAssetClient, TokenClient},
         Address, Env, Map, Val,
     };
+
+    fn report_benchmark(env: &Env, name: &str) {
+        let estimate = env.cost_estimate();
+        let resources = estimate.resources();
+        let memory_bytes = estimate.budget().memory_bytes_cost();
+        let fee_stroops = estimate.fee().total;
+        std::println!(
+            "SOROBAN_BENCHMARK|{}|{}|{}|{}",
+            name,
+            resources.instructions,
+            memory_bytes,
+            fee_stroops
+        );
+    }
 
     // -----------------------------------------------------------------------
     // MockBlendPool: a minimal Blend pool double. Tracks a single reserve's
@@ -1146,5 +1163,25 @@ mod tests {
         let data: (i128, Address, i128) =
             soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
         assert_eq!(data, (amount, recipient, delivered));
+    }
+
+    #[test]
+    fn benchmark_blend_deposit() {
+        let (env, vault, usdc_id, adapter, _pool) = setup();
+        let amount = 100_0000000_i128;
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        adapter.deposit(&amount);
+        report_benchmark(&env, "blend_adapter.deposit");
+    }
+
+    #[test]
+    fn benchmark_blend_withdraw() {
+        let (env, vault, usdc_id, adapter, _pool) = setup();
+        let amount = 100_0000000_i128;
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        adapter.deposit(&amount);
+        let recipient = Address::generate(&env);
+        adapter.withdraw(&amount, &recipient);
+        report_benchmark(&env, "blend_adapter.withdraw");
     }
 }

@@ -81,3 +81,34 @@ bash scripts/deploy-testnet.sh
 
 The deploy script prints the deployed contract IDs. Add them to `.env` as
 `VAULT_CONTRACT_ID`.
+
+## Soroban resource benchmarks
+
+Contract tests report native Soroban cost estimates for vault deposits,
+withdrawals, share transfers, migration setup and execution, pause and admin
+operations, and Blend and DeFindex adapter deposits and withdrawals. CI checks
+CPU instructions, memory bytes, and estimated fees against
+[`packages/contracts/benchmarks/baselines.json`](../packages/contracts/benchmarks/baselines.json)
+with a 15% tolerance. The share-transfer baseline measures the real mUSDC
+token's transfer and callback path. Adapter and vault paths use local protocol
+doubles. These estimates use the Soroban SDK's fee schedule and are regression
+indicators, not replacements for transaction simulation against deployed WASM.
+CI pins Rust to the compiler version recorded in the baseline and rejects
+compiler or SDK version drift.
+
+To refresh the baselines after reviewing a deliberate resource change, run
+from `packages/contracts`:
+
+```bash
+set -o pipefail
+cargo test --workspace -- --nocapture 2>&1 | tee benchmark-output.log
+python3 ../../scripts/check-contract-benchmarks.py \
+  --input benchmark-output.log \
+  --baseline benchmarks/baselines.json \
+  --output benchmark-results.json \
+  --update
+```
+
+The benchmark results JSON and raw test log are uploaded as the
+`soroban-resource-benchmarks` CI artifact. Commit the updated baseline JSON
+alongside the change that motivated it.
