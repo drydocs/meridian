@@ -161,6 +161,28 @@ Returns the currently pending nominee, or `None` if no handover is in progress.
 
 Returns the current admin address.
 
+## Events
+
+Every vault event carries a schema version in its final topic segment. The current version is `1` (`u32`). Event names remain stable across versions; consumers must inspect the final topic segment and reject versions they do not understand instead of decoding them using this schema.
+
+All topic segments are `Symbol` values unless shown as `u32(1)`. Soroban encodes tuple payloads as an `ScVal` vector, so the payload fields below are positional.
+
+| Event       | Topic                        | Payload                                                                               |
+| ----------- | ---------------------------- | ------------------------------------------------------------------------------------- |
+| `deposit`   | `(deposit, u32(1))`          | `(caller: Address, amount: i128, adapter_shares_credited: i128, shares_minted: i128)` |
+| `perf_fee`  | `(perf_fee, u32(1))`         | `(caller: Address, treasury: Address, fee: i128, treasury_shares: i128)`              |
+| `withdraw`  | `(withdraw, u32(1))`         | `(caller: Address, shares_burned: i128, usdc_out: i128)`                              |
+| `paused`    | `(admin, paused, u32(1))`    | `paused: bool`                                                                        |
+| `transfer`  | `(admin, transfer, u32(1))`  | `new_admin: Address`                                                                  |
+| `accept`    | `(admin, accept, u32(1))`    | `new_admin: Address`                                                                  |
+| `adapter`   | `(admin, adapter, u32(1))`   | `new_adapter: Address`                                                                |
+| `mig_begin` | `(admin, mig_begin, u32(1))` | `(new_adapter: Address, earliest_ledger: u32)`                                        |
+| `migrate`   | `(admin, migrate, u32(1))`   | `(old_adapter: Address, new_adapter: Address)`                                        |
+
+### Event schema compatibility
+
+Schema v1 is a breaking change from the unversioned topics. The event names are unchanged, but named events now have a trailing `u32(1)` topic and admin events change from `(admin, action)` to `(admin, action, u32(1))`. Indexers using exact-length topic filters, including Soroban RPC `getEvents`, must add the version segment. Decoders must ignore or explicitly reject events with an unsupported version rather than interpreting their fields as v1. Existing admin history can be read alongside v1 by filtering both topic shapes and decoding the legacy two-segment `(admin, action)` events with the original schema; `getRpcAdminHistory` does this.
+
 ## Transferable shares
 
 mUSDC is an ordinary transferable token, and a transfer is a legitimate thing for a holder to do: the shares are tradeable and usable as collateral elsewhere. The vault therefore keeps **one** source of truth for who owns what, the token itself.
