@@ -148,6 +148,25 @@
     }
   },
 
+  "errors": {
+    "depositsPaused": "Les dépôts sont suspendus. Veuillez réessayer plus tard.",
+    "insufficientShares": "Vous n'avez pas assez de parts pour ce retrait.",
+    "withdrawalSlippage": "Le retrait a renvoyé moins que votre minimum. Ajustez la tolérance de glissement et réessayez.",
+    "slippageExceeded": "Tolérance de glissement dépassée. Ajustez la tolérance et réessayez.",
+    "missingUsdcTrustline": "Votre portefeuille ne dispose pas de la ligne de confiance USDC. Ajoutez-la et réessayez.",
+    "missingTrustline": "Votre portefeuille n'a pas une ou plusieurs lignes de confiance requises. Ajoutez-les et réessayez.",
+    "trustlinesAlreadyExist": "Toutes les lignes de confiance requises sont déjà dans votre portefeuille.",
+    "depositBuildFailed": "Impossible de préparer le dépôt. Veuillez réessayer.",
+    "withdrawBuildFailed": "Impossible de préparer le retrait. Veuillez réessayer.",
+    "trustlineBuildFailed": "Impossible de préparer la transaction de ligne de confiance. Veuillez réessayer.",
+    "submitFailed": "La soumission de la transaction a échoué. Veuillez réessayer.",
+    "walletDisconnected": "Votre portefeuille s'est déconnecté. Reconnectez-le et réessayez.",
+    "walletDeclined": "Vous avez refusé la demande. Réessayez quand vous êtes prêt.",
+    "unknown": "Une erreur est survenue. Veuillez réessayer.",
+    "unknownWithRef": "Une erreur est survenue (réf. : {{ref}}). Veuillez réessayer.",
+    "fallbackWithRef": "{{action}} (réf. : {{ref}}). Veuillez réessayer."
+  },
+
   "errorBoundary": {
     "title": "Une erreur s'est produite. Veuillez recharger la page.",
     "reload": "Recharger"
