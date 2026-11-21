@@ -495,3 +495,111 @@ body {
   color: var(--color-text);
   overflow-wrap: anywhere;
 }
+
+.risk-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.risk-panel__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.risk-panel__title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+
+.risk-panel__description,
+.risk-panel__notice {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.risk-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.risk-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1.125rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+}
+
+.risk-metric__label {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-dim);
+}
+
+.risk-metric__value {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.risk-metric__value--empty {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  color: var(--color-muted);
+}
+
+.risk-metric__insufficient {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.risk-metric__reason,
+.risk-metric__convention,
+.risk-metric__explanation {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.risk-metric__reason {
+  color: var(--color-muted);
+}
+
+.risk-metric__convention {
+  color: var(--color-notice-tag-text);
+}
+
+.risk-metric__explanation {
+  color: var(--color-muted);
+}
+
+.risk-metric__formula {
+  display: block;
+  padding: 0.5rem 0.625rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
