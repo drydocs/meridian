@@ -38,6 +38,8 @@
     "position": "No position in this vault.",
     "waiting": "Waiting for signature...",
     "positionsError": "Couldn't load your position. Deposits and withdrawals still work.",
+    "balanceError": "Couldn't load your balance.",
+    "retryBalance": "Reload balance",
     "validation": {
       "required": "Enter an amount to deposit.",
       "invalid": "Enter a valid number.",

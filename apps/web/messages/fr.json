@@ -38,6 +38,8 @@
     "position": "Aucune position dans ce coffre.",
     "waiting": "En attente de signature...",
     "positionsError": "Impossible de charger votre position. Les dépôts et retraits fonctionnent toujours.",
+    "balanceError": "Impossible de charger votre solde.",
+    "retryBalance": "Recharger le solde",
     "validation": {
       "required": "Saisissez un montant à déposer.",
       "invalid": "Saisissez un nombre valide.",
