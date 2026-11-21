@@ -37,11 +37,22 @@ describe("keeper-tx", () => {
   describe("assertVaultHealthy", () => {
     it("skips the health preflight when an older vault has no get_health method", async () => {
       vi.mocked(txModule.simulateView).mockRejectedValueOnce(
-        new Error("HostError: Error(WasmVm, InvalidAction)")
+        new Error(
+          "HostError: Error(WasmVm, MissingValue): " +
+            "trying to invoke non-existent contract function get_health"
+        )
       );
       await expect(
         assertVaultHealthy({} as never, "vault", "passphrase")
       ).resolves.toBeUndefined();
+    });
+
+    it("does not skip the preflight when get_health traps", async () => {
+      const error = new Error("HostError: Error(WasmVm, InvalidAction)");
+      vi.mocked(txModule.simulateView).mockRejectedValueOnce(error);
+      await expect(
+        assertVaultHealthy({} as never, "vault", "passphrase")
+      ).rejects.toBe(error);
     });
 
     it("still blocks health preflight on RPC failures", async () => {

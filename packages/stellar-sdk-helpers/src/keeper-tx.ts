@@ -46,6 +46,10 @@ export const KEEPER_BASE_FEE_STROOPS = 10_000;
 // require bidding anywhere near this.
 export const KEEPER_MAX_FEE_STROOPS = 1_000_000;
 
+// Match the Stellar SDK's missing-export errors without treating contract
+// traps (InvalidAction) as if an older vault simply lacked this view.
+const MISSING_FUNCTION_PATTERN = /non-existent contract function|MissingValue/i;
+
 export interface FeeEscalationConfig {
   maxFee: number;
   multiplier: number;
@@ -288,14 +292,7 @@ export async function assertVaultHealthy(
     // function is the one safe error to ignore; RPC and other contract errors
     // still block a keeper action.
     const message = errorMessage(error);
-    if (
-      /(?:unknown|missing|no such)\s+(?:contract\s+)?(?:function|method).*get_health/i.test(
-        message
-      ) ||
-      /Error\(WasmVm, InvalidAction\)/i.test(message)
-    ) {
-      return;
-    }
+    if (MISSING_FUNCTION_PATTERN.test(message)) return;
     throw error;
   }
   if (!health || typeof health !== "object") return;
