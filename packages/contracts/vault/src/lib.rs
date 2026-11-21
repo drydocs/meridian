@@ -1881,7 +1881,7 @@ mod tests {
     fn wiring_fixture() -> WiringFixture {
         let env = Env::default();
         env.mock_all_auths();
-        let vault_id = test_vault(&env);
+        let vault_id = Address::generate(&env);
         let admin = Address::generate(&env);
         let usdc = env
             .register_stellar_asset_contract_v2(admin.clone())
