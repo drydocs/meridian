@@ -1,5 +1,7 @@
 name: CI
 
+permissions: {}
+
 on:
   push:
     branches: [main]
@@ -16,6 +18,9 @@ jobs:
   # would also skip lint-typecheck and vercel-build. Skipped jobs report as
   # successful, so required checks don't block docs-only PRs.
   changes:
+    permissions:
+      contents: read
+      pull-requests: read
     name: Detect Changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -27,8 +32,8 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       contracts: ${{ steps.filter.outputs.contracts }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
         id: filter
         with:
           predicate-quantifier: some-with-excludes
@@ -73,13 +78,15 @@ jobs:
               - "!**/*.md"
 
   lint-typecheck:
+    permissions:
+      contents: read
     name: Lint & Typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6.1.1
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -93,13 +100,15 @@ jobs:
           test -f apps/api-local/dist/index.js
 
   vercel-build:
+    permissions:
+      contents: read
     name: Verify Vercel Build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6.1.1
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -116,15 +125,17 @@ jobs:
           done
 
   test:
+    permissions:
+      contents: read
     name: Test
     needs: changes
     if: needs.changes.outputs.test == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6.1.1
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -133,28 +144,36 @@ jobs:
       - run: pnpm coverage
 
   commitlint:
+    permissions:
+      contents: read
+      pull-requests: read
     name: Commit Messages
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: wagoid/commitlint-github-action@v6
+      - uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed # v6.2.1
         with:
           configFile: commitlint.config.mjs
 
   dependency-review:
+    permissions:
+      contents: read
+      pull-requests: read
     name: Dependency Review
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/dependency-review-action@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
 
   e2e:
+    permissions:
+      contents: read
     name: E2E Tests
     needs: changes
     if: needs.changes.outputs.e2e == 'true'
@@ -174,9 +193,9 @@ jobs:
     env:
       STELLAR_NETWORK: testnet
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6.1.1
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -190,21 +209,24 @@ jobs:
       - run: pnpm --filter @meridian/web test:e2e
 
   contracts:
+    permissions:
+      contents: read
     name: Soroban Contract Tests
     needs: changes
     if: needs.changes.outputs.contracts == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The WASM size check builds the PR's base commit for its delta.
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
+          toolchain: stable
           targets: wasm32v1-none
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: packages/contracts
       - name: Check formatting
@@ -221,7 +243,7 @@ jobs:
         working-directory: packages/contracts
         run: cargo test --locked -p meridian-integration-tests
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@d8c10dae823f48238abff23fee4146b448aed2f1 # cargo-llvm-cov
       - name: Install LLVM coverage tools
         run: rustup component add llvm-tools-preview
       - name: Measure contract coverage
@@ -238,8 +260,8 @@ jobs:
       # packages/contracts/wasm-size-budgets.json and, on PRs, with a build of
       # the base commit (same command, separate target dir). Fails when a
       # contract is over budget; the table also goes to the job summary.
-      - uses: pnpm/action-setup@v6.1.1
-      - uses: actions/setup-node@v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
