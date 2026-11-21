@@ -91,66 +91,10 @@ export class KeeperError extends Error {
   }
 }
 
-// Bounds a single wallet/keeper unit of work so one slow item cannot consume
-// the whole run budget. Resolves to the result, or rejects with a timeout error.
-export class KeeperTimeoutError extends KeeperError {
-  readonly timeoutMs: number;
-
-  constructor(timeoutMs: number) {
-    super(`operation timed out after ${timeoutMs}ms`);
-    this.name = "KeeperTimeoutError";
-    this.timeoutMs = timeoutMs;
-  }
-}
-
-export async function withTimeout<T>(
-  fn: () => Promise<T>,
-  timeoutMs: number
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new KeeperTimeoutError(timeoutMs)),
-      timeoutMs
-    );
-  });
-  try {
-    return await Promise.race([fn(), timeout]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
-
 // Resumable cursor over an ordered list of items. Wraps to the start once the
 // end is reached so coverage stays fair across runs.
 export interface KeeperCursor {
   offset: number;
-}
-
-export function nextCursorPosition(
-  cursor: KeeperCursor,
-  total: number,
-  processed: number
-): KeeperCursor {
-  if (total === 0) return { offset: 0 };
-  const next = cursor.offset + processed;
-  return { offset: next >= total ? next % total : next };
-}
-
-// Returns the list of indices to process this run, wrapping past the end, and
-// capped at `limit` items. `hasMore` is true when not every item was covered.
-export function sliceFromCursor(
-  total: number,
-  cursor: KeeperCursor,
-  limit: number
-): { indices: number[]; hasMore: boolean } {
-  if (total === 0 || limit <= 0) return { indices: [], hasMore: total > 0 };
-  const count = Math.min(total, limit);
-  const indices: number[] = [];
-  for (let i = 0; i < count; i++) {
-    indices.push((cursor.offset + i) % total);
-  }
-  return { indices, hasMore: count < total };
 }
 
 export interface RetryOptions {

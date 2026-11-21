@@ -306,6 +306,17 @@ export async function runPositionSnapshotKeeper(options: {
       });
       return;
     }
+    if (positions.length === 0) {
+      // Wallet no longer holds positions: write the closing zero snapshot so
+      // the series shows the withdrawal, then drop it from rotation.
+      await recordPositionSnapshot(store, publicKey, network, [], logger, {
+        ...throttle,
+        force: true,
+      });
+      await store.untrack(trackedKey, publicKey);
+      result.recorded += 1;
+      return;
+    }
     const wrote = await recordPositionSnapshot(
       store,
       publicKey,
@@ -333,23 +344,27 @@ export async function runPositionSnapshotKeeper(options: {
     lastHandled = publicKey;
     try {
       await withRaceTimeout(
-        () => processWallet(publicKey),
+        processWallet(publicKey),
         perWalletTimeoutMs,
-        `wallet ${publicKey} exceeded per-wallet timeout`
+        `snapshot ${publicKey}`
       );
     } catch (err) {
-      // Per-wallet timeout or unexpected error: isolate and continue.
       result.failures.push({ publicKey, error: errorMessage(err) });
     }
   }
 
-  if (!result.deadlineReached && batch.length < ordered.length) {
-    // Batch cap hit without the deadline: more rotation remains.
+  if (result.deadlineReached) {
+    result.nextCursor = lastHandled;
+  } else if (trackedTotal > batch.length) {
     result.hasMore = true;
-  }
-  if (result.hasMore && lastHandled !== null) {
     result.nextCursor = lastHandled;
   }
 
+  if (result.failures.length > 0) {
+    logger.warn("[position-snapshots] run completed with failures", {
+      network,
+      failures: result.failures.length,
+    });
+  }
   return result;
 }
