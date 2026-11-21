@@ -106,6 +106,10 @@ export default defineConfig({
             text: "Incident Response",
             link: "/operations/incident-response",
           },
+          {
+            text: "Wallet Signing Troubleshooting",
+            link: "/operations/wallet-signing-troubleshooting",
+          },
         ],
       },
     ],

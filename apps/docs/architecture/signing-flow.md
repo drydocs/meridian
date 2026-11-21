@@ -87,3 +87,7 @@ The connect flow calls `isInstalled()` to detect the wallet and `connect()` to r
 A wallet picker ([#611](https://github.com/drydocs/meridian/issues/611)) is live in the header, letting a user choose between three wired-up adapters (`FreighterWallet`, `LobstrWallet`, `XBullWallet`) rather than a single hardcoded wallet. An `AlbedoWallet` adapter also exists and is tested but isn't exposed in the picker yet ([#674](https://github.com/drydocs/meridian/issues/674)). See [`architecture/frontend.md`](./frontend.md#wallet-registry-and-picker-611) for the registry/selection mechanics.
 
 Freighter is used as the concrete example above only because it reads cleanest for a single sequence diagram; the flow itself is defined against the `WalletAdapter` interface, identical for whichever wallet the user actually picks.
+
+## Troubleshooting
+
+For diagnosis and recovery steps covering common connection and signing failures (wallet not detected, locked wallet, rejected signature, wrong network, missing USDC trustline, insufficient XLM for fees, simulation failure, or stuck pending transactions), see the [Wallet Signing Troubleshooting Guide](../operations/wallet-signing-troubleshooting.md).
