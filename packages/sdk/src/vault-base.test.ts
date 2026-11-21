@@ -360,6 +360,78 @@ describe("VaultBase.withdraw", () => {
 });
 
 // ---------------------------------------------------------------------------
+// VaultBase: withdrawAssets
+// ---------------------------------------------------------------------------
+
+describe("VaultBase.withdrawAssets", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(prepareSorobanTx).mockResolvedValue(STUB_TX);
+  });
+
+  it("builds a withdraw_assets call with owner, assets, and maxSharesIn", async () => {
+    const vault = makeVault();
+    const result = await vault.withdrawAssets(
+      5_000_000n,
+      WALLET,
+      WALLET,
+      6_000_000n
+    );
+    expect(result).toEqual(STUB_TX);
+    expect(prepareSorobanTx).toHaveBeenCalledTimes(1);
+
+    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    const hostFn = op.body().invokeHostFunctionOp().hostFunction();
+    const invokeContract = hostFn.invokeContract();
+    expect(invokeContract.functionName().toString()).toBe("withdraw_assets");
+    const args = invokeContract.args();
+    expect(args).toHaveLength(3);
+    expect(Address.fromScVal(args[0]!).toString()).toBe(WALLET);
+    expect(args[1]).toEqual(nativeToScVal(5_000_000n, { type: "i128" }));
+    expect(args[2]).toEqual(nativeToScVal(6_000_000n, { type: "i128" }));
+  });
+
+  it("defaults maxSharesIn to max i128 when omitted", async () => {
+    const vault = makeVault();
+    await vault.withdrawAssets(5_000_000n, WALLET, WALLET);
+    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    const args = op
+      .body()
+      .invokeHostFunctionOp()
+      .hostFunction()
+      .invokeContract()
+      .args();
+    const defaultMax = (1n << 127n) - 1n;
+    expect(args[2]).toEqual(nativeToScVal(defaultMax, { type: "i128" }));
+  });
+
+  it("throws when receiver differs from owner", async () => {
+    const vault = makeVault();
+    await expect(
+      vault.withdrawAssets(5_000_000n, OTHER_WALLET, WALLET)
+    ).rejects.toThrow("receiver must equal owner");
+    expect(prepareSorobanTx).not.toHaveBeenCalled();
+  });
+
+  it("throws for non-positive assets", async () => {
+    const vault = makeVault();
+    await expect(vault.withdrawAssets(0n, WALLET, WALLET)).rejects.toThrow(
+      "assets must be positive"
+    );
+    await expect(vault.withdrawAssets(-1n, WALLET, WALLET)).rejects.toThrow(
+      "assets must be positive"
+    );
+  });
+
+  it("throws for negative maxSharesIn", async () => {
+    const vault = makeVault();
+    await expect(
+      vault.withdrawAssets(5_000_000n, WALLET, WALLET, -1n)
+    ).rejects.toThrow("maxSharesIn must be non-negative");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // VaultBase: setPaused
 // ---------------------------------------------------------------------------
 

@@ -3,15 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node init && turbo run dev",
-    "build": "node init && turbo run build",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
     "test": "turbo run test",
     "coverage": "turbo run coverage",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "verify:contracts": "tsx scripts/verify-contract-addresses.ts"
+    "verify:contracts": "tsx scripts/verify-contract-addresses.ts",
+    "check:wasm-size": "tsx scripts/check-wasm-size.ts",
+    "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.6.1"

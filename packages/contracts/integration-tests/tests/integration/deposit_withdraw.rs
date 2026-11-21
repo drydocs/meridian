@@ -140,3 +140,45 @@ fn withdrawing_more_shares_than_held_is_rejected() {
     assert_eq!(f.musdc_balance(&alice), usdc(100));
     assert_eq!(f.venue.pool.collateral(), usdc(200));
 }
+
+#[test]
+fn withdraw_assets_without_yield_redeems_exact_usdc_and_updates_position() {
+    let f = Fixture::new();
+    let alice = Address::generate(&f.env);
+    f.fund(&alice, usdc(1_000));
+    f.deposit(&alice, usdc(100));
+
+    // Request exact 40 USDC with a 45-share cap.
+    let out = f.withdraw_assets(&alice, usdc(40), usdc(45));
+
+    assert_eq!(out, usdc(40));
+    assert_eq!(f.usdc_balance(&alice), usdc(940));
+    assert_eq!(f.musdc_balance(&alice), usdc(60));
+    assert_eq!(f.vault.get_principal(&alice), usdc(60));
+    assert_eq!(f.vault.get_entry_time(&alice), START_TIME);
+    assert_eq!(f.vault.get_total_shares(), usdc(60));
+    assert_eq!(f.venue.pool.collateral(), usdc(60));
+    assert_eq!(f.usdc_balance(&f.venue.pool.address), usdc(60));
+}
+
+#[test]
+fn withdraw_assets_exceeding_max_shares_is_rejected() {
+    let f = Fixture::new();
+    let alice = Address::generate(&f.env);
+    f.fund(&alice, usdc(1_000));
+    f.deposit(&alice, usdc(100));
+
+    // Requesting 50 USDC without yield requires 50 shares. Capped at 40 shares.
+    f.authorize(
+        &alice,
+        &f.vault.address,
+        "withdraw_assets",
+        (alice.clone(), usdc(50), usdc(40)),
+        &[],
+    );
+    let res = f.vault.try_withdraw_assets(&alice, &usdc(50), &usdc(40));
+    assert_eq!(
+        res,
+        Err(Ok(meridian_vault::ContractError::MaxSharesExceeded))
+    );
+}

@@ -14,6 +14,7 @@ import {
   computeMinUsdcOut,
   fetchFreshVaultState,
 } from "./useVaultState";
+import { mapError } from "../lib/errorMapper";
 
 /**
  * Live vault totals for pricing a slippage floor, falling back to the cached
@@ -168,9 +169,7 @@ export function useVaultActions() {
       push("success", `${t("vaultActions.deposited")} ${amount} ${asset}`);
       return true;
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : t("vaultActions.depositFailed");
-      push("error", msg);
+      push("error", mapError(err, t, "vaultActions.depositFailed").message);
       return false;
     } finally {
       setIsDepositing(false);
@@ -262,10 +261,7 @@ export function useVaultActions() {
       push("success", `${t("vaultActions.withdrew")} ${shares} ${asset}`);
       return true;
     } catch (err) {
-      push(
-        "error",
-        err instanceof Error ? err.message : t("vaultActions.withdrawalFailed")
-      );
+      push("error", mapError(err, t, "vaultActions.withdrawalFailed").message);
       return false;
     } finally {
       setIsWithdrawing(false);
