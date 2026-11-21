@@ -25,7 +25,6 @@
 // (see #707's acceptance criteria, which lists paused/transfer/adapter/
 // migrate only).
 
-import { rpc } from "@stellar/stellar-sdk";
 import { withRaceTimeout, withRetry } from "@meridian/shared";
 import { APP_NETWORK } from "@meridian/shared";
 import {
@@ -36,15 +35,10 @@ import {
 import { KNOWN_POOLS } from "./known-pools";
 import type { StellarNetwork } from "./types";
 import {
-  consoleLogger,
   errorMessage,
   parsePositiveInt,
   type KeeperLogger,
 } from "./keeper-retry";
-import {
-  createInMemoryKeeperHeartbeatStore,
-  type KeeperHeartbeatStore,
-} from "./keeper-heartbeat";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_DELAY_MS = 1_000;
