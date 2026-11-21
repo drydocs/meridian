@@ -10,8 +10,9 @@ export const TEST_ADDRESS =
 // Caller-fixable vault contract rejections come back as HTTP 400 with these
 // messages instead of the raw simulation failure (packages/api-core/src/tx.ts),
 // so specs that sample the live vault accept them alongside the rest.
+// These are the localized messages produced by mapError / en.json errors.*.
 export const USER_FIXABLE_TX_ERRORS =
-  "Deposits are currently paused|Insufficient shares for this withdrawal|Withdrawal returned less USDC than your minimum|Slippage tolerance exceeded";
+  "Deposits are paused|You don't have enough shares for this withdrawal|Withdrawal returned less than your minimum|Slippage tolerance exceeded";
 
 export const FAKE_VAULTS = {
   vaults: [

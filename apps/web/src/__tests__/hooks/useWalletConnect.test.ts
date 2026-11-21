@@ -142,9 +142,12 @@ describe("useWalletConnect", () => {
     await act(() => result.current.handleConnect());
 
     expect(result.current.status).toBe("idle");
+    // "Network error" is an unmapped error; mapError returns the
+    // errors.unknownWithRef key (the t() stub in this test returns the key
+    // as-is with its interpolation params appended).
     expect(useToastStore.getState().toasts[0]).toMatchObject({
       kind: "error",
-      message: "Network error",
+      message: expect.stringContaining("errors.unknownWithRef"),
     });
   });
 });
