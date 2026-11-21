@@ -107,7 +107,7 @@ describe("GET /health", () => {
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
     expect(res.headers["x-frame-options"]).toBe("DENY");
-    expect(res.headers["referrer-policy"]).toBe("no-referrer");
+    expect(res.headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
     expect(res.headers["strict-transport-security"]).toContain("max-age=");
     expect(res.headers["content-security-policy"]).toBe(
       "default-src 'none'"

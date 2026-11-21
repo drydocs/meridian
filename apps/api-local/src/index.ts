@@ -29,7 +29,6 @@ const redisClient = process.env.REDIS_URL
 await app.register(cors, {
   origin: process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN,
   methods: ["GET", "POST", "OPTIONS"],
-  maxAge: 600,
 });
 await app.register(rateLimit, {
   max: 100,
@@ -43,7 +42,6 @@ app.addHook("onSend", (_req, reply, _payload, done) => {
   reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
   reply.header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
   reply.header("Content-Security-Policy", "default-src 'none'");
-  reply.header("Vary", "Origin");
   done();
 });
 
