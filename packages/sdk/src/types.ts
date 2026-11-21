@@ -2,7 +2,17 @@ import type { StellarNetwork } from "@meridian/stellar-sdk-helpers";
 import type { InstrumentationHooks } from "./instrumentation.js";
 import type { RetryPolicy } from "./retry.js";
 
-/** Time budgets, in milliseconds. Omitted fields keep their defaults. */
+// ---------------------------------------------------------------------------
+// High-level vault client types
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Timeout / configuration
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Time budgets, in milliseconds. Omitted fields keep their defaults.
+// ---------------------------------------------------------------------------
 export interface TimeoutOptions {
   /** HTTP timeout of the Soroban RPC client. Default 12000. */
   rpcMs?: number;
@@ -89,4 +99,101 @@ export interface AdapterInfo {
   protocol: string;
   /** Total USDC assets under management by this adapter (stroops). */
   totalAssets: bigint;
+}
+
+// ---------------------------------------------------------------------------
+// High-level client: simulate / sign / submit / confirm
+// ---------------------------------------------------------------------------
+
+/** On-chain status of a submitted transaction. */
+export type TransactionStatus =
+  | "pending"
+  | "success"
+  | "failed";
+
+/**
+ * Result of a successfully confirmed vault operation.
+ */
+export interface TransactionResult {
+  /** Transaction hash (as reported by the network). */
+  hash: string;
+  /** Final status of the transaction. */
+  status: TransactionStatus;
+  /** Ledger sequence the transaction was included in. */
+  ledger: number;
+  /** Base64-encoded result XDR returned by the network, when available. */
+  resultXdr?: string;
+}
+
+/**
+ * Result of simulating a transaction. Contains the simulation outcome and
+ * the prepared, simulation-assembled XDR ready to be signed.
+ */
+export interface SimulationResult {
+  /** Base64-encoded, simulation-assembled transaction XDR ready to sign. */
+  xdr: string;
+  /** Stroop fee the simulation resolved for the transaction. */
+  fee: string;
+  /** Estimated ledger number the transaction reaches timeout. */
+  latestLedger: number;
+  /** Return value of the invocation, as a stringified scval value. */
+  returnValue?: string;
+}
+
+/**
+ * Signs a transaction XDR and returns the signed XDR. The SDK invokes this
+ * callback and never stores a secret key.
+ */
+export type TransactionSigner = (xdr: string) => Promise<string>;
+
+/** Options for `waitForConfirmation`. */
+export interface WaitForConfirmationOptions {
+  /** Maximum time to wait, in milliseconds. Default 60000. */
+  timeoutMs?: number;
+  /** Polling interval, in milliseconds. Default 1000. */
+  pollIntervalMs?: number;
+}
+
+/** Error codes emitted by the high-level vault client. */
+export type VaultClientErrorCode =
+  | "simulation_failed"
+  | "signing_rejected"
+  | "submission_failed"
+  | "confirmation_timeout";
+
+/** Typed error returned by the high-level vault client. */
+export interface VaultClientError extends Error {
+  /** Machine-readable error code. */
+  code: VaultClientErrorCode;
+  /** Human-readable message. */
+  message: string;
+  /** Transaction hash, when known (e.g. on confirmation timeout). */
+  hash?: string;
+  /** Optional underlying cause. */
+  cause?: unknown;
+}
+
+/**
+ * Result of the complete build -> simulate -> sign -> submit -> confirm
+ * flow exposed by the high-level vault client.
+ */
+export type VaultClientResult =
+  | { ok: true; value: TransactionResult }
+  | { ok: false; error: VaultClientError };
+
+/**
+ * High-level vault client facade. Wraps a VaultBase subclass and exposes
+ * simulate, signAndSubmit, and waitForConfirmation helpers. The signer is
+ * injected by the caller; the SDK never stores a secret key.
+ */
+export interface VaultClient {
+  /** Simulate a transaction XDR and return the assembled result. */
+  simulate(xdr: string): Promise<SimulationResult>;
+  /** Sign and submit a transaction XDR, returning the submitted hash. */
+  signAndSubmit(xdr: string, signer: TransactionSigner): Promise<{ hash: string }>;
+  /** Poll until the transaction is confirmed or the timeout elapses. */
+  waitForConfirmation(
+    hash: string,
+    options?: WaitForConfirmationOptions,
+  ): Promise<TransactionResult>;
 }

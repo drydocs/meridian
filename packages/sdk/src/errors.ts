@@ -20,6 +20,12 @@ export const ErrorCode = {
   TIMEOUT: "TIMEOUT",
   /** The vault deployment or its on-chain state cannot serve the request. */
   UNSUPPORTED: "UNSUPPORTED",
+  /** The signer rejected the transaction. */
+  SIGNING: "SIGNING",
+  /** Submitting the signed transaction to the RPC failed. */
+  SUBMISSION: "SUBMISSION",
+  /** Confirmation polling exhausted its time budget. */
+  CONFIRMATION_TIMEOUT: "CONFIRMATION_TIMEOUT",
   /** Anything the SDK could not classify. */
   UNKNOWN: "UNKNOWN",
 } as const;
@@ -112,6 +118,30 @@ export class TimeoutError extends MeridianError {
 export class UnsupportedError extends MeridianError {
   constructor(message: string, options: MeridianErrorOptions = {}) {
     super(ErrorCode.UNSUPPORTED, message, options);
+  }
+}
+
+/** The injected signer rejected or failed to sign the transaction. */
+export class SigningError extends MeridianError {
+  constructor(message: string, options: MeridianErrorOptions = {}) {
+    super(ErrorCode.SIGNING, message, options);
+  }
+}
+
+/** The signed transaction could not be submitted to the RPC. */
+export class SubmissionError extends MeridianError {
+  constructor(message: string, options: MeridianErrorOptions = {}) {
+    super(ErrorCode.SUBMISSION, message, options);
+  }
+}
+
+/** Confirmation polling exhausted its time budget before the tx landed. */
+export class ConfirmationTimeoutError extends MeridianError {
+  constructor(message: string, options: MeridianErrorOptions = {}) {
+    super(ErrorCode.CONFIRMATION_TIMEOUT, message, {
+      defaultRetryable: true,
+      ...options,
+    });
   }
 }
 
