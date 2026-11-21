@@ -169,3 +169,7 @@ The browser-side wrappers live in
 [`apps/web/src/lib/wallet.ts`](../apps/web/src/lib/wallet.ts) (signing) and
 [`apps/web/src/lib/api.ts`](../apps/web/src/lib/api.ts) (build/submit calls); the orchestration
 is in [`apps/web/src/hooks/useVaultActions.ts`](../apps/web/src/hooks/useVaultActions.ts).
+
+## Troubleshooting
+
+For diagnosis and recovery steps covering common connection and signing failures (wallet not detected, locked wallet, rejected signature, wrong network, missing USDC trustline, insufficient XLM for fees, simulation failure, or stuck pending transactions), see the [Wallet Signing & Connection Troubleshooting Guide](../apps/docs/operations/wallet-signing-troubleshooting.md).

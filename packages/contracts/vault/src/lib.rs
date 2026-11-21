@@ -14,7 +14,7 @@ pub use storage::{
 
 use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, symbol_short, token::TokenClient,
-    Address, Env, Symbol,
+    Address, Env, String, Symbol,
 };
 
 // ---------------------------------------------------------------------------
@@ -59,7 +59,7 @@ const POSITION_THRESHOLD: u32 = POSITION_BUMP - 7 * DAY_IN_LEDGERS;
 /// This is compiled into the vault WASM rather than stored behind an admin
 /// setter. Changing it therefore requires a fresh deployment.
 pub const PERFORMANCE_FEE_BPS: i128 = 1_000;
-const BPS_DENOMINATOR: i128 = 10_000;
+pub const BPS_DENOMINATOR: i128 = 10_000;
 
 // ---------------------------------------------------------------------------
 // Adapter interface
@@ -126,7 +126,11 @@ pub trait YieldAdapterInterface {
 #[contractclient(name = "MusdcAdminClient")]
 pub trait MusdcAdminInterface {
     fn mint(env: Env, to: Address, amount: i128);
+    fn admin(env: Env) -> Address;
 }
+
+const ZERO_ACCOUNT_ADDRESS: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+const INITIALIZING: Symbol = symbol_short!("INIT");
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -180,7 +184,6 @@ impl MeridianVault {
         adapter: Address,
         treasury: Address,
     ) {
-        admin.require_auth();
         Self::init_state(&env, &admin, &usdc, &musdc, &adapter, &treasury);
     }
 
@@ -199,10 +202,9 @@ impl MeridianVault {
         adapter: Address,
         treasury: Address,
     ) -> Result<(), ContractError> {
-        if env.storage().instance().has(&ADMIN) {
+        if env.storage().instance().has(&ADMIN) || env.storage().instance().has(&INITIALIZING) {
             return Err(ContractError::AlreadyInitialized);
         }
-        admin.require_auth();
         Self::init_state(&env, &admin, &usdc, &musdc, &adapter, &treasury);
         Ok(())
     }
@@ -218,6 +220,13 @@ impl MeridianVault {
         adapter: &Address,
         treasury: &Address,
     ) {
+        Self::validate_addresses(env, admin, usdc, musdc, adapter, treasury)
+            .unwrap_or_else(|error| soroban_sdk::panic_with_error!(env, error));
+        admin.require_auth();
+        // Guard against reentry during the external binding getter calls.
+        env.storage().instance().set(&INITIALIZING, &true);
+        Self::validate_bindings(env, usdc, musdc, adapter)
+            .unwrap_or_else(|error| soroban_sdk::panic_with_error!(env, error));
         env.storage().instance().set(&ADMIN, admin);
         env.storage().instance().set(&USDC, usdc);
         env.storage().instance().set(&MUSDC, musdc);
@@ -225,6 +234,73 @@ impl MeridianVault {
         env.storage().instance().set(&TREASURY, treasury);
         env.storage().instance().set(&TOTAL_SH, &0_i128);
         env.storage().instance().set(&ADPT_SH, &0_i128);
+        env.storage().instance().remove(&INITIALIZING);
+    }
+
+    #[cfg(test)]
+    fn validate_wiring(
+        env: &Env,
+        admin: &Address,
+        usdc: &Address,
+        musdc: &Address,
+        adapter: &Address,
+        treasury: &Address,
+    ) -> Result<(), ContractError> {
+        Self::validate_addresses(env, admin, usdc, musdc, adapter, treasury)?;
+        Self::validate_bindings(env, usdc, musdc, adapter)
+    }
+
+    fn validate_addresses(
+        env: &Env,
+        admin: &Address,
+        usdc: &Address,
+        musdc: &Address,
+        adapter: &Address,
+        treasury: &Address,
+    ) -> Result<(), ContractError> {
+        let vault = env.current_contract_address();
+        let zero = Address::from_string(&String::from_str(env, ZERO_ACCOUNT_ADDRESS));
+        if admin == &vault || admin == &zero {
+            return Err(ContractError::InvalidAdminAddress);
+        }
+        if usdc == &vault || usdc == &zero {
+            return Err(ContractError::InvalidUsdcAddress);
+        }
+        if musdc == &vault || musdc == &zero {
+            return Err(ContractError::InvalidMusdcAddress);
+        }
+        if adapter == &vault || adapter == &zero {
+            return Err(ContractError::InvalidAdapterAddress);
+        }
+        if treasury == &vault || treasury == &zero {
+            return Err(ContractError::InvalidTreasuryAddress);
+        }
+        Ok(())
+    }
+
+    fn validate_bindings(
+        env: &Env,
+        usdc: &Address,
+        musdc: &Address,
+        adapter: &Address,
+    ) -> Result<(), ContractError> {
+        let vault = env.current_contract_address();
+        match MusdcAdminClient::new(env, musdc).try_admin() {
+            Ok(Ok(musdc_admin)) if musdc_admin == vault => {}
+            _ => return Err(ContractError::MusdcAdminMismatch),
+        }
+
+        let adapter_client = AdapterClient::new(env, adapter);
+        match adapter_client.try_get_usdc() {
+            Ok(Ok(adapter_usdc)) if adapter_usdc == *usdc => {}
+            _ => return Err(ContractError::AdapterUsdcMismatch),
+        }
+        match adapter_client.try_get_vault() {
+            Ok(Ok(adapter_vault)) if adapter_vault == vault => {}
+            _ => return Err(ContractError::AdapterVaultMismatch),
+        }
+
+        Ok(())
     }
 
     /// Deposit `amount` USDC into the vault. USDC is forwarded to the yield
@@ -465,6 +541,89 @@ impl MeridianVault {
         })
     }
 
+    /// Withdraw an exact net USDC `assets` amount by burning at most `max_shares_in`
+    /// mUSDC shares. Returns the USDC amount sent back to the caller.
+    ///
+    /// Computes the required shares after fees and rounding using shared pricing
+    /// helpers. Reverts with `MaxSharesExceeded` if the required shares exceed
+    /// `max_shares_in`.
+    ///
+    /// Guarded against reentrancy: runs under the same instance-storage lock
+    /// as `withdraw` and `deposit`.
+    pub fn withdraw_assets(
+        env: Env,
+        caller: Address,
+        assets: i128,
+        max_shares_in: i128,
+    ) -> Result<i128, ContractError> {
+        Self::with_lock(&env, || {
+            Self::withdraw_assets_unlocked(env.clone(), caller, assets, max_shares_in)
+        })
+    }
+
+    fn withdraw_assets_unlocked(
+        env: Env,
+        caller: Address,
+        assets: i128,
+        max_shares_in: i128,
+    ) -> Result<i128, ContractError> {
+        caller.require_auth();
+        Self::extend_instance(&env);
+        if assets <= 0 || max_shares_in < 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+
+        let musdc = Self::musdc(&env)?;
+        let adapter_addr: Address = env
+            .storage()
+            .instance()
+            .get(&ADAPTER)
+            .ok_or(ContractError::NotInitialized)?;
+
+        AdapterClient::new(&env, &adapter_addr).refresh();
+
+        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
+
+        if total_shares <= 0 {
+            return Err(ContractError::NoSharesOutstanding);
+        }
+
+        let caller_shares = TokenClient::new(&env, &musdc).balance(&caller);
+        if caller_shares <= 0 {
+            return Err(ContractError::InsufficientShares);
+        }
+
+        let total_assets = AdapterClient::new(&env, &adapter_addr).total_assets();
+        if total_shares > 0 && total_assets <= 0 {
+            return Err(ContractError::AdapterReportedNoAssets);
+        }
+
+        let principal_key = DataKey::Principal(caller.clone());
+        let principal: i128 = env.storage().persistent().get(&principal_key).unwrap_or(0);
+
+        let shares_needed = pricing::shares_for_withdraw_assets(
+            assets,
+            total_shares,
+            total_adapter_shares,
+            total_assets,
+            caller_shares,
+            principal,
+            PERFORMANCE_FEE_BPS,
+            BPS_DENOMINATOR,
+        )?;
+
+        if shares_needed > max_shares_in {
+            return Err(ContractError::MaxSharesExceeded);
+        }
+        if shares_needed > caller_shares {
+            return Err(ContractError::InsufficientShares);
+        }
+
+        let min_usdc_out = assets.saturating_sub(1);
+        Self::withdraw_internal(env, caller, shares_needed, min_usdc_out)
+    }
+
     fn withdraw_unlocked(
         env: Env,
         caller: Address,
@@ -473,6 +632,21 @@ impl MeridianVault {
     ) -> Result<i128, ContractError> {
         caller.require_auth();
         Self::extend_instance(&env);
+        let adapter_addr: Address = env
+            .storage()
+            .instance()
+            .get(&ADAPTER)
+            .ok_or(ContractError::NotInitialized)?;
+        AdapterClient::new(&env, &adapter_addr).refresh();
+        Self::withdraw_internal(env, caller, shares, min_usdc_out)
+    }
+
+    fn withdraw_internal(
+        env: Env,
+        caller: Address,
+        shares: i128,
+        min_usdc_out: i128,
+    ) -> Result<i128, ContractError> {
         if shares <= 0 {
             return Err(ContractError::ZeroAmount);
         }
@@ -484,13 +658,6 @@ impl MeridianVault {
             .instance()
             .get(&ADAPTER)
             .ok_or(ContractError::NotInitialized)?;
-
-        // Refresh the adapter's cached total for display/cache consistency
-        // ahead of the withdrawal. BlendAdapter::withdraw() sizes its own
-        // redemption directly from the live b_rate (#486), so this refresh
-        // only keeps the cache/display in sync and does not itself change
-        // what the withdrawer receives.
-        AdapterClient::new(&env, &adapter_addr).refresh();
 
         let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
         let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
@@ -535,13 +702,34 @@ impl MeridianVault {
             PERFORMANCE_FEE_BPS,
             BPS_DENOMINATOR,
         )?;
-        let net_usdc_out = usdc_out.checked_sub(fee).ok_or(ContractError::Overflow)?;
-        let mut actual_usdc_out = net_usdc_out;
+        let remaining_shares = total_shares
+            .checked_sub(shares)
+            .ok_or(ContractError::Overflow)?;
+        let remaining_assets = if fee > 0 {
+            adapter_client.total_assets()
+        } else {
+            0
+        };
+        let outcome = pricing::calculate_withdrawal_fee_and_net(
+            usdc_out,
+            principal,
+            shares,
+            caller_shares,
+            total_shares,
+            remaining_assets,
+            PERFORMANCE_FEE_BPS,
+            BPS_DENOMINATOR,
+        )?;
+
+        let fee = outcome.fee;
+        let treasury_shares = outcome.treasury_shares;
+        let mut actual_usdc_out = outcome.net_usdc_out;
+        let base_net = usdc_out.checked_sub(fee).ok_or(ContractError::Overflow)?;
 
         // Slippage is enforced against what the caller actually receives,
         // after the performance fee, so off-chain simulations can provide a
         // meaningful minimum.
-        if net_usdc_out < min_usdc_out {
+        if actual_usdc_out < min_usdc_out {
             return Err(ContractError::MinAmountOutNotMet);
         }
 
@@ -549,31 +737,15 @@ impl MeridianVault {
         // in the vault briefly, then is re-deposited below so treasury shares
         // are fully backed rather than being an uncollateralized mint.
         TokenClient::new(&env, &musdc).burn(&caller, &shares);
-        TokenClient::new(&env, &usdc).transfer(
-            &env.current_contract_address(),
-            &caller,
-            &net_usdc_out,
-        );
-
-        let remaining_shares = total_shares
-            .checked_sub(shares)
-            .ok_or(ContractError::Overflow)?;
-        let mut treasury_shares = 0_i128;
+        TokenClient::new(&env, &usdc).transfer(&env.current_contract_address(), &caller, &base_net);
 
         if fee > 0 {
-            let treasury: Address = env
-                .storage()
-                .instance()
-                .get(&TREASURY)
-                .ok_or(ContractError::NotInitialized)?;
-            let remaining_assets = adapter_client.total_assets();
-
-            // Price the treasury mint exactly like a deposit against the
-            // post-withdrawal vault. OFFSET also gives a full-exit fee a
-            // well-defined 1:1 price when no user shares/assets remain.
-            treasury_shares = pricing::shares_for_assets(fee, remaining_shares, remaining_assets)?;
-
             if treasury_shares > 0 {
+                let treasury: Address = env
+                    .storage()
+                    .instance()
+                    .get(&TREASURY)
+                    .ok_or(ContractError::NotInitialized)?;
                 TokenClient::new(&env, &usdc).transfer(
                     &env.current_contract_address(),
                     &adapter_addr,
@@ -1055,29 +1227,23 @@ impl MeridianVault {
             .persistent()
             .get(&DataKey::Principal(holder))
             .unwrap_or(0);
-        let principal_out = pricing::principal_retired(principal, shares, holder_shares)?;
-        let (_, fee) =
-            pricing::performance_fee(gross, principal_out, PERFORMANCE_FEE_BPS, BPS_DENOMINATOR)?;
-
-        let mut treasury_shares = 0_i128;
-        let mut assets_out = gross.checked_sub(fee).ok_or(ContractError::Overflow)?;
-        if fee > 0 {
-            let remaining_shares = total_shares
-                .checked_sub(shares)
-                .ok_or(ContractError::Overflow)?;
-            let remaining_assets = total_assets.saturating_sub(gross);
-            treasury_shares = pricing::shares_for_assets(fee, remaining_shares, remaining_assets)?;
-            if treasury_shares == 0 {
-                // Dust fee: returned to the holder, as `withdraw` does.
-                assets_out = gross;
-            }
-        }
+        let remaining_assets = total_assets.saturating_sub(gross);
+        let outcome = pricing::calculate_withdrawal_fee_and_net(
+            gross,
+            principal,
+            shares,
+            holder_shares,
+            total_shares,
+            remaining_assets,
+            PERFORMANCE_FEE_BPS,
+            BPS_DENOMINATOR,
+        )?;
 
         Ok(WithdrawPreview {
             gross_assets: gross,
-            fee,
-            treasury_shares,
-            assets_out,
+            fee: outcome.fee,
+            treasury_shares: outcome.treasury_shares,
+            assets_out: outcome.net_usdc_out,
         })
     }
 
@@ -1710,6 +1876,155 @@ mod tests {
         Address, Env, Symbol,
     };
 
+    type WiringFixture = (Env, Address, Address, Address, Address, Address, Address);
+
+    fn wiring_fixture() -> WiringFixture {
+        let env = Env::default();
+        env.mock_all_auths();
+        let vault_id = Address::generate(&env);
+        let admin = Address::generate(&env);
+        let usdc = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let musdc = env.register(MockMusdc, ());
+        MockMusdcClient::new(&env, &musdc).initialize(&vault_id);
+        let adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &adapter).initialize_with_vault(&usdc, &vault_id);
+        let treasury = Address::generate(&env);
+        env.register_at(
+            &vault_id,
+            MeridianVault,
+            (&admin, &usdc, &musdc, &adapter, &treasury),
+        );
+        (env, vault_id, admin, usdc, musdc, adapter, treasury)
+    }
+
+    fn check_wiring(
+        env: &Env,
+        vault_id: &Address,
+        admin: &Address,
+        usdc: &Address,
+        musdc: &Address,
+        adapter: &Address,
+        treasury: &Address,
+    ) -> Result<(), ContractError> {
+        env.as_contract(vault_id, || {
+            MeridianVault::validate_wiring(env, admin, usdc, musdc, adapter, treasury)
+        })
+    }
+
+    #[test]
+    fn constructor_wiring_validation_rejects_invalid_addresses_and_bindings() {
+        let (env, vault_id, admin, usdc, musdc, adapter, treasury) = wiring_fixture();
+        assert_eq!(
+            check_wiring(&env, &vault_id, &admin, &usdc, &musdc, &adapter, &treasury),
+            Ok(())
+        );
+
+        assert_eq!(
+            check_wiring(&env, &vault_id, &vault_id, &usdc, &musdc, &adapter, &treasury),
+            Err(ContractError::InvalidAdminAddress)
+        );
+        assert_eq!(
+            check_wiring(&env, &vault_id, &admin, &vault_id, &musdc, &adapter, &treasury),
+            Err(ContractError::InvalidUsdcAddress)
+        );
+        assert_eq!(
+            check_wiring(&env, &vault_id, &admin, &usdc, &vault_id, &adapter, &treasury),
+            Err(ContractError::InvalidMusdcAddress)
+        );
+        assert_eq!(
+            check_wiring(&env, &vault_id, &admin, &usdc, &musdc, &vault_id, &treasury),
+            Err(ContractError::InvalidAdapterAddress)
+        );
+        assert_eq!(
+            check_wiring(&env, &vault_id, &admin, &usdc, &musdc, &adapter, &vault_id),
+            Err(ContractError::InvalidTreasuryAddress)
+        );
+
+        let zero = Address::from_string(&String::from_str(&env, ZERO_ACCOUNT_ADDRESS));
+        assert_eq!(
+            check_wiring(&env, &vault_id, &zero, &usdc, &musdc, &adapter, &treasury),
+            Err(ContractError::InvalidAdminAddress)
+        );
+        assert_eq!(
+            check_wiring(&env, &vault_id, &admin, &zero, &musdc, &adapter, &treasury),
+            Err(ContractError::InvalidUsdcAddress)
+        );
+        assert_eq!(
+            check_wiring(&env, &vault_id, &admin, &usdc, &zero, &adapter, &treasury),
+            Err(ContractError::InvalidMusdcAddress)
+        );
+        assert_eq!(
+            check_wiring(&env, &vault_id, &admin, &usdc, &musdc, &zero, &treasury),
+            Err(ContractError::InvalidAdapterAddress)
+        );
+        assert_eq!(
+            check_wiring(&env, &vault_id, &admin, &usdc, &musdc, &adapter, &zero),
+            Err(ContractError::InvalidTreasuryAddress)
+        );
+
+        let wrong_admin_musdc = env.register(MockMusdc, ());
+        MockMusdcClient::new(&env, &wrong_admin_musdc).initialize(&admin);
+        assert_eq!(
+            check_wiring(
+                &env,
+                &vault_id,
+                &admin,
+                &usdc,
+                &wrong_admin_musdc,
+                &adapter,
+                &treasury,
+            ),
+            Err(ContractError::MusdcAdminMismatch)
+        );
+
+        let wrong_usdc_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &wrong_usdc_adapter).initialize(&admin);
+        assert_eq!(
+            check_wiring(
+                &env,
+                &vault_id,
+                &admin,
+                &usdc,
+                &musdc,
+                &wrong_usdc_adapter,
+                &treasury,
+            ),
+            Err(ContractError::AdapterUsdcMismatch)
+        );
+
+        let wrong_vault_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &wrong_vault_adapter).initialize_with_vault(&usdc, &admin);
+        assert_eq!(
+            check_wiring(
+                &env,
+                &vault_id,
+                &admin,
+                &usdc,
+                &musdc,
+                &wrong_vault_adapter,
+                &treasury,
+            ),
+            Err(ContractError::AdapterVaultMismatch)
+        );
+
+        let missing_vault_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &missing_vault_adapter).initialize(&usdc);
+        assert_eq!(
+            check_wiring(
+                &env,
+                &vault_id,
+                &admin,
+                &usdc,
+                &musdc,
+                &missing_vault_adapter,
+                &treasury,
+            ),
+            Err(ContractError::AdapterVaultMismatch)
+        );
+    }
+
     // The address every test vault is registered at, and the address the mock
     // adapters report from `get_vault()`. `set_adapter`/`begin_migration`
     // require a target bound to the vault (#1270), and the mocks are
@@ -1850,6 +2165,10 @@ mod tests {
                 Self::read_balance(&env, &id)
             }
 
+            pub fn admin(env: Env) -> Address {
+                env.storage().instance().get(&MM_ADMIN).unwrap()
+            }
+
             pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
                 from.require_auth();
                 if from == to {
@@ -1907,6 +2226,7 @@ mod tests {
 
     const MA_USDC: Symbol = symbol_short!("MA_USDC");
     const MA_SH: Symbol = symbol_short!("MA_SH");
+    const MA_VAULT: Symbol = symbol_short!("MA_VAULT");
 
     #[contract]
     pub struct MockAdapter;
@@ -1918,12 +2238,21 @@ mod tests {
         }
 
         pub fn get_vault(env: Env) -> Address {
-            test_vault(&env)
+            env.storage()
+                .instance()
+                .get(&MA_VAULT)
+                .unwrap_or_else(|| test_vault(&env))
         }
 
         pub fn initialize(env: Env, usdc: Address) {
             env.storage().instance().set(&MA_USDC, &usdc);
             env.storage().instance().set(&MA_SH, &0_i128);
+        }
+
+        pub fn initialize_with_vault(env: Env, usdc: Address, vault: Address) {
+            env.storage().instance().set(&MA_USDC, &usdc);
+            env.storage().instance().set(&MA_SH, &0_i128);
+            env.storage().instance().set(&MA_VAULT, &vault);
         }
 
         pub fn deposit(env: Env, amount: i128) -> i128 {
@@ -2349,6 +2678,14 @@ mod tests {
                 env.storage().instance().set(&CM_USDC, &usdc);
                 env.storage().instance().set(&CM_SH, &0_i128);
                 env.storage().instance().set(&CM_TOTAL, &0_i128);
+            }
+
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&CM_USDC))
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                test_vault(&env)
             }
 
             pub fn deposit(env: Env, amount: i128) -> i128 {
@@ -3651,11 +3988,12 @@ mod tests {
         let zero_share_adapter_id = env.register(ZeroShareMockAdapter, ());
         ZeroShareMockAdapterClient::new(&env, &zero_share_adapter_id).initialize(&usdc);
 
-        // Deploy a vault configured with the zero-share adapter
-        let musdc_id = env
-            .register_stellar_asset_contract_v2(admin.clone())
-            .address();
-        let vault_id = env.register(
+        // Deploy a vault configured with the zero-share adapter.
+        let musdc_id = env.register(MockMusdc, ());
+        let vault_id = test_vault(&env);
+        MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
+        env.register_at(
+            &vault_id,
             MeridianVault,
             (&admin, &usdc, &musdc_id, &zero_share_adapter_id, &admin),
         );
@@ -4216,10 +4554,19 @@ mod tests {
     // refresh_panics_when_pool_key_is_unset).
     fn register_uninitialized_vault(env: &Env) -> Address {
         let admin = Address::generate(env);
-        let usdc = Address::generate(env);
-        let musdc = Address::generate(env);
-        let adapter = Address::generate(env);
-        let vault_id = env.register(MeridianVault, (&admin, &usdc, &musdc, &adapter, &admin));
+        let usdc = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let vault_id = test_vault(env);
+        let musdc = env.register(MockMusdc, ());
+        MockMusdcClient::new(env, &musdc).initialize(&vault_id);
+        let adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(env, &adapter).initialize_with_vault(&usdc, &vault_id);
+        env.register_at(
+            &vault_id,
+            MeridianVault,
+            (&admin, &usdc, &musdc, &adapter, &admin),
+        );
         env.as_contract(&vault_id, || {
             env.storage().instance().remove(&ADMIN);
             env.storage().instance().remove(&USDC);
@@ -4737,6 +5084,33 @@ mod tests {
     }
 
     #[test]
+    fn storage_ttl_audit_covers_every_persistent_position_key() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+        vault.extend_position_ttl(&user);
+
+        let mut remaining = POSITION_THRESHOLD - 1;
+        while remaining > 0 {
+            let step = remaining.min(INSTANCE_THRESHOLD - 1);
+            env.ledger().with_mut(|li| li.sequence_number += step);
+            // Keep the vault instance entry alive while the table-driven
+            // persistent-key audit advances through the longer position TTL.
+            vault.set_paused(&true);
+            vault.set_paused(&false);
+            remaining -= step;
+        }
+
+        env.as_contract(&vault.address, || {
+            for key in [
+                DataKey::Entry(user.clone()),
+                DataKey::Principal(user.clone()),
+            ] {
+                assert!(env.storage().persistent().has(&key));
+            }
+        });
+    }
+
+    #[test]
     fn admin_state_calls_extend_instance_ttl() {
         let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
         vault.set_paused(&true);
@@ -4988,6 +5362,14 @@ mod tests {
                     .set(&CR_SINK, &Address::generate(&env));
             }
 
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&CR_USDC))
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                test_vault(&env)
+            }
+
             pub fn configure(env: Env, mode: u32, param: i128) {
                 env.storage().instance().set(&CR_MODE, &mode);
                 env.storage().instance().set(&CR_PARAM, &param);
@@ -5120,7 +5502,7 @@ mod tests {
         let adapter = CreditMockAdapterClient::new(&env, &adapter_id);
         adapter.initialize(&usdc);
 
-        let vault_id = Address::generate(&env);
+        let vault_id = test_vault(&env);
         let musdc = env.register(MockMusdc, ());
         MockMusdcClient::new(&env, &musdc).initialize(&vault_id);
         env.register_at(
@@ -5901,8 +6283,18 @@ mod tests {
         #[contract]
         pub struct ReentrantToken;
 
+        const REENTRANT_ADMIN: Symbol = symbol_short!("ADMIN");
+
         #[contractimpl]
         impl ReentrantToken {
+            pub fn set_admin(env: Env, admin: Address) {
+                env.storage().instance().set(&REENTRANT_ADMIN, &admin);
+            }
+
+            pub fn admin(env: Env) -> Address {
+                env.storage().instance().get(&REENTRANT_ADMIN).unwrap()
+            }
+
             pub fn arm(env: Env, vault: Address, hook: u32, attack: u32) {
                 super::reentrant_hooks::arm(&env, &vault, hook, attack);
             }
@@ -6003,7 +6395,9 @@ mod tests {
             id
         };
         let musdc = if reentrant_musdc {
-            env.register(ReentrantToken, ())
+            let id = env.register(ReentrantToken, ());
+            ReentrantTokenClient::new(&env, &id).set_admin(&vault_id);
+            id
         } else {
             let id = env.register(MockMusdc, ());
             MockMusdcClient::new(&env, &id).initialize(&vault_id);
@@ -6473,5 +6867,121 @@ mod tests {
             assert_every_reentry_rejected(&r, &r.usdc, "migrate/usdc", attack);
             assert_migrated(&r, &new_adapter);
         }
+    }
+
+    #[test]
+    fn withdraw_assets_returns_exact_requested_amount() {
+        let (env, _admin, user, usdc_id, _musdc, _adapter, vault) = setup();
+        let deposit_amount = 100_0000000_i128;
+        vault.deposit(&user, &deposit_amount, &0_i128);
+
+        let initial_usdc = TokenClient::new(&env, &usdc_id).balance(&user);
+        let requested_assets = 40_0000000_i128;
+        let usdc_out = vault.withdraw_assets(&user, &requested_assets, &i128::MAX);
+
+        assert_eq!(usdc_out, requested_assets);
+        let final_usdc = TokenClient::new(&env, &usdc_id).balance(&user);
+        assert_eq!(final_usdc - initial_usdc, requested_assets);
+
+        // Principal reduced proportionally: 100 - 40 = 60
+        assert_eq!(vault.get_principal(&user), 60_0000000_i128);
+    }
+
+    #[test]
+    fn withdraw_assets_with_fee_returns_exact_amount_within_one_stroop() {
+        let (env, treasury, user, usdc_id, musdc_id, adapter_id, vault) = setup();
+        let principal = 100_0000000_i128;
+        let yield_amount = 10_0000000_i128;
+        vault.deposit(&user, &principal, &0);
+        StellarAssetClient::new(&env, &usdc_id).mint(&adapter_id, &yield_amount);
+
+        let initial_usdc = TokenClient::new(&env, &usdc_id).balance(&user);
+        let target_assets = 50_0000000_i128;
+        let usdc_out = vault.withdraw_assets(&user, &target_assets, &i128::MAX);
+
+        // Difference must be within 1 stroop
+        assert!((usdc_out - target_assets).abs() <= 1);
+        let final_usdc = TokenClient::new(&env, &usdc_id).balance(&user);
+        assert!(((final_usdc - initial_usdc) - target_assets).abs() <= 1);
+
+        // Treasury earned fee shares
+        assert!(TokenClient::new(&env, &musdc_id).balance(&treasury) > 0);
+    }
+
+    #[test]
+    fn withdraw_assets_reverts_when_exceeding_max_shares_in() {
+        let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        let deposit_amount = 100_0000000_i128;
+        vault.deposit(&user, &deposit_amount, &0_i128);
+
+        // 50 USDC requires ~50 shares, but we only permit 10 shares
+        let result = vault.try_withdraw_assets(&user, &50_0000000_i128, &10_0000000_i128);
+        assert_eq!(result, Err(Ok(ContractError::MaxSharesExceeded)));
+    }
+
+    #[test]
+    fn withdraw_assets_full_position_clears_records() {
+        let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        let deposit_amount = 100_0000000_i128;
+        vault.deposit(&user, &deposit_amount, &0_i128);
+
+        let usdc_out = vault.withdraw_assets(&user, &deposit_amount, &i128::MAX);
+        assert_eq!(usdc_out, deposit_amount);
+        assert_eq!(vault.get_position(&user), 0);
+        assert_eq!(vault.get_principal(&user), 0);
+        assert_eq!(vault.get_entry_time(&user), 0);
+        assert_eq!(vault.get_total_shares(), 0);
+    }
+
+    #[test]
+    fn withdraw_assets_zero_position_fails() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+        let stranger = Address::generate(&env);
+        let result = vault.try_withdraw_assets(&stranger, &10_0000000_i128, &i128::MAX);
+        assert_eq!(result, Err(Ok(ContractError::InsufficientShares)));
+    }
+
+    #[test]
+    fn withdraw_assets_zero_amount_fails() {
+        let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+
+        let result = vault.try_withdraw_assets(&user, &0_i128, &i128::MAX);
+        assert_eq!(result, Err(Ok(ContractError::ZeroAmount)));
+
+        let result_neg = vault.try_withdraw_assets(&user, &-5_0000000_i128, &i128::MAX);
+        assert_eq!(result_neg, Err(Ok(ContractError::ZeroAmount)));
+    }
+
+    #[test]
+    fn withdraw_assets_negative_max_shares_fails() {
+        let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+
+        let result = vault.try_withdraw_assets(&user, &50_0000000_i128, &-1_i128);
+        assert_eq!(result, Err(Ok(ContractError::ZeroAmount)));
+    }
+
+    #[test]
+    fn withdraw_assets_insufficient_shares_when_requesting_more_than_balance() {
+        let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+
+        // User deposited 100 USDC, requesting 200 USDC
+        let result = vault.try_withdraw_assets(&user, &200_0000000_i128, &i128::MAX);
+        assert_eq!(result, Err(Ok(ContractError::InsufficientShares)));
+    }
+
+    #[test]
+    fn withdraw_assets_rejects_missing_authorization() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0);
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_withdraw_assets(&user, &50_0000000_i128, &i128::MAX),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
     }
 }

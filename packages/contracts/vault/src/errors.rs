@@ -135,4 +135,19 @@ pub enum ContractError {
     /// (partial fill, supply cap, fee on deposit) is not a mismatch: it is
     /// minted at its real value.
     DepositValueMismatch = 30,
+    /// `withdraw_assets` was called and the required shares to redeem `assets`
+    /// exceeded the caller's `max_shares_in` cap.
+    MaxSharesExceeded = 31,
+    /// Constructor initialization rejected a zero or vault-self admin address.
+    InvalidAdminAddress = 32,
+    /// Constructor initialization rejected a zero or vault-self USDC address.
+    InvalidUsdcAddress = 33,
+    /// Constructor initialization rejected a zero or vault-self mUSDC address.
+    InvalidMusdcAddress = 34,
+    /// Constructor initialization rejected a zero or vault-self adapter address.
+    InvalidAdapterAddress = 35,
+    /// Constructor initialization rejected a zero or vault-self treasury address.
+    InvalidTreasuryAddress = 36,
+    /// Constructor initialization found that mUSDC is not administered by the vault.
+    MusdcAdminMismatch = 37,
 }
