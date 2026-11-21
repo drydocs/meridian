@@ -354,6 +354,7 @@ export const VAULT_CONTRACT_ERROR_MESSAGES: Record<number, string> = {
   23: "The adapter did not credit any shares for this deposit.",
   24: "The vault hit a divide-by-zero in adapter accounting.",
   30: "The adapter's credit for this deposit did not match the value it received.",
+  32: "Insufficient liquidity in the underlying yield protocol for this withdrawal. Try a smaller amount or retry later.",
 };
 
 const CONTRACT_ERROR_CODE = /Error\(\s*Contract\s*,\s*#(\d+)\s*\)/i;

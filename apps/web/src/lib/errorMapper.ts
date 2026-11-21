@@ -38,6 +38,10 @@ const SERVER_MESSAGE_TO_KEY: Record<string, string> = {
   "Slippage tolerance exceeded. Adjust slippage and retry.":
     "errors.slippageExceeded",
 
+  // Contract code 32 — AdapterLiquidityInsufficient
+  "Insufficient liquidity in the underlying yield protocol for this withdrawal. Try a smaller amount or retry later.":
+    "errors.adapterLiquidityInsufficient",
+
   // MissingTrustlineError — single asset
   "Missing USDC trustline. Add the trustline via POST /api/v1/tx/add-trustline before depositing or withdrawing.":
     "errors.missingUsdcTrustline",
