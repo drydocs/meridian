@@ -4,8 +4,9 @@ import { SingleRunView } from "./views/SingleRunView";
 import type { ScenarioRun } from "./lib/scenario-run";
 import { HistoryView } from "./views/HistoryView";
 import { ComparisonView } from "./views/ComparisonView";
+import { OpportunityScannerView } from "./views/OpportunityScannerView";
 
-export type StrategyView = "single-run" | "history" | "comparison";
+export type StrategyView = "single-run" | "history" | "comparison" | "scanner";
 
 interface NavItem {
   readonly id: StrategyView;
@@ -16,6 +17,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { id: "single-run", label: "Single Run" },
   { id: "history", label: "Run History" },
   { id: "comparison", label: "Comparison" },
+  { id: "scanner", label: "Opportunity Scanner" },
 ];
 
 export default function App() {
@@ -112,6 +114,7 @@ export default function App() {
         )}
         {activeView === "history" && <HistoryView />}
         {activeView === "comparison" && <ComparisonView />}
+        {activeView === "scanner" && <OpportunityScannerView />}
       </main>
     </div>
   );
