@@ -8,6 +8,7 @@
     {
       "name": "zero_assets_deposit",
       "description": "First deposit into an empty vault with 0 assets and 0 shares.",
+      "kind": "deposit",
       "inputs": {
         "assets": "10000000",
         "total_assets": "0",
@@ -21,6 +22,7 @@
     {
       "name": "standard_deposit_inflation_protection",
       "description": "Deposit into an active vault using virtual offset.",
+      "kind": "deposit",
       "inputs": {
         "assets": "5000000",
         "total_assets": "100000000",
@@ -33,6 +35,7 @@
     {
       "name": "withdrawal_payout_raw_ratio",
       "description": "Withdrawal payout using raw asset-to-share ratio without virtual offset.",
+      "kind": "withdrawal_payout",
       "inputs": {
         "shares": "10000000",
         "total_assets": "110000000",
@@ -45,6 +48,7 @@
     {
       "name": "partial_withdraw_with_fee",
       "description": "Partial withdrawal of half a position with accumulated yield and performance fee.",
+      "kind": "fee",
       "inputs": {
         "usdc_out": "55000000",
         "principal_out": "50000000",
@@ -59,6 +63,7 @@
     {
       "name": "loss_withdrawal_no_fee",
       "description": "Withdrawal at a loss results in zero gain and zero performance fee.",
+      "kind": "loss_withdrawal",
       "inputs": {
         "usdc_out": "90000000",
         "principal_out": "100000000",
@@ -73,6 +78,7 @@
     {
       "name": "zero_stroop_edge",
       "description": "Zero asset or share edges.",
+      "kind": "edge",
       "inputs": {
         "assets": "0",
         "total_assets": "0",
