@@ -1881,7 +1881,7 @@ mod tests {
     fn wiring_fixture() -> WiringFixture {
         let env = Env::default();
         env.mock_all_auths();
-        let vault_id = Address::generate(&env);
+        let vault_id = test_vault(&env);
         let admin = Address::generate(&env);
         let usdc = env
             .register_stellar_asset_contract_v2(admin.clone())
@@ -2678,6 +2678,14 @@ mod tests {
                 env.storage().instance().set(&CM_USDC, &usdc);
                 env.storage().instance().set(&CM_SH, &0_i128);
                 env.storage().instance().set(&CM_TOTAL, &0_i128);
+            }
+
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&CM_USDC))
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                test_vault(&env)
             }
 
             pub fn deposit(env: Env, amount: i128) -> i128 {
@@ -3982,7 +3990,7 @@ mod tests {
 
         // Deploy a vault configured with the zero-share adapter.
         let musdc_id = env.register(MockMusdc, ());
-        let vault_id = Address::generate(&env);
+        let vault_id = test_vault(&env);
         MockMusdcClient::new(&env, &musdc_id).initialize(&vault_id);
         env.register_at(
             &vault_id,
@@ -4549,11 +4557,11 @@ mod tests {
         let usdc = env
             .register_stellar_asset_contract_v2(admin.clone())
             .address();
-        let vault_id = Address::generate(env);
+        let vault_id = test_vault(env);
         let musdc = env.register(MockMusdc, ());
         MockMusdcClient::new(env, &musdc).initialize(&vault_id);
         let adapter = env.register(MockAdapter, ());
-        MockAdapterClient::new(env, &adapter).initialize(&usdc);
+        MockAdapterClient::new(env, &adapter).initialize_with_vault(&usdc, &vault_id);
         env.register_at(
             &vault_id,
             MeridianVault,
@@ -5354,6 +5362,14 @@ mod tests {
                     .set(&CR_SINK, &Address::generate(&env));
             }
 
+            pub fn get_usdc(env: Env) -> Address {
+                get_or_not_initialized(&env, env.storage().instance().get(&CR_USDC))
+            }
+
+            pub fn get_vault(env: Env) -> Address {
+                test_vault(&env)
+            }
+
             pub fn configure(env: Env, mode: u32, param: i128) {
                 env.storage().instance().set(&CR_MODE, &mode);
                 env.storage().instance().set(&CR_PARAM, &param);
@@ -5486,7 +5502,7 @@ mod tests {
         let adapter = CreditMockAdapterClient::new(&env, &adapter_id);
         adapter.initialize(&usdc);
 
-        let vault_id = Address::generate(&env);
+        let vault_id = test_vault(&env);
         let musdc = env.register(MockMusdc, ());
         MockMusdcClient::new(&env, &musdc).initialize(&vault_id);
         env.register_at(
