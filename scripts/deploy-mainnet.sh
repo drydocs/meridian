@@ -17,6 +17,10 @@ DEPLOYMENT_NETWORK="mainnet"
 #     below, not any address an env var happens to name.
 #   - An explicit typed confirmation is required before the first network
 #     transaction, after every resolved value is printed for review.
+#   - Every contract artifact must be reproducibly built (two clean builds
+#     with identical SHA-256 hashes) and match the verified hash manifest
+#     before deployment. SKIP_BUILD is still honored but still requires the
+#     artifact to match the manifest; see scripts/lib/deploy-vault-stack.sh.
 #
 # See apps/docs/operations/mainnet-deployment.md for the full runbook this
 # script is one piece of: key custody, parameter selection, and the go-live
@@ -172,6 +176,17 @@ if [ "$CONFIRMATION" != "MAINNET" ]; then
   echo "Confirmation not given. Aborting without submitting anything." >&2
   exit 1
 fi
+
+# Reproducible-build gate: every contract artifact must be built twice from a
+# pinned toolchain with identical SHA-256 hashes, and must match the verified
+# hash manifest. The deploy helper refuses any artifact that is not in the
+# manifest, including artifacts produced under SKIP_BUILD.
+VERIFY_SCRIPT="$(dirname "$0")/verify-wasm-build.sh"
+if [ ! -x "$VERIFY_SCRIPT" ]; then
+  echo "ERROR: reproducible build verifier not found at $VERIFY_SCRIPT." >&2
+  exit 1
+fi
+bash "$VERIFY_SCRIPT" --check
 
 # The actual build/upload/deploy sequence is shared with deploy-testnet.sh
 # (#717): see scripts/lib/deploy-vault-stack.sh's own header comment for why.
