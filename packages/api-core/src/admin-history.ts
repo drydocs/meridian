@@ -21,7 +21,8 @@ export async function handleGetAdminHistory(
         ? KNOWN_POOLS.testnet
         : KNOWN_POOLS.mainnet;
     const vault = pools[vaultId];
-    if (!vault?.contractId) {
+    const contractId = vault?.contractId;
+    if (!contractId) {
       return {
         status: 404,
         body: { error: "vault not found or missing contractId", vaultId },
@@ -30,7 +31,7 @@ export async function handleGetAdminHistory(
 
     const actions = await withUpstreamDeadline(
       () =>
-        getAdminActionHistory(APP_NETWORK, vault.contractId, {
+        getAdminActionHistory(APP_NETWORK, contractId, {
           limit: 50,
           maxPages: ADMIN_HISTORY_MAX_PAGES,
           scanTimeoutMs: ADMIN_HISTORY_TIMEOUT_MS,
@@ -42,7 +43,7 @@ export async function handleGetAdminHistory(
       status: 200,
       body: {
         vaultId,
-        contractId: vault.contractId,
+        contractId,
         actions,
         updatedAt: new Date().toISOString(),
       },

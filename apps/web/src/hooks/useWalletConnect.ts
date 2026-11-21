@@ -9,6 +9,7 @@ import {
 import { useRiskDisclosure } from "./useRiskDisclosure";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "react-i18next";
+import { mapError } from "../lib/errorMapper";
 
 export type ConnectStatus = "idle" | "connecting" | "no-extension";
 
@@ -66,7 +67,7 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
         setStatus("idle");
         return;
       }
-      push("error", message);
+      push("error", mapError(err, t).message);
       setStatus("idle");
     }
   }

@@ -49,7 +49,7 @@ export async function handleGetPositionHistory(
     return { status: 200, body: { publicKey, days, snapshots } };
   } catch (err) {
     return {
-      ...deadlineResult(err, "Failed to read position history"),
+      ...deadlineResult(err, "Failed to read position history", 503),
     };
   }
 }

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SDK: typed errors, retry policy and instrumentation hooks (#1299).** `@meridian/sdk`
+  now throws `MeridianError` subclasses with a stable `code` and `retryable`
+  flag, accepts `timeouts` (RPC default stays 12000ms), an opt-in `retry`
+  policy (reads only unless `retryTxBuilders`) and redacted lifecycle `hooks`.
+  Method signatures and error messages are unchanged.
 - **MeridianVault: per-user deposit entry time.** The contract now stamps
   `env.ledger().timestamp()` on a user's first deposit (top-ups keep the original;
   a full withdrawal clears it) and exposes it via `get_entry_time`. The

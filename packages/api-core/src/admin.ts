@@ -96,7 +96,7 @@ export async function handleGetVaultState(): Promise<RouteResult> {
     return { status: 200, body: state };
   } catch (err) {
     return {
-      ...deadlineResult(err, "Failed to read vault state"),
+      ...deadlineResult(err, "Failed to read vault state", 503),
     };
   }
 }

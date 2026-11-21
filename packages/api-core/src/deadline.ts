@@ -18,17 +18,26 @@ export function withUpstreamDeadline<T>(
   return withRaceTimeout(fn, UPSTREAM_TIMEOUT_MS, label);
 }
 
-export function deadlineResult(error: unknown, fallback: string) {
-  if (error instanceof UpstreamDeadlineError) {
+export function deadlineResult(
+  error: unknown,
+  fallback: string,
+  fallbackStatus = 500
+) {
+  const isDeadline =
+    error instanceof UpstreamDeadlineError ||
+    (error instanceof Error && error.name === "TimeoutError");
+
+  if (isDeadline) {
     return {
-      status: error.status,
+      status: 503,
       body: {
         error: "Upstream request exceeded its deadline",
-        code: error.code,
-        retryAfterSeconds: error.retryAfterSeconds,
+        code: "UPSTREAM_DEADLINE_EXCEEDED",
+        retryAfterSeconds:
+          error instanceof UpstreamDeadlineError ? error.retryAfterSeconds : 1,
       },
       error,
     };
   }
-  return { status: 500, body: { error: fallback }, error };
+  return { status: fallbackStatus, body: { error: fallback }, error };
 }
