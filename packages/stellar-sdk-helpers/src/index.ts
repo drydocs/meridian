@@ -23,5 +23,6 @@ export * from "./types";
 // explicitly here keeps the two wildcard exports from colliding (TS2308).
 export { SubmissionLease } from "./keeper-state";
 export * from "./vault-cache";
+export * from "./vault-events";
 export * from "./vaults";
 export * from "./admin-history";

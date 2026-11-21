@@ -66,17 +66,53 @@ afterEach(() => vi.useRealTimers());
 describe("applyCors", () => {
   it("sets CORS headers on every request", () => {
     const res = fakeRes();
-    applyCors(fakeReq("GET"), res);
-    expect(res.headers["Access-Control-Allow-Origin"]).toBeDefined();
+    applyCors(
+      fakeReq("GET", { origin: "https://usemeridian.vercel.app" }),
+      res
+    );
+    expect(res.headers["Access-Control-Allow-Origin"]).toBe(
+      "https://usemeridian.vercel.app"
+    );
+    expect(res.headers.Vary).toBe("Origin");
     expect(res.headers["Access-Control-Allow-Methods"]).toContain("POST");
+  });
+
+  it("rejects a disallowed origin", () => {
+    const res = fakeRes();
+    const handled = applyCors(
+      fakeReq("GET", { origin: "https://attacker.example" }),
+      res
+    );
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toEqual({ error: "Origin not allowed" });
+    expect(res.headers["Access-Control-Allow-Origin"]).toBeUndefined();
+    expect(res.headers.Vary).toBe("Origin");
   });
 
   it("returns true and ends the response for OPTIONS preflight", () => {
     const res = fakeRes();
-    const handled = applyCors(fakeReq("OPTIONS"), res);
+    const handled = applyCors(
+      fakeReq("OPTIONS", { origin: "https://usemeridian.vercel.app" }),
+      res
+    );
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(204);
     expect(res.ended).toBe(true);
+    expect(res.headers["Access-Control-Allow-Origin"]).toBe(
+      "https://usemeridian.vercel.app"
+    );
+  });
+
+  it("rejects a disallowed preflight request", () => {
+    const res = fakeRes();
+    const handled = applyCors(
+      fakeReq("OPTIONS", { origin: "https://attacker.example" }),
+      res
+    );
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(403);
+    expect(res.ended).toBe(false);
   });
 
   it("returns false and does not end the response for POST requests", () => {

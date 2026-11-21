@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
 import rateLimit from "@fastify/rate-limit";
+import { registerCors } from "../cors.js";
 import { positionsRoute } from "../routes/positions.js";
 import { txRoute } from "../routes/tx.js";
 import { vaultsRoute } from "../routes/vaults.js";
@@ -112,6 +113,64 @@ describe("GET /health", () => {
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ status: "ok" });
+  });
+
+  describe("CORS", () => {
+    it("echoes an allowed origin and varies by origin", async () => {
+      const app = Fastify({ logger: false });
+      await registerCors(app, [
+        "https://usemeridian.vercel.app",
+        "https://preview.example",
+      ]);
+      app.get("/", async () => ({ status: "ok" }));
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/",
+        headers: { origin: "https://preview.example" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["access-control-allow-origin"]).toBe(
+        "https://preview.example"
+      );
+      expect(response.headers.vary).toContain("Origin");
+    });
+
+    it("rejects a disallowed origin", async () => {
+      const app = Fastify({ logger: false });
+      await registerCors(app, ["https://usemeridian.vercel.app"]);
+      app.get("/", async () => ({ status: "ok" }));
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/",
+        headers: { origin: "https://attacker.example" },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toEqual({ error: "Origin not allowed" });
+    });
+
+    it("answers allowed preflight requests", async () => {
+      const app = Fastify({ logger: false });
+      await registerCors(app, ["https://usemeridian.vercel.app"]);
+      app.get("/", async () => ({ status: "ok" }));
+
+      const response = await app.inject({
+        method: "OPTIONS",
+        url: "/",
+        headers: {
+          origin: "https://usemeridian.vercel.app",
+          "access-control-request-method": "POST",
+        },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(response.headers["access-control-allow-origin"]).toBe(
+        "https://usemeridian.vercel.app"
+      );
+    });
   });
 });
 

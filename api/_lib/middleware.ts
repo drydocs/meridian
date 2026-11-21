@@ -1,11 +1,18 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { APP_NETWORK, DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import {
+  APP_NETWORK,
+  DEFAULT_ALLOWED_ORIGIN,
+  parseAllowedOrigins,
+} from "@meridian/shared";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN;
+const ALLOWED_ORIGINS = parseAllowedOrigins(
+  process.env.ALLOWED_ORIGIN,
+  DEFAULT_ALLOWED_ORIGIN
+);
 
 const LIMIT = 100;
 const WINDOW = "60 s";
@@ -60,13 +67,23 @@ function applySecurityHeaders(res: VercelResponse): void {
 }
 
 /**
- * Set CORS and baseline security headers, and handle preflight. Returns true
- * when the request was a preflight OPTIONS and has been fully handled — the
- * caller should return immediately in that case.
+ * Set CORS and baseline security headers, rejecting disallowed origins and
+ * handling preflight. Returns true when the request has been fully handled.
  */
 export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
   applySecurityHeaders(res);
-  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  res.setHeader("Vary", "Origin");
+  const requestOrigin = req.headers.origin;
+  const origin = Array.isArray(requestOrigin)
+    ? requestOrigin[0]
+    : requestOrigin;
+  if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+    res.status(403).json({ error: "Origin not allowed" });
+    return true;
+  }
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") {
