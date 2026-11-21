@@ -1,24 +1,41 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { VaultStatePanel } from "../../components/admin/VaultStatePanel";
 import { useVaultState } from "../../hooks/useVaultState";
+import { useAdminAuth } from "../../hooks/useAdminAuth";
+import { useWallet } from "../../hooks/useWallet";
 
 const refetch = vi.fn();
+const signAndSubmit = vi.fn();
 
 vi.mock("../../hooks/useVaultState", () => ({
   useVaultState: vi.fn(),
 }));
 
+vi.mock("../../hooks/useAdminAuth", () => ({
+  useAdminAuth: vi.fn(),
+}));
+
+vi.mock("../../hooks/useWallet", () => ({
+  useWallet: vi.fn(),
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, opts?: any) => (opts?.text ? `${key}:${opts.text}` : key),
     i18n: { language: "en" },
   }),
 }));
 
-function mock(overrides: Partial<ReturnType<typeof useVaultState>>) {
+function mockVault(overrides: Partial<ReturnType<typeof useVaultState>>) {
   vi.mocked(useVaultState).mockReturnValue({
-    data: undefined,
+    data: {
+      protocol: "blend",
+      adapterId: "CADAPTER",
+      totalShares: 1234.5,
+      totalAssets: 1300.25,
+      paused: false,
+    },
     isLoading: false,
     isError: false,
     refetch,
@@ -26,11 +43,29 @@ function mock(overrides: Partial<ReturnType<typeof useVaultState>>) {
   } as ReturnType<typeof useVaultState>);
 }
 
-beforeEach(() => vi.clearAllMocks());
+function mockAuth(isAdmin: boolean) {
+  vi.mocked(useAdminAuth).mockReturnValue({
+    isAdmin,
+    isLoading: false,
+  } as any);
+}
+
+function mockWallet() {
+  vi.mocked(useWallet).mockReturnValue({
+    address: "GADMIN...",
+    signAndSubmit,
+  } as any);
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockAuth(true);
+  mockWallet();
+});
 
 describe("VaultStatePanel", () => {
   it("shows an error state with a retry button when the fetch fails", () => {
-    mock({ isError: true });
+    mockVault({ data: undefined, isError: true });
     render(<VaultStatePanel />);
 
     expect(screen.getByText("admin.vaultState.loadError")).toBeDefined();
@@ -39,15 +74,7 @@ describe("VaultStatePanel", () => {
   });
 
   it("shows the resolved protocol label, shares, assets, and an Active badge", () => {
-    mock({
-      data: {
-        protocol: "blend",
-        adapterId: "CADAPTER",
-        totalShares: 1234.5,
-        totalAssets: 1300.25,
-        paused: false,
-      },
-    });
+    mockVault({});
     render(<VaultStatePanel />);
 
     expect(screen.getByText("Blend Capital")).toBeDefined();
@@ -58,35 +85,70 @@ describe("VaultStatePanel", () => {
     expect(badge.className).toContain("text-emerald-400");
   });
 
-  it("shows a Paused badge when the vault is paused", () => {
-    mock({
-      data: {
-        protocol: "defindex",
-        adapterId: "CADAPTER",
-        totalShares: 0,
-        totalAssets: 0,
-        paused: true,
-      },
-    });
+  it("does not show pause button if user is not admin", () => {
+    mockAuth(false);
+    mockVault({});
     render(<VaultStatePanel />);
 
-    const badge = screen.getByTestId("vault-state-badge");
-    expect(badge.textContent).toBe("admin.vaultState.paused");
-    expect(badge.className).toContain("text-amber-400");
+    expect(screen.queryByText("admin.vaultState.pause")).toBeNull();
   });
 
-  it("falls back to the raw protocol id when it has no known label", () => {
-    mock({
-      data: {
-        protocol: "unknown-protocol",
-        adapterId: "CADAPTER",
-        totalShares: 0,
-        totalAssets: 0,
-        paused: false,
-      },
-    });
+  it("requires typed confirmation before building transaction", async () => {
+    mockVault({});
     render(<VaultStatePanel />);
 
-    expect(screen.getByText("unknown-protocol")).toBeDefined();
+    fireEvent.click(screen.getByText("admin.vaultState.pause"));
+    expect(screen.getByTestId("vault-confirm-input")).toBeDefined();
+
+    const executeBtn = screen.getByTestId("vault-confirm-execute-btn");
+    expect(executeBtn.getAttribute("disabled")).not.toBeNull();
+
+    fireEvent.change(screen.getByTestId("vault-confirm-input"), { target: { value: "wrong" } });
+    expect(executeBtn.getAttribute("disabled")).not.toBeNull();
+
+    fireEvent.change(screen.getByTestId("vault-confirm-input"), { target: { value: "PAUSE" } });
+    expect(executeBtn.getAttribute("disabled")).toBeNull();
+  });
+
+  it("builds, signs, submits, and refreshes vault state on success", async () => {
+    mockVault({});
+    const fetchMock = vi.spyOn(global, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ xdr: "AAAAXDR..." }),
+    } as Response);
+
+    signAndSubmit.mockResolvedValueOnce("txhash123");
+
+    render(<VaultStatePanel />);
+
+    fireEvent.click(screen.getByText("admin.vaultState.pause"));
+    fireEvent.change(screen.getByTestId("vault-confirm-input"), { target: { value: "PAUSE" } });
+    fireEvent.click(screen.getByTestId("vault-confirm-execute-btn"));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/v1/tx/set_paused", expect.any(Object));
+      expect(signAndSubmit).toHaveBeenCalledWith("AAAAXDR...");
+      expect(screen.getByTestId("vault-tx-success")).toBeDefined();
+      expect(screen.getByTestId("vault-explorer-link").getAttribute("href")).toContain("txhash123");
+      expect(refetch).toHaveBeenCalled();
+    });
+  });
+
+  it("shows failure state if transaction building fails", async () => {
+    mockVault({});
+    vi.spyOn(global, "fetch").mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ message: "Server error" }),
+    } as Response);
+
+    render(<VaultStatePanel />);
+
+    fireEvent.click(screen.getByText("admin.vaultState.pause"));
+    fireEvent.change(screen.getByTestId("vault-confirm-input"), { target: { value: "PAUSE" } });
+    fireEvent.click(screen.getByTestId("vault-confirm-execute-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("vault-tx-error").textContent).toContain("Server error");
+    });
   });
 });

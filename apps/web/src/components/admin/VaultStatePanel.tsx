@@ -1,6 +1,10 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useVaultState } from "../../hooks/useVaultState";
+import { useAdminAuth } from "../../hooks/useAdminAuth";
+import { useWallet } from "../../hooks/useWallet";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
+import { APP_NETWORK } from "@meridian/shared";
 
 function formatAmount(value: number): string {
   return value.toLocaleString(undefined, {
@@ -12,13 +16,91 @@ function formatAmount(value: number): string {
 export function VaultStatePanel() {
   const { t } = useTranslation();
   const { data, isLoading, isError, refetch } = useVaultState();
+  const { isAdmin, isLoading: isAdminLoading } = useAdminAuth();
+  const { address, signAndSubmit } = useWallet();
+
+  const [targetPausedState, setTargetPausedState] = useState<boolean | null>(null);
+  const [confirmationInput, setConfirmationInput] = useState("");
+  const [txStatus, setTxStatus] = useState<"idle" | "building" | "signing" | "success" | "error">("idle");
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const expectedConfirmText = targetPausedState ? "PAUSE" : "UNPAUSE";
+  const isConfirmed = confirmationInput.trim().toUpperCase() === expectedConfirmText;
+
+  const handleOpenConfirm = (pause: boolean) => {
+    setTargetPausedState(pause);
+    setConfirmationInput("");
+    setTxStatus("idle");
+    setTxHash(null);
+    setErrorMessage(null);
+  };
+
+  const handleCancel = () => {
+    setTargetPausedState(null);
+    setConfirmationInput("");
+    setTxStatus("idle");
+  };
+
+  const handleExecute = async () => {
+    if (targetPausedState === null || !isConfirmed || !address) return;
+
+    try {
+      setTxStatus("building");
+      setErrorMessage(null);
+
+      const res = await fetch("/api/v1/tx/set_paused", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vaultId: "meridian-usdc",
+          paused: targetPausedState,
+          signer: address,
+          network: APP_NETWORK.network,
+        }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.message || "Failed to build transaction");
+      }
+
+      const { xdr } = await res.json();
+
+      setTxStatus("signing");
+      const hash = await signAndSubmit(xdr);
+
+      setTxHash(hash);
+      setTxStatus("success");
+      void refetch();
+    } catch (err: any) {
+      setTxStatus("error");
+      setErrorMessage(err?.message || "Transaction failed");
+    }
+  };
+
+  const explorerUrl = txHash
+    ? `https://stellar.expert/explorer/${APP_NETWORK.network}/tx/${txHash}`
+    : null;
 
   return (
     <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40">
-      <div className="px-6 pt-5 pb-4 border-b border-gray-800">
+      <div className="px-6 pt-5 pb-4 border-b border-gray-800 flex items-center justify-between">
         <p className="text-sm font-semibold text-paper">
           {t("admin.vaultState.title")}
         </p>
+        {isAdmin && data && targetPausedState === null && txStatus !== "success" && (
+          <button
+            onClick={() => handleOpenConfirm(!data.paused)}
+            className={`px-3 py-1 text-xs font-semibold rounded-lg border transition-colors ${
+              data.paused
+                ? "border-emerald-800/70 bg-emerald-950/30 text-emerald-400 hover:bg-emerald-900/40"
+                : "border-amber-800/70 bg-amber-950/30 text-amber-400 hover:bg-amber-900/40"
+            }`}
+          >
+            {data.paused ? t("admin.vaultState.unpause") : t("admin.vaultState.pause")}
+          </button>
+        )}
       </div>
 
       <div className="px-6 py-5">
@@ -42,6 +124,98 @@ export function VaultStatePanel() {
             >
               {t("common.retry")}
             </button>
+          </div>
+        ) : targetPausedState !== null ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 space-y-3">
+              <p className="text-xs font-medium text-gray-300">
+                {targetPausedState
+                  ? t("admin.vaultState.confirmPausePrompt")
+                  : t("admin.vaultState.confirmUnpausePrompt")}
+              </p>
+              <p className="text-xs text-gray-500">
+                {t("admin.vaultState.typeToConfirm", { text: expectedConfirmText })}
+              </p>
+              <input
+                type="text"
+                value={confirmationInput}
+                onChange={(e) => setConfirmationInput(e.target.value)}
+                placeholder={expectedConfirmText}
+                disabled={txStatus === "building" || txStatus === "signing"}
+                data-testid="vault-confirm-input"
+                className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-xs text-paper focus:outline-none focus:border-gray-500"
+              />
+            </div>
+
+            {txStatus === "building" && (
+              <p className="text-xs text-amber-400 animate-pulse" data-testid="vault-tx-status">
+                {t("admin.vaultState.buildingTx")}
+              </p>
+            )}
+            {txStatus === "signing" && (
+              <p className="text-xs text-amber-400 animate-pulse" data-testid="vault-tx-status">
+                {t("admin.vaultState.signingTx")}
+              </p>
+            )}
+            {txStatus === "error" && errorMessage && (
+              <p className="text-xs text-red-400" data-testid="vault-tx-error">
+                {errorMessage}
+              </p>
+            )}
+            {txStatus === "success" && txHash && (
+              <div className="space-y-2" data-testid="vault-tx-success">
+                <p className="text-xs text-emerald-400">
+                  {t("admin.vaultState.success")}
+                </p>
+                {explorerUrl && (
+                  <a
+                    href={explorerUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-sky-400 hover:underline block"
+                    data-testid="vault-explorer-link"
+                  >
+                    {t("admin.vaultState.viewExplorer")} &rarr;
+                  </a>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              {txStatus !== "success" && (
+                <button
+                  onClick={handleCancel}
+                  disabled={txStatus === "building" || txStatus === "signing"}
+                  className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-gray-800 transition-colors"
+                >
+                  {t("common.cancel")}
+                </button>
+              )}
+              {txStatus === "success" ? (
+                <button
+                  onClick={() => {
+                    setTargetPausedState(null);
+                    setTxStatus("idle");
+                  }}
+                  className="rounded-lg bg-paper px-3 py-1.5 text-xs font-semibold text-deep hover:bg-gray-200 transition-colors"
+                >
+                  {t("common.done")}
+                </button>
+              ) : (
+                <button
+                  onClick={() => void handleExecute()}
+                  disabled={!isConfirmed || txStatus === "building" || txStatus === "signing"}
+                  data-testid="vault-confirm-execute-btn"
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    !isConfirmed || txStatus === "building" || txStatus === "signing"
+                      ? "bg-gray-800 text-gray-500 cursor-not-allowed"
+                      : "bg-paper text-deep hover:bg-gray-200"
+                  }`}
+                >
+                  {targetPausedState ? t("admin.vaultState.pause") : t("admin.vaultState.unpause")}
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-y-5 gap-x-4">
