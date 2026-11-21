@@ -14,21 +14,23 @@ export interface UseUsdcBalanceResult {
 
 /**
  * Reads the spendable USDC balance for the given account from Horizon.
- * Deducts selling liabilities if present.
+ * Deducts selling liabilities if present. Returns undefined when no USDC
+ * issuer is configured for the network.
  * Throws when Horizon returns non-ok or the account cannot be read.
  */
 export async function fetchSpendableBalance(
   publicKey: string,
   network: string
-): Promise<number> {
+): Promise<number | undefined> {
   const account = await fetchBalances(publicKey, network);
   if (!account) {
     throw new Error(`Failed to fetch balance from Horizon for ${publicKey}`);
   }
 
   const issuer = USDC_ISSUER[network];
+  if (!issuer) return undefined;
   const usdc = account.balances.find(
-    (b) => b.asset_code === "USDC" && (!issuer || b.asset_issuer === issuer)
+    (b) => b.asset_code === "USDC" && b.asset_issuer === issuer
   );
 
   if (!usdc) return 0;
