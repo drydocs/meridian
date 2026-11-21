@@ -290,6 +290,15 @@ Commits that do not match the `^(feat|fix|docs|chore|refactor|test|style|ci|perf
 
 ## Code Standards
 
+### Architecture Decision Records
+
+When a change alters an accepted architectural decision, update the relevant
+ADR or add a new one in [`apps/docs/architecture/adr/`](apps/docs/architecture/adr/).
+Use the [ADR template](apps/docs/architecture/adr/template.md), update the
+[index](apps/docs/architecture/adr/index.md), and link the record from the
+affected architecture documentation. Routine changes that do not alter an
+architectural decision do not need an ADR.
+
 ### TypeScript (`apps/web`, `apps/api-local`, `packages/*`)
 
 - **Formatting:** Run `pnpm format` before committing. Prettier with default settings.

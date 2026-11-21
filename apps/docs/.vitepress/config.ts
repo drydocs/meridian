@@ -42,6 +42,7 @@ export default defineConfig({
           { text: "API Layer", link: "/architecture/api" },
           { text: "Vault Contract", link: "/architecture/vault-contract" },
           { text: "Signing Flow", link: "/architecture/signing-flow" },
+          { text: "Architecture Decision Records", link: "/architecture/adr/" },
         ],
       },
       {
