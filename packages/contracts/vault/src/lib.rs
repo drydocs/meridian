@@ -2288,14 +2288,6 @@ mod tests {
             env.storage().instance().get(&MA_SH).unwrap_or(0)
         }
 
-        pub fn get_usdc(env: Env) -> Address {
-            get_or_not_initialized(&env, env.storage().instance().get(&MA_USDC))
-        }
-
-        pub fn get_vault(env: Env) -> Option<Address> {
-            env.storage().instance().get(&MA_VAULT)
-        }
-
         pub fn refresh(env: Env) {
             // A real adapter's refresh()/accrue() extends its own instance
             // TTL (#704); begin_migration()'s single refresh() call at the
@@ -2373,14 +2365,6 @@ mod tests {
 
             pub fn total_shares(env: Env) -> i128 {
                 env.storage().instance().get(&LA_SH).unwrap_or(0)
-            }
-
-            pub fn get_usdc(env: Env) -> Address {
-                get_or_not_initialized(&env, env.storage().instance().get(&LA_USDC))
-            }
-
-            pub fn get_vault(_env: Env) -> Option<Address> {
-                None
             }
 
             pub fn refresh(env: Env) {
@@ -2658,14 +2642,6 @@ mod tests {
                 env.storage().instance().get(&MM_SH).unwrap_or(0)
             }
 
-            pub fn get_usdc(env: Env) -> Address {
-                get_or_not_initialized(&env, env.storage().instance().get(&MM_USDC))
-            }
-
-            pub fn get_vault(_env: Env) -> Option<Address> {
-                None
-            }
-
             pub fn refresh(env: Env) {
                 // total_assets is still manually set by the test (see
                 // set_total_assets above); this only extends TTL, matching
@@ -2752,14 +2728,6 @@ mod tests {
 
             pub fn total_shares(env: Env) -> i128 {
                 env.storage().instance().get(&CM_SH).unwrap_or(0)
-            }
-
-            pub fn get_usdc(env: Env) -> Address {
-                get_or_not_initialized(&env, env.storage().instance().get(&CM_USDC))
-            }
-
-            pub fn get_vault(_env: Env) -> Option<Address> {
-                None
             }
 
             pub fn refresh(env: Env) {
@@ -6232,14 +6200,6 @@ mod tests {
             pub fn initialize(env: Env, usdc: Address) {
                 env.storage().instance().set(&RA_USDC, &usdc);
                 env.storage().instance().set(&RA_SH, &0_i128);
-            }
-
-            pub fn get_usdc(env: Env) -> Address {
-                get_or_not_initialized(&env, env.storage().instance().get(&RA_USDC))
-            }
-
-            pub fn get_vault(_env: Env) -> Option<Address> {
-                None
             }
 
             pub fn arm(env: Env, vault: Address, hook: u32, attack: u32) {
