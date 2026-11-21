@@ -56,6 +56,10 @@ export default defineConfig({
             link: "/strategies/architecture",
           },
           {
+            text: "Custom Strategy Tutorial",
+            link: "/strategies/custom-strategy",
+          },
+          {
             text: "Delta-Neutral Strategy",
             link: "/strategies/delta-neutral",
           },
