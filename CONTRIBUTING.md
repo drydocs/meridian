@@ -410,6 +410,10 @@ pnpm --filter @meridian/stellar-sdk-helpers exec vitest run src/tx.test.ts
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo test --all
+cargo build --target wasm32v1-none --release
+
+# Regenerate TypeScript contract bindings after any contract ABI/spec change
+pnpm generate:bindings
 ```
 
 ### End-to-end tests
