@@ -4,6 +4,14 @@ import {
   UnknownAssetError,
 } from "./types";
 import type { AssetSymbol } from "./types";
+import { VenueLedger } from "./venue";
+import type {
+  LinkedDebt,
+  VenueId,
+  VenueOrder,
+  VenuePortfolioView,
+  VenuePosition,
+} from "./venue";
 
 export type PriceSet = ReadonlyMap<AssetSymbol, FixedPointDecimal>;
 
@@ -68,15 +76,16 @@ interface InternalPosition {
  * Multiplications truncate toward zero; the same rule is used everywhere so
  * the accounting identity is exact, not approximate:
  *
- *   cash + positionValue(prices)
+ *   cash + positionValue(prices) + venueValue(prices)
  *     == initialCash + realized + unrealized(prices) - fees
  *
  * Flipping a position through zero in one fill is rejected; close it and
  * open the other side with two fills. Cash may go negative (margin or
  * borrowed funding); callers that need a limit enforce it themselves.
  */
-export class Portfolio {
+export class Portfolio implements VenuePortfolioView {
   readonly initialCash: FixedPointDecimal;
+  readonly venueLedger: VenueLedger;
   #cash: bigint;
   #realized = 0n;
   #fees = 0n;
@@ -84,6 +93,7 @@ export class Portfolio {
 
   constructor(initialCash: FixedPointDecimal) {
     this.initialCash = initialCash;
+    this.venueLedger = new VenueLedger();
     this.#cash = initialCash.toStroops();
   }
 
@@ -135,6 +145,12 @@ export class Portfolio {
 
   /** Apply a fill: open, increase, reduce or close a position. */
   applyFill(fill: Fill): void {
+    const maybeKind = (fill as { readonly kind?: unknown }).kind;
+    if (maybeKind !== undefined && maybeKind !== "spot") {
+      throw new InvalidFillError(
+        `venue operation "${String(maybeKind)}" cannot be applied as a spot fill`
+      );
+    }
     const delta = fill.size.toStroops();
     const price = fill.price.toStroops();
     const fee = fill.fee?.toStroops() ?? 0n;
@@ -192,13 +208,76 @@ export class Portfolio {
     this.#realized += stroops;
   }
 
+  getVenuePosition(
+    v: VenueId,
+    a: AssetSymbol,
+    m?: string
+  ): VenuePosition | undefined {
+    return this.venueLedger.getVenuePosition(v, a, m);
+  }
+
+  venues(): VenuePosition[] {
+    return this.venueLedger.venues();
+  }
+
+  getDebt(debtId: string): LinkedDebt | undefined {
+    return this.venueLedger.getDebt(debtId);
+  }
+
+  openDebt(p: {
+    debtId: string;
+    asset: AssetSymbol;
+    amount: FixedPointDecimal;
+    price: FixedPointDecimal;
+  }): void {
+    this.#cash += this.venueLedger.openDebt(
+      p.debtId,
+      p.asset,
+      p.amount,
+      p.price
+    );
+  }
+
+  accrueVenueYield(
+    v: VenueId,
+    a: AssetSymbol,
+    amount: FixedPointDecimal,
+    m?: string
+  ): void {
+    this.venueLedger.accrueYield(v, a, amount, m);
+  }
+
+  applyVenueOrder(
+    order: VenueOrder,
+    prices: PriceSet,
+    fee?: FixedPointDecimal
+  ): void {
+    const price = prices.get(order.asset);
+    if (!price) throw new UnknownAssetError(order.asset);
+    const feeStroops = fee?.toStroops() ?? 0n;
+    if (feeStroops < 0n)
+      throw new InvalidFillError("venue operation fee must be >= 0");
+    if (order.kind === "deploy") {
+      this.#cash -= this.venueLedger.deploy(order, price).cashCost + feeStroops;
+      this.#fees += feeStroops;
+      return;
+    }
+    const res =
+      order.kind === "harvest"
+        ? this.venueLedger.harvest(order, price)
+        : this.venueLedger.withdraw(order, price);
+    this.#cash += res.cashProceeds - feeStroops;
+    this.#realized += res.realizedGain;
+    this.#fees += feeStroops;
+  }
+
   #markValue(asset: AssetSymbol, size: bigint, prices: PriceSet): bigint {
     const price = prices.get(asset);
     if (!price) throw new UnknownAssetError(asset);
     return notional(size, price.toStroops());
   }
 
-  /** Sum of size * price over open positions. */
+  /** Sum of size * price over open spot positions. */
   positionValue(prices: PriceSet): FixedPointDecimal {
     let total = 0n;
     for (const memberPositions of this.#positions.values()) {
@@ -209,9 +288,14 @@ export class Portfolio {
     return FixedPointDecimal.fromStroops(total);
   }
 
-  /** Mark-to-market result on open positions: value minus basis. */
+  /** Net value of open venue positions (less any linked debts) at `prices`. */
+  venueValue(prices: PriceSet): FixedPointDecimal {
+    return this.venueLedger.venueValue(prices);
+  }
+
+  /** Mark-to-market result on open spot and venue positions: value minus basis. */
   unrealized(prices: PriceSet): FixedPointDecimal {
-    let total = 0n;
+    let total = this.venueLedger.unrealized(prices).toStroops();
     for (const memberPositions of this.#positions.values()) {
       for (const [asset, p] of memberPositions) {
         total += this.#markValue(asset, p.size, prices) - p.basis;
@@ -220,10 +304,12 @@ export class Portfolio {
     return FixedPointDecimal.fromStroops(total);
   }
 
-  /** Cash plus position value at the given prices (net of fees already paid). */
+  /** Cash plus spot position value and venue value at `prices` (net of fees). */
   totalValue(prices: PriceSet): FixedPointDecimal {
     return FixedPointDecimal.fromStroops(
-      this.#cash + this.positionValue(prices).toStroops()
+      this.#cash +
+        this.positionValue(prices).toStroops() +
+        this.venueValue(prices).toStroops()
     );
   }
 

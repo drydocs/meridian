@@ -353,6 +353,7 @@ export const VAULT_CONTRACT_ERROR_MESSAGES: Record<number, string> = {
   22: "The migration target reported an invalid asset balance.",
   23: "The adapter did not credit any shares for this deposit.",
   24: "The vault hit a divide-by-zero in adapter accounting.",
+  30: "The adapter's credit for this deposit did not match the value it received.",
 };
 
 const CONTRACT_ERROR_CODE = /Error\(\s*Contract\s*,\s*#(\d+)\s*\)/i;

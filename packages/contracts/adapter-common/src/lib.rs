@@ -131,7 +131,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{contract, testutils::Address as _, Address, Env};
+    use soroban_sdk::{
+        contract,
+        testutils::{Address as _, Ledger as _},
+        Address, Env,
+    };
 
     // adapter-common has no #[contract] of its own — it's a shared library
     // crate, not a deployable contract. Instance storage is always scoped to
@@ -194,6 +198,24 @@ mod tests {
                 require_not_initialized(&env),
                 Err(AdapterError::AlreadyInitialized)
             );
+        });
+    }
+
+    #[test]
+    fn storage_ttl_audit_covers_shared_instance_keys() {
+        let (env, contract_id) = setup();
+        let vault = Address::generate(&env);
+        let usdc = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            store_vault_and_usdc(&env, &vault, &usdc);
+            extend_instance(&env);
+            env.ledger().with_mut(|li| {
+                li.sequence_number += INSTANCE_THRESHOLD - 1;
+            });
+            for key in [VAULT_KEY, USDC_KEY] {
+                assert!(env.storage().instance().has(&key));
+            }
         });
     }
 }

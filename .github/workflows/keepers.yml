@@ -17,9 +17,14 @@ on:
     - cron: "0 * * * *" # migration keeper
   workflow_dispatch: # manual trigger for debugging
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   trigger-keepers:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       API_BASE_URL: ${{ vars.API_BASE_URL || 'https://usemeridian.vercel.app' }}
     steps:
