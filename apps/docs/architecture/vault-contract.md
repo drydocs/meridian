@@ -266,7 +266,18 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `MigrationCooldownNotMet`        | 20   | `migrate_adapter` was called before `MIN_LEDGER_GAP` ledgers had elapsed since `begin_migration`.                                                                                                 |
 | `MigrationStabilityDrift`        | 21   | `migrate_adapter`'s target adapter's pre-deposit balance fell outside `max_slippage_bps` of the `begin_migration` snapshot, indicating the target was drained or manipulated during the cooldown. |
 | `MigrationSnapshotAssetsInvalid` | 22   | `begin_migration` was called against a target adapter reporting a negative `total_assets()`.                                                                                                      |
+| `AdapterCreditedNothing`         | 23   | `deposit` or `migrate_adapter` received zero or negative shares from the adapter.                                                                                                                 |
+| `DivisionByZero`                 | 24   | An internal division attempted to divide by zero.                                                                                                                                                  |
+| `MigrationBaselineInvalid`       | 25   | `migrate_adapter` read a zero or negative asset baseline from the old adapter while the vault held adapter shares.                                                                                 |
 | `ReentrancyDetected`             | 26   | `deposit`, `withdraw`, `begin_migration`, `migrate_adapter` or `on_transfer` was called while another guarded call was still running.                                                             |
+| `InvalidAdminAddress`            | 27   | Constructor initialization rejected the vault admin because it was the zero address or the vault itself.                                                                                           |
+| `InvalidUsdcAddress`             | 28   | Constructor initialization rejected USDC because it was the zero address or the vault itself.                                                                                                     |
+| `InvalidMusdcAddress`            | 29   | Constructor initialization rejected mUSDC because it was the zero address or the vault itself.                                                                                                    |
+| `InvalidAdapterAddress`          | 30   | Constructor initialization rejected the adapter because it was the zero address or the vault itself.                                                                                               |
+| `InvalidTreasuryAddress`         | 31   | Constructor initialization rejected the treasury because it was the zero address or the vault itself.                                                                                              |
+| `MusdcAdminMismatch`             | 32   | Constructor initialization found that mUSDC is not administered by this vault.                                                                                                                    |
+| `AdapterUsdcMismatch`            | 33   | Constructor initialization found that the adapter is configured for a different USDC token.                                                                                                       |
+| `AdapterVaultMismatch`           | 34   | Constructor initialization found that the adapter is missing or bound to a different vault.                                                                                                       |
 
 ## Contract storage
 

@@ -133,20 +133,6 @@ deploy_vault_stack() {
     return 1
   fi
 
-  cd "$repo_root/packages/contracts"
-  # SKIP_BUILD lets a caller drop in WASM already verified elsewhere (e.g. a
-  # genuine Linux CI build, downloaded to sidestep `stellar contract build`'s
-  # non-reproducibility across platforms) without this rebuilding over it
-  # locally. Unset by default: a normal run always builds from source here.
-  if [ -z "${SKIP_BUILD:-}" ]; then
-    echo "Building contracts..."
-    stellar contract build
-  else
-    echo "Skipping build (SKIP_BUILD set); using WASM already in target/wasm32v1-none/release."
-  fi
-
-  # Resolve all deterministic addresses and validate the vault's wiring before
-  # any upload or deploy transaction is submitted.
   local vault_salt="${VAULT_SALT:-$(openssl rand -hex 32)}"
   local blend_adapter_salt="${BLEND_ADAPTER_SALT:-$(openssl rand -hex 32)}"
   local musdc_salt="${MUSDC_SALT:-$(openssl rand -hex 32)}"
@@ -162,11 +148,22 @@ deploy_vault_stack() {
       return 1
     fi
   done
-  if [ "$ADMIN_ADDRESS" = "$VAULT_ID" ] || [ "$USDC_ID" = "$VAULT_ID" ] || \
-    [ "$MUSDC_ID" = "$VAULT_ID" ] || [ "$BLEND_ADAPTER_ID" = "$VAULT_ID" ] || \
-    [ "$TREASURY_ADDRESS" = "$VAULT_ID" ]; then
+  if [ "$ADMIN_ADDRESS" = "$VAULT_ID" ] || [ "$USDC_ID" = "$VAULT_ID" ] ||
+    [ "$TREASURY_ADDRESS" = "$VAULT_ID" ] || [ "$BLEND_ADAPTER_ID" = "$VAULT_ID" ] ||
+    [ "$MUSDC_ID" = "$VAULT_ID" ]; then
     echo "ERROR: admin, USDC, mUSDC, adapter, and treasury must not alias the vault address ($VAULT_ID)." >&2
     return 1
+  fi
+  cd "$repo_root/packages/contracts"
+  # SKIP_BUILD lets a caller drop in WASM already verified elsewhere (e.g. a
+  # genuine Linux CI build, downloaded to sidestep `stellar contract build`'s
+  # non-reproducibility across platforms) without this rebuilding over it
+  # locally. Unset by default: a normal run always builds from source here.
+  if [ -z "${SKIP_BUILD:-}" ]; then
+    echo "Building contracts..."
+    stellar contract build
+  else
+    echo "Skipping build (SKIP_BUILD set); using WASM already in target/wasm32v1-none/release."
   fi
 
   # `stellar contract build` targets wasm32v1-none, not wasm32-unknown-unknown.
@@ -238,6 +235,39 @@ deploy_vault_stack() {
     -- --admin "$VAULT_ID" --decimals 7 --name "Meridian USDC" --symbol mUSDC) || return 1
   IFS='|' read -r MUSDC_ID musdc_tx <<< "$musdc_result"
   echo "mUSDC contract ID: $MUSDC_ID"
+
+  # Read back the deployed wiring before submitting the vault transaction.
+  # This prevents a fee-spending mismatch from reaching the vault deploy.
+  local adapter_usdc
+  local adapter_vault
+  local musdc_admin
+  if ! adapter_usdc=$(stellar contract invoke "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" \
+    --id "$BLEND_ADAPTER_ID" -- get_usdc 2>&1 | tr -d '[:space:]"\r'); then
+    echo "ERROR: unable to read the deployed adapter USDC binding." >&2
+    return 1
+  fi
+  if ! adapter_vault=$(stellar contract invoke "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" \
+    --id "$BLEND_ADAPTER_ID" -- get_vault 2>&1 | tr -d '[:space:]"\r'); then
+    echo "ERROR: unable to read the deployed adapter vault binding." >&2
+    return 1
+  fi
+  if ! musdc_admin=$(stellar contract invoke "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" \
+    --id "$MUSDC_ID" -- admin 2>&1 | tr -d '[:space:]"\r'); then
+    echo "ERROR: unable to read the deployed mUSDC admin." >&2
+    return 1
+  fi
+  if [[ "$adapter_usdc" != *"$USDC_ID"* ]]; then
+    echo "ERROR: adapter USDC binding mismatch: expected $USDC_ID, got $adapter_usdc." >&2
+    return 1
+  fi
+  if [[ "$adapter_vault" != *"$VAULT_ID"* ]]; then
+    echo "ERROR: adapter vault binding mismatch: expected $VAULT_ID, got $adapter_vault." >&2
+    return 1
+  fi
+  if [[ "$musdc_admin" != *"$VAULT_ID"* ]]; then
+    echo "ERROR: mUSDC admin mismatch: expected $VAULT_ID, got $musdc_admin." >&2
+    return 1
+  fi
 
   # Deploying with the same salt used to reserve VAULT_ID above lands the
   # vault at that exact address. Its constructor sets

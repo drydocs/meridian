@@ -275,7 +275,8 @@ impl MeridianVault {
             Ok(Ok(Some(adapter_vault))) if adapter_vault != vault => {
                 return Err(ContractError::AdapterVaultMismatch);
             }
-            Ok(Ok(_)) => {}
+            Ok(Ok(Some(_))) => {}
+            Ok(Ok(None)) => return Err(ContractError::AdapterVaultMismatch),
             _ => return Err(ContractError::AdapterVaultMismatch),
         }
 
@@ -1688,6 +1689,21 @@ mod tests {
                 &usdc,
                 &musdc,
                 &wrong_vault_adapter,
+                &treasury,
+            ),
+            Err(ContractError::AdapterVaultMismatch)
+        );
+
+        let missing_vault_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &missing_vault_adapter).initialize(&usdc);
+        assert_eq!(
+            check_wiring(
+                &env,
+                &vault_id,
+                &admin,
+                &usdc,
+                &musdc,
+                &missing_vault_adapter,
                 &treasury,
             ),
             Err(ContractError::AdapterVaultMismatch)
