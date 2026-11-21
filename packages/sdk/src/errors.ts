@@ -155,7 +155,7 @@ const SLIPPAGE_CONTRACT_CODES: ReadonlySet<number> = new Set([15, 18]);
 const NETWORK_CODES = new Set([
   "ECONNRESET",
   "ECONNREFUSED",
-  "ECONABORTED",
+  "ECONNABORTED",
   "ENOTFOUND",
   "EAI_AGAIN",
   "ETIMEDOUT",
@@ -163,9 +163,9 @@ const NETWORK_CODES = new Set([
   "ERR_NETWORK",
 ]);
 const NETWORK_MESSAGE =
-  /network error|fetch failed|socket hang up|connection (?:reset|refused|closed)|getaddrinfo|ENOTFOUND|ECONRESET|ECONNREFUSED|internal server error/i;
+  /network error|fetch failed|socket hang up|connection (?:reset|refused|closed)|getaddrinfo|ENOTFOUND|ECONNRESET|ECONNREFUSED/i;
 const TIMEOUT_MESSAGE = /timed? ?out|timeout/i;
-const CONTRACT_CODE = /Error\(\s*Contract\s,\s*#(\d+)\s*\)/i;
+const CONTRACT_CODE = /Error\(\s*Contract\s*,\s*#(\d+)\s*\)/i;
 
 function httpStatus(err: unknown): number | undefined {
   if (typeof err !== "object" || err === null) return undefined;
