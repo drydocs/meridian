@@ -264,6 +264,50 @@ export async function assertAdapterUnchanged(
   }
 }
 
+/**
+ * Reads the vault's reconciliation view immediately before a keeper action.
+ * The shape check is deliberately tolerant of older vault deployments that
+ * predate get_health; a deployed health response with either mismatch flag is
+ * not safe to act on and is rejected.
+ */
+export async function assertVaultHealthy(
+  server: KeeperRpcServer,
+  vaultContractId: string,
+  networkPassphrase: string
+): Promise<void> {
+  let health: unknown;
+  try {
+    health = await simulateView(
+      server as never,
+      vaultContractId,
+      networkPassphrase,
+      "get_health"
+    );
+  } catch (error) {
+    // Older vault deployments do not export get_health. A missing contract
+    // function is the one safe error to ignore; RPC and other contract errors
+    // still block a keeper action.
+    const message = errorMessage(error);
+    if (
+      /(?:unknown|missing|no such)\s+(?:contract\s+)?(?:function|method).*get_health/i.test(
+        message
+      ) ||
+      /Error\(WasmVm, InvalidAction\)/i.test(message)
+    ) {
+      return;
+    }
+    throw error;
+  }
+  if (!health || typeof health !== "object") return;
+  const value = health as Record<string, unknown>;
+  if (value.total_shares_mismatch === true) {
+    throw new Error("vault health check failed: total shares mismatch");
+  }
+  if (value.adapter_shares_mismatch === true) {
+    throw new Error("vault health check failed: adapter shares mismatch");
+  }
+}
+
 // Lifecycle hooks around the two moments that matter for cross-invocation
 // dedup:
 //
