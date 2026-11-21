@@ -5,8 +5,7 @@
 
   "toasts": {
     "notifications": "Notifications",
-    "dismiss": "Fermer la notification {{kind}}",
-    "troubleshooting": "Dépannage"
+    "dismiss": "Fermer la notification {{kind}}"
   },
 
   "walletConnect": {
@@ -39,7 +38,6 @@
     "position": "Aucune position dans ce coffre.",
     "waiting": "En attente de signature...",
     "positionsError": "Impossible de charger votre position. Les dépôts et retraits fonctionnent toujours.",
-    "troubleshootingGuide": "Guide de dépannage",
     "validation": {
       "required": "Saisissez un montant à déposer.",
       "invalid": "Saisissez un nombre valide.",

@@ -8,7 +8,7 @@ Because Meridian is strictly non-custodial, the API constructs unsigned Soroban 
 
 ## Supported Wallets
 
-Meridian connects to wallets using adapter wrappers located in [`apps/web/src/lib/wallet.ts`](file:///apps/web/src/lib/wallet.ts):
+Meridian connects to wallets using adapter wrappers located in `apps/web/src/lib/wallet.ts`:
 
 | Wallet        | Adapter Status                                     | Detection Method                                   | Official Website                       |
 | ------------- | -------------------------------------------------- | -------------------------------------------------- | -------------------------------------- |

@@ -224,19 +224,9 @@ export function VaultPanel() {
           position summary is affected. */}
       {connected && positionsError && (
         <div className="mx-7 my-5 rounded-xl border border-amber-800/70 bg-amber-950/20 px-4 py-3.5 flex items-center justify-between gap-3">
-          <div className="space-y-1">
-            <p className="text-sm text-amber-400">
-              {t("vaultPanel.positionsError")}
-            </p>
-            <a
-              href="/docs/operations/wallet-signing-troubleshooting"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block text-xs text-amber-300 underline hover:text-amber-200 transition-colors duration-150"
-            >
-              {t("vaultPanel.troubleshootingGuide")}
-            </a>
-          </div>
+          <p className="text-sm text-amber-400">
+            {t("vaultPanel.positionsError")}
+          </p>
           <button
             onClick={() => void refetchPositions()}
             className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
