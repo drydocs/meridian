@@ -210,6 +210,14 @@ export const PriceSourceSchema = z
     { message: `source.price must be one of: ${PRICE_SOURCES.join(", ")}` }
   );
 
+export const HedgeSourceSchema = z
+  .string()
+  .refine(
+    (value): value is PriceSource =>
+      (PRICE_SOURCES as readonly string[]).includes(value),
+    { message: `source.hedge must be one of: ${PRICE_SOURCES.join(", ")}` }
+  );
+
 export const RateSourceSchema = z
   .string()
   .refine(
@@ -218,10 +226,11 @@ export const RateSourceSchema = z
     { message: `source.rate must be one of: ${RATE_SOURCES.join(", ")}` }
   );
 
-/** Price and rate data-source selector. */
+/** Price, optional hedge price, and rate data-source selector. */
 export const ScenarioSourceSchema = z
   .object({
     price: PriceSourceSchema,
+    hedge: HedgeSourceSchema.optional(),
     rate: RateSourceSchema,
   })
   .strict();
