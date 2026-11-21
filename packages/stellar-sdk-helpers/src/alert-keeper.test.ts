@@ -1,13 +1,15 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Address, rpc, xdr } from "@stellar/stellar-sdk";
 import {
+  ALERTABLE_ACTIONS,
   formatAlertMessage,
   runAlertKeeper,
   alertCursorKey,
   type AlertKeeperConfig,
 } from "./alert-keeper";
 import { createInMemoryKeeperHeartbeatStore } from "./keeper-heartbeat";
-import type { RpcAdminAction } from "./admin-history";
+import type { RpcAdminAction, RpcAdminActionType } from "./admin-history";
 import type { StellarNetwork } from "./types";
 
 const network: StellarNetwork = {
@@ -21,6 +23,42 @@ const VAULT_CONTRACT_ID =
 const NEW_ADMIN = "GC7MCAT5QBXWXOUDN57SFAM3T353J7KMNVDRK4J5ZSILUJVRL7M3OUIN";
 const NEW_ADAPTER = "CABAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAFNSZ";
 const OLD_ADAPTER = "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526";
+const ALERT_KEEPER_RUNBOOK = readFileSync(
+  new URL("../../../apps/docs/operations/alert-keeper.md", import.meta.url),
+  "utf8"
+);
+const ALERT_EXAMPLES: Record<RpcAdminActionType, RpcAdminAction> = {
+  paused: {
+    action: "paused",
+    ledgerSequence: 300,
+    payload: { paused: true },
+  },
+  transfer: {
+    action: "transfer",
+    ledgerSequence: 300,
+    payload: { newAdmin: NEW_ADMIN },
+  },
+  accept: {
+    action: "accept",
+    ledgerSequence: 300,
+    payload: { newAdmin: NEW_ADMIN },
+  },
+  adapter: {
+    action: "adapter",
+    ledgerSequence: 300,
+    payload: { newAdapter: NEW_ADAPTER },
+  },
+  migrate: {
+    action: "migrate",
+    ledgerSequence: 300,
+    payload: { oldAdapter: OLD_ADAPTER, newAdapter: NEW_ADAPTER },
+  },
+  mig_begin: {
+    action: "mig_begin",
+    ledgerSequence: 300,
+    payload: { newAdapter: NEW_ADAPTER, earliestLedger: 17380 },
+  },
+};
 
 function adminEvent(
   action: string,
@@ -125,6 +163,19 @@ describe("formatAlertMessage", () => {
     expect(msg).toContain(NEW_ADAPTER.slice(0, 8));
     expect(msg).toContain("17380");
   });
+});
+
+describe("alert keeper runbook", () => {
+  it.each([...ALERTABLE_ACTIONS])(
+    "documents the exact payload message for %s",
+    (action) => {
+      const message = formatAlertMessage(
+        "meridian-usdc",
+        ALERT_EXAMPLES[action]
+      );
+      expect(ALERT_KEEPER_RUNBOOK).toContain(message);
+    }
+  );
 });
 
 describe("runAlertKeeper", () => {

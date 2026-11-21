@@ -44,7 +44,13 @@ Returns a single vault or 404.
 
 ### `GET /api/v1/positions/:publicKey`
 
-Returns the user's on-chain position.
+Returns the user's on-chain position. Results are cached for 15 seconds by
+network, wallet, and latest Stellar ledger, with concurrent cold reads for the
+same wallet coalesced. Responses include an `ETag` derived from those same
+values; send it as `If-None-Match` to receive `304 Not Modified`. Add
+`?refresh=true` to bypass the position cache and force a fresh contract read.
+The response remains `Cache-Control: no-store`; this conditional request
+support is for clients rather than intermediary caching.
 
 **Response**
 
