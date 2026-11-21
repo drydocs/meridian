@@ -124,19 +124,71 @@ export const DEFINDEX_SLIPPAGE_BPS = SLIPPAGE_BPS.DEFINDEX;
 export const MIGRATION_DEFAULT_SLIPPAGE_BPS = SLIPPAGE_BPS.MIGRATION_DEFAULT;
 export const MIGRATION_MAX_SLIPPAGE_BPS = MAX_ADMIN_SLIPPAGE_BPS;
 
+export const DEFAULT_STELLAR_RPC_URLS = {
+  testnet: ["https://soroban-testnet.stellar.org"],
+  mainnet: ["https://mainnet.sorobanrpc.com"],
+} as const;
+
+/**
+ * Parse a comma-separated list of Soroban RPC URLs, trimming whitespace and
+ * deduplicating while preserving configured order (index 0 is primary).
+ */
+export function parseRpcUrls(
+  raw: string | undefined,
+  fallback: readonly string[]
+): string[] {
+  if (raw) {
+    const seen = new Set<string>();
+    const parsed: string[] = [];
+    for (const part of raw.split(",")) {
+      const trimmed = part.trim();
+      if (trimmed && !seen.has(trimmed)) {
+        seen.add(trimmed);
+        parsed.push(trimmed);
+      }
+    }
+    if (parsed.length > 0) {
+      return parsed;
+    }
+  }
+  return [...fallback];
+}
+
+/**
+ * Resolve the ordered list of Soroban RPC URLs for a network from environment
+ * configuration (`SOROBAN_RPC_URLS_TESTNET` / `SOROBAN_RPC_URLS_MAINNET`),
+ * falling back to the built-in defaults.
+ */
+export function getNetworkRpcUrls(
+  network: "testnet" | "mainnet",
+  env: Record<string, string | undefined> = process.env
+): string[] {
+  const raw =
+    network === "testnet"
+      ? (env.SOROBAN_RPC_URLS_TESTNET ?? env.STELLAR_RPC_URLS_TESTNET)
+      : (env.SOROBAN_RPC_URLS_MAINNET ?? env.STELLAR_RPC_URLS_MAINNET);
+  return parseRpcUrls(raw, DEFAULT_STELLAR_RPC_URLS[network]);
+}
+
+const _testnetRpcUrls = getNetworkRpcUrls("testnet");
+const _mainnetRpcUrls = getNetworkRpcUrls("mainnet");
+
 export const STELLAR_NETWORKS = {
   testnet: {
     network: "testnet" as const,
-    rpcUrl: "https://soroban-testnet.stellar.org",
+    rpcUrl: _testnetRpcUrls[0] ?? DEFAULT_STELLAR_RPC_URLS.testnet[0],
+    rpcUrls: _testnetRpcUrls,
     passphrase: "Test SDF Network ; September 2015",
   },
   mainnet: {
     network: "mainnet" as const,
     // Unlike testnet, the Stellar Development Foundation does not run a
     // public mainnet RPC. This is a third-party public endpoint (see
-    // https://sorobanrpc.com for others); revisit before relying on it for
-    // anything beyond occasional CLI use, e.g. own infra or a paid provider.
-    rpcUrl: "https://mainnet.sorobanrpc.com",
+    // https://sorobanrpc.com for others); configure SOROBAN_RPC_URLS_MAINNET
+    // with a comma-separated list to enable read failover across multiple
+    // endpoints.
+    rpcUrl: _mainnetRpcUrls[0] ?? DEFAULT_STELLAR_RPC_URLS.mainnet[0],
+    rpcUrls: _mainnetRpcUrls,
     passphrase: "Public Global Stellar Network ; September 2015",
   },
 };

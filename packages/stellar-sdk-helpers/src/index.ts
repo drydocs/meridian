@@ -16,6 +16,7 @@ export * from "./position-snapshots";
 export * from "./positions";
 export * from "./rate-sources";
 export * from "./routing";
+export * from "./rpc-pool";
 export * from "./tx";
 export * from "./types";
 // `keeper-state` owns the concrete `SubmissionLease` class while `./types`
