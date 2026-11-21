@@ -1,5 +1,8 @@
 import type { RouteResult } from "./types";
-import { getAdminActionHistory } from "@meridian/stellar-sdk-helpers";
+import {
+  getAdminActionHistory,
+  InvalidAdminHistoryCursorError,
+} from "@meridian/stellar-sdk-helpers";
 import { APP_NETWORK } from "@meridian/shared";
 import { KNOWN_POOLS } from "@meridian/stellar-sdk-helpers";
 
@@ -12,7 +15,8 @@ const ADMIN_HISTORY_MAX_PAGES = 5;
 const ADMIN_HISTORY_TIMEOUT_MS = 8_000;
 
 export async function handleGetAdminHistory(
-  vaultId: string
+  vaultId: string,
+  options?: { cursor?: string }
 ): Promise<RouteResult> {
   try {
     const pools =
@@ -27,11 +31,16 @@ export async function handleGetAdminHistory(
       };
     }
 
-    const actions = await getAdminActionHistory(APP_NETWORK, vault.contractId, {
-      limit: 50,
-      maxPages: ADMIN_HISTORY_MAX_PAGES,
-      scanTimeoutMs: ADMIN_HISTORY_TIMEOUT_MS,
-    });
+    const { actions, nextCursor } = await getAdminActionHistory(
+      APP_NETWORK,
+      vault.contractId,
+      {
+        limit: ...
+        maxPages: ADMIN_HISTORY_MAX_PAGES,
+        scanTimeoutMs: ADMIN_HISTORY_TIMEOUT_MS,
+        cursor: options?.cursor,
+      }
+    );
 
     return {
       status: 200,
@@ -39,12 +48,16 @@ export async function handleGetAdminHistory(
         vaultId,
         contractId: vault.contractId,
         actions,
+        nextCursor,
         updatedAt: new Date().toISOString(),
       },
     };
-  } catch (err) {
-    return {
-      status: 500,
+    if (err instanceof InvalidAdminHistoryCursorError) {
+      return {
+        status: 400,
+        body: { error: "Invalid cursor", vaultId },
+      };
+    }
       body: { error: "Failed to fetch admin history" },
       error: err,
     };
