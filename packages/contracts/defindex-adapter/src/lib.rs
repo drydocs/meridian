@@ -316,6 +316,16 @@ impl MeridianDefindexAdapter {
         }
     }
 
+    /// DeFindex prices live on every read, so its cached and live values are
+    /// identical and there is no accrual ledger to report.
+    pub fn live_total_assets(env: Env) -> i128 {
+        Self::total_assets(env)
+    }
+
+    pub fn last_accrual_ledger(_env: Env) -> u32 {
+        0
+    }
+
     /// Returns the adapter's current dfToken share balance read directly from
     /// the DeFindex vault's ledger.
     pub fn total_shares(env: Env) -> i128 {
