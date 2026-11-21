@@ -24,9 +24,14 @@ function formatTvl(value: number): string {
 type Tab = "deposit" | "withdraw";
 
 export function VaultPanel() {
-  const { data, isLoading: vaultsLoading } = useVaults();
+  const {
+    data,
+    isLoading: vaultsLoading,
+    dataUpdatedAt: vaultsUpdatedAt,
+    isStale: vaultsStale,
+  } = useVaults();
   const vaults = data?.vaults;
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { connected, publicKey } = useWalletStore();
   const { balance: availableBalance, refetch: refetchBalance } =
     useUsdcBalance();
@@ -193,6 +198,20 @@ export function VaultPanel() {
               <p className="text-lg font-bold text-paper">
                 {formatTvl(bestVault.tvl)}
               </p>
+              {vaultsStale && (
+                <span className="inline-block mt-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-amber-400 bg-amber-950/40 border border-amber-800/70">
+                  {t("status.stale", { defaultValue: "Stale" })}
+                </span>
+              )}
+              {vaultsUpdatedAt > 0 && (
+                <p className="text-[10px] text-gray-600 mt-0.5">
+                  {t("status.lastUpdated", { defaultValue: "Updated" })}{" "}
+                  {new Intl.DateTimeFormat(i18n.language, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }).format(new Date(vaultsUpdatedAt))}
+                </p>
+              )}
             </div>
             <div className="pb-1 sm:text-right">
               <p className="text-xs text-gray-500 mb-1.5">
@@ -265,64 +284,4 @@ export function VaultPanel() {
                 onAccept={acceptRiskDisclosure}
                 onCancel={cancelRiskDisclosure}
               />
-            )}
-            <p className="text-sm text-gray-400 leading-relaxed">
-              {t("vaultPanel.connectUSDC")}
-            </p>
-            {connectStatus === "no-extension" ? (
-              <a
-                href={getWalletMeta(attemptedWalletId).installUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center w-full rounded-xl border border-amber-800/70 bg-amber-950/20 hover:border-amber-700 text-amber-400 hover:text-amber-300 text-sm font-medium py-3 transition-colors duration-150"
-              >
-                {t("common.installWallet", {
-                  name: getWalletMeta(attemptedWalletId).name,
-                })}
-              </a>
-            ) : (
-              <button
-                onClick={() => void handleConnect()}
-                disabled={connectStatus === "connecting"}
-                className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
-              >
-                {connectStatus === "connecting"
-                  ? t("common.connecting")
-                  : t("common.connectWallet")}
-              </button>
-            )}
-          </div>
-        ) : tab === "deposit" ? (
-          <DepositTab
-            amount={amount}
-            onAmountChange={setAmount}
-            onAmountKeyDown={onAmountKeyDown}
-            bestVault={bestVault}
-            position={position}
-            hasPosition={!!hasPosition}
-            isDepositing={isDepositing}
-            onSubmit={handleDeposit}
-            availableBalance={availableBalance}
-          />
-        ) : (
-          <WithdrawTab
-            amount={amount}
-            onAmountChange={setAmount}
-            onAmountKeyDown={onAmountKeyDown}
-            bestVault={bestVault}
-            position={position}
-            hasPosition={!!hasPosition}
-            isWithdrawing={isWithdrawing}
-            onSubmit={handleWithdraw}
-          />
-        )}
-        {depositRiskDisclosure.show && (
-          <RiskDisclosureModal
-            onAccept={() => void depositRiskDisclosure.accept()}
-            onCancel={depositRiskDisclosure.cancel}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
+            )

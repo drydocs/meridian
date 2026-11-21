@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
 import { WalletConnect } from "./components/onboarding/WalletConnect";
@@ -10,13 +10,67 @@ import { useTranslation } from "react-i18next";
 import { AdminLogin } from "./pages/AdminLogin";
 import { StatusPage } from "./pages/StatusPage";
 import { NotFound } from "./pages/NotFound";
+import { isClientError } from "./lib/api";
 
-const queryClient = new QueryClient();
+// Retry only transient failures. 4xx responses are client errors and will not
+// succeed on retry, so they fail immediately. Retries use bounded exponential
+// backoff (capped at 30s) and are limited to 3 attempts.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (failureCount, error) => {
+        if (isClientError(error)) return false;
+        return failureCount < 3;
+      },
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 30_000),
+      // Refetch stale queries automatically when the network comes back.
+      refetchOnReconnect: true,
+    },
+  },
+});
 
-// No router dependency for a few extra routes: the app has a handful of
-// pages, and pulling in react-router for a couple of static path splits
-// would be a heavier change than the admin dashboard itself (#615) needs.
-//
+// Tracks browser connectivity. Starts from navigator.onLine and updates on
+// the browser online/offline events. When the connection returns, the query
+// client is told to refetch so cached data is refreshed without a reload.
+function useConnectivity(): boolean {
+  const [online, setOnline] = useState<boolean>(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setOnline(true);
+      void queryClient.refetchQueries({ type: "active" });
+    };
+    const handleOffline = () => setOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  return online;
+}
+
+function OfflineBanner({ online }: { online: boolean }) {
+  const { t } = useTranslation();
+  if (online) return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="sticky top-0 z-50 bg-amber-900 text-amber-100 text-sm text-center py-2 px-4"
+    >
+      {t("status.offlineBanner", {
+        defaultValue:
+          "You are offline. Showing last known data until the connection returns.",
+      })}
+    </div>
+  );
+}
+
 // The public dashboard and status page stay under /app/*, which the existing
 // Vercel rewrite serves from /app/index.html. Admin is canonical at /admin;
 // the legacy /app/admin path is also recognized if Vercel's redirect is not
@@ -43,7 +97,7 @@ function isDashboardRoute(): boolean {
   return pathname === "/app" || pathname === "/app/";
 }
 
-function Dashboard() {
+function Dashboard({ online }: { online: boolean }) {
   const { t, i18n } = useTranslation();
   const toggleLanguage = useCallback(() => {
     const newLang = i18n.language === "en" ? "fr" : "en";
@@ -98,6 +152,8 @@ function Dashboard() {
         </div>
       </header>
 
+      <OfflineBanner online={online} />
+
       <main className="relative z-10 max-w-xl mx-auto px-6 py-10">
         <ErrorBoundary>
           <VaultPanel />
@@ -108,6 +164,7 @@ function Dashboard() {
 }
 
 export default function App() {
+  const online = useConnectivity();
   useDocumentLanguage();
   useEffect(() => {
     const revalidate = () => void useWalletStore.getState().revalidate();
@@ -125,7 +182,7 @@ export default function App() {
   ) : isStatusRoute() ? (
     <StatusPage />
   ) : isDashboardRoute() ? (
-    <Dashboard />
+    <Dashboard online={online} />
   ) : (
     <NotFound />
   );

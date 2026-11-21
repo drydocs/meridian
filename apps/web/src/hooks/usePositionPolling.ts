@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWalletStore } from "../store/wallet";
-import { api, type ApiPosition } from "../lib/api";
+import { api, isClientError, type ApiPosition } from "../lib/api";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "react-i18next";
 
@@ -17,161 +17,168 @@ export type PositionPollDirection = "increase" | "decrease";
  * with a positive share count.
  */
 function hasSettled(
-  liveShares: number,
-  sharesBefore: number,
-  direction: PositionPollDirection
+ liveShares: number,
+ sharesBefore: number,
+ direction: PositionPollDirection
 ): boolean {
-  if (direction === "increase") {
-    return Number.isFinite(sharesBefore)
-      ? liveShares > sharesBefore
-      : liveShares > 0;
-  }
-  return liveShares < sharesBefore;
+ if (direction === "increase") {
+ return Number.isFinite(sharesBefore)
+ ? liveShares > sharesBefore
+ : liveShares > 0;
+ }
+ return liveShares < sharesBefore;
 }
 
 export function usePositionPolling() {
-  const { t } = useTranslation();
-  const { publicKey } = useWalletStore();
-  const { push } = useToastStore();
-  const queryClient = useQueryClient();
-  const [isPollingPositions, setIsPollingPositions] = useState(false);
+ const { t } = useTranslation();
+ const { publicKey } = useWalletStore();
+ const { push } = useToastStore();
+ const queryClient = useQueryClient();
+ const [isPollingPositions, setIsPollingPositions] = useState(false);
 
-  // Keyed by a per-action id so concurrent deposits/withdrawals each track
-  // their own exit condition instead of one overwriting another's poll target.
-  const pollTargetsRef = useRef<
-    Map<
-      string,
-      {
-        vaultId: string;
-        sharesBefore: number;
-        direction: PositionPollDirection;
-        startedAt: number;
-        failures: number;
-      }
-    >
-  >(new Map());
+ // Keyed by a per-action id so concurrent deposits/withdrawals each track
+ // their own exit condition instead of one overwriting another's poll target.
+ const pollTargetsRef = useRef<
+ Map<
+ string,
+ {
+ vaultId: string;
+ sharesBefore: number;
+ direction: PositionPollDirection;
+ startedAt: number;
+ failures: number;
+ }
+ >
+ >(new Map());
 
-  // Tracks pending "start polling" timeouts (the 3s activation delay after an
-  // action) so they can be cancelled on unmount instead of calling
-  // setIsPollingPositions on an orphaned hook instance.
-  const activationTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(
-    new Set()
-  );
+ // Tracks pending "start polling" timeouts (the 3s activation delay after an
+ // action) so they can be cancelled on unmount instead of calling
+ // setIsPollingPositions on an orphaned hook instance.
+ const activationTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(
+ new Set()
+ );
 
-  useEffect(() => {
-    const timeouts = activationTimeoutsRef.current;
-    return () => {
-      for (const id of timeouts) {
-        clearTimeout(id);
-      }
-      timeouts.clear();
-    };
-  }, []);
+ useEffect(() => {
+ const timeouts = activationTimeoutsRef.current;
+ return () => {
+ for (const id of timeouts) {
+ clearTimeout(id);
+ }
+ timeouts.clear();
+ };
+ }, []);
 
-  // Not the display key. `useVaultActions` writes its optimistic estimate to
-  // `["positions", publicKey]`, and the settle check below reads
-  // `query.state.data` back, so sharing the key let that write settle its own
-  // poll. Only `api.getPositions` ever writes this one.
-  useQuery<ApiPosition[]>({
-    queryKey: ["positions-poll", publicKey],
-    queryFn: async () => {
-      if (!publicKey) throw new Error("No public key");
-      const data = await api.getPositions(publicKey);
-      return data.positions;
-    },
-    enabled: isPollingPositions && !!publicKey,
-    retry: false,
+ // Not the display key. `useVaultActions` writes its optimistic estimate to
+ // `["positions", publicKey]`, and the settle check below reads
+ // `query.state.data` back, so sharing the key let that write settle its own
+ // poll. Only `api.getPositions` ever writes this one.
+ useQuery<ApiPosition[]>({
+ queryKey: ["positions-poll", publicKey],
+ queryFn: async () => {
+ if (!publicKey) throw new Error("No public key");
+ const data = await api.getPositions(publicKey);
+ return data.positions;
+ },
+ enabled: isPollingPositions && !!publicKey,
+ // Polling already re-runs on a fixed 3s cadence, so transient failures are
+ // handled by the refetchInterval failure counter. Do not retry 4xx
+ // responses; allow a bounded number of retries for 5xx/network errors.
+ retry: (failureCount, error) => {
+ if (isClientError(error)) return false;
+ return failureCount < 2;
+ },
+ retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 8_000),
 
-    refetchInterval: (query) => {
-      const targets = pollTargetsRef.current;
-      if (targets.size === 0) return false;
+ refetchInterval: (query) => {
+ const targets = pollTargetsRef.current;
+ if (targets.size === 0) return false;
 
-      // Before this observer's first fetch resolves, status is "pending"
-      // and data is undefined. Skip the tick entirely rather than letting
-      // it fall through to the success path below - undefined data would
-      // otherwise look like every target's shares already dropped to zero,
-      // deleting all targets on the very first tick.
-      if (query.state.status === "pending") {
-        return 3_000;
-      }
+ // Before this observer's first fetch resolves, status is "pending"
+ // and data is undefined. Skip the tick entirely rather than letting
+ // it fall through to the success path below - undefined data would
+ // otherwise look like every target's shares already dropped to zero,
+ // deleting all targets on the very first tick.
+ if (query.state.status === "pending") {
+ return 3_000;
+ }
 
-      const isError = query.state.status === "error";
-      const data = query.state.data;
-      const dataUpdatedAt = query.state.dataUpdatedAt;
+ const isError = query.state.status === "error";
+ const data = query.state.data;
+ const dataUpdatedAt = query.state.dataUpdatedAt;
 
-      for (const [id, target] of targets) {
-        if (Date.now() - target.startedAt > 30_000) {
-          targets.delete(id);
-          continue;
-        }
+ for (const [id, target] of targets) {
+ if (Date.now() - target.startedAt > 30_000) {
+ targets.delete(id);
+ continue;
+ }
 
-        if (isError) {
-          target.failures += 1;
-          console.warn("[positions poll] failed, attempt", target.failures);
-          if (target.failures === 3) {
-            push("info", t("vaultActions.syncDelayed"));
-          }
-          continue;
-        }
-        target.failures = 0;
+ if (isError) {
+ target.failures += 1;
+ console.warn("[positions poll] failed, attempt", target.failures);
+ if (target.failures === 3) {
+ push("info", t("vaultActions.syncDelayed"));
+ }
+ continue;
+ }
+ target.failures = 0;
 
-        // A read cached before this action started can't confirm it.
-        if (dataUpdatedAt < target.startedAt) {
-          continue;
-        }
+ // A read cached before this action started can't confirm it.
+ if (dataUpdatedAt < target.startedAt) {
+ continue;
+ }
 
-        const live = data?.find((p) => p.vaultId === target.vaultId);
-        if (!live) {
-          // This target's vault isn't in the latest fetch - wait for the
-          // next tick instead of comparing against an unrelated position.
-          continue;
-        }
-        if (hasSettled(live.shares, target.sharesBefore, target.direction)) {
-          targets.delete(id);
-        }
-      }
+ const live = data?.find((p) => p.vaultId === target.vaultId);
+ if (!live) {
+ // This target's vault isn't in the latest fetch - wait for the
+ // next tick instead of comparing against an unrelated position.
+ continue;
+ }
+ if (hasSettled(live.shares, target.sharesBefore, target.direction)) {
+ targets.delete(id);
+ }
+ }
 
-      if (targets.size === 0) {
-        // Hand the confirmed read to the display query, which still holds the
-        // optimistic estimate.
-        if (data) {
-          queryClient.setQueryData(["positions", publicKey], data);
-        }
-        setIsPollingPositions(false);
-        return false;
-      }
+ if (targets.size === 0) {
+ // Hand the confirmed read to the display query, which still holds the
+ // optimistic estimate.
+ if (data) {
+ queryClient.setQueryData(["positions", publicKey], data);
+ }
+ setIsPollingPositions(false);
+ return false;
+ }
 
-      return 3_000;
-    },
-  });
+ return 3_000;
+ },
+ });
 
-  // Hand off to the refetchInterval query above - it re-checks every 3s,
-  // stops once the live share count has moved the way this action expects
-  // (a withdrawal lowers it, a deposit raises it), and gives up after 30s.
-  // Tracked in a Map keyed by pollId (not a single ref) so a second
-  // concurrent action doesn't clobber this one's exit condition. Activation
-  // is delayed by 3s to match the original poll cadence (first check happens
-  // one interval in, not immediately); the timeout id is tracked so it can
-  // be cancelled on unmount instead of firing on a dead component.
-  function startPolling(
-    vaultId: string,
-    sharesBefore: number,
-    direction: PositionPollDirection = "decrease"
-  ) {
-    const pollId = crypto.randomUUID();
-    pollTargetsRef.current.set(pollId, {
-      vaultId,
-      sharesBefore,
-      direction,
-      startedAt: Date.now(),
-      failures: 0,
-    });
-    const activationTimeoutId = setTimeout(() => {
-      activationTimeoutsRef.current.delete(activationTimeoutId);
-      setIsPollingPositions(true);
-    }, 3_000);
-    activationTimeoutsRef.current.add(activationTimeoutId);
-  }
+ // Hand off to the refetchInterval query above - it re-checks every 3s,
+ // stops once the live share count has moved the way this action expects
+ // (a withdrawal lowers it, a deposit raises it), and gives up after 30s.
+ // Tracked in a Map keyed by pollId (not a single ref) so a second
+ // concurrent action doesn't clobber this one's exit condition. Activation
+ // is delayed by 3s to match the original poll cadence (first check happens
+ // one interval in, not immediately); the timeout id is tracked so it can
+ // be cancelled on unmount instead of firing on a dead component.
+ function startPolling(
+ vaultId: string,
+ sharesBefore: number,
+ direction: PositionPollDirection = "decrease"
+ ) {
+ const pollId = crypto.randomUUID();
+ pollTargetsRef.current.set(pollId, {
+ vaultId,
+ sharesBefore,
+ direction,
+ startedAt: Date.now(),
+ failures: 0,
+ });
+ const activationTimeoutId = setTimeout(() => {
+ activationTimeoutsRef.current.delete(activationTimeoutId);
+ setIsPollingPositions(true);
+ }, 3_000);
+ activationTimeoutsRef.current.add(activationTimeoutId);
+ }
 
-  return { startPolling };
+ return { startPolling };
 }
