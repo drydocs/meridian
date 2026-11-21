@@ -585,7 +585,8 @@ describe("getRpcAdminHistory", () => {
     });
   });
 
-  it("skips an admin event with an unknown schema version", async () => {
+  it("skips unknown schema versions and warns with each version and count", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
       events: [
         adminEvent(
@@ -594,13 +595,35 @@ describe("getRpcAdminHistory", () => {
           "2026-08-27T20:00:00Z",
           2
         ),
+        adminEvent(
+          "paused",
+          xdr.ScVal.scvBool(true),
+          "2026-08-27T20:00:00Z",
+          2
+        ),
+        adminEvent(
+          "paused",
+          xdr.ScVal.scvBool(true),
+          "2026-08-27T20:00:00Z",
+          3
+        ),
+        adminEvent("paused", xdr.ScVal.scvBool(false)),
       ],
       latestLedger: 100,
     } as never);
 
     const { actions } = await getRpcAdminHistory(network.rpcUrl, VAULT_ID);
 
-    expect(actions).toHaveLength(0);
+    expect(actions).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("schema version 2"),
+      { version: 2, count: 2 }
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("schema version 3"),
+      { version: 3, count: 1 }
+    );
   });
 
   it("parses a paused event", async () => {

@@ -366,9 +366,28 @@ export async function getRpcAdminHistory(
       });
 
   const actions: RpcAdminAction[] = [];
+  const skippedVersions = new Map<number, number>();
   for (const event of response.events ?? []) {
     const parsed = parseAdminEvent(event);
-    if (parsed) actions.push(parsed);
+    if (parsed) {
+      actions.push(parsed);
+      continue;
+    }
+
+    const schema = readSchemaStatus(event);
+    if (!schema.supported && schema.version !== null) {
+      skippedVersions.set(
+        schema.version,
+        (skippedVersions.get(schema.version) ?? 0) + 1
+      );
+    }
+  }
+
+  for (const [version, count] of skippedVersions) {
+    console.warn(
+      `[admin-history] skipped ${count} admin event${count === 1 ? "" : "s"} with unsupported schema version ${version}`,
+      { version, count }
+    );
   }
 
   return { actions, nextCursor: response.cursor };
@@ -384,7 +403,7 @@ export async function getRpcAdminHistory(
  * is already a decoded `xdr.ScVal`, so no base64 round-trip is needed.
  */
 function parseAdminEvent(event: rpc.Api.EventResponse): RpcAdminAction | null {
-  if (!hasSupportedSchemaVersion(event)) return null;
+  if (!readSchemaStatus(event).supported) return null;
 
   const action = parseTopicAction(event.topic[1]);
   if (!action) return null;
@@ -443,16 +462,25 @@ function parseAdminEvent(event: rpc.Api.EventResponse): RpcAdminAction | null {
   }
 }
 
-function hasSupportedSchemaVersion(event: rpc.Api.EventResponse): boolean {
+type EventSchemaStatus =
+  { supported: true } | { supported: false; version: number | null };
+
+function readSchemaStatus(event: rpc.Api.EventResponse): EventSchemaStatus {
   // Legacy events have no version segment. Versioned events must carry the
   // one schema this reader knows how to decode; unknown versions are skipped
   // rather than interpreted using v1 field positions.
-  if (event.topic.length === 2) return true;
-  if (event.topic.length !== 3) return false;
+  if (event.topic.length === 2) return { supported: true };
+  if (event.topic.length !== 3) return { supported: false, version: null };
 
   const versionTopic = event.topic[2];
-  if (!versionTopic || versionTopic.switch().name !== "scvU32") return false;
-  return versionTopic.u32() === ADMIN_EVENT_SCHEMA_VERSION;
+  if (!versionTopic || versionTopic.switch().name !== "scvU32") {
+    return { supported: false, version: null };
+  }
+
+  const version = versionTopic.u32();
+  return version === ADMIN_EVENT_SCHEMA_VERSION
+    ? { supported: true }
+    : { supported: false, version };
 }
 
 /**
