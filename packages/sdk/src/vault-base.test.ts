@@ -786,6 +786,7 @@ describe("VaultBase ERC-4626 view methods", () => {
         fee: 1_000_000n,
         treasury_shares: 909_000n,
         assets_out: 109_000_000n,
+        available_liquidity: 80_000_000n,
       },
     });
     const vault = makeVault();
@@ -794,6 +795,7 @@ describe("VaultBase ERC-4626 view methods", () => {
       fee: 1_000_000n,
       treasuryShares: 909_000n,
       assetsOut: 109_000_000n,
+      availableLiquidity: 80_000_000n,
     });
   });
 

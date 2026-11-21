@@ -208,6 +208,7 @@ describe("errors i18n keys", () => {
     "depositsPaused",
     "insufficientShares",
     "withdrawalSlippage",
+    "adapterLiquidityInsufficient",
     "slippageExceeded",
     "missingUsdcTrustline",
     "missingTrustline",

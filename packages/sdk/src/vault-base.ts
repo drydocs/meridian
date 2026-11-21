@@ -790,6 +790,10 @@ export abstract class VaultBase {
         fee: bigIntFrom(raw.fee),
         treasuryShares: bigIntFrom(raw.treasury_shares),
         assetsOut: bigIntFrom(raw.assets_out),
+        availableLiquidity:
+          raw.available_liquidity !== undefined
+            ? bigIntFrom(raw.available_liquidity)
+            : bigIntFrom(raw.gross_assets),
       };
     });
   }

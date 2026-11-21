@@ -138,4 +138,15 @@ pub enum ContractError {
     /// `withdraw_assets` was called and the required shares to redeem `assets`
     /// exceeded the caller's `max_shares_in` cap.
     MaxSharesExceeded = 31,
+    /// `withdraw` preflight (or a zero-payout redemption under illiquidity)
+    /// found that the adapter's currently withdrawable USDC liquidity is below
+    /// the gross USDC required for the requested share redemption. Distinct
+    /// from `WithdrawalTooSmall`, which fires when the requested shares
+    /// legitimately round down to zero USDC.
+    ///
+    /// Soroban `#[contracterror]` enums are unit-only (`#[repr(u32)]`) and
+    /// events emitted before an `Err` return are rolled back; callers read
+    /// `(available, requested)` via `preview_withdraw` (`available_liquidity`
+    /// and `gross_assets`) or `available_liquidity()`.
+    AdapterLiquidityInsufficient = 32,
 }
