@@ -24,6 +24,11 @@ pnpm --filter @meridian/strategies-app test
 pnpm --filter @meridian/strategies-app coverage
 ```
 
+The `coverage` command enforces minimum thresholds and fails when coverage
+drops below them. The thresholds live in `coverage.thresholds` in
+`vitest.config.ts` (statements 90%, branches 79%, functions 92%, lines 91%).
+Raise them when coverage improves; do not lower them to make a change pass.
+
 Both commands pass when no tests are found (`--passWithNoTests`). From the
 repository root, `pnpm test` and `pnpm coverage` run every workspace package
 through Turbo.
