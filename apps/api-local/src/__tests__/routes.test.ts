@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import { positionsRoute } from "../routes/positions.js";
@@ -15,6 +15,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     ContractSimulationError: actual.ContractSimulationError,
     MissingTrustlineError: actual.MissingTrustlineError,
     resolvePositions: vi.fn(),
+    getLatestLedgerSequence: vi.fn(async () => 100),
     buildDepositTx: vi.fn(),
     buildWithdrawTx: vi.fn(),
     buildAddTrustlineTx: vi.fn(),
@@ -71,6 +72,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
 });
 
 import {
+  getLatestLedgerSequence,
   resolvePositions,
   buildDepositTx,
   buildWithdrawTx,
@@ -80,6 +82,7 @@ import {
   selectBestVault,
   getPositionHistory,
 } from "@meridian/stellar-sdk-helpers";
+import { resetPositionReadCacheForTesting } from "@meridian/api-core";
 
 const WALLET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
@@ -92,7 +95,16 @@ function buildApp() {
   return app;
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  resetPositionReadCacheForTesting();
+  vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_KV_REST_API_URL", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_KV_REST_API_TOKEN", "");
+  vi.mocked(getLatestLedgerSequence).mockResolvedValue(100);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe("GET /health", () => {
   it("returns 200 with status ok", async () => {
@@ -123,6 +135,62 @@ describe("GET /api/v1/positions/:publicKey", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ positions: pos });
+    expect(res.headers.etag).toMatch(/^"[a-f0-9]{64}"$/);
+  });
+
+  it("returns 304 for a matching If-None-Match header", async () => {
+    const app = buildApp();
+    vi.mocked(resolvePositions).mockResolvedValue([]);
+    const first = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}`,
+    });
+    const second = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}`,
+      headers: { "if-none-match": first.headers.etag as string },
+    });
+    expect(second.statusCode).toBe(304);
+    expect(second.headers.etag).toBe(first.headers.etag);
+    expect(resolvePositions).toHaveBeenCalledOnce();
+  });
+
+  it("omits ETag and does not cache partial position reads", async () => {
+    const app = buildApp();
+    vi.mocked(resolvePositions)
+      .mockImplementationOnce(async (_publicKey, _network, options) => {
+        options?.onVaultError?.(new Error("vault RPC down"));
+        return [];
+      })
+      .mockResolvedValueOnce([]);
+
+    const partial = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}`,
+    });
+    expect(partial.statusCode).toBe(200);
+    expect(partial.headers.etag).toBeUndefined();
+
+    const complete = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}`,
+    });
+    expect(resolvePositions).toHaveBeenCalledTimes(2);
+    expect(complete.headers.etag).toMatch(/^"[a-f0-9]{64}"$/);
+  });
+
+  it("accepts refresh=true to bypass the cached positions", async () => {
+    const app = buildApp();
+    vi.mocked(resolvePositions).mockResolvedValue([]);
+    await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}`,
+    });
+    await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}?refresh=true`,
+    });
+    expect(resolvePositions).toHaveBeenCalledTimes(2);
   });
 
   it("returns 400 for an invalid public key", async () => {
