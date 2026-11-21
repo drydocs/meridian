@@ -70,7 +70,7 @@ Before cloning, confirm you have the required tools installed:
 
 | Tool           | Required version | Check               |
 | -------------- | ---------------- | ------------------- |
-| Node.js        | `>=20`           | `node --version`    |
+| Node.js        | `20.x`           | `node --version`    |
 | pnpm           | `9.x`            | `pnpm --version`    |
 | Rust toolchain | stable (latest)  | `rustc --version`   |
 | Stellar CLI    | latest           | `stellar --version` |
@@ -82,6 +82,25 @@ To install pnpm at the correct version:
 ```bash
 npm install -g pnpm@9
 ```
+
+### Toolchain Version Pinning
+
+Meridian pins its supported Node.js and pnpm versions to ensure consistent local development and CI environments:
+
+- **Node.js**: The supported Node.js major version is pinned in `.node-version` and `.nvmrc` (`20`). CI workflows (`.github/workflows/ci.yml` and `.github/workflows/verify-contract-addresses.yml`) read `.node-version` via `actions/setup-node`'s `node-version-file` input.
+- **pnpm**: The package manager is declared in `package.json` under `"packageManager"` (`pnpm@9.0.0`) and enforced in `"engines"`.
+- **Preinstall Enforcement**: A preinstall check (`scripts/check-version.js`) runs before `pnpm install` to verify that the active Node.js and package manager versions match the repository pins. If an unsupported version is detected, it fails with a clear error message.
+
+#### Updating the Version Pins
+
+When upgrading the repository toolchain (e.g. migrating to a newer Node.js LTS or pnpm major version):
+
+1. **Update `.node-version` and `.nvmrc`**: Update the major version number (e.g., `22`) in both `.node-version` and `.nvmrc`.
+2. **Update `package.json`**:
+   - Update `"packageManager"` with the new target version (e.g., `"pnpm@10.0.0"`).
+   - Update the `"engines"` field (`"node"` and `"pnpm"`) to reflect the supported ranges.
+3. **Update Documentation**: Update the versions listed in the Prerequisites table in this file.
+4. **Verify**: Run `pnpm install`, `pnpm lint`, and `pnpm typecheck` to confirm the new versions pass all checks.
 
 ---
 
