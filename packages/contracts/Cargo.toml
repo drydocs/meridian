@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+# Dependency audit: run `cargo audit` from packages/contracts (see CONTRIBUTING.md). Advisory exceptions must be recorded in .cargo/audit.toml with an owner and expiry date.
 members = ["vault", "blend-adapter", "defindex-adapter", "adapter-common", "musdc-token", "integration-tests"]
 
 [profile.release]
