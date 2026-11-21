@@ -1803,6 +1803,20 @@ mod tests {
         Address, Env, Symbol,
     };
 
+    fn report_benchmark(env: &Env, name: &str) {
+        let estimate = env.cost_estimate();
+        let resources = estimate.resources();
+        let memory_bytes = estimate.budget().memory_bytes_cost();
+        let fee_stroops = estimate.fee().total;
+        std::println!(
+            "SOROBAN_BENCHMARK|{}|{}|{}|{}",
+            name,
+            resources.instructions,
+            memory_bytes,
+            fee_stroops
+        );
+    }
+
     // The address every test vault is registered at, and the address the mock
     // adapters report from `get_vault()`. `set_adapter`/`begin_migration`
     // require a target bound to the vault (#1270), and the mocks are
