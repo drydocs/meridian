@@ -84,7 +84,7 @@ Returns the live USDC value of the vault's position, read directly from the acti
 
 ### `get_health() -> Health`
 
-Returns a read-only reconciliation snapshot. `total_shares_mismatch` compares the vault's `TOTAL_SH` counter with the mUSDC token's `total_supply`; `adapter_shares_mismatch` compares `ADPT_SH` with the active adapter's own protocol-share balance. The response also includes the adapter's cached and live asset values, the last accrual ledger (zero for adapters without a cache), and migration state. When a migration is active, `migration_earliest_ledger` is the first ledger at which `migrate_adapter` can execute; it is `0` otherwise. This view never refreshes or writes state, so keepers can use it as a preflight check before submitting a transaction.
+Returns a read-only reconciliation snapshot. `total_shares_mismatch` compares the vault's `TOTAL_SH` counter with the mUSDC token's `total_supply`; `adapter_shares_mismatch` compares `ADPT_SH` with the active adapter's own protocol-share balance. The response also includes the adapter's cached and live asset values, the last accrual ledger, and migration state. Each optional external read has a corresponding `*_stale` flag; when a legacy token or adapter does not expose that view or the read fails, the value falls back to a cached estimate and the flag is `true`. Consumers must not treat a fallback as a successful reconciliation. When a migration is active, `migration_earliest_ledger` is the first ledger at which `migrate_adapter` can execute; it is `0` otherwise. This view never refreshes or writes state, so keepers can use it as a preflight check before submitting a transaction.
 
 ### `get_total_shares() -> i128`
 

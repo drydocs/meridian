@@ -141,13 +141,16 @@ pub struct WithdrawPreview {
 pub struct Health {
     pub total_shares: i128,
     pub musdc_supply: i128,
+    pub musdc_supply_stale: bool,
     pub total_shares_mismatch: bool,
     pub adapter_shares: i128,
     pub adapter_reported_shares: i128,
     pub adapter_shares_mismatch: bool,
     pub cached_assets: i128,
     pub live_assets: i128,
+    pub live_assets_stale: bool,
     pub last_accrual_ledger: u32,
+    pub last_accrual_ledger_stale: bool,
     pub migration_active: bool,
     pub migration_earliest_ledger: u32,
 }
@@ -831,31 +834,31 @@ impl MeridianVault {
     }
 
     /// Reconciles the vault's counters and adapter valuation without writing.
-    /// Legacy adapters that do not expose the optional live metadata views
-    /// fall back to their cached value and a zero accrual ledger.
+    /// Legacy tokens or adapters that do not expose optional metadata views
+    /// fall back to estimates and set the corresponding stale flag.
     pub fn get_health(env: Env) -> Result<Health, ContractError> {
         let adapter = Self::adapter(&env)?;
         let adapter_client = AdapterClient::new(&env, &adapter);
         let total_shares = Self::get_total_shares(env.clone());
         let musdc = Self::musdc(&env)?;
-        let musdc_supply = MusdcViewClient::new(&env, &musdc)
-            .try_total_supply()
+        let supply_result = MusdcViewClient::new(&env, &musdc).try_total_supply();
+        let musdc_supply_stale = !matches!(&supply_result, Ok(Ok(_)));
+        let musdc_supply = supply_result
             .ok()
             .and_then(Result::ok)
             .unwrap_or(total_shares);
         let adapter_shares = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
         let adapter_reported_shares = adapter_client.total_shares();
         let cached_assets = adapter_client.total_assets();
-        let live_assets = adapter_client
-            .try_live_total_assets()
+        let live_assets_result = adapter_client.try_live_total_assets();
+        let live_assets_stale = !matches!(&live_assets_result, Ok(Ok(_)));
+        let live_assets = live_assets_result
             .ok()
             .and_then(Result::ok)
             .unwrap_or(cached_assets);
-        let last_accrual_ledger = adapter_client
-            .try_last_accrual_ledger()
-            .ok()
-            .and_then(Result::ok)
-            .unwrap_or(0);
+        let last_accrual_result = adapter_client.try_last_accrual_ledger();
+        let last_accrual_ledger_stale = !matches!(&last_accrual_result, Ok(Ok(_)));
+        let last_accrual_ledger = last_accrual_result.ok().and_then(Result::ok).unwrap_or(0);
         let migration_active = env.storage().instance().get(&MIG_ACTIVE).unwrap_or(0_i128) != 0;
         let migration_earliest_ledger = if migration_active {
             let snapshot: Option<MigrationSnapshot> = env.storage().instance().get(&MIG_SNAP);
@@ -869,13 +872,16 @@ impl MeridianVault {
         Ok(Health {
             total_shares,
             musdc_supply,
+            musdc_supply_stale,
             total_shares_mismatch: total_shares != musdc_supply,
             adapter_shares,
             adapter_reported_shares,
             adapter_shares_mismatch: adapter_shares != adapter_reported_shares,
             cached_assets,
             live_assets,
+            live_assets_stale,
             last_accrual_ledger,
+            last_accrual_ledger_stale,
             migration_active,
             migration_earliest_ledger,
         })
@@ -1705,6 +1711,7 @@ mod tests {
         use super::*;
 
         const MM_ADMIN: Symbol = symbol_short!("MM_ADMIN");
+        const MM_TOTAL: Symbol = symbol_short!("MM_TOTAL");
 
         #[contracttype]
         #[derive(Clone)]
@@ -1731,6 +1738,12 @@ mod tests {
                     .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
                 let balance = Self::read_balance(&env, &to);
                 Self::write_balance(&env, &to, balance + amount);
+                let total = env.storage().instance().get(&MM_TOTAL).unwrap_or(0_i128);
+                env.storage().instance().set(&MM_TOTAL, &(total + amount));
+            }
+
+            pub fn total_supply(env: Env) -> i128 {
+                env.storage().instance().get(&MM_TOTAL).unwrap_or(0)
             }
 
             pub fn balance(env: Env, id: Address) -> i128 {
@@ -1761,6 +1774,8 @@ mod tests {
                 from.require_auth();
                 let balance = Self::read_balance(&env, &from);
                 Self::write_balance(&env, &from, balance - amount);
+                let total = env.storage().instance().get(&MM_TOTAL).unwrap_or(0_i128);
+                env.storage().instance().set(&MM_TOTAL, &(total - amount));
             }
 
             fn read_balance(env: &Env, id: &Address) -> i128 {
@@ -1839,6 +1854,14 @@ mod tests {
             let usdc: Address =
                 get_or_not_initialized(&env, env.storage().instance().get(&MA_USDC));
             mock_total_assets(&env, &usdc)
+        }
+
+        pub fn live_total_assets(env: Env) -> i128 {
+            Self::total_assets(env)
+        }
+
+        pub fn last_accrual_ledger(_env: Env) -> u32 {
+            0
         }
 
         pub fn total_shares(env: Env) -> i128 {
@@ -4808,13 +4831,16 @@ mod tests {
         let healthy = vault.get_health();
         assert_eq!(healthy.total_shares, amount);
         assert_eq!(healthy.musdc_supply, amount);
+        assert!(!healthy.musdc_supply_stale);
         assert!(!healthy.total_shares_mismatch);
         assert_eq!(healthy.adapter_shares, amount);
         assert_eq!(healthy.adapter_reported_shares, amount);
         assert!(!healthy.adapter_shares_mismatch);
         assert_eq!(healthy.cached_assets, amount);
         assert_eq!(healthy.live_assets, amount);
+        assert!(!healthy.live_assets_stale);
         assert_eq!(healthy.last_accrual_ledger, 0);
+        assert!(!healthy.last_accrual_ledger_stale);
         assert!(!healthy.migration_active);
         assert_eq!(healthy.migration_earliest_ledger, 0);
 
@@ -4834,6 +4860,30 @@ mod tests {
             migrating.migration_earliest_ledger,
             env.ledger().sequence() + MIN_LEDGER_GAP
         );
+    }
+
+    #[test]
+    fn health_marks_legacy_optional_views_as_stale() {
+        let (_env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup_cached();
+        let health = vault.get_health();
+        assert!(!health.musdc_supply_stale);
+        assert!(health.live_assets_stale);
+        assert!(health.last_accrual_ledger_stale);
+        assert_eq!(health.live_assets, health.cached_assets);
+        assert_eq!(health.last_accrual_ledger, 0);
+    }
+
+    #[test]
+    fn health_marks_failed_token_supply_read_stale() {
+        let (env, _admin, _user, _usdc, _musdc, adapter, vault) = setup();
+        // The adapter is a valid contract but does not implement the token
+        // total_supply view, simulating a failed optional external read.
+        env.as_contract(&vault.address, || {
+            env.storage().instance().set(&MUSDC, &adapter);
+        });
+        let health = vault.get_health();
+        assert!(health.musdc_supply_stale);
+        assert_eq!(health.musdc_supply, health.total_shares);
     }
 
     #[test]

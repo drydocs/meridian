@@ -275,12 +275,29 @@ export async function assertVaultHealthy(
   vaultContractId: string,
   networkPassphrase: string
 ): Promise<void> {
-  const health = await simulateView(
-    server as never,
-    vaultContractId,
-    networkPassphrase,
-    "get_health"
-  );
+  let health: unknown;
+  try {
+    health = await simulateView(
+      server as never,
+      vaultContractId,
+      networkPassphrase,
+      "get_health"
+    );
+  } catch (error) {
+    // Older vault deployments do not export get_health. A missing contract
+    // function is the one safe error to ignore; RPC and other contract errors
+    // still block a keeper action.
+    const message = errorMessage(error);
+    if (
+      /(?:unknown|missing|no such)\s+(?:contract\s+)?(?:function|method).*get_health/i.test(
+        message
+      ) ||
+      /Error\(WasmVm, InvalidAction\)/i.test(message)
+    ) {
+      return;
+    }
+    throw error;
+  }
   if (!health || typeof health !== "object") return;
   const value = health as Record<string, unknown>;
   if (value.total_shares_mismatch === true) {
