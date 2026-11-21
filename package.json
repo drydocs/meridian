@@ -11,6 +11,9 @@
     "typecheck": "turbo run typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "lint:md": "markdownlint-cli2",
+    "check:links": "lychee --config lychee.toml --offline --no-progress --hidden \"**/*.md\"",
+    "check:links:external": "lychee --config lychee.toml --no-progress --hidden \"**/*.md\"",
     "verify:contracts": "tsx scripts/verify-contract-addresses.ts",
     "check:wasm-size": "tsx scripts/check-wasm-size.ts",
     "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts"
@@ -27,6 +30,7 @@
     "prettier": "^3.9.10",
     "@eslint/js": "^10.0.1",
     "eslint": "^10.13.0",
+    "markdownlint-cli2": "^0.24.2",
     "@typescript-eslint/eslint-plugin": "^8.72.1",
     "@typescript-eslint/parser": "^8.70.0"
   },
@@ -34,5 +38,10 @@
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
   },
-  "packageManager": "pnpm@9.0.0"
+  "packageManager": "pnpm@9.0.0",
+  "pnpm": {
+    "overrides": {
+      "katex": ">=0.18.2"
+    }
+  }
 }

@@ -66,7 +66,7 @@ Burns `shares` mUSDC from the caller, redeems the proportional adapter position,
 
 The `InsufficientShares` check reads the caller's live mUSDC balance, the same balance the burn operates on, so the two can never disagree. The check is kept rather than left to the burn's own failure so callers get the typed error instead of a panic.
 
-```
+```text
 adapter_shares_to_burn = shares * total_adapter_shares / total_shares
 usdc_out = <whatever the adapter's withdraw() returns for that many adapter shares>
 principal_out = Principal(caller) * shares / caller_shares
