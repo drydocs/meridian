@@ -48,3 +48,20 @@ export type {
   RetryEvent,
   SanitizedError,
 } from "./instrumentation.js";
+
+export {
+  VaultClient,
+  VaultClientError,
+  classifyClientError,
+} from "./vault-client.js";
+export type {
+  VaultClientOptions,
+  Signer,
+  SignerResult,
+  SimulateResult,
+  SubmitResult,
+  ConfirmationResult,
+  TransactionRunResult,
+  ClientErrorCode,
+  VaultClientErrorCode,
+} from "./vault-client.js";

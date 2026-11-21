@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+
 vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>();
@@ -22,8 +23,10 @@ import {
 import { REDACTED } from "./instrumentation.js";
 import type { VaultConfig } from "./types.js";
 
-const WALLET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
-const OTHER = "GDVEU3DD4KOFECV66VIHWEZOYX4ZKR3WV27L464SIIPOU2IUI3JCZA57";
+const WALLET =
+  "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+const OTHER =
+  "GDVEU3DD4KOFECV66VIHWEZOYX4ZKR3WV27L464SIIPOU2IUI3JCZA57";
 const BASE: VaultConfig = {
   contractId: "CAIQBVLBIUWQGE6DQUHDMZ2QWI7QP6KTCN7GP2BIZ6JZC4ES47JO4SSM",
   network: {

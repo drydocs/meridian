@@ -20,6 +20,12 @@ export const ErrorCode = {
   TIMEOUT: "TIMEOUT",
   /** The vault deployment or its on-chain state cannot serve the request. */
   UNSUPPORTED: "UNSUPPORTED",
+  /** The signer rejected the transaction. */
+  SIGNING: "SIGNING",
+  /** Submitting the signed transaction to the RPC failed. */
+  SUBMISSION: "SUBMISSION",
+  /** Confirmation polling exhausted its time budget. */
+  CONFIRMATION_TIMEOUT: "CONFIRMATION_TIMEOUT",
   /** Anything the SDK could not classify. */
   UNKNOWN: "UNKNOWN",
 } as const;
@@ -115,6 +121,30 @@ export class UnsupportedError extends MeridianError {
   }
 }
 
+/** The injected signer rejected or failed to sign the transaction. */
+export class SigningError extends MeridianError {
+  constructor(message: string, options: MeridianErrorOptions = {}) {
+    super(ErrorCode.SIGNING, message, options);
+  }
+}
+
+/** The signed transaction could not be submitted to the RPC. */
+export class SubmissionError extends MeridianError {
+  constructor(message: string, options: MeridianErrorOptions = {}) {
+    super(ErrorCode.SUBMISSION, message, options);
+  }
+}
+
+/** Confirmation polling exhausted its time budget before the tx landed. */
+export class ConfirmationTimeoutError extends MeridianError {
+  constructor(message: string, options: MeridianErrorOptions = {}) {
+    super(ErrorCode.CONFIRMATION_TIMEOUT, message, {
+      defaultRetryable: true,
+      ...options,
+    });
+  }
+}
+
 export function isMeridianError(err: unknown): err is MeridianError {
   return err instanceof MeridianError;
 }
@@ -133,7 +163,7 @@ const NETWORK_CODES = new Set([
   "ERR_NETWORK",
 ]);
 const NETWORK_MESSAGE =
-  /network error|fetch failed|socket hang up|connection (?:reset|refused|closed)|getaddrinfo|ENOTFOUND|ECONNRESET|ECONNREFUSED/i;
+  /network error|fetch failed|socket hang up|connection (?:reset|refused|closed)|getaddrinfo|ENOTFOUND|ECONRESET|ECONNREFUSED|internal server error/i;
 const TIMEOUT_MESSAGE = /timed? ?out|timeout/i;
 const CONTRACT_CODE = /Error\(\s*Contract\s*,\s*#(\d+)\s*\)/i;
 
