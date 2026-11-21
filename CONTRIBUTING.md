@@ -399,6 +399,8 @@ pnpm typecheck     # tsc --noEmit across all packages
 pnpm test          # Vitest across all packages
 pnpm coverage      # Vitest with coverage thresholds across all packages
 pnpm format        # Prettier (auto-fix)
+pnpm lint:md       # markdownlint (config: .markdownlint.json)
+pnpm check:links   # Internal links and heading anchors in all Markdown (needs lychee)
 
 # Run tests for a single package
 pnpm --filter @meridian/stellar-sdk-helpers test
@@ -411,6 +413,12 @@ cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo test --all
 ```
+
+### Docs checks
+
+The **Docs Lint & Links** CI job runs when a pull request (or a push to `main`) touches Markdown, `apps/docs`, or the checker configs. It runs `pnpm lint:md` and `pnpm check:links`, which are strict: a broken relative link, root-relative VitePress link, or heading anchor fails the job. External links are checked with `pnpm check:links:external`, which only warns on pull requests. Install the link checker locally with `brew install lychee` (or `cargo install lychee`).
+
+Hosts that block or rate-limit CI runners, and GitHub-relative links such as `../../issues`, are allowlisted in [`lychee.toml`](lychee.toml); add a comment explaining any new entry. Heading anchors must resolve on both GitHub and VitePress, so avoid apostrophes and other punctuation in headings that are linked to.
 
 ### End-to-end tests
 
