@@ -10,16 +10,11 @@ import { useTranslation } from "react-i18next";
 import { AdminLogin } from "./pages/AdminLogin";
 import { StatusPage } from "./pages/StatusPage";
 import { NotFound } from "./pages/NotFound";
+import { isClientError } from "./lib/api";
 
 // Retry only transient failures. 4xx responses are client errors and will not
 // succeed on retry, so they fail immediately. Retries use bounded exponential
 // backoff (capped at 30s) and are limited to 3 attempts.
-function isClientError(error: unknown): boolean {
-  const status = (error as { status?: unknown; response?: { status?: unknown } })
-    ?.status ?? (error as { response?: { status?: unknown } })?.response?.status;
-  return typeof status === "number" && status >= 400 && status < 500;
-}
-
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -60,6 +55,7 @@ function useConnectivity(): boolean {
 }
 
 function OfflineBanner({ online }: { online: boolean }) {
+  const { t } = useTranslation();
   if (online) return null;
   return (
     <div
@@ -67,7 +63,10 @@ function OfflineBanner({ online }: { online: boolean }) {
       aria-live="polite"
       className="sticky top-0 z-50 bg-amber-900 text-amber-100 text-sm text-center py-2 px-4"
     >
-      You are offline. Showing last known data until the connection returns.
+      {t("status.offlineBanner", {
+        defaultValue:
+          "You are offline. Showing last known data until the connection returns.",
+      })}
     </div>
   );
 }
