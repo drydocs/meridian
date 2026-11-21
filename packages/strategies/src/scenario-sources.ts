@@ -55,6 +55,7 @@ export class MissingSourceDataError extends Error {
  */
 export interface ResolvedScenarioSources {
   readonly prices: PriceFeed;
+  readonly hedgePrices?: PriceFeed;
   readonly accrual?: AccrualConfig;
 }
 
@@ -180,6 +181,61 @@ export async function resolveScenarioSources(
     throw new Error(`Unsupported price source: ${priceSource}`);
   }
 
+  // 2b. Resolve optional Hedge Price Feed
+  let hedgeFeed: PriceFeed | undefined;
+  const hedgeSource = scenario.source.hedge;
+
+  if (hedgeSource !== undefined) {
+    if (hedgeSource === "horizon" || hedgeSource === "defillama") {
+      const hedgeFeedMap = new Map<AssetSymbol, BacktestPricePoint[]>();
+
+      for (const asset of scenario.assets) {
+        const stream =
+          loadedSeries[`hedge:${hedgeSource}:${asset}`] ??
+          loadedSeries[`hedge:${asset}`] ??
+          loadedSeries[`hedge:${asset.toUpperCase()}`] ??
+          loadedSeries[`price:hedge:${asset}`] ??
+          loadedSeries[`price:hedge:${asset.toUpperCase()}`] ??
+          loadedSeries[`price:${hedgeSource}:${asset}`];
+
+        if (!stream || stream.series.points.length === 0) {
+          throw new MissingSourceDataError({
+            asset,
+            window: { start: scenario.window.start, end: scenario.window.end },
+            source: hedgeSource,
+            message: `${hedgeSource} hedge price data missing for asset "${asset}" across window ${scenario.window.start} to ${scenario.window.end}`,
+          });
+        }
+
+        const points = stream.series.points;
+        const minTimestamp = points[0]!.timestampMs;
+        const maxTimestamp = points[points.length - 1]!.timestampMs;
+
+        if (minTimestamp > windowStartMs || maxTimestamp < windowEndMs) {
+          throw new MissingSourceDataError({
+            asset,
+            window: { start: scenario.window.start, end: scenario.window.end },
+            source: hedgeSource,
+            message: `${hedgeSource} hedge recorded series for asset "${asset}" covers ${new Date(minTimestamp).toISOString()} to ${new Date(maxTimestamp).toISOString()}, which does not fully span scenario window ${scenario.window.start} to ${scenario.window.end}`,
+          });
+        }
+
+        const pricePoints: BacktestPricePoint[] = points.map((p) => ({
+          timestamp: p.timestampMs,
+          price: FixedPointDecimal.fromString(p.value.toString()),
+        }));
+
+        hedgeFeedMap.set(asset as AssetSymbol, pricePoints);
+      }
+
+      const feedOptions: BacktestPriceFeedOptions | undefined =
+        options.strict !== undefined ? { strict: options.strict } : undefined;
+      hedgeFeed = new BacktestPriceFeed(hedgeFeedMap, feedOptions);
+    } else {
+      throw new Error(`Unsupported hedge source: ${hedgeSource}`);
+    }
+  }
+
   // 3. Resolve Rate Source & Accrual Config
   const rateSource = scenario.source.rate;
   let accrualConfig: AccrualConfig | undefined;
@@ -266,6 +322,7 @@ export async function resolveScenarioSources(
 
   return {
     prices: priceFeed,
+    ...(hedgeFeed ? { hedgePrices: hedgeFeed } : {}),
     accrual: accrualConfig,
   };
 }

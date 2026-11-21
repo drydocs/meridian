@@ -285,7 +285,10 @@ export async function runScenario(
       scenario.strategy.id,
       scenario.strategy.version,
       scenario.strategy.params,
-      { priceFeed: sources.prices }
+      {
+        priceFeed: sources.prices,
+        ...(sources.hedgePrices ? { hedgeFeed: sources.hedgePrices } : {}),
+      }
     );
 
     // Every registered strategy trades a single `asset`, and the runner only
