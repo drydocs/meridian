@@ -6,6 +6,14 @@ import {
   requireGetMethod,
 } from "../../_lib/middleware.js";
 
+/**
+ * GET /api/v1/positions/{publicKey}
+ *
+ * Returns the positions held by the given public key.
+ * Documented in api/v1/openapi.yaml. When this handler's status codes or
+ * response body shape change, update the schema and the contract tests
+ * together (see apps/docs/contributing/api-schema.md).
+ */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   if (requireGetMethod(req, res)) return;

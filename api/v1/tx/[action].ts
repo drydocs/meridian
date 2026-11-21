@@ -12,6 +12,10 @@ import { applyCors, checkRateLimit } from "../../_lib/middleware.js";
 // are unchanged: Vercel's [action].ts dynamic segment routes
 // /api/v1/tx/deposit, /api/v1/tx/withdraw, etc. to this one file with
 // req.query.action set accordingly.
+//
+// The OpenAPI document for these routes is api/v1/openapi.yaml; when adding
+// or changing an action here, update that schema and the contract tests
+// alongside it (see apps/docs/contributing/api-schema.md).
 const ACTIONS = {
   deposit: handleDepositRequest,
   withdraw: handleWithdrawRequest,
