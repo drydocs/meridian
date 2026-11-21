@@ -59,7 +59,8 @@ pub enum ContractError {
     /// The adapter reported zero or negative total assets while the vault
     /// still has shares outstanding, indicating a broken adapter or
     /// malformed protocol response. Depositing would dilute all existing
-    /// holders.
+    /// holders. `deposit` checks this both before the adapter call and,
+    /// for the pre-existing position, from the post-deposit reads.
     AdapterReportedNoAssets = 17,
     /// `deposit` output fell below caller-specified minimum bound (`min_shares_out`).
     SlippageExceeded = 18,
@@ -122,4 +123,16 @@ pub enum ContractError {
     /// empty at that point, so any residue would be unaccounted for in
     /// `ADPT_SH` and would skew the share price of the first depositors.
     AdapterResidualPosition = 29,
+    /// `deposit`'s adapter reported a credit that its own post-deposit
+    /// ledger cannot back: the credited adapter shares, valued at the
+    /// adapter's post-deposit `total_assets() / total_shares()`, are worth
+    /// more than the USDC the adapter was given or more than its
+    /// `total_assets()` grew by, beyond the tolerance set by
+    /// `DEPOSIT_VALUE_TOLERANCE_BPS` and `DEPOSIT_VALUE_TOLERANCE_STROOPS`.
+    /// Also returned when the credit exceeds the adapter's whole
+    /// post-deposit share balance. Minting against such a credit would
+    /// dilute every existing holder. A credit worth *less* than requested
+    /// (partial fill, supply cap, fee on deposit) is not a mismatch: it is
+    /// minted at its real value.
+    DepositValueMismatch = 30,
 }

@@ -151,6 +151,7 @@ const VAULT_CONTRACT_ERRORS: ReadonlyArray<readonly [string, number]> = [
   ["MigrationSnapshotAssetsInvalid", 22],
   ["AdapterCreditedNothing", 23],
   ["DivisionByZero", 24],
+  ["DepositValueMismatch", 30],
 ];
 
 // The shape of `sim.error` for a contract error: the HostError line, then the
@@ -179,6 +180,7 @@ describe("simErrorMessage snapshots", () => {
         "AdapterSwapUnsafe": "HostError: Error(Contract, #10)",
         "AlreadyInitialized": "This contract is already initialized.",
         "DepositTooSmall": "HostError: Error(Contract, #5)",
+        "DepositValueMismatch": "The adapter's credit for this deposit did not match the value it received.",
         "DepositsPaused": "HostError: Error(Contract, #3)",
         "DivisionByZero": "The vault hit a divide-by-zero in adapter accounting.",
         "InsufficientShares": "HostError: Error(Contract, #7)",
