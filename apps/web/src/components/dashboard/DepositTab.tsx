@@ -82,6 +82,7 @@ export function DepositTab({
                   type="button"
                   data-testid="vault-balance-retry"
                   onClick={onRetryBalance}
+                  aria-label={t("vaultPanel.retryBalance")}
                   className="text-amber-300 hover:text-amber-200 underline font-medium"
                 >
                   {t("common.retry")}

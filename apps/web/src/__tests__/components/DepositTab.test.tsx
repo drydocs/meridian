@@ -25,7 +25,9 @@ const onAmountChange = vi.fn();
 const onAmountKeyDown = vi.fn();
 const onSubmit = vi.fn();
 
-function renderDepositTab(props: Partial<Parameters<typeof DepositTab>[0]> = {}) {
+function renderDepositTab(
+  props: Partial<Parameters<typeof DepositTab>[0]> = {}
+) {
   return render(
     <DepositTab
       amount=""
@@ -138,8 +140,11 @@ describe("DepositTab", () => {
     expect(screen.queryByText("$0.00")).toBeNull();
     expect(screen.queryByTestId("vault-deposit-max")).toBeNull();
 
-    fireEvent.click(screen.getByTestId("vault-balance-retry"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "vaultPanel.retryBalance" })
+    );
     expect(onRetryBalance).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "common.retry" })).toBeNull();
   });
 
   it("calls onAmountChange when the input value changes", () => {

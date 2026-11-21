@@ -32,10 +32,7 @@ describe("fetchSpendableBalance", () => {
       ],
     } as unknown as Awaited<ReturnType<typeof fetchBalances>>);
 
-    const balance = await fetchSpendableBalance(
-      "GANYONE",
-      "testnet"
-    );
+    const balance = await fetchSpendableBalance("GANYONE", "testnet");
     expect(balance).toBe(80);
   });
 
@@ -52,10 +49,7 @@ describe("fetchSpendableBalance", () => {
       ],
     } as unknown as Awaited<ReturnType<typeof fetchBalances>>);
 
-    const balance = await fetchSpendableBalance(
-      "GANYONE",
-      "testnet"
-    );
+    const balance = await fetchSpendableBalance("GANYONE", "testnet");
     expect(balance).toBe(0);
   });
 
@@ -69,19 +63,32 @@ describe("fetchSpendableBalance", () => {
       ],
     } as unknown as Awaited<ReturnType<typeof fetchBalances>>);
 
-    const balance = await fetchSpendableBalance(
-      "GANYONE",
-      "testnet"
-    );
+    const balance = await fetchSpendableBalance("GANYONE", "testnet");
     expect(balance).toBe(0);
   });
 
   it("throws when Horizon fetch fails", async () => {
     vi.mocked(fetchBalances).mockResolvedValueOnce(null);
 
-    await expect(
-      fetchSpendableBalance("GANYONE", "testnet")
-    ).rejects.toThrow("Failed to fetch balance from Horizon");
+    await expect(fetchSpendableBalance("GANYONE", "testnet")).rejects.toThrow(
+      "Failed to fetch balance from Horizon"
+    );
+  });
+
+  it("returns undefined when no USDC issuer is configured for the network", async () => {
+    vi.mocked(fetchBalances).mockResolvedValueOnce({
+      balances: [
+        {
+          asset_type: "credit_alphanum4",
+          asset_code: "USDC",
+          asset_issuer: "GSOMEOTHERISSUER",
+          balance: "100.0000000",
+        },
+      ],
+    } as unknown as Awaited<ReturnType<typeof fetchBalances>>);
+
+    const balance = await fetchSpendableBalance("GANYONE", "unknown");
+    expect(balance).toBeUndefined();
   });
 });
 
