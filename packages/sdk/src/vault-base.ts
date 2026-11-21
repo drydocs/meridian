@@ -1,10 +1,4 @@
-import {
-  Address,
-  Contract,
-  nativeToScVal,
-  rpc as SorobanRpc,
-  xdr,
-} from "@stellar/stellar-sdk";
+import { Contract, rpc as SorobanRpc, xdr } from "@stellar/stellar-sdk";
 import { MAX_ADMIN_SLIPPAGE_BPS } from "@meridian/shared";
 import { prepareSorobanTx, simulateView } from "@meridian/stellar-sdk-helpers";
 import {
@@ -14,6 +8,12 @@ import {
   SimulationError,
   classifyError,
 } from "./errors.js";
+import {
+  Client as VaultContractClient,
+  type WithdrawPreview as GeneratedWithdrawPreview,
+} from "./generated/vault.js";
+import type { Client as BlendAdapterClient } from "./generated/blend-adapter.js";
+import type { Client as DefindexAdapterClient } from "./generated/defindex-adapter.js";
 import {
   redact,
   safeCall,
@@ -43,16 +43,47 @@ const MISSING_FUNCTION_PATTERN = /non-existent contract function|MissingValue/i;
 // Internal helpers (private to this module)
 // ---------------------------------------------------------------------------
 
-function i128(value: bigint): xdr.ScVal {
-  return nativeToScVal(value, { type: "i128" });
+type ContractMethodNames<C> = {
+  [K in keyof C]: C[K] extends (...args: never[]) => Promise<unknown>
+    ? K
+    : never;
+}[keyof C] &
+  string;
+
+type VaultMethod = ContractMethodNames<VaultContractClient>;
+type AdapterMethod = ContractMethodNames<
+  BlendAdapterClient & DefindexAdapterClient
+>;
+
+type MethodArgs<C, M extends keyof C> = C[M] extends (
+  ...args: infer P
+) => Promise<unknown>
+  ? 2 extends P["length"]
+    ? P[0]
+    : Record<string, never>
+  : Record<string, never>;
+
+let cachedVaultSpec: VaultContractClient["spec"] | undefined;
+
+function getVaultSpec(): VaultContractClient["spec"] {
+  if (!cachedVaultSpec) {
+    cachedVaultSpec = new VaultContractClient({
+      contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+      networkPassphrase: "Test SDF Network ; September 2015",
+      rpcUrl: "https://soroban-testnet.stellar.org",
+    }).spec;
+  }
+  return cachedVaultSpec;
 }
 
-function u32(value: number): xdr.ScVal {
-  return nativeToScVal(value, { type: "u32" });
-}
-
-function addrScVal(address: string): xdr.ScVal {
-  return Address.fromString(address).toScVal();
+function encodeVaultArgs<M extends VaultMethod>(
+  method: M,
+  args?: MethodArgs<VaultContractClient, M>
+): xdr.ScVal[] {
+  return getVaultSpec().funcArgsToScVals(
+    method,
+    (args ?? {}) as Record<string, unknown>
+  );
 }
 
 function bigIntFrom(value: unknown): bigint {
@@ -289,14 +320,24 @@ export abstract class VaultBase {
     return new Contract(this.contractId);
   }
 
-  private async view(method: string, ...args: xdr.ScVal[]): Promise<unknown> {
+  private callVault<M extends VaultMethod>(
+    method: M,
+    args?: MethodArgs<VaultContractClient, M>
+  ): xdr.Operation {
+    return this.contract().call(method, ...encodeVaultArgs(method, args));
+  }
+
+  private async view<M extends VaultMethod>(
+    method: M,
+    args?: MethodArgs<VaultContractClient, M>
+  ): Promise<unknown> {
     const { network } = this.config;
     return simulateView(
       this.makeRpcServer(),
       this.contractId,
       network.passphrase,
       method,
-      ...args
+      ...encodeVaultArgs(method, args)
     );
   }
 
@@ -306,12 +347,12 @@ export abstract class VaultBase {
    * other failure, including the contract's own typed errors, is rethrown so a
    * real rejection is never masked by a local estimate.
    */
-  private async optionalView(
-    method: string,
-    ...args: xdr.ScVal[]
+  private async optionalView<M extends VaultMethod>(
+    method: M,
+    args?: MethodArgs<VaultContractClient, M>
   ): Promise<unknown> {
     try {
-      return await this.view(method, ...args);
+      return await this.view(method, args);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (MISSING_FUNCTION_PATTERN.test(message)) return undefined;
@@ -363,12 +404,11 @@ export abstract class VaultBase {
       "build",
       () =>
         this.prepare(
-          this.contract().call(
-            "deposit",
-            addrScVal(receiver),
-            i128(assets),
-            i128(minSharesOut)
-          )
+          this.callVault("deposit", {
+            caller: receiver,
+            amount: assets,
+            min_shares_out: minSharesOut,
+          })
         )
     );
   }
@@ -428,12 +468,11 @@ export abstract class VaultBase {
         }
         const shares = (assets * totalSupply + totalAssets - 1n) / totalAssets;
         return this.prepare(
-          this.contract().call(
-            "withdraw",
-            addrScVal(owner),
-            i128(shares),
-            i128(minUsdcOut)
-          )
+          this.callVault("withdraw", {
+            caller: owner,
+            shares,
+            min_usdc_out: minUsdcOut,
+          })
         );
       }
     );
@@ -449,12 +488,7 @@ export abstract class VaultBase {
    */
   async setPaused(paused: boolean): Promise<Transaction> {
     return this.run("setPaused", { paused }, "build", () =>
-      this.prepare(
-        this.contract().call(
-          "set_paused",
-          nativeToScVal(paused, { type: "bool" })
-        )
-      )
+      this.prepare(this.callVault("set_paused", { paused }))
     );
   }
 
@@ -468,7 +502,7 @@ export abstract class VaultBase {
    */
   async setAdapter(newAdapter: string): Promise<Transaction> {
     return this.run("setAdapter", { newAdapter }, "build", () =>
-      this.prepare(this.contract().call("set_adapter", addrScVal(newAdapter)))
+      this.prepare(this.callVault("set_adapter", { new_adapter: newAdapter }))
     );
   }
 
@@ -485,7 +519,7 @@ export abstract class VaultBase {
   async beginMigration(newAdapter: string): Promise<Transaction> {
     return this.run("beginMigration", { newAdapter }, "build", () =>
       this.prepare(
-        this.contract().call("begin_migration", addrScVal(newAdapter))
+        this.callVault("begin_migration", { new_adapter: newAdapter })
       )
     );
   }
@@ -516,11 +550,10 @@ export abstract class VaultBase {
       "build",
       () =>
         this.prepare(
-          this.contract().call(
-            "migrate_adapter",
-            addrScVal(newAdapter),
-            u32(maxSlippageBps)
-          )
+          this.callVault("migrate_adapter", {
+            new_adapter: newAdapter,
+            max_slippage_bps: maxSlippageBps,
+          })
         )
     );
   }
@@ -546,7 +579,6 @@ export abstract class VaultBase {
   }
 
   private async readPosition(account: string): Promise<Position | null> {
-    const callerScVal = addrScVal(account);
     const server = this.makeRpcServer();
     const { passphrase } = this.config.network;
     const contractId = this.contractId;
@@ -556,29 +588,39 @@ export abstract class VaultBase {
         server,
         contractId,
         passphrase,
-        "get_position",
-        callerScVal
+        "get_position" satisfies VaultMethod,
+        ...encodeVaultArgs("get_position", { address: account })
       )
     );
     if (sharesRaw <= 0n) return null;
 
     const [totalAssetsRaw, totalSharesRaw, principalRaw, entryTimeRaw] =
       await Promise.all([
-        simulateView(server, contractId, passphrase, "get_total_assets"),
-        simulateView(server, contractId, passphrase, "get_total_shares"),
         simulateView(
           server,
           contractId,
           passphrase,
-          "get_principal",
-          callerScVal
+          "get_total_assets" satisfies VaultMethod
         ),
         simulateView(
           server,
           contractId,
           passphrase,
-          "get_entry_time",
-          callerScVal
+          "get_total_shares" satisfies VaultMethod
+        ),
+        simulateView(
+          server,
+          contractId,
+          passphrase,
+          "get_principal" satisfies VaultMethod,
+          ...encodeVaultArgs("get_principal", { address: account })
+        ),
+        simulateView(
+          server,
+          contractId,
+          passphrase,
+          "get_entry_time" satisfies VaultMethod,
+          ...encodeVaultArgs("get_entry_time", { address: account })
         ),
       ]);
 
@@ -616,7 +658,7 @@ export abstract class VaultBase {
    */
   async getPrincipal(account: string): Promise<bigint> {
     return this.run("getPrincipal", { account }, "read", async () =>
-      bigIntFrom(await this.view("get_principal", addrScVal(account)))
+      bigIntFrom(await this.view("get_principal", { address: account }))
     );
   }
 
@@ -662,7 +704,7 @@ export abstract class VaultBase {
   }
 
   private async readConvertToShares(assets: bigint): Promise<bigint> {
-    const live = await this.optionalView("convert_to_shares", i128(assets));
+    const live = await this.optionalView("convert_to_shares", { assets });
     if (live !== undefined) return bigIntFrom(live);
     const [ta, ts] = await Promise.all([
       this.readTotalAssets(),
@@ -684,7 +726,7 @@ export abstract class VaultBase {
    */
   async convertToAssets(shares: bigint): Promise<bigint> {
     return this.run("convertToAssets", { shares }, "read", async () => {
-      const live = await this.optionalView("convert_to_assets", i128(shares));
+      const live = await this.optionalView("convert_to_assets", { shares });
       if (live !== undefined) return bigIntFrom(live);
       const [ta, ts] = await Promise.all([
         this.readTotalAssets(),
@@ -715,7 +757,9 @@ export abstract class VaultBase {
    */
   async previewDeposit(assets: bigint): Promise<bigint> {
     return this.run("previewDeposit", { assets }, "read", async () => {
-      const live = await this.optionalView("preview_deposit", i128(assets));
+      const live = await this.optionalView("preview_deposit", {
+        amount: assets,
+      });
       if (live !== undefined) return bigIntFrom(live);
       return this.readConvertToShares(assets);
     });
@@ -735,11 +779,10 @@ export abstract class VaultBase {
     shares: bigint
   ): Promise<WithdrawPreview> {
     return this.run("previewWithdraw", { owner, shares }, "read", async () => {
-      const raw = (await this.optionalView(
-        "preview_withdraw",
-        addrScVal(owner),
-        i128(shares)
-      )) as Record<string, unknown> | null | undefined;
+      const raw = (await this.optionalView("preview_withdraw", {
+        holder: owner,
+        shares,
+      })) as GeneratedWithdrawPreview | null | undefined;
       if (raw === undefined) {
         throw new UnsupportedError(
           "preview_withdraw is not available on this vault deployment"
@@ -855,12 +898,22 @@ export abstract class VaultBase {
       server,
       contractId,
       passphrase,
-      "get_adapter"
+      "get_adapter" satisfies VaultMethod
     )) as string;
 
     const [protocol, totalAssetsRaw] = await Promise.all([
-      simulateView(server, adapterId, passphrase, "get_protocol"),
-      simulateView(server, contractId, passphrase, "get_total_assets"),
+      simulateView(
+        server,
+        adapterId,
+        passphrase,
+        "get_protocol" satisfies AdapterMethod
+      ),
+      simulateView(
+        server,
+        contractId,
+        passphrase,
+        "get_total_assets" satisfies VaultMethod
+      ),
     ]);
 
     return {
