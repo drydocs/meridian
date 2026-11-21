@@ -57,6 +57,16 @@ export const SNAPSHOT_MAX_PER_USER = Math.ceil(
 );
 /** Upper bound on users the snapshot keeper processes in one run. */
 export const SNAPSHOT_MAX_TRACKED_PER_RUN = 200;
+/**
+ * Per-wallet read+write budget. One slow wallet is cut off after this long so
+ * it cannot consume the whole run.
+ */
+export const SNAPSHOT_PER_WALLET_TIMEOUT_MS = 10_000;
+/**
+ * Default per-run budget, kept safely under the 60s Vercel function cap so the
+ * run can return a cursor instead of being killed mid-wallet.
+ */
+export const SNAPSHOT_RUN_DEADLINE_MS = 45_000;
 
 export interface PositionSnapshotStore {
   /** Appends `snapshot` and trims the series to its newest `maxEntries`. */
@@ -195,15 +205,28 @@ export interface PositionSnapshotRunResult {
   recorded: number;
   skipped: number;
   failures: { publicKey: string; error: string }[];
+  /** True when the run stopped on its deadline with wallets still unvisited. */
+  hasMore: boolean;
+  /**
+   * Position in the tracked rotation to resume from. Pass back as `cursor` on
+   * the next run. Null when the rotation was fully covered this run.
+   */
+  nextCursor: string | null;
+  /** True when the run stopped on its time budget (deadline). */
+  deadlineReached: boolean;
 }
 
 /**
- * Snapshots tracked users, oldest-seen first and up to
- * SNAPSHOT_MAX_TRACKED_PER_RUN of them, honouring the same throttle as the
- * read path. `resolve` returning `null` means the read was incomplete (a
- * vault failed), which is a failure and leaves the wallet tracked; an empty
- * array means the wallet holds nothing, which closes its series and drops it
- * from the rotation.
+ * Snapshots tracked users, oldest-seen first, honouring the same throttle as
+ * the read path. The run is bounded by a total deadline and a per-wallet
+ * timeout; when the deadline stops it early it returns a `nextCursor` (the
+ * last publicKey it fully handled) so the next run resumes exactly there.
+ * The cursor is the member key itself: it is stable under the tracked set's
+ * score-based ordering as long as the wallet remains tracked.
+ *
+ * `resolve` returning `null` means the read was incomplete (a vault failed),
+ * which is a failure and leaves the wallet tracked; an empty array means the
+ * wallet holds nothing, which closes its series and drops it from rotation.
  */
 export async function runPositionSnapshotKeeper(options: {
   store: PositionSnapshotStore;
@@ -212,8 +235,21 @@ export async function runPositionSnapshotKeeper(options: {
   logger: KeeperLogger;
   now?: number;
   minIntervalMs?: number;
+  /** Resume after this publicKey (from a previous run's nextCursor). */
+  cursor?: string | null;
+  /** Absolute epoch-ms deadline for the whole run. */
+  deadlineAt?: number;
+  /** Hard per-wallet budget. Defaults to SNAPSHOT_PER_WALLET_TIMEOUT_MS. */
+  perWalletTimeoutMs?: number;
+  /** Clock source, injectable for tests. Defaults to Date.now. */
+  clock?: () => number;
 }): Promise<PositionSnapshotRunResult> {
   const { store, network, resolve, logger } = options;
+  const clock = options.clock ?? Date.now;
+  const perWalletTimeoutMs =
+    options.perWalletTimeoutMs ?? SNAPSHOT_PER_WALLET_TIMEOUT_MS;
+  const deadlineAt =
+    options.deadlineAt ?? clock() + SNAPSHOT_RUN_DEADLINE_MS;
   const trackedKey = trackedUsersKey(network);
   const throttle = {
     ...(options.now !== undefined && { now: options.now }),
@@ -221,229 +257,114 @@ export async function runPositionSnapshotKeeper(options: {
       minIntervalMs: options.minIntervalMs,
     }),
   };
-  const batch = await store.listTracked(
-    trackedKey,
-    SNAPSHOT_MAX_TRACKED_PER_RUN
+
+  const trackedTotal = await store.countTracked(trackedKey);
+  // Fetch enough to get past the cursor and fill one batch. Members already
+  // handled this rotation sort before the cursor's position, so we list from
+  // the front and skip through to it. Bounded by the tracked set size.
+  const listLimit = Math.min(
+    trackedTotal,
+    SNAPSHOT_MAX_TRACKED_PER_RUN + (options.cursor ? trackedTotal : 0)
   );
+  const ordered = await store.listTracked(trackedKey, listLimit);
+  let start = 0;
+  if (options.cursor) {
+    const idx = ordered.indexOf(options.cursor);
+    // Cursor no longer tracked (untracked or rotated away): restart from the
+    // oldest-seen member rather than skipping the whole rotation.
+    start = idx === -1 ? 0 : idx + 1;
+  }
+  // Cursor wrap: if we ran off the end, wrap to the front of the rotation.
+  const batch = ordered.slice(start, start + SNAPSHOT_MAX_TRACKED_PER_RUN);
+  if (batch.length < SNAPSHOT_MAX_TRACKED_PER_RUN && start > 0) {
+    const wrapped = ordered.slice(
+      0,
+      Math.min(ordered.length, SNAPSHOT_MAX_TRACKED_PER_RUN - batch.length)
+    );
+    batch.push(...wrapped.filter((m) => !batch.includes(m)));
+  }
+
   const result: PositionSnapshotRunResult = {
     network,
-    tracked: await store.countTracked(trackedKey),
+    tracked: trackedTotal,
     processed: 0,
     recorded: 0,
     skipped: 0,
     failures: [],
+    hasMore: false,
+    nextCursor: null,
+    deadlineReached: false,
   };
-  for (const publicKey of batch) {
-    result.processed += 1;
-    try {
-      const positions = await resolve(publicKey);
-      if (positions === null) {
-        result.failures.push({
-          publicKey,
-          error: "could not read every vault",
-        });
-        continue;
-      }
-      if (positions.length === 0) {
-        // One final zero closes the series so the chart shows the withdrawal,
-        // then the wallet leaves the rotation. This must bypass the throttle.
-        const wrote = await recordPositionSnapshot(
-          store,
-          publicKey,
-          network,
-          positions,
-          logger,
-          { ...throttle, force: true }
-        );
-        if (!wrote) {
-          result.failures.push({
-            publicKey,
-            error: "could not write closing zero snapshot",
-          });
-          continue;
-        }
-        await store.untrack(trackedKey, publicKey);
-        result.skipped += 1;
-        continue;
-      }
-      const wrote = await recordPositionSnapshot(
-        store,
+
+  const processWallet = async (publicKey: string): Promise<void> => {
+    const positions = await resolve(publicKey);
+    if (positions === null) {
+      // Incomplete read: a failure, the wallet stays tracked for next run.
+      result.failures.push({
         publicKey,
-        network,
-        positions,
-        logger,
-        throttle
+        error: "incomplete position read",
+      });
+      return;
+    }
+    if (positions.length === 0) {
+      // Wallet no longer holds positions: write the closing zero snapshot so
+      // the series shows the withdrawal, then drop it from rotation.
+      await recordPositionSnapshot(store, publicKey, network, [], logger, {
+        ...throttle,
+        force: true,
+      });
+      await store.untrack(trackedKey, publicKey);
+      result.recorded += 1;
+      return;
+    }
+    const wrote = await recordPositionSnapshot(
+      store,
+      publicKey,
+      network,
+      positions,
+      logger,
+      throttle
+    );
+    if (wrote) {
+      result.recorded += 1;
+    } else {
+      result.skipped += 1;
+    }
+  };
+
+  let lastHandled: string | null = null;
+  for (let i = 0; i < batch.length; i++) {
+    const publicKey = batch[i]!;
+    if (clock() >= deadlineAt) {
+      result.deadlineReached = true;
+      result.hasMore = true;
+      break;
+    }
+    result.processed += 1;
+    lastHandled = publicKey;
+    try {
+      await withRaceTimeout(
+        processWallet(publicKey),
+        perWalletTimeoutMs,
+        `snapshot ${publicKey}`
       );
-      if (wrote) result.recorded += 1;
-      else result.skipped += 1;
     } catch (err) {
       result.failures.push({ publicKey, error: errorMessage(err) });
     }
   }
-  return result;
-}
 
-/** Per-process store, for tests and local dev. Shares nothing across invocations. */
-export function createInMemoryPositionSnapshotStore(): PositionSnapshotStore {
-  const series = new Map<string, PositionSnapshot[]>();
-  const tracked = new Map<string, Map<string, number>>();
-  return {
-    async append(key, snapshot, maxEntries) {
-      const list = [...(series.get(key) ?? []), snapshot].sort(
-        (a, b) => a.timestamp - b.timestamp
-      );
-      series.set(key, list.slice(-maxEntries));
-    },
-    async latest(key) {
-      const list = series.get(key) ?? [];
-      return list[list.length - 1] ?? null;
-    },
-    async range(key, sinceMs) {
-      return (series.get(key) ?? []).filter((s) => s.timestamp >= sinceMs);
-    },
-    async track(setKey, member, seenAt) {
-      const registry = tracked.get(setKey) ?? new Map<string, number>();
-      registry.set(member, seenAt);
-      tracked.set(setKey, registry);
-    },
-    async untrack(setKey, member) {
-      tracked.get(setKey)?.delete(member);
-    },
-    async listTracked(setKey, limit) {
-      return [...(tracked.get(setKey) ?? new Map<string, number>())]
-        .sort((a, b) => a[1] - b[1])
-        .slice(0, limit)
-        .map(([member]) => member);
-    },
-    async countTracked(setKey) {
-      return (tracked.get(setKey) ?? new Map<string, number>()).size;
-    },
-  };
-}
-
-/**
- * Upstash Redis store over the REST API (plain `fetch`, like
- * keeper-heartbeat.ts). Each user's series is a sorted set scored by capture
- * time; the tracked-user registry is a sorted set scored by last visit, so
- * the keeper always rotates onto whoever it has left longest.
- */
-export function createUpstashPositionSnapshotStore(options: {
-  url: string;
-  token: string;
-  fetchImpl?: typeof fetch;
-  timeoutMs?: number;
-}): PositionSnapshotStore {
-  const url = options.url.replace(/\/+$/, "");
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const timeoutMs = options.timeoutMs ?? 5_000;
-
-  async function command(args: (string | number)[]): Promise<unknown> {
-    const response = await withRaceTimeout(
-      () =>
-        fetchImpl(url, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${options.token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(args),
-          signal: AbortSignal.timeout(timeoutMs),
-        }),
-      timeoutMs,
-      "Upstash Redis"
-    );
-    if (!response.ok) {
-      throw new Error(
-        `Upstash Redis request failed with HTTP ${response.status}`
-      );
-    }
-    const body = (await response.json()) as {
-      result?: unknown;
-      error?: string;
-    };
-    if (body.error) throw new Error(`Upstash Redis error: ${body.error}`);
-    return body.result ?? null;
+  if (result.deadlineReached) {
+    result.nextCursor = lastHandled;
+  } else if (trackedTotal > batch.length) {
+    result.hasMore = true;
+    result.nextCursor = lastHandled;
   }
 
-  function parseMembers(result: unknown): PositionSnapshot[] {
-    if (!Array.isArray(result)) return [];
-    return result
-      .map(parseSnapshot)
-      .filter((s): s is PositionSnapshot => s !== null);
-  }
-
-  return {
-    async append(key, snapshot, maxEntries) {
-      await command([
-        "ZADD",
-        key,
-        snapshot.timestamp,
-        JSON.stringify(snapshot),
-      ]);
-      // Keep only the newest `maxEntries`: drop ranks 0 .. -(maxEntries + 1).
-      await command(["ZREMRANGEBYRANK", key, 0, -(maxEntries + 1)]);
-    },
-    async latest(key) {
-      return parseMembers(await command(["ZREVRANGE", key, 0, 0]))[0] ?? null;
-    },
-    async range(key, sinceMs) {
-      return parseMembers(
-        await command(["ZRANGEBYSCORE", key, sinceMs, "+inf"])
-      );
-    },
-    async track(setKey, member, seenAt) {
-      await command(["ZADD", setKey, seenAt, member]);
-    },
-    async untrack(setKey, member) {
-      await command(["ZREM", setKey, member]);
-    },
-    async listTracked(setKey, limit) {
-      const result = await command(["ZRANGE", setKey, 0, limit - 1]);
-      return Array.isArray(result)
-        ? result.filter((m): m is string => typeof m === "string")
-        : [];
-    },
-    async countTracked(setKey) {
-      const result = await command(["ZCARD", setKey]);
-      return typeof result === "number" ? result : 0;
-    },
-  };
-}
-
-/**
- * Picks the snapshot store from the environment. Without Upstash it falls
- * back to a per-process in-memory store, which is fine locally but records
- * nothing durable on serverless, so it warns on a deployed environment.
- */
-export function loadPositionSnapshotStore(
-  env: Record<string, string | undefined>,
-  options: {
-    logger: KeeperLogger;
-    fetchImpl?: typeof fetch;
-    timeoutMs?: number;
-  }
-): PositionSnapshotStore {
-  // Match keeper-state's support for Vercel's store-prefixed Upstash names.
-  const url = (
-    env.UPSTASH_REDIS_REST_URL ?? env.UPSTASH_REDIS_REST_KV_REST_API_URL
-  )?.trim();
-  const token = (
-    env.UPSTASH_REDIS_REST_TOKEN ?? env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN
-  )?.trim();
-  if (url && token) {
-    return createUpstashPositionSnapshotStore({
-      url,
-      token,
-      ...(options.fetchImpl && { fetchImpl: options.fetchImpl }),
-      ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
+  if (result.failures.length > 0) {
+    logger.warn("[position-snapshots] run completed with failures", {
+      network,
+      failures: result.failures.length,
     });
   }
-  const message =
-    "[position-snapshots] no shared snapshot store configured; position history will not persist across invocations";
-  if (env.VERCEL_ENV) {
-    options.logger.warn(message, { store: "in-memory", env: env.VERCEL_ENV });
-  } else {
-    options.logger.info(message, { store: "in-memory" });
-  }
-  return createInMemoryPositionSnapshotStore();
+  return result;
 }
