@@ -84,7 +84,9 @@ describe("makeTx", () => {
   });
 
   it("signed and unsigned stubs are distinct", () => {
-    expect(makeTx({ signed: false }).xdr).not.toBe(makeTx({ signed: true }).xdr);
+    expect(makeTx({ signed: false }).xdr).not.toBe(
+      makeTx({ signed: true }).xdr
+    );
   });
 });
 

@@ -130,10 +130,7 @@ export interface MakeSimErrorOptions {
  *
  * Compatible with `vi.spyOn(rpc.Server.prototype, "simulateTransaction").mockResolvedValue(...)`.
  */
-export function makeSimError(
-  code: number,
-  opts: MakeSimErrorOptions = {}
-) {
+export function makeSimError(code: number, opts: MakeSimErrorOptions = {}) {
   const error =
     opts.error ??
     `HostError: Error(Contract, #${code})\n\n` +
@@ -161,36 +158,28 @@ export function makeSimError(
  */
 export const makeScVal = {
   /** An i128 ScVal. */
-  i128: (value: bigint): xdr.ScVal =>
-    nativeToScVal(value, { type: "i128" }),
+  i128: (value: bigint): xdr.ScVal => nativeToScVal(value, { type: "i128" }),
 
   /** A u128 ScVal. */
-  u128: (value: bigint): xdr.ScVal =>
-    nativeToScVal(value, { type: "u128" }),
+  u128: (value: bigint): xdr.ScVal => nativeToScVal(value, { type: "u128" }),
 
   /** A u32 ScVal. */
-  u32: (value: number): xdr.ScVal =>
-    nativeToScVal(value, { type: "u32" }),
+  u32: (value: number): xdr.ScVal => nativeToScVal(value, { type: "u32" }),
 
   /** A u64 ScVal. */
-  u64: (value: bigint): xdr.ScVal =>
-    nativeToScVal(value, { type: "u64" }),
+  u64: (value: bigint): xdr.ScVal => nativeToScVal(value, { type: "u64" }),
 
   /** A boolean ScVal. */
-  bool: (value: boolean): xdr.ScVal =>
-    nativeToScVal(value, { type: "bool" }),
+  bool: (value: boolean): xdr.ScVal => nativeToScVal(value, { type: "bool" }),
 
   /** An Address ScVal from a G- or C-address string. */
-  address: (address: string): xdr.ScVal =>
-    nativeToScVal(new Address(address)),
+  address: (address: string): xdr.ScVal => nativeToScVal(new Address(address)),
 
   /** A Symbol ScVal. */
-  symbol: (value: string): xdr.ScVal =>
-    xdr.ScVal.scvSymbol(value),
+  symbol: (value: string): xdr.ScVal => xdr.ScVal.scvSymbol(value),
 
   /** A void ScVal. */
-  void: (): xdr.ScVal =>
-    xdr.ScVal.scvVoid(),
+  void: (): xdr.ScVal => xdr.ScVal.scvVoid(),
 } as const;
 
 // ---------------------------------------------------------------------------
