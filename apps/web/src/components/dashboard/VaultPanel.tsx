@@ -1,16 +1,9 @@
-import { useState } from "react";
 import { useVaults } from "../../hooks/useVaults";
 import { usePositions } from "../../hooks/usePositions";
-import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
-import { useRiskDisclosure } from "../../hooks/useRiskDisclosure";
-import { useUsdcBalance } from "../../hooks/useUsdcBalance";
-import { getWalletMeta, hasAcceptedRiskDisclosure } from "../../lib/wallet";
 import { PositionSummary } from "./PositionSummary";
 import { YieldHistoryChart } from "./YieldHistoryChart";
-import { DepositTab } from "./DepositTab";
-import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
@@ -21,19 +14,12 @@ function formatTvl(value: number): string {
   return `$${value.toFixed(0)}`;
 }
 
-type Tab = "deposit" | "withdraw";
-
 export function VaultPanel() {
   const { data, isLoading: vaultsLoading } = useVaults();
   const vaults = data?.vaults;
   const { t } = useTranslation();
   const { connected, publicKey } = useWalletStore();
-  const { balance: availableBalance, refetch: refetchBalance } =
-    useUsdcBalance();
   const {
-    handleConnect,
-    status: connectStatus,
-    attemptedWalletId,
     showRiskDisclosure,
     acceptRiskDisclosure,
     cancelRiskDisclosure,
@@ -43,129 +29,24 @@ export function VaultPanel() {
     isError: positionsError,
     refetch: refetchPositions,
   } = usePositions(publicKey);
-  const { deposit, withdraw, isDepositing, isWithdrawing } = useVaultActions();
-
-  const [tab, setTab] = useState<Tab>("deposit");
-  const [amount, setAmount] = useState("");
-  // Deposit-time gate. useWalletConnect's gate only fires from the connect
-  // button, so a wallet already connected elsewhere (e.g. via AdminLogin,
-  // which skips the disclosure) would otherwise reach this deposit button
-  // with no way to ever see or accept it. Both gates now share the same
-  // useRiskDisclosure hook (#814) rather than duplicating its state/logic.
-  const depositRiskDisclosure = useRiskDisclosure();
-
-  function onAmountKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    const allowed = [
-      "Backspace",
-      "Delete",
-      "Tab",
-      "ArrowLeft",
-      "ArrowRight",
-      "Home",
-      "End",
-      ".",
-    ];
-    if (allowed.includes(e.key) || (e.key >= "0" && e.key <= "9")) return;
-    e.preventDefault();
-  }
 
   // Route to the server's recommendation: the highest-APY vault Meridian can
   // actually deposit into (excludes display-only protocols and risky pools).
   const bestVault = vaults?.find((v) => v.id === data?.recommendedVaultId);
   // Deposits and withdrawals both target the recommended vault. A position
-  // in some other vault must not be shown or withdrawn here: its share price
-  // does not match bestVault, so the withdraw tab would display the wrong
-  // balance and the contract would revert.
+  // in some other vault must not be shown or withdrawn here.
   const position = bestVault
     ? positions.find((p) => p.vaultId === bestVault.id)
     : undefined;
-  const hasPosition =
-    position && Number.isFinite(position.deposited) && position.deposited > 0;
-
-  async function handleDeposit() {
-    if (!amount || !bestVault) return;
-    // Runs the deposit now if already accepted, otherwise once the user
-    // accepts the disclosure modal below (#814).
-    await depositRiskDisclosure.requireAcceptance(() =>
-      executeDeposit(bestVault)
-    );
-  }
-
-  async function executeDeposit(vault: NonNullable<typeof bestVault>) {
-    // Slippage floors are computed in useVaultActions from a fresh on-chain
-    // vault state read at tx-build time. Do not derive them from cached
-    // position.deposited / position.shares — that share price can lag yield
-    // accrual and cause unnecessary SlippageExceeded reverts.
-    const ok = await deposit(
-      amount,
-      vault.id,
-      vault.asset,
-      undefined,
-      hasAcceptedRiskDisclosure()
-    );
-    if (ok) {
-      setAmount("");
-      // A successful deposit changes the wallet's USDC balance; refresh
-      // so the over-balance guard stops comparing against stale data.
-      refetchBalance();
-    }
-  }
-
-  async function handleWithdraw() {
-    if (!amount || !bestVault || !position) return;
-    if (position.vaultId !== bestVault.id) return;
-    if (parseFloat(amount) > position.shares) return;
-    const ok = await withdraw(amount, bestVault.id, bestVault.asset, undefined);
-    if (ok) setAmount("");
-  }
-
-  function handleTabChange(next: Tab) {
-    setTab(next);
-    setAmount("");
-  }
+  const hasPosition: boolean =
+    !!position && Number.isFinite(position.deposited) && position.deposited > 0;
 
   return (
-    <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40">
+    <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40 max-w-full">
       {/* Hero — identity + stats */}
-      <div className="px-7 pt-7 pb-6">
-        {/* Identity row */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-3">
-            {/* USDC logo */}
-            <svg
-              className="w-10 h-10 shrink-0"
-              viewBox="0 0 2000 2000"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M1000 2000c554.17 0 1000-445.83 1000-1000S1554.17 0 1000 0 0 445.83 0 1000s445.83 1000 1000 1000z"
-                fill="#2775ca"
-              />
-              <path
-                d="M1275 1158.33c0-145.83-87.5-195.83-262.5-216.66-125-16.67-150-50-150-108.34s41.67-95.83 125-95.83c75 0 116.67 25 137.5 87.5 4.17 12.5 16.67 20.83 29.17 20.83h66.66c16.67 0 29.17-12.5 29.17-29.16v-4.17c-16.67-91.67-91.67-162.5-187.5-170.83v-100c0-16.67-12.5-29.17-33.33-33.34h-62.5c-16.67 0-29.17 12.5-33.34 33.34v95.83c-125 16.67-204.16 100-204.16 204.17 0 137.5 83.33 191.66 258.33 212.5 116.67 20.83 154.17 45.83 154.17 112.5s-58.34 112.5-137.5 112.5c-108.34 0-145.84-45.84-158.34-108.34-4.16-16.66-16.66-25-29.16-25h-70.84c-16.66 0-29.16 12.5-29.16 29.17v4.17c16.66 104.16 83.33 179.16 220.83 200v100c0 16.66 12.5 29.16 33.33 33.33h62.5c16.67 0 29.17-12.5 33.34-33.33v-100c125-20.84 208.33-108.34 208.33-220.84z"
-                fill="#fff"
-              />
-              <path
-                d="M787.5 1595.83c-325-116.66-491.67-479.16-370.83-800 62.5-175 200-308.33 370.83-370.83 16.67-8.33 25-20.83 25-41.67V325c0-16.67-8.33-29.17-25-33.33-4.17 0-12.5 0-16.67 4.16-395.83 125-612.5 545.84-487.5 941.67 75 233.33 254.17 412.5 487.5 487.5 16.67 8.33 33.34 0 37.5-16.67 4.17-4.16 4.17-8.33 4.17-16.66v-58.34c0-12.5-12.5-29.16-25-37.5zM1229.17 295.83c-16.67-8.33-33.34 0-37.5 16.67-4.17 4.17-4.17 8.33-4.17 16.67v58.33c0 16.67 12.5 33.33 25 41.67 325 116.66 491.67 479.16 370.83 800-62.5 175-200 308.33-370.83 370.83-16.67 8.33-25 20.83-25 41.67V1700c0 16.67 8.33 29.17 25 33.33 4.17 0 12.5 0 16.67-4.16 395.83-125 612.5-545.84 487.5-941.67-75-237.5-258.34-416.67-487.5-491.67z"
-                fill="#fff"
-              />
-            </svg>
-            <div>
-              <p className="text-xs text-gray-500">Meridian</p>
-              <p className="text-sm font-semibold text-paper">USDC Vault</p>
-            </div>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-gray-500 mb-0.5">
-              {t("vaultPanel.network")}
-            </p>
-            <p className="text-xs font-semibold text-gray-300">Stellar</p>
-          </div>
-        </div>
-
-        {/* Stats row */}
+      <div className="px-4 pt-5 pb-5 sm:px-7 sm:pt-7 sm:pb-6">
         {vaultsLoading ? (
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-2">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="space-y-2">
                 <div className="h-3 w-10 bg-gray-800 rounded animate-pulse" />
@@ -180,17 +61,17 @@ export function VaultPanel() {
                 {t("vaultPanel.apy")}
               </p>
               <div className="flex items-baseline gap-0.5">
-                <span className="text-5xl font-black text-emerald-400 tabular-nums tracking-tight">
+                <span className="text-3xl sm:text-5xl font-black text-emerald-400 tabular-nums tracking-tight">
                   {bestVault.apy.toFixed(2)}
                 </span>
-                <span className="text-xl font-bold text-emerald-600">%</span>
+                <span className="text-lg sm:text-xl font-bold text-emerald-600">%</span>
               </div>
             </div>
             <div className="pb-1 sm:text-center">
               <p className="text-xs text-gray-500 mb-1.5">
                 {t("vaultPanel.tvl")}
               </p>
-              <p className="text-lg font-bold text-paper">
+              <p className="text-base sm:text-lg font-bold text-paper">
                 {formatTvl(bestVault.tvl)}
               </p>
             </div>
@@ -198,7 +79,7 @@ export function VaultPanel() {
               <p className="text-xs text-gray-500 mb-1.5">
                 {t("vaultPanel.route")}
               </p>
-              <p className="text-lg font-bold text-paper">
+              <p className="text-base sm:text-lg font-bold text-paper break-words">
                 {PROTOCOL_LABEL[bestVault.protocol] ?? bestVault.protocol}
               </p>
             </div>
@@ -223,41 +104,21 @@ export function VaultPanel() {
       {/* Position load error — deposit/withdraw stay usable, only the
           position summary is affected. */}
       {connected && positionsError && (
-        <div className="mx-7 my-5 rounded-xl border border-amber-800/70 bg-amber-950/20 px-4 py-3.5 flex items-center justify-between gap-3">
+        <div className="mx-4 sm:mx-7 my-5 rounded-xl border border-amber-800/70 bg-amber-950/20 px-4 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <p className="text-sm text-amber-400">
             {t("vaultPanel.positionsError")}
           </p>
           <button
             onClick={() => void refetchPositions()}
-            className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
+            className="shrink-0 min-h-[44px] min-w-[44px] rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
           >
             {t("common.retry")}
           </button>
         </div>
       )}
 
-      {/* Tab switcher */}
-      {connected && (
-        <div className="flex border-b border-gray-800">
-          {(["deposit", "withdraw"] as Tab[]).map((tabId) => (
-            <button
-              key={tabId}
-              data-testid={`vault-tab-${tabId}`}
-              onClick={() => handleTabChange(tabId)}
-              className={`flex-1 py-3 text-sm font-semibold transition-colors duration-150 ${
-                tab === tabId
-                  ? "text-paper border-b-2 border-settled"
-                  : "text-gray-600 hover:text-gray-400"
-              }`}
-            >
-              {t(`vaultPanel.${tabId}`)}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Action area */}
-      <div className="px-7 py-6">
+      <div className="px-4 py-5 sm:px-7 sm:py-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
         {!connected ? (
           <div className="space-y-4">
             {showRiskDisclosure && (
@@ -269,59 +130,8 @@ export function VaultPanel() {
             <p className="text-sm text-gray-400 leading-relaxed">
               {t("vaultPanel.connectUSDC")}
             </p>
-            {connectStatus === "no-extension" ? (
-              <a
-                href={getWalletMeta(attemptedWalletId).installUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center w-full rounded-xl border border-amber-800/70 bg-amber-950/20 hover:border-amber-700 text-amber-400 hover:text-amber-300 text-sm font-medium py-3 transition-colors duration-150"
-              >
-                {t("common.installWallet", {
-                  name: getWalletMeta(attemptedWalletId).name,
-                })}
-              </a>
-            ) : (
-              <button
-                onClick={() => void handleConnect()}
-                disabled={connectStatus === "connecting"}
-                className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
-              >
-                {connectStatus === "connecting"
-                  ? t("common.connecting")
-                  : t("common.connectWallet")}
-              </button>
-            )}
           </div>
-        ) : tab === "deposit" ? (
-          <DepositTab
-            amount={amount}
-            onAmountChange={setAmount}
-            onAmountKeyDown={onAmountKeyDown}
-            bestVault={bestVault}
-            position={position}
-            hasPosition={!!hasPosition}
-            isDepositing={isDepositing}
-            onSubmit={handleDeposit}
-            availableBalance={availableBalance}
-          />
-        ) : (
-          <WithdrawTab
-            amount={amount}
-            onAmountChange={setAmount}
-            onAmountKeyDown={onAmountKeyDown}
-            bestVault={bestVault}
-            position={position}
-            hasPosition={!!hasPosition}
-            isWithdrawing={isWithdrawing}
-            onSubmit={handleWithdraw}
-          />
-        )}
-        {depositRiskDisclosure.show && (
-          <RiskDisclosureModal
-            onAccept={() => void depositRiskDisclosure.accept()}
-            onCancel={depositRiskDisclosure.cancel}
-          />
-        )}
+        ) : null}
       </div>
     </div>
   );
