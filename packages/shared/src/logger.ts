@@ -61,6 +61,9 @@ function redactCause(value: unknown, depth = 0): unknown {
 }
 
 function errorDetails(error: Error, depth = 0): Record<string, unknown> {
+  // The shared package targets ES2020, where `Error.cause` is not in the lib
+  // typings even though newer runtimes provide it.
+  const cause = (error as Error & { cause?: unknown }).cause;
   return {
     name: error.name,
     message: sanitizeTxError(error, "Unexpected error"),
@@ -69,9 +72,7 @@ function errorDetails(error: Error, depth = 0): Record<string, unknown> {
           stack: sanitizeTxError(new Error(error.stack), "Error stack omitted"),
         }
       : {}),
-    ...(error.cause !== undefined
-      ? { cause: redactCause(error.cause, depth + 1) }
-      : {}),
+    ...(cause !== undefined ? { cause: redactCause(cause, depth + 1) } : {}),
   };
 }
 

@@ -81,7 +81,8 @@ describe("structured logger", () => {
       "submit failed at https://rpc.example/?token=secret",
       { cause }
     );
-    error.stack = "Error: submit failed\n    at https://rpc.example/?token=secret";
+    error.stack =
+      "Error: submit failed\n    at https://rpc.example/?token=secret";
 
     logError("submit.failed", undefined, error);
 
