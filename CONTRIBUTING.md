@@ -20,6 +20,7 @@ This document is the single source of truth for contributing. Please read it in 
 - [Commit Convention](#commit-convention)
 - [Code Standards](#code-standards)
 - [Pull Request Process](#pull-request-process)
+- [GitHub Actions Security](#github-actions-security)
 - [Running Checks Locally](#running-checks-locally)
 - [Getting Help](#getting-help)
 
@@ -384,6 +385,27 @@ All GitHub Actions workflows under `.github/workflows/` define explicit concurre
 - **Job timeouts** (`timeout-minutes`) are set explicitly on every job, sized above observed runtimes so hung installs, builds, or tests fail promptly instead of waiting for the default 6-hour limit. When adding a new job or workflow, always include both a `concurrency` block and an explicit `timeout-minutes` value.
 
 ---
+
+## GitHub Actions Security
+
+Every action reference in `.github/workflows/` must use a full 40-character commit SHA, followed by a comment containing the upstream release tag or ref. Version tags alone are mutable and are not accepted.
+
+### Updating an action pin
+
+1. Identify the intended release from the action's official Releases page.
+2. Resolve the release tag to its commit SHA. If the tag points to an annotated tag object, dereference it to the underlying commit.
+3. Replace the `uses:` reference with the full commit SHA and retain the human-readable release comment, for example:
+
+   ```yaml
+   - uses: actions/checkout@<40-character-commit-sha> # v7.0.1
+   ```
+
+4. Review the action's release notes and confirm any changed inputs or permissions. Some actions use the ref name as an implicit input; when pinning those, pass the selected toolchain or tool explicitly (for example, `toolchain: stable` or `tool: cargo-llvm-cov`).
+5. Run the workflow lint checks locally where possible and open a pull request with the pin and version comment changed together.
+
+Dependabot is configured for the `github-actions` ecosystem in `.github/dependabot.yml` and checks for updates weekly. Keep that update enabled: Dependabot should update both the SHA and its version comment in the same change. Review its proposed release notes and permission changes before merging; do not replace a SHA with a floating tag to resolve a dependency alert.
+
+The `GitHub Actions Security` workflow runs `actionlint` and `zizmor` on pull requests and pushes to `main`. Fix new findings rather than suppressing them; any narrowly scoped suppression must include a clear reason next to the affected workflow configuration.
 
 ## Running Checks Locally
 

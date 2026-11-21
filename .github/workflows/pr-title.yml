@@ -2,6 +2,8 @@ name: PR Title
 
 # Separate from ci.yml so a title or body edit re-runs only this check. `types:`
 # is workflow-wide, and ci.yml's own change filters would re-run the heavy jobs.
+permissions: {}
+
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
@@ -13,11 +15,13 @@ concurrency:
 
 jobs:
   pr-lint:
+    permissions:
+      pull-requests: read
     name: PR Title
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: amannn/action-semantic-pull-request@v6
+      - uses: amannn/action-semantic-pull-request@fc7da0cece3e8512e50240b0619a03bdd946db1 # v6.1.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
