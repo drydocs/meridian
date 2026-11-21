@@ -14,7 +14,6 @@ import { vaultsRoute } from "./routes/vaults";
 import { positionsRoute } from "./routes/positions";
 import { txRoute } from "./routes/tx";
 import { keepersRoute } from "./routes/keepers";
-import { keepersPlanRoute } from "./routes/keepers-plan";
 import { adminRoute } from "./routes/admin";
 
 // Rate limits: one shared 100 req/min limiter across all routes, matching the
@@ -47,7 +46,6 @@ app.register(vaultsRoute, { prefix: "/api/v1/vaults" });
 app.register(positionsRoute, { prefix: "/api/v1/positions" });
 app.register(txRoute, { prefix: "/api/v1/tx" });
 app.register(keepersRoute, { prefix: "/api/v1/keepers" });
-app.register(keepersPlanRoute, { prefix: "/api/v1/keepers" });
 app.register(adminRoute, { prefix: "/api/v1/admin" });
 
 app.get("/health", async () => ({ status: "ok" }));

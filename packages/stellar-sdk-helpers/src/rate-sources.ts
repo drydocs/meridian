@@ -282,77 +282,104 @@ export function createDefindexRateSource(
   return async (query: RateQuery) => {
     if (query.protocol !== "defindex") return null;
     const key = snapshotKey(query.poolId, options.network.network);
-    const priceStroops = await getDefindexAssetAmountPerShares(
-      options.network,
-      query.poolId,
-      REFERENCE_SHARES
-    );
-    const timestampMs = now();
-    const current: RateSnapshot = { timestampMs, priceStroops };
-
     const prior = await options.store.get(key);
+    const current = await readDefindexSnapshot(options.network, query.poolId, now);
     await options.store.set(key, current);
-
     if (!prior) return null;
-    const elapsedMs = timestampMs - prior.timestampMs;
+    const elapsedMs = current.timestampMs - prior.timestampMs;
     if (elapsedMs < MIN_SAMPLE_INTERVAL_MS) return null;
     if (prior.priceStroops <= 0n) return null;
-
     const growth =
       Number(current.priceStroops - prior.priceStroops) /
       Number(prior.priceStroops);
-    const periodsPerYear = SECONDS_PER_YEAR / (elapsedMs / 1_000);
-    const apy = Math.pow(1 + growth, periodsPerYear) - 1;
-    if (!Number.isFinite(apy)) return null;
-    if (apy > MAX_PLAUSIBLE_APY || apy < -MAX_PLAUSIBLE_APY) return null;
-    return toFiniteBps(apy);
+    const annualized =
+      Math.pow(1 + growth, SECONDS_PER_YEAR / (elapsedMs / 1000)) - 1;
+    if (!Number.isFinite(annualized) || annualized > MAX_PLAUSIBLE_APY) {
+      return null;
+    }
+    return toFiniteBps(annualized);
   };
+}
+
+async function readDefindexSnapshot(
+  network: StellarNetwork,
+  poolId: string,
+  now: () => number
+): Promise<RateSnapshot> {
+  const server = getRpcServer(network);
+  const amounts = await getDefindexAssetAmountPerShares(
+    server,
+    poolId,
+    network.passphrase,
+    REFERENCE_SHARES
+  );
+  return { timestampMs: now(), priceStroops: BigInt(amounts) };
 }
 
 // ---------------------------------------------------------------------------
 // Default wiring
 // ---------------------------------------------------------------------------
 
+// Vercel's Upstash integration provisions these names; the bare
+// UPSTASH_REDIS_REST_* names are what this repo's own docs ask operators to
+// set by hand. Accept either so a Vercel-integrated deployment doesn't fall
+// back to the per-process in-memory store (which never persists anything
+// across serverless invocations).
+const UPSTASH_URL_ENV = [
+  "UPSTASH_REDIS_REST_URL",
+  "UPSTASH_REDIS_REST_KV_REST_API_URL",
+] as const;
+const UPSTASH_TOKEN_ENV = [
+  "UPSTASH_REDIS_REST_TOKEN",
+  "UPSTASH_REDIS_REST_KV_REST_API_TOKEN",
+] as const;
+
+function firstEnv(names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value) return value;
+  }
+  return undefined;
+}
+
 export interface DefaultRateSourceOptions {
   network: StellarNetwork;
+  assetId?: string;
   logger?: KeeperLogger;
-  // Injected in tests; in production read from UPSTASH_REDIS_REST_URL /
-  // UPSTASH_REDIS_REST_TOKEN (the same credentials api/_lib/middleware.ts
-  // requires) via createDefaultRateSource.
-  upstash?: { restUrl: string; restToken: string };
-  fetchFn?: typeof fetch;
+  // Explicit store override (tests, alternative backends). When omitted the
+  // store is chosen from the environment as described below.
+  store?: RateSnapshotStore;
 }
 
 /**
- * Picks the snapshot store and returns a composed RateSourceFn that routes
- * each query to the right protocol-specific source. Uses Upstash when its
- * credentials are configured; otherwise falls back to the in-memory store
- * and logs a warning, since DeFindex rates will then always read null on
- * serverless invocations (see createInMemoryRateSnapshotStore).
+ * Production wiring for the migration keeper's rate source. Blend is always
+ * live. DeFindex needs a persistent snapshot store to produce anything: when
+ * no Upstash credentials are configured (in either the bare or the
+ * Vercel-integrated naming), it falls back to an in-memory store and logs a
+ * warning that DeFindex rates will stay unknown across invocations.
  */
 export function createDefaultRateSource(
   options: DefaultRateSourceOptions
 ): RateSourceFn {
   const logger = options.logger ?? consoleLogger;
-  const upstashUrl = options.upstash?.restUrl ?? process.env.UPSTASH_REDIS_REST_URL;
-  const upstashToken =
-    options.upstash?.restToken ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+  const blend = createBlendRateSource({
+    network: options.network,
+    assetId: options.assetId,
+  });
 
-  let store: RateSnapshotStore;
-  if (upstashUrl && upstashToken) {
-    store = createUpstashRateSnapshotStore({
-      restUrl: upstashUrl,
-      restToken: upstashToken,
-      fetchFn: options.fetchFn,
-    });
-  } else {
-    logger.warn(
-      "UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN not set: DeFindex rate snapshots will not persist across serverless invocations"
-    );
-    store = createInMemoryRateSnapshotStore();
+  let store = options.store;
+  if (!store) {
+    const restUrl = firstEnv(UPSTASH_URL_ENV);
+    const restToken = firstEnv(UPSTASH_TOKEN_ENV);
+    if (restUrl && restToken) {
+      store = createUpstashRateSnapshotStore({ restUrl, restToken });
+    } else {
+      logger.warn(
+        "Upstash Redis credentials not configured; DeFindex rate snapshots are per-process only and will not persist across invocations"
+      );
+      store = createInMemoryRateSnapshotStore();
+    }
   }
-
-  const blend = createBlendRateSource({ network: options.network });
   const defindex = createDefindexRateSource({
     network: options.network,
     store,
@@ -364,7 +391,3 @@ export function createDefaultRateSource(
     return null;
   };
 }
-
-// getRpcServer is re-exported here so callers wiring the keeper's dry-run
-// planning path can reuse the same RPC handle without a second import.
-export { getRpcServer };
