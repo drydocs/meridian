@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { APP_ADDRESSES, APP_NETWORK } from "@meridian/shared";
 import { useVaultState } from "../hooks/useVaultState";
@@ -58,6 +59,7 @@ function AddressList({ rows }: { rows: AddressRow[] }) {
 export function StatusPage() {
   const { t } = useTranslation();
   const { data: vaultState } = useVaultState();
+  const [resetKey, setResetKey] = useState(0);
 
   const addressRows: AddressRow[] = [
     {
@@ -83,66 +85,71 @@ export function StatusPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-night text-paper">
-      <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-lg font-extrabold text-paper">
-              {t("status.title")}
-            </h1>
-            <span className="rounded-full border border-gray-700 px-2.5 py-0.5 text-xs font-medium text-gray-400 uppercase">
-              {APP_NETWORK.network}
-            </span>
+    <ErrorBoundary
+      showHome
+      onReset={() => setResetKey((k) => k + 1)}
+    >
+      <div key={resetKey} className="min-h-screen bg-night text-paper">
+        <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-lg font-extrabold text-paper">
+                {t("status.title")}
+              </h1>
+              <span className="rounded-full border border-gray-700 px-2.5 py-0.5 text-xs font-medium text-gray-400 uppercase">
+                {APP_NETWORK.network}
+              </span>
+            </div>
+            <p className="text-sm text-gray-500">{t("status.subtitle")}</p>
           </div>
-          <p className="text-sm text-gray-500">{t("status.subtitle")}</p>
-        </div>
 
-        <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40 px-6">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider pt-6 pb-1">
-            {t("status.addresses.title")}
-          </h2>
-          <AddressList rows={addressRows} />
-        </div>
-
-        <ErrorBoundary>
-          <VaultStatePanel />
-        </ErrorBoundary>
-
-        <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40 px-6 py-6">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
-            {t("status.parameters.title")}
-          </h2>
-          <div className="flex items-center justify-between py-1">
-            <span className="text-sm text-gray-400">
-              {t("status.parameters.migrationCooldown")}
-            </span>
-            <span className="text-sm text-paper tabular-nums">
-              {t("status.parameters.migrationCooldownValue", {
-                ledgers: MIGRATION_COOLDOWN_LEDGERS,
-              })}
-            </span>
+          <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40 px-6">
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider pt-6 pb-1">
+              {t("status.addresses.title")}
+            </h2>
+            <AddressList rows={addressRows} />
           </div>
-          <p className="text-xs text-gray-600 mt-4">
-            {t("status.parameters.note")}
-          </p>
-        </div>
 
-        <ErrorBoundary>
-          <AdminActionHistory
-            vaultId="meridian-usdc"
-            network={APP_NETWORK.network}
-          />
-        </ErrorBoundary>
+          <ErrorBoundary>
+            <VaultStatePanel />
+          </ErrorBoundary>
 
-        <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40 px-6 py-6">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">
-            {t("status.audit.title")}
-          </h2>
-          <p className="text-sm text-gray-500">
-            {t("status.audit.notYetAvailable")}
-          </p>
+          <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40 px-6 py-6">
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
+              {t("status.parameters.title")}
+            </h2>
+            <div className="flex items-center justify-between py-1">
+              <span className="text-sm text-gray-400">
+                {t("status.parameters.migrationCooldown")}
+              </span>
+              <span className="text-sm text-paper tabular-nums">
+                {t("status.parameters.migrationCooldownValue", {
+                  ledgers: MIGRATION_COOLDOWN_LEDGERS,
+                })}
+              </span>
+            </div>
+            <p className="text-xs text-gray-600 mt-4">
+              {t("status.parameters.note")}
+            </p>
+          </div>
+
+          <ErrorBoundary>
+            <AdminActionHistory
+              vaultId="meridian-usdc"
+              network={APP_NETWORK.network}
+            />
+          </ErrorBoundary>
+
+          <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40 px-6 py-6">
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">
+              {t("status.audit.title")}
+            </h2>
+            <p className="text-sm text-gray-500">
+              {t("status.audit.notYetAvailable")}
+            </p>
+          </div>
         </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 }
