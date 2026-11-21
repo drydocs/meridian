@@ -26,6 +26,10 @@ const INSUFFICIENT_MESSAGES: Record<InsufficientDataReason, string> = {
   "zero-variance":
     "Every per-step return is identical, so there is no dispersion to divide by.",
   "empty-drawdown": "The run has no snapshots to measure a drawdown from.",
+  "zero-downside-deviation":
+    "No per-step return fell below 0%, so there is no downside deviation to divide by.",
+  "zero-drawdown":
+    "The value never fell below an earlier peak, so there is no drawdown to divide by.",
 };
 
 const INVALID_MESSAGES: Record<InvalidInputReason, string> = {
@@ -102,8 +106,9 @@ function MetricCard({
 }
 
 /**
- * Shows the engine's max drawdown, annualized Sharpe ratio and value at risk
- * for one completed run. Read-only: it derives the series from the snapshots
+ * Shows the engine's max drawdown, annualized Sharpe and Sortino ratios,
+ * Calmar ratio, value at risk and conditional value at risk for one completed
+ * run. Read-only: it derives the series from the snapshots
  * it is given and never fetches or changes the run.
  */
 export function RiskMetricsPanel({
@@ -182,6 +187,33 @@ export function RiskMetricsPanel({
           convention={`Percent of value lost over one ${step} step, quoted as a positive loss. A negative value means even the worst ${tail} of steps was a gain.`}
           explanation={`Historical value at risk: in ${confidence} of steps the loss was no larger than this.`}
           formula="VaR = -r(k), the k-th smallest step return, k = ceil((1 - confidence) x n)"
+        />
+        <MetricCard
+          id="cvar"
+          label={`Conditional VaR (${confidence})`}
+          result={summary.conditionalValueAtRisk}
+          format={percent}
+          convention={`Percent of value lost over one ${step} step, quoted as a positive loss. Never smaller than the value at risk.`}
+          explanation={`Expected shortfall: the average loss across the worst ${tail} of steps, so rare large losses are not hidden behind the VaR cut-off.`}
+          formula="CVaR = -mean(r[i] for r[i] <= r(k)), the same k as VaR"
+        />
+        <MetricCard
+          id="sortino"
+          label="Sortino ratio (annualized)"
+          result={summary.annualizedSortino}
+          format={(value) => value.toFixed(2)}
+          convention={`Unitless, annualized over ${periods} periods per year with a 0% minimum acceptable return.`}
+          explanation="Like Sharpe, but only steps below 0% count as risk, so upside swings are not penalized."
+          formula="Sortino = mean(r) / DD x sqrt(periods per year), DD = sqrt(sum(min(0, r[t])^2) / n)"
+        />
+        <MetricCard
+          id="calmar"
+          label="Calmar ratio"
+          result={summary.calmarRatio}
+          format={(value) => value.toFixed(2)}
+          convention={`Unitless. Mean step return annualized arithmetically over ${periods} periods per year, divided by the maximum drawdown.`}
+          explanation="Yearly return earned per unit of the deepest drawdown. Higher means more return for the deepest fall the run took."
+          formula="Calmar = mean(r) x periods per year / MDD"
         />
       </div>
     </section>
