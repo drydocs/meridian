@@ -5,6 +5,7 @@ import { WalletConnect } from "./components/onboarding/WalletConnect";
 import { Toasts } from "./components/ui/Toasts";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useWalletStore } from "./store/wallet";
+import { useDocumentLanguage } from "./hooks/useDocumentLanguage";
 import { useTranslation } from "react-i18next";
 import { AdminLogin } from "./pages/AdminLogin";
 import { StatusPage } from "./pages/StatusPage";
@@ -165,7 +166,7 @@ function Dashboard({ online }: { online: boolean }) {
 
 export default function App() {
   const online = useConnectivity();
-
+  useDocumentLanguage();
   useEffect(() => {
     const revalidate = () => void useWalletStore.getState().revalidate();
     revalidate();

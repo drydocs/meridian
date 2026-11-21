@@ -32,9 +32,111 @@ makes it a clean no-op (`{status: "disabled"}`, not an error) until this is
 set. Discord is the intended destination, not yet wired up. Nothing is
 currently watching the live mainnet vault for the admin actions below.
 
+## Alert Payload
+
+Every alert is `POST`ed as `Content-Type: application/json` with two string
+fields. Slack renders `text`; Discord renders `content`. The keeper puts the
+same complete message in both fields so either destination works unchanged.
+
+| Field     | Type   | Meaning                                      | Safe to display |
+| --------- | ------ | -------------------------------------------- | --------------- |
+| `text`    | string | Complete alert message for Slack.            | Yes             |
+| `content` | string | The same complete alert message for Discord. | Yes             |
+
+There is no separate event type, vault, or ledger field in the JSON body. The
+message text is the identifying record: it starts with `[meridian]`, followed
+by the vault id, the action, and the ledger sequence. Addresses are shortened
+to the first eight and last four characters. The payload contains only public
+on-chain identifiers and ledger numbers, so it is safe to display in a chat
+channel.
+
+| Alert type  | Identifying message fragment             | Event data in the message                                           |
+| ----------- | ---------------------------------------- | ------------------------------------------------------------------- |
+| `paused`    | `deposits PAUSED` or `deposits unpaused` | Ledger sequence.                                                    |
+| `transfer`  | `admin transfer nominated to`            | Shortened new admin address and ledger sequence.                    |
+| `adapter`   | `adapter switched to`                    | Shortened new adapter address and ledger sequence.                  |
+| `migrate`   | `migrated adapter from`                  | Shortened old and new adapter addresses and ledger sequence.        |
+| `mig_begin` | `migration cooldown started for`         | Shortened target adapter, ledger, and `earliest completion ledger`. |
+
+### Payload Examples
+
+#### `paused`
+
+```json
+{
+  "text": "[meridian] meridian-usdc: deposits PAUSED at ledger 300",
+  "content": "[meridian] meridian-usdc: deposits PAUSED at ledger 300"
+}
+```
+
+Unpausing uses the same type with `deposits unpaused` in place of `deposits
+PAUSED`.
+
+#### `transfer`
+
+```json
+{
+  "text": "[meridian] meridian-usdc: admin transfer nominated to GC7MCAT5...OUIN at ledger 300",
+  "content": "[meridian] meridian-usdc: admin transfer nominated to GC7MCAT5...OUIN at ledger 300"
+}
+```
+
+#### `adapter`
+
+```json
+{
+  "text": "[meridian] meridian-usdc: adapter switched to CABAEAQC...FNSZ at ledger 300",
+  "content": "[meridian] meridian-usdc: adapter switched to CABAEAQC...FNSZ at ledger 300"
+}
+```
+
+#### `migrate`
+
+```json
+{
+  "text": "[meridian] meridian-usdc: migrated adapter from CAAQCAIB...C526 to CABAEAQC...FNSZ at ledger 300",
+  "content": "[meridian] meridian-usdc: migrated adapter from CAAQCAIB...C526 to CABAEAQC...FNSZ at ledger 300"
+}
+```
+
+#### `mig_begin`
+
+```json
+{
+  "text": "[meridian] meridian-usdc: migration cooldown started for CABAEAQC...FNSZ at ledger 300 (earliest completion ledger 17380)",
+  "content": "[meridian] meridian-usdc: migration cooldown started for CABAEAQC...FNSZ at ledger 300 (earliest completion ledger 17380)"
+}
+```
+
+## Acknowledging Delivery
+
+A custom receiver should enqueue the alert and return a 2xx response (200 is
+conventional) after accepting it. The keeper treats every 2xx response as
+success and does not inspect the response body. Do not wait for downstream
+processing before responding; a slow receiver can exceed the webhook timeout
+(`MERIDIAN_KEEPER_RPC_TIMEOUT_MS`, default 10 seconds) and cause a retry.
+
+A non-2xx response, timeout, or network error is retried with the configured
+backoff, and the cursor is not advanced past the failed event. These retries,
+and a lost success response, can redeliver an identical payload. Receiver
+handlers should therefore be idempotent, for example by deduplicating on the
+exact message text or on the vault, action, and ledger it contains.
+
+## Planned Signed Delivery
+
+Alerts are currently unsigned. [#1342](https://github.com/drydocs/meridian/issues/1342)
+plans to add `X-Meridian-Signature`, `X-Meridian-Timestamp`, and
+`X-Meridian-Delivery` headers, with an HMAC-SHA256 signature over the
+timestamp, delivery ID, and raw request body. Receivers should not require
+these headers until that work lands, or they will reject every current alert.
+Once deployed, verify the signature against the raw body before acting on the
+payload, reject timestamps outside the documented replay window, and track the
+delivery ID so a replayed request is not acknowledged twice.
+
 ## Which Events Alert
 
-Only `paused`, `transfer`, `adapter`, and `migrate` trigger an alert.
+Only `paused`, `transfer`, `adapter`, `migrate`, and `mig_begin` trigger an
+alert.
 `accept_admin` is deliberately excluded: it is the second half of an
 already-alerted `transfer_admin` nomination, not a new risk on its own.
 
