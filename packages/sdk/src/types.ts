@@ -162,7 +162,7 @@ export type VaultClientErrorCode =
   | "confirmation_timeout";
 
 /** Typed error returned by the high-level vault client. */
-export interface VaultClientError {
+export interface VaultClientError extends Error {
   /** Machine-readable error code. */
   code: VaultClientErrorCode;
   /** Human-readable message. */
@@ -180,3 +180,20 @@ export interface VaultClientError {
 export type VaultClientResult =
   | { ok: true; value: TransactionResult }
   | { ok: false; error: VaultClientError };
+
+/**
+ * High-level vault client facade. Wraps a VaultBase subclass and exposes
+ * simulate, signAndSubmit, and waitForConfirmation helpers. The signer is
+ * injected by the caller; the SDK never stores a secret key.
+ */
+export interface VaultClient {
+  /** Simulate a transaction XDR and return the assembled result. */
+  simulate(xdr: string): Promise<SimulationResult>;
+  /** Sign and submit a transaction XDR, returning the submitted hash. */
+  signAndSubmit(xdr: string, signer: TransactionSigner): Promise<{ hash: string }>;
+  /** Poll until the transaction is confirmed or the timeout elapses. */
+  waitForConfirmation(
+    hash: string,
+    options?: WaitForConfirmationOptions,
+  ): Promise<TransactionResult>;
+}
