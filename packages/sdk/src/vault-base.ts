@@ -479,6 +479,43 @@ export abstract class VaultBase {
   }
 
   /**
+   * Withdraw exact net USDC `assets` amount from the vault, burning at most
+   * `maxSharesIn` mUSDC shares from `owner`.
+   *
+   * Calls the contract's `withdraw_assets(owner, assets, max_shares_in)` entry
+   * point, where the contract computes the authoritative required shares
+   * accounting for performance fees, adapter losses, and rounding.
+   *
+   * @param assets      USDC amount in stroops to receive
+   * @param receiver    Stellar G-address to receive USDC (must equal owner)
+   * @param owner       Stellar G-address whose mUSDC shares are burned
+   * @param maxSharesIn Maximum acceptable mUSDC shares to burn in stroops
+   *                    (defaults to 2^127 - 1, which disables share cap enforcement)
+   */
+  async withdrawAssets(
+    assets: bigint,
+    receiver: string,
+    owner: string,
+    maxSharesIn: bigint = (1n << 127n) - 1n
+  ): Promise<Transaction> {
+    if (assets <= 0n) throw new Error("assets must be positive");
+    if (maxSharesIn < 0n) throw new Error("maxSharesIn must be non-negative");
+    if (receiver !== owner) {
+      throw new Error(
+        "receiver must equal owner: MeridianVault pays USDC to the account that authorises the withdrawal"
+      );
+    }
+    return this.prepare(
+      this.contract().call(
+        "withdraw_assets",
+        addrScVal(owner),
+        i128(assets),
+        i128(maxSharesIn)
+      )
+    );
+  }
+
+  /**
    * Pause or resume the vault. Only callable by the vault admin.
    *
    * While paused the contract rejects new deposits. Withdrawals stay open, so
