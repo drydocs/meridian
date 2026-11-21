@@ -39,9 +39,9 @@ const TOTAL_SUP: Symbol = symbol_short!("TOTAL_SUP");
 // Instance storage uses the same pair. The values are chosen so a keeper
 // running well inside the threshold window can always refresh in time.
 const INSTANCE_THRESHOLD: u32 = 17_280; // ~1 day at 5s/ledger
-const INSTANCE_BUMP: u32 = 518_400; // ~30 days
-const PERSISTENT_THRESHOLD: u32 = 17_280; // ~1 day
-const PERSISTENT_BUMP: u32 = 518_400; // ~30 days
+const INSTANCE_BUMP: u32 = 2_073_600; // ~120 days, matches the vault
+const PERSISTENT_THRESHOLD: u32 = 1_957_000; // ~113 days, matches the vault
+const PERSISTENT_BUMP: u32 = 2_073_600; // ~120 days, matches the vault
 
 #[contracttype]
 #[derive(Clone)]
