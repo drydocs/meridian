@@ -81,6 +81,12 @@ After a withdrawal, the caller's `Principal` retires strictly the proportional w
 
 The single aggregate `Principal` deliberately nets deposits and losses. A deposit made after a loss is therefore fee-shielded until the account as a whole recovers above total deposited. Per-lot cost basis, deposit fees, duration-gated fees, and contract-level fee waivers are intentionally outside this deployment. Any promotional waiver must be an off-chain treasury rebate after the normal on-chain fee is charged.
 
+### `withdraw_assets(caller, assets, max_shares_in) -> Result<i128, ContractError>`
+
+Withdraws an exact net USDC `assets` amount by burning at most `max_shares_in` mUSDC shares, returning the USDC amount sent back to the caller. Authoritatively computes the required shares using the shared preview and pricing helpers while accounting for fee-bearing gain, proportional principal retirement, and dust fee return.
+
+Fails with `ZeroAmount` if `assets <= 0` or `max_shares_in < 0`, `NoSharesOutstanding` if the vault has no shares outstanding at all, `InsufficientShares` if the caller's share balance is zero or less than the required burn, or `MaxSharesExceeded` if the required shares exceed `max_shares_in`.
+
 ### `on_transfer(from, to, amount, sender_balance_before, receiver_balance_before) -> Result<(), ContractError>`
 
 Called by the mUSDC token contract itself, immediately after it moves a transfer's balances, to split `Principal`/`Entry` pro-rata between sender and receiver ([#578](https://github.com/drydocs/meridian/issues/578)). Requires mUSDC's own `require_auth()`. See [Transferable shares](#transferable-shares) for the full split math and why that check can only be satisfied by a genuine transfer on the real mUSDC contract. Not something an off-chain caller or the frontend ever invokes directly.
@@ -160,6 +166,28 @@ Returns the currently pending nominee, or `None` if no handover is in progress.
 ### `get_admin() -> Address`
 
 Returns the current admin address.
+
+## Events
+
+Every vault event carries a schema version in its final topic segment. The current version is `1` (`u32`). Event names remain stable across versions; consumers must inspect the final topic segment and reject versions they do not understand instead of decoding them using this schema.
+
+All topic segments are `Symbol` values unless shown as `u32(1)`. Soroban encodes tuple payloads as an `ScVal` vector, so the payload fields below are positional.
+
+| Event       | Topic                        | Payload                                                                               |
+| ----------- | ---------------------------- | ------------------------------------------------------------------------------------- |
+| `deposit`   | `(deposit, u32(1))`          | `(caller: Address, amount: i128, adapter_shares_credited: i128, shares_minted: i128)` |
+| `perf_fee`  | `(perf_fee, u32(1))`         | `(caller: Address, treasury: Address, fee: i128, treasury_shares: i128)`              |
+| `withdraw`  | `(withdraw, u32(1))`         | `(caller: Address, shares_burned: i128, usdc_out: i128)`                              |
+| `paused`    | `(admin, paused, u32(1))`    | `paused: bool`                                                                        |
+| `transfer`  | `(admin, transfer, u32(1))`  | `new_admin: Address`                                                                  |
+| `accept`    | `(admin, accept, u32(1))`    | `new_admin: Address`                                                                  |
+| `adapter`   | `(admin, adapter, u32(1))`   | `new_adapter: Address`                                                                |
+| `mig_begin` | `(admin, mig_begin, u32(1))` | `(new_adapter: Address, earliest_ledger: u32)`                                        |
+| `migrate`   | `(admin, migrate, u32(1))`   | `(old_adapter: Address, new_adapter: Address)`                                        |
+
+### Event schema compatibility
+
+Schema v1 is a breaking change from the unversioned topics. The event names are unchanged, but named events now have a trailing `u32(1)` topic and admin events change from `(admin, action)` to `(admin, action, u32(1))`. Indexers using exact-length topic filters, including Soroban RPC `getEvents`, must add the version segment. Decoders must ignore or explicitly reject events with an unsupported version rather than interpreting their fields as v1. Existing admin history can be read alongside v1 by filtering both topic shapes and decoding the legacy two-segment `(admin, action)` events with the original schema; `getRpcAdminHistory` does this.
 
 ## Transferable shares
 
@@ -264,11 +292,11 @@ USDC on Stellar uses 7 decimal places. 1 USDC = `10_000_000` stroops. All contra
 
 ## Authorization and safety rails
 
-`caller.require_auth()` is called at the start of both `deposit` and `withdraw`. Admin functions (`transfer_admin`, `set_paused`, `set_adapter`) call an internal `require_admin` helper that reads the stored admin address and calls `require_auth()` on it. `accept_admin` is one exception: it calls `require_auth()` on the pending nominee instead, since its whole purpose is to require the _new_ admin's signature, not the current one's. `on_transfer` ([#578](https://github.com/drydocs/meridian/issues/578)) is the other: it calls `require_auth()` on the stored mUSDC address, which only succeeds when mUSDC is the direct caller of that invocation. See [Transferable shares](#transferable-shares) for the full mechanism, and [BlendAdapter's auth note](#blendadapter) above for a subtler auth requirement specific to that adapter.
+`caller.require_auth()` is called at the start of `deposit`, `withdraw`, and `withdraw_assets`. Admin functions (`transfer_admin`, `set_paused`, `set_adapter`) call an internal `require_admin` helper that reads the stored admin address and calls `require_auth()` on it. `accept_admin` is one exception: it calls `require_auth()` on the pending nominee instead, since its whole purpose is to require the _new_ admin's signature, not the current one's. `on_transfer` ([#578](https://github.com/drydocs/meridian/issues/578)) is the other: it calls `require_auth()` on the stored mUSDC address, which only succeeds when mUSDC is the direct caller of that invocation. See [Transferable shares](#transferable-shares) for the full mechanism, and [BlendAdapter's auth note](#blendadapter) above for a subtler auth requirement specific to that adapter.
 
 Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is deliberate, so a pause can never trap user funds.
 
-`deposit`, `withdraw`, `set_adapter`, `begin_migration`, `migrate_adapter` and `on_transfer` run under a reentrancy lock ([#1264](https://github.com/drydocs/meridian/issues/1264)). Each of them makes external calls (to the adapter, to USDC or mUSDC), or is reached from one, and so could be called back into while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or the migration state is not final. While the lock is held, a second guarded call returns `ReentrancyDetected` and changes nothing. The lock is released on both success and failure. This is defense in depth: the Soroban host already refuses to re-enter a contract that is on the call stack, and the lock keeps the vault safe if that ever changes. `deposit` also writes the caller's position records, and `TOTAL_SH` at the pre-deposit quote (the most the deposit can mint), before its external calls, then reconciles `TOTAL_SH` and `ADPT_SH` from the adapter's post-deposit reads before the mUSDC mint; `withdraw` and `migrate_adapter` cannot write ahead, because what they write depends on what those calls return.
+`deposit`, `withdraw`, `withdraw_assets`, `set_adapter`, `begin_migration`, `migrate_adapter` and `on_transfer` run under a reentrancy lock ([#1264](https://github.com/drydocs/meridian/issues/1264)). Each of them makes external calls (to the adapter, to USDC or mUSDC), or is reached from one, and so could be called back into while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or the migration state is not final. While the lock is held, a second guarded call returns `ReentrancyDetected` and changes nothing. The lock is released on both success and failure. This is defense in depth: the Soroban host already refuses to re-enter a contract that is on the call stack, and the lock keeps the vault safe if that ever changes. `deposit` also writes the caller's position records, and `TOTAL_SH` at the pre-deposit quote (the most the deposit can mint), before its external calls, then reconciles `TOTAL_SH` and `ADPT_SH` from the adapter's post-deposit reads before the mUSDC mint; `withdraw` and `migrate_adapter` cannot write ahead, because what they write depends on what those calls return.
 
 ## Error codes
 
@@ -298,11 +326,12 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `MigrationCooldownNotMet`        | 20   | `migrate_adapter` was called before `MIN_LEDGER_GAP` ledgers had elapsed since `begin_migration`.                                                                                                 |
 | `MigrationStabilityDrift`        | 21   | `migrate_adapter`'s target adapter's pre-deposit balance fell outside `max_slippage_bps` of the `begin_migration` snapshot, indicating the target was drained or manipulated during the cooldown. |
 | `MigrationSnapshotAssetsInvalid` | 22   | `begin_migration` was called against a target adapter reporting a negative `total_assets()`.                                                                                                      |
-| `ReentrancyDetected`             | 26   | `deposit`, `withdraw`, `set_adapter`, `begin_migration`, `migrate_adapter` or `on_transfer` was called while another guarded call was still running.                                              |
+| `ReentrancyDetected`             | 26   | `deposit`, `withdraw`, `withdraw_assets`, `set_adapter`, `begin_migration`, `migrate_adapter` or `on_transfer` was called while another guarded call was still running.                           |
 | `AdapterUsdcMismatch`            | 27   | `set_adapter` or `begin_migration` was given a target whose `get_usdc()` differs from the vault's USDC, is missing, or fails.                                                                     |
 | `AdapterVaultMismatch`           | 28   | `set_adapter` or `begin_migration` was given a target whose `get_vault()` is not this vault, is missing, or fails.                                                                                |
 | `AdapterResidualPosition`        | 29   | `set_adapter` was given a target that already holds a position (nonzero `total_shares()` or `total_assets()`).                                                                                    |
 | `DepositValueMismatch`           | 30   | `deposit`'s adapter reported a credit worth more than the USDC it was given or more than its `total_assets()` grew by, beyond the documented tolerance.                                           |
+| `MaxSharesExceeded`              | 31   | `withdraw_assets` burned share count exceeded the caller-specified maximum bound (`max_shares_in`).                                                                                               |
 
 ## Contract storage
 

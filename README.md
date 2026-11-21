@@ -83,7 +83,7 @@ User browser
 
 In production, API routes are Vercel serverless functions (`api/v1/...`). The Fastify server in `apps/api-local` is used for local development only.
 
-The API never holds private keys. It builds an unsigned Soroban transaction, returns the XDR, and the frontend forwards it to the user's connected wallet (Freighter, LOBSTR, or xBull) for signing and submission. See [`docs/signing-flow.md`](docs/signing-flow.md) for the full sequence diagram and endpoint reference.
+The API never holds private keys. It builds an unsigned Soroban transaction, returns the XDR, and the frontend forwards it to the user's connected wallet (Freighter, LOBSTR, or xBull) for signing and submission. See [`docs/signing-flow.md`](docs/signing-flow.md) for the full sequence diagram and endpoint reference, and [`apps/docs/operations/wallet-signing-troubleshooting.md`](apps/docs/operations/wallet-signing-troubleshooting.md) for wallet connection and signing troubleshooting.
 
 ---
 
