@@ -7,6 +7,7 @@ import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
 import { useUsdcBalance } from "../../hooks/useUsdcBalance";
+import type { ApiVault } from "../../lib/api";
 
 const refetchPositions = vi.fn();
 const deposit = vi.fn(async () => true);
@@ -15,7 +16,7 @@ const handleConnect = vi.fn();
 const acceptRiskDisclosure = vi.fn();
 const cancelRiskDisclosure = vi.fn();
 
-const VAULT = {
+const VAULT: ApiVault = {
   id: "meridian-usdc",
   protocol: "meridian",
   asset: "USDC",
