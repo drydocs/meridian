@@ -108,7 +108,7 @@ export const api = {
   submitTx: (body: { xdr: string }) =>
     apiFetch<{
       hash: string;
-      status?: "SUCCESS" | "OUTCOME_UNKNOWN";
+      status?: "SUCCESS" | "PENDING" | "OUTCOME_UNKNOWN";
       code?: "TRANSACTION_OUTCOME_UNKNOWN";
       ledger?: number;
     }>("/api/v1/tx/submit", {

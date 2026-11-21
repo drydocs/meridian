@@ -20,7 +20,11 @@ import {
 import { UpstreamDeadlineError } from "@meridian/shared";
 import { trackPositionHistoryUser } from "./position-tracking";
 import type { RouteResult } from "./types";
-import { deadlineResult, withUpstreamDeadline } from "./deadline";
+import {
+  deadlineResult,
+  UPSTREAM_TIMEOUT_MS,
+  withUpstreamDeadline,
+} from "./deadline";
 
 /**
  * Vault ContractError discriminants that the caller can correct (slippage,
@@ -167,17 +171,17 @@ export async function handleSubmitRequest(body: unknown): Promise<RouteResult> {
 
   try {
     // Do not race a signed submission against the request deadline. The RPC
-    // helper returns an accepted-but-unconfirmed hash as an explicit 202.
+    // helper waits for normal ledger confirmation and returns 202 only when
+    // the transaction was accepted but its final outcome could not be read.
     const result = await submitTx(parsed.data.xdr, APP_NETWORK, {
-      waitForConfirmation: false,
+      timeoutMs: UPSTREAM_TIMEOUT_MS,
     });
     if (result.status === "PENDING") {
       return {
         status: 202,
         body: {
           hash: result.hash,
-          status: "OUTCOME_UNKNOWN",
-          code: "TRANSACTION_OUTCOME_UNKNOWN",
+          status: "PENDING",
         },
       };
     }

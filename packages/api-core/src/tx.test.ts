@@ -389,16 +389,15 @@ describe("handleSubmitRequest", () => {
     vi.mocked(submitTx).mockResolvedValueOnce({
       hash: "HASH",
       status: "PENDING",
-    });
+    } as Awaited<ReturnType<typeof submitTx>>);
     const result = await handleSubmitRequest({ xdr: "SIGNED" });
     expect(result.status).toBe(202);
     expect(result.body).toEqual({
       hash: "HASH",
-      status: "OUTCOME_UNKNOWN",
-      code: "TRANSACTION_OUTCOME_UNKNOWN",
+      status: "PENDING",
     });
     expect(submitTx).toHaveBeenCalledWith("SIGNED", expect.anything(), {
-      waitForConfirmation: false,
+      timeoutMs: expect.any(Number),
     });
   });
 
@@ -418,8 +417,14 @@ describe("handleSubmitRequest", () => {
     await vi.advanceTimersByTimeAsync(8_001);
     expect(submitTx).toHaveBeenCalledOnce();
 
-    resolveSubmission({ hash: "HASH", status: "PENDING" });
-    await expect(response).resolves.toMatchObject({ status: 202 });
+    resolveSubmission({
+      hash: "HASH",
+      status: "PENDING",
+    } as Awaited<ReturnType<typeof submitTx>>);
+    await expect(response).resolves.toMatchObject({
+      status: 202,
+      body: { hash: "HASH", status: "PENDING" },
+    });
   });
 
   it("includes the hash when the RPC submission times out ambiguously", async () => {

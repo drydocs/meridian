@@ -19,6 +19,16 @@ import type { TFunction } from "i18next";
  */
 export const WALLET_DISCONNECTED_ERROR = "WALLET_DISCONNECTED";
 
+export class TransactionNotConfirmedError extends Error {
+  constructor(
+    readonly status: "PENDING" | "OUTCOME_UNKNOWN",
+    readonly hash: string
+  ) {
+    super(status);
+    this.name = "TransactionNotConfirmedError";
+  }
+}
+
 /**
  * Map from the exact server-sent error strings defined in
  * `packages/api-core/src/tx.ts` to i18n translation keys.
@@ -151,6 +161,17 @@ export function mapError(
   t: TFunction,
   fallbackKey?: string
 ): MappedError {
+  if (err instanceof TransactionNotConfirmedError) {
+    return {
+      message: t(
+        err.status === "PENDING"
+          ? "errors.transactionPending"
+          : "errors.transactionOutcomeUnknown",
+        { hash: err.hash }
+      ),
+    };
+  }
+
   if (!(err instanceof Error)) {
     return { message: fallbackKey ? t(fallbackKey) : t("errors.unknown") };
   }
