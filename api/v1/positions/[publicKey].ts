@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { handleGetPositions } from "@meridian/api-core";
+import { handleGetPositions, matchesPositionEtag } from "@meridian/api-core";
 import {
   applyCors,
   checkRateLimit,
@@ -22,9 +22,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       error: "Rate limiter unavailable; refusing to run",
     });
   }
-  const { publicKey } = req.query as { publicKey: string };
+  const { publicKey, refresh } = req.query as {
+    publicKey: string;
+    refresh?: string;
+  };
 
-  const result = await handleGetPositions(publicKey);
+  const result = await handleGetPositions(publicKey, {
+    refresh: refresh === "true" || refresh === "1",
+  });
   if (result.error) {
     console.error("[positions] error:", {
       requestId: getRequestId(req),
@@ -32,5 +37,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
   res.setHeader("Cache-Control", "no-store");
+  if (result.etag) res.setHeader("ETag", result.etag);
+  if (matchesPositionEtag(req.headers["if-none-match"], result.etag)) {
+    return res.status(304).end();
+  }
   return sendResponse(req, res, result.status, result.body);
 }

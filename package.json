@@ -12,6 +12,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "verify:contracts": "tsx scripts/verify-contract-addresses.ts",
+    "check:wasm-size": "tsx scripts/check-wasm-size.ts",
     "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts"
   },
   "dependencies": {

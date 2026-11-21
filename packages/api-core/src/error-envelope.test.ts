@@ -17,6 +17,11 @@ describe("request IDs", () => {
       /^[0-9a-f-]{36}$/
     );
   });
+
+  it("rejects non-string candidates", () => {
+    expect(isValidRequestId(undefined)).toBe(false);
+    expect(createRequestId(undefined)).toMatch(/^[0-9a-f-]{36}$/);
+  });
 });
 
 describe("error envelope", () => {
@@ -47,6 +52,75 @@ describe("error envelope", () => {
         message: "Redis unavailable",
         requestId: "req-2",
       },
+    });
+  });
+
+  it("maps HTTP statuses to stable default error codes", () => {
+    const cases = [
+      [400, "VALIDATION_ERROR"],
+      [401, "UNAUTHORIZED"],
+      [403, "FORBIDDEN"],
+      [405, "METHOD_NOT_ALLOWED"],
+      [429, "RATE_LIMITED"],
+      [503, "SERVICE_UNAVAILABLE"],
+      [500, "INTERNAL_ERROR"],
+      [418, "HTTP_ERROR"],
+    ] as const;
+
+    for (const [status, code] of cases) {
+      expect(toErrorEnvelope(status, null, `req-${status}`).error.code).toBe(
+        code
+      );
+    }
+  });
+
+  it("normalizes nested, top-level, and fallback messages and codes", () => {
+    expect(
+      toErrorEnvelope(
+        400,
+        {
+          error: { message: "Nested failure", code: "NESTED" },
+          message: "Outer",
+          code: "OUTER",
+        },
+        "req-nested"
+      ).error
+    ).toEqual({
+      code: "NESTED",
+      message: "Nested failure",
+      requestId: "req-nested",
+    });
+
+    expect(
+      toErrorEnvelope(
+        400,
+        {
+          error: { message: 7, code: 7 },
+          message: "Top-level failure",
+          code: "TOP_LEVEL",
+        },
+        "req-top"
+      ).error
+    ).toEqual({
+      code: "TOP_LEVEL",
+      message: "Top-level failure",
+      requestId: "req-top",
+    });
+
+    expect(
+      toErrorEnvelope(400, { error: "Legacy failure" }, "req-legacy").error
+        .message
+    ).toBe("Legacy failure");
+    expect(
+      toErrorEnvelope(
+        400,
+        { error: { message: "", code: "" }, message: "", code: "" },
+        "req-default"
+      ).error
+    ).toEqual({
+      code: "VALIDATION_ERROR",
+      message: "Request failed",
+      requestId: "req-default",
     });
   });
 

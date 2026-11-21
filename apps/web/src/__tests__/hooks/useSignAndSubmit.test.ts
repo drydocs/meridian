@@ -23,15 +23,9 @@ vi.mock("../../lib/api", () => ({
   },
 }));
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) =>
-      key === "walletConnect.walletDisconnected" ? "Wallet disconnected" : key,
-  }),
-}));
-
 import { api } from "../../lib/api";
 import { wallet } from "../../lib/wallet";
+import { WALLET_DISCONNECTED_ERROR } from "../../lib/errorMapper";
 
 describe("useSignAndSubmit (#965)", () => {
   beforeEach(() => {
@@ -75,8 +69,10 @@ describe("useSignAndSubmit (#965)", () => {
       useWalletStore.setState({ publicKey: null, connected: false });
       const { result } = renderHook(() => useSignAndSubmit());
 
+      // The guard throws a stable, locale-independent code (not the
+      // translated string) so mapError can detect it in every locale.
       await expect(result.current.signAndSubmit("XDR")).rejects.toThrow(
-        "Wallet disconnected"
+        WALLET_DISCONNECTED_ERROR
       );
       expect(wallet.sign).not.toHaveBeenCalled();
       expect(api.submitTx).not.toHaveBeenCalled();
@@ -87,7 +83,7 @@ describe("useSignAndSubmit (#965)", () => {
       const { result } = renderHook(() => useSignAndSubmit());
 
       await expect(result.current.signAndSubmit("XDR")).rejects.toThrow(
-        "Wallet disconnected"
+        WALLET_DISCONNECTED_ERROR
       );
       expect(useWalletStore.getState().connected).toBe(false);
       expect(wallet.sign).not.toHaveBeenCalled();
