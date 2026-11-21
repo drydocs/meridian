@@ -270,9 +270,6 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 
 ## Contract storage
 
-See the [Contract Storage and TTL Reference](./contract-storage) for the full
-key inventory, thresholds, and recovery guidance.
-
 | Key                  | Storage type | Value                                                                                                                                                                            |
 | -------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ADMIN`              | Instance     | Admin `Address`                                                                                                                                                                  |

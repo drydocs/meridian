@@ -41,10 +41,6 @@ export default defineConfig({
           { text: "Frontend", link: "/architecture/frontend" },
           { text: "API Layer", link: "/architecture/api" },
           { text: "Vault Contract", link: "/architecture/vault-contract" },
-          {
-            text: "Contract Storage and TTL",
-            link: "/architecture/contract-storage",
-          },
           { text: "Signing Flow", link: "/architecture/signing-flow" },
         ],
       },
