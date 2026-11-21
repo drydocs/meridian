@@ -19,13 +19,14 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>();
   return {
     ...actual,
-    getAdminActionHistory: vi.fn(async () => []),
+    getAdminActionHistory: vi.fn(async () => ({ actions: [], nextCursor: null })),
   };
 });
 
 import { STELLAR_NETWORKS } from "@meridian/shared";
 import {
   getAdminActionHistory,
+  InvalidAdminHistoryCursorError,
   KNOWN_POOLS,
 } from "@meridian/stellar-sdk-helpers";
 import { handleGetAdminHistory } from "./admin-history";
@@ -103,11 +104,28 @@ describe("handleGetAdminHistory upstream bounds", () => {
     await handleGetAdminHistory("meridian-usdc");
 
     expect(getAdminActionHistory).toHaveBeenCalledTimes(1);
-    const [, , options] = vi.mocked(getAdminActionHistory).mock.calls[0]!;
-    expect(options).toEqual({ limit: 50, maxPages: 5, scanTimeoutMs: 8_000 });
+    const [, , options] = mock.calls[0];
+    expect(options).toEqual({ limit: 50, maxPages: 5, scanTimeoutMs: 8_000, cursor: undefined });
   });
 
-  it("returns 500 when the bounded scan times out", async () => {
+  it("passes cursor through and returns nextCursor", async () => {
+  mock.mockResolvedValueOnce({ actions: [], nextCursor: "abc123" });
+
+  const result = await handleGetAdminHistory("meridian-usdc", { cursor: "prev" });
+
+  const [, , options] = mock.calls[0];
+  expect(options.cursor).toBe("prev");
+  expect(result.status).toBe(200);
+  expect((result.body as { nextCursor: string }).nextCursor).toBe("abc123");
+});
+
+it("returns 400 on invalid cursor", async () => {
+  mock.mockRejectedValueOnce(new InvalidAdminHistoryCursorError("bad cursor"));
+
+  const result = await handleGetAdminHistory("meridian-usdc", { cursor: "bad" });
+
+  expect(result.status).toBe(400);
+});it("returns 500 when the bounded scan times out", async () => {
     const timeout = new DOMException("signal timed out", "TimeoutError");
     vi.mocked(getAdminActionHistory).mockRejectedValueOnce(timeout);
 
