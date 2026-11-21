@@ -135,4 +135,7 @@ pub enum ContractError {
     /// (partial fill, supply cap, fee on deposit) is not a mismatch: it is
     /// minted at its real value.
     DepositValueMismatch = 30,
+    /// `withdraw_assets` was called and the required shares to redeem `assets`
+    /// exceeded the caller's `max_shares_in` cap.
+    MaxSharesExceeded = 31,
 }
