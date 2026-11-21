@@ -78,9 +78,9 @@ describe("structured logger", () => {
       .mockImplementation(() => undefined);
     const cause = new Error("RPC failed at https://rpc.example/?token=secret");
     const error = new Error(
-      "submit failed at https://rpc.example/?token=secret",
-      { cause }
-    );
+      "submit failed at https://rpc.example/?token=secret"
+    ) as Error & { cause?: unknown };
+    error.cause = cause;
     error.stack =
       "Error: submit failed\n    at https://rpc.example/?token=secret";
 
