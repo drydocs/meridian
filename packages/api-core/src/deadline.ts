@@ -2,14 +2,18 @@ import { UpstreamDeadlineError, withRaceTimeout } from "@meridian/shared";
 
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 8_000;
 
-export const UPSTREAM_TIMEOUT_MS = (() => {
-  const configured = Number(process.env.RPC_TIMEOUT_MS);
+export function resolveUpstreamTimeout(value: string | undefined): number {
+  const configured = Number(value);
   return Number.isFinite(configured) &&
     configured >= 100 &&
     configured <= 30_000
     ? configured
     : DEFAULT_UPSTREAM_TIMEOUT_MS;
-})();
+}
+
+export const UPSTREAM_TIMEOUT_MS = resolveUpstreamTimeout(
+  process.env.RPC_TIMEOUT_MS
+);
 
 export function withUpstreamDeadline<T>(
   fn: () => Promise<T>,
