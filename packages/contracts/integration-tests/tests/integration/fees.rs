@@ -152,3 +152,26 @@ fn a_transferred_position_carries_its_basis_into_the_fee_maths() {
     assert_eq!(net, usdc(55) - usdc(1) / 2);
     assert_eq!(f.usdc_balance(&bob), net);
 }
+
+#[test]
+fn withdraw_assets_with_accrued_yield_charges_fee_and_delivers_exact_assets() {
+    let f = Fixture::new();
+    let alice = Address::generate(&f.env);
+    f.fund(&alice, usdc(1_000));
+    f.deposit(&alice, usdc(100));
+    f.simulate_yield(rate_with_yield_bps(1_000)); // +10% yield: 100 -> 110 assets
+
+    let target_assets = usdc(50);
+    let out = f.withdraw_assets(&alice, target_assets, usdc(100));
+
+    // Delivers exact target assets
+    assert_eq!(out, target_assets);
+    assert_eq!(f.usdc_balance(&alice), usdc(900) + target_assets);
+
+    // Performance fee minted to treasury: exactly 4,170,141 shares
+    assert_eq!(f.musdc_balance(&f.treasury), 4_170_141);
+
+    // Position records updated proportionally: proportional basis and burned shares
+    assert_eq!(f.vault.get_principal(&alice), 541_284_404);
+    assert_eq!(f.musdc_balance(&alice), 541_284_404);
+}
