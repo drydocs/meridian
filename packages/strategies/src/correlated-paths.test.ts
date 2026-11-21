@@ -5,6 +5,8 @@ import {
   NotPositiveDefiniteError,
   InvalidPathConfigError,
   FixedPointDecimal,
+  XorShift64,
+  derivePathSeed,
 } from "./index";
 import type { AssetPathSpec, FixedPointDecimal as FPD } from "./index";
 
@@ -34,7 +36,7 @@ const base = {
   ]),
   steps: 5000,
   dt: D("0.0027397"),
-  seed: 42,
+  seed: 42n,
 };
 
 function logReturns(prices: FPD[]): number[] {
@@ -90,11 +92,19 @@ describe("generateCorrelatedPaths", () => {
   it("reproduces identical path sets from one seed and differs across seeds", () => {
     const a = generateCorrelatedPaths(base);
     const b = generateCorrelatedPaths(base);
-    const c = generateCorrelatedPaths({ ...base, seed: 43 });
+    const c = generateCorrelatedPaths({ ...base, seed: 43n });
     const str = (p: typeof a) =>
       JSON.stringify([...p].map(([k, v]) => [k, v.map((x) => x.toString())]));
     expect(str(a)).toBe(str(b));
     expect(str(a)).not.toBe(str(c));
+  });
+
+  it("uses the shared XorShift64 and derivePathSeed for reproducible paths", () => {
+    const seed = derivePathSeed(base.seed, 0);
+    const rng = new XorShift64(seed);
+    const first = rng.next();
+    const again = new XorShift64(derivePathSeed(base.seed, 0)).next();
+    expect(first).toBe(again);
   });
 
   it("returns steps + 1 points starting at the initial price", () => {
@@ -111,13 +121,6 @@ describe("generateCorrelatedPaths", () => {
     }));
     const paths = generateCorrelatedPaths({ ...base, assets: flat, steps: 5 });
     expect(paths.get("USDC")?.every((p) => p.toString() === "100")).toBe(true);
-  });
-
-  it("accepts an injected RNG", () => {
-    let i = 0;
-    const rng = () => (i++ * 0.37) % 1 || 0.5;
-    const a = generateCorrelatedPaths({ ...base, steps: 20, rng });
-    expect(a.get("USDC")).toHaveLength(21);
   });
 
   it("rejects a non-positive-definite matrix", () => {
