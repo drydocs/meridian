@@ -117,3 +117,28 @@ describe("handleGetAdminHistory upstream bounds", () => {
     expect(result.error).toBe(timeout);
   });
 });
+describe("handleGetAdminHistory cursor pagination", () => {
+  it("forwards cursor to getAdminActionHistory", async () => {
+    getAdminActionHistoryMock.mockResolvedValueOnce({
+      actions: [],
+      nextCursor: null,
+    } as never);
+
+    await handleGetAdminHistory("vault-123", "cursor-abc");
+
+    expect(getAdminActionHistoryMock.mock.calls[0][2]).toMatchObject({
+      cursor: "cursor-abc",
+    });
+  });
+
+  it("returns nextCursor from the page", async () => {
+    getAdminActionHistoryMock.mockResolvedValueOnce({
+      actions: [],
+      nextCursor: "next-123",
+    } as never);
+
+    const result = await handleGetAdminHistory("vault-123", "cursor-abc");
+
+    expect(result.body).toMatchObject({ nextCursor: "next-123" });
+  });
+});
