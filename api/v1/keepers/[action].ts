@@ -24,6 +24,7 @@ import {
   isCronAuthorized,
   isCronSecretConfigured,
 } from "../../_lib/middleware.js";
+import { logError } from "../../_lib/logger.js";
 
 // Consolidated from the former per-keeper files to stay under Vercel's
 // per-deployment Serverless Functions cap. URL paths are unchanged:
@@ -48,13 +49,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       if (!(await checkRateLimit(req, res))) return;
     } catch (err) {
-      console.error("[keepers/health] rate limit check failed:", err);
+      logError("keepers.health.rate_limit_failed", req, err);
       return res
         .status(503)
         .json({ error: "Rate limiter unavailable; refusing to run" });
     }
     const result = await handleGetKeeperHealth();
-    if (result.error) console.error("[keepers/health] error:", result.error);
+    if (result.error) logError("keepers.health.failed", req, result.error);
     res.setHeader("Cache-Control", "no-store");
     return res.status(result.status).json(result.body);
   }
@@ -84,7 +85,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!(await checkRateLimit(req, res, { strict: true }))) return;
   } catch (err) {
-    console.error(`[keepers/${action}] rate limit check failed:`, err);
+    logError("keepers.rate_limit_failed", req, err, { action });
     return res
       .status(503)
       .json({ error: "Rate limiter unavailable; refusing to run" });
@@ -115,7 +116,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       return res.status(status).json(result);
     } catch (err) {
-      console.error("[accrual-keeper] run failed:", err);
+      logError("accrual_keeper.failed", req, err);
       return res.status(500).json({ error: redactedErrorMessage(err) });
     }
   }
@@ -149,7 +150,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const status = result.failures.length > 0 ? 500 : 200;
       return res.status(status).json(result);
     } catch (err) {
-      console.error("[snapshot-keeper] run failed:", err);
+      logError("snapshot_keeper.failed", req, err);
       return res.status(500).json({ error: redactedErrorMessage(err) });
     }
   }
@@ -179,7 +180,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const status = result.failures.length > 0 ? 500 : 200;
       return res.status(status).json(result);
     } catch (err) {
-      console.error("[alert-keeper] run failed:", err);
+      logError("alert_keeper.failed", req, err);
       return res.status(500).json({ error: redactedErrorMessage(err) });
     }
   }
@@ -217,7 +218,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     return res.status(status).json(result);
   } catch (err) {
-    console.error("[migration-keeper] run failed:", err);
+    logError("migration_keeper.failed", req, err);
     return res.status(500).json({ error: redactedErrorMessage(err) });
   }
 }
