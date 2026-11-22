@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
   ContractSimulationError: (
@@ -7,6 +7,9 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
   MissingTrustlineError: (
     await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
   ).MissingTrustlineError,
+  TransactionOutcomeUnknownError: (
+    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
+  ).TransactionOutcomeUnknownError,
   buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
   buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
   buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
@@ -32,6 +35,7 @@ import {
   ContractSimulationError,
   assertRequiredTrustlines,
   MissingTrustlineError,
+  TransactionOutcomeUnknownError,
 } from "@meridian/stellar-sdk-helpers";
 import { trackPositionHistoryUser } from "./position-tracking";
 
@@ -52,6 +56,7 @@ const FALLBACK_MESSAGES = {
 } as const;
 
 beforeEach(() => vi.clearAllMocks());
+afterEach(() => vi.useRealTimers());
 
 describe.each([
   ["deposit", handleDepositRequest, buildDepositTx],
@@ -135,6 +140,32 @@ describe.each([
 });
 
 describe("handleDepositRequest", () => {
+  it("uses one deadline for trustline checks and simulation together", async () => {
+    vi.useFakeTimers();
+    vi.mocked(assertRequiredTrustlines).mockImplementationOnce(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 5_000))
+    );
+    vi.mocked(buildDepositTx).mockImplementationOnce(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ xdr: "DEPOSIT_XDR", fee: "100" }), 5_000)
+        )
+    );
+
+    const resultPromise = handleDepositRequest({
+      walletAddress: PUBKEY,
+      vaultId: "blend-usdc-fixed",
+      amount: "10",
+      riskAcknowledged: true,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(buildDepositTx).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(3_000);
+    await expect(resultPromise).resolves.toMatchObject({ status: 503 });
+    await vi.advanceTimersByTimeAsync(2_000);
+    vi.useRealTimers();
+  });
+
   it("returns 400 listing the missing fields", async () => {
     const result = await handleDepositRequest({ walletAddress: PUBKEY });
     expect(result.status).toBe(400);
@@ -352,6 +383,61 @@ describe("handleSubmitRequest", () => {
   it("submits and returns the tx hash", async () => {
     const result = await handleSubmitRequest({ xdr: "SIGNED" });
     expect(result.body).toEqual({ hash: "HASH" });
+  });
+
+  it("returns a distinct outcome-unknown response with the accepted hash", async () => {
+    vi.mocked(submitTx).mockResolvedValueOnce({
+      hash: "HASH",
+      status: "PENDING",
+    } as Awaited<ReturnType<typeof submitTx>>);
+    const result = await handleSubmitRequest({ xdr: "SIGNED" });
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual({
+      hash: "HASH",
+      status: "PENDING",
+    });
+    expect(submitTx).toHaveBeenCalledWith("SIGNED", expect.anything(), {
+      timeoutMs: expect.any(Number),
+    });
+  });
+
+  it("does not race signed submission against the upstream request deadline", async () => {
+    vi.useFakeTimers();
+    let resolveSubmission!: (
+      result: Awaited<ReturnType<typeof submitTx>>
+    ) => void;
+    vi.mocked(submitTx).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSubmission = resolve;
+        })
+    );
+
+    const response = handleSubmitRequest({ xdr: "SIGNED" });
+    await vi.advanceTimersByTimeAsync(8_001);
+    expect(submitTx).toHaveBeenCalledOnce();
+
+    resolveSubmission({
+      hash: "HASH",
+      status: "PENDING",
+    } as Awaited<ReturnType<typeof submitTx>>);
+    await expect(response).resolves.toMatchObject({
+      status: 202,
+      body: { hash: "HASH", status: "PENDING" },
+    });
+  });
+
+  it("includes the hash when the RPC submission times out ambiguously", async () => {
+    vi.mocked(submitTx).mockRejectedValueOnce(
+      new TransactionOutcomeUnknownError("HASH")
+    );
+    const result = await handleSubmitRequest({ xdr: "SIGNED" });
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual({
+      hash: "HASH",
+      status: "OUTCOME_UNKNOWN",
+      code: "TRANSACTION_OUTCOME_UNKNOWN",
+    });
   });
 
   it("hides submit errors from the caller while retaining them for logging", async () => {

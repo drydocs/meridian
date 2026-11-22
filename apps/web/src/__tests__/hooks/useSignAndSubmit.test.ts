@@ -118,5 +118,24 @@ describe("useSignAndSubmit (#965)", () => {
       expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
       expect(useWalletStore.getState().connected).toBe(true);
     });
+
+    it.each(["PENDING", "OUTCOME_UNKNOWN"] as const)(
+      "does not treat %s as a successful submission",
+      async (status) => {
+        vi.mocked(api.submitTx).mockResolvedValueOnce({
+          hash: "TX_HASH",
+          status,
+        });
+        const { result } = renderHook(() => useSignAndSubmit());
+
+        await expect(
+          result.current.signAndSubmit("UNSIGNED_XDR")
+        ).rejects.toMatchObject({
+          name: "TransactionNotConfirmedError",
+          status,
+          hash: "TX_HASH",
+        });
+      }
+    );
   });
 });
