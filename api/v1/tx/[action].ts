@@ -28,6 +28,10 @@ function isAction(value: unknown): value is Action {
   );
 }
 
+function idempotencyOptions(header: string | string[] | undefined) {
+  return typeof header === "string" ? { idempotencyKey: header } : {};
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   try {
@@ -46,7 +50,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(404).json({ error: "Unknown action" });
   }
 
-  const result = await ACTIONS[action](req.body);
+  const result = await ACTIONS[action](
+    req.body,
+    idempotencyOptions(req.headers["idempotency-key"])
+  );
   if (result.error) {
     const cause = (result.error as { cause?: unknown } | undefined)?.cause;
     console.error(

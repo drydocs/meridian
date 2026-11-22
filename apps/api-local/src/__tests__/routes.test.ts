@@ -18,6 +18,9 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     buildDepositTx: vi.fn(),
     buildWithdrawTx: vi.fn(),
     buildAddTrustlineTx: vi.fn(),
+    getTransactionForReconciliation: vi.fn(async () => {
+      throw new Error("transaction reconciliation RPC unavailable");
+    }),
     submitTx: vi.fn(),
     fetchAllVaults: fetchAllVaultsMock,
     fetchVaultsWithCache: vi.fn(async (...args: unknown[]) => ({
@@ -70,6 +73,21 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
   };
 });
 
+vi.mock("@meridian/api-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@meridian/api-core")>();
+  return {
+    ...actual,
+    handleSubmitRequest: (
+      body: unknown,
+      options?: Parameters<typeof actual.handleSubmitRequest>[1]
+    ) =>
+      actual.handleSubmitRequest(body, {
+        ...options,
+        store: actual.createInMemoryIdempotencyStore(),
+      }),
+  };
+});
+
 import {
   resolvePositions,
   buildDepositTx,
@@ -100,6 +118,19 @@ describe("GET /health", () => {
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ status: "ok" });
+  });
+});
+
+describe("local CORS", () => {
+  it("permits Idempotency-Key in OPTIONS preflight", async () => {
+    const app = Fastify({ logger: false });
+    const cors = (await import("@fastify/cors")).default;
+    const { DEFAULT_ALLOWED_ORIGIN } = await import("@meridian/shared");
+    await app.register(cors, { origin: DEFAULT_ALLOWED_ORIGIN, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type", "Idempotency-Key"] });
+    const response = await app.inject({ method: "OPTIONS", url: "/", headers: { origin: DEFAULT_ALLOWED_ORIGIN, "access-control-request-method": "POST", "access-control-request-headers": "content-type,idempotency-key" } });
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-headers"]).toContain("Idempotency-Key");
+    await app.close();
   });
 });
 
@@ -399,10 +430,19 @@ describe("POST /api/v1/tx/add-trustline", () => {
 describe("POST /api/v1/tx/submit", () => {
   it("returns 200 with the submit result from the SDK", async () => {
     const app = buildApp();
-    vi.mocked(submitTx).mockResolvedValue({
-      hash: "abc123",
-      status: "SUCCESS",
-      ledger: 42,
+    vi.mocked(submitTx).mockImplementation(async (_xdr, _network, options) => {
+      const identity = {
+        network: "testnet" as const,
+        transactionHash: "a".repeat(64),
+        signedXdr: "SIGNEDXDR",
+        sourceAccount: "G_SOURCE",
+        sequence: "42",
+        maxTime: "2000",
+        maxLedger: null,
+        submissionStartLedger: 100,
+      };
+      await options?.beforeSubmit?.(identity);
+      return { hash: identity.transactionHash, status: "SUCCESS", ledger: 42 };
     });
 
     const res = await app.inject({
@@ -412,11 +452,8 @@ describe("POST /api/v1/tx/submit", () => {
       body: JSON.stringify({ xdr: "SIGNEDXDR" }),
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({
-      hash: "abc123",
-      status: "SUCCESS",
-      ledger: 42,
-    });
+    expect(res.json()).toEqual({ hash: "a".repeat(64) });
+    expect(submitTx).toHaveBeenCalledOnce();
   });
 
   it("returns 400 for an empty xdr string", async () => {
@@ -442,6 +479,7 @@ describe("POST /api/v1/tx/submit", () => {
     });
     expect(res.statusCode).toBe(500);
     expect(res.json()).toHaveProperty("error");
+    expect(submitTx).toHaveBeenCalledOnce();
   });
 });
 

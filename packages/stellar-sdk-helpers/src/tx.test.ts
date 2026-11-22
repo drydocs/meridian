@@ -3,6 +3,7 @@ import {
   rpc,
   Horizon,
   Account,
+  Keypair,
   Asset,
   Contract,
   Operation,
@@ -24,6 +25,11 @@ import {
   simulateView,
   assertFaucetPayment,
   assertSubmittable,
+  inspectSubmissionXdr,
+  submitTx,
+  TransactionHashMismatchError,
+  TransactionSubmissionRejectedError,
+  TransactionTryAgainLaterError,
 } from "./tx";
 import type { StellarNetwork } from "./types";
 import { isMigrationCooldownError } from "./keeper-tx";
@@ -33,14 +39,14 @@ const { SUCCESS, FAILED, NOT_FOUND } = rpc.Api.GetTransactionStatus;
 
 // A getTransaction stub that replays a fixed sequence of statuses, repeating the
 // last one once exhausted, and counts how many times it was polled.
-function fakeReader(statuses: rpc.Api.GetTransactionStatus[]) {
+function fakeReader(statuses: rpc.Api.GetTransactionStatus[], hash = "TXHASH") {
   let i = 0;
   const reader = {
     calls: 0,
     async getTransaction() {
       reader.calls += 1;
       const status = statuses[Math.min(i++, statuses.length - 1)];
-      return { status, ledger: 42 } as rpc.Api.GetTransactionResponse;
+      return { txHash: hash, status, ledger: 42 } as rpc.Api.GetTransactionResponse;
     },
   };
   return reader;
@@ -574,6 +580,20 @@ describe("waitForTransaction", () => {
     ).rejects.toThrow(/failed on-chain/);
   });
 
+  it("rejects a final status returned for a different transaction hash", async () => {
+    const reader = fakeReader([SUCCESS], "OTHER_HASH");
+    await expect(
+      waitForTransaction(reader, "TXHASH", { sleep: noopSleep })
+    ).rejects.toThrow(/while waiting for TXHASH/);
+  });
+
+  it("validates the transaction hash on a FAILED response", async () => {
+    const reader = fakeReader([FAILED], "OTHER_HASH");
+    await expect(
+      waitForTransaction(reader, "TXHASH", { sleep: noopSleep })
+    ).rejects.toThrow(/while waiting for TXHASH/);
+  });
+
   it("times out while the transaction stays NOT_FOUND", async () => {
     const reader = fakeReader([NOT_FOUND]);
     await expect(
@@ -685,6 +705,7 @@ describe("assertFaucetPayment", () => {
 });
 
 describe("assertSubmittable", () => {
+  afterEach(() => vi.restoreAllMocks());
   const network: StellarNetwork = {
     network: "testnet",
     rpcUrl: "https://soroban-testnet.stellar.org",
@@ -719,10 +740,165 @@ describe("assertSubmittable", () => {
       .build();
   }
 
+  function setupSubmission(
+    status: rpc.Api.SendTransactionResponse["status"],
+    responseHash?: string
+  ) {
+    const tx = buildTx(new Contract(KNOWN_VAULT).call("deposit"));
+    tx.sign(Keypair.random());
+    const hash = tx.hash().toString("hex");
+    const getTransaction = vi
+      .spyOn(rpc.Server.prototype, "getTransaction")
+      .mockResolvedValue({
+        status: rpc.Api.GetTransactionStatus.SUCCESS,
+        txHash: hash,
+        ledger: 321,
+      } as rpc.Api.GetSuccessfulTransactionResponse);
+    vi.spyOn(rpc.Server.prototype, "getLatestLedger").mockResolvedValue({
+      sequence: 100,
+      id: "ledger-hash",
+      protocolVersion: 22,
+      closeTime: "1",
+    } as Awaited<ReturnType<rpc.Server["getLatestLedger"]>>);
+    const sendTransaction = vi
+      .spyOn(rpc.Server.prototype, "sendTransaction")
+      .mockResolvedValue({
+        status,
+        hash: responseHash ?? hash,
+        latestLedger: 100,
+        latestLedgerCloseTime: "1",
+      } as rpc.Api.SendTransactionResponse);
+    return { hash, getTransaction, sendTransaction, signedXdr: tx.toXDR() };
+  }
+
+  it("submits and polls PENDING using the persisted transaction hash", async () => {
+    const submission = setupSubmission("PENDING");
+
+    const result = await submitTx(submission.signedXdr, network, {
+      beforeSubmit: async () => {},
+    });
+
+    expect(submission.sendTransaction).toHaveBeenCalledOnce();
+    expect(submission.getTransaction).toHaveBeenCalledOnce();
+    expect(submission.getTransaction).toHaveBeenCalledWith(submission.hash);
+    expect(result).toEqual({ hash: submission.hash, status: "SUCCESS", ledger: 321 });
+  });
+
+  it.each(["PENDING", "DUPLICATE"] as const)(
+    "rejects a mismatched %s hash without polling",
+    async (status) => {
+      const submission = setupSubmission(status, "a".repeat(64));
+
+      await expect(
+        submitTx(submission.signedXdr, network, { beforeSubmit: async () => {} })
+      ).rejects.toBeInstanceOf(TransactionHashMismatchError);
+
+      expect(submission.sendTransaction).toHaveBeenCalledOnce();
+      expect(submission.getTransaction).not.toHaveBeenCalled();
+    }
+  );
+
+  it("preserves ERROR submission rejection without polling", async () => {
+    const submission = setupSubmission("ERROR");
+
+    await expect(
+      submitTx(submission.signedXdr, network, { beforeSubmit: async () => {} })
+    ).rejects.toBeInstanceOf(TransactionSubmissionRejectedError);
+
+    expect(submission.getTransaction).not.toHaveBeenCalled();
+  });
+
+  it("preserves TRY_AGAIN_LATER behavior without polling", async () => {
+    const submission = setupSubmission("TRY_AGAIN_LATER");
+
+    await expect(
+      submitTx(submission.signedXdr, network, { beforeSubmit: async () => {} })
+    ).rejects.toBeInstanceOf(TransactionTryAgainLaterError);
+
+    expect(submission.getTransaction).not.toHaveBeenCalled();
+  });
+
   it("allows a transaction invoking a known Meridian contract", () => {
     const contract = new Contract(KNOWN_VAULT);
     const tx = buildTx(contract.call("deposit"));
     expect(() => assertSubmittable(tx, network)).not.toThrow();
+  });
+
+  it("extracts a stable transaction hash and finite time bound from signed XDR", () => {
+    const tx = buildTx(new Contract(KNOWN_VAULT).call("deposit"));
+    tx.sign(Keypair.random());
+    const signedXdr = tx.toXDR();
+
+    const identity = inspectSubmissionXdr(signedXdr, network);
+
+    expect(identity.transactionHash).toBe(tx.hash().toString("hex"));
+    expect(identity.signedXdr).toBe(signedXdr);
+    expect(identity.maxTime).toMatch(/^\d+$/);
+    expect(identity.maxLedger).toBeNull();
+    expect(identity.sourceAccount).toBe(tx.source);
+    expect(identity.sequence).toBe(tx.sequence);
+  });
+
+  it("rejects a transaction without a finite time or ledger upper bound", () => {
+    const account = new Account(SOURCE, "0");
+    const tx = new TransactionBuilder(account, {
+      fee: "100",
+      networkPassphrase: network.passphrase,
+    })
+      .addOperation(new Contract(KNOWN_VAULT).call("deposit"))
+      .setTimeout(0)
+      .build();
+    tx.sign(Keypair.random());
+
+    expect(() => inspectSubmissionXdr(tx.toXDR(), network)).toThrow(
+      /finite upper validity bound/
+    );
+  });
+
+  it("accepts a finite ledger upper bound when maxTime is unset", () => {
+    const account = new Account(SOURCE, "0");
+    const tx = new TransactionBuilder(account, {
+      fee: "100",
+      networkPassphrase: network.passphrase,
+    })
+      .addOperation(new Contract(KNOWN_VAULT).call("deposit"))
+      .setTimeout(0)
+      .setLedgerbounds(0, 200)
+      .build();
+    tx.sign(Keypair.random());
+
+    const identity = inspectSubmissionXdr(tx.toXDR(), network);
+
+    expect(identity.maxTime).toBeNull();
+    expect(identity.maxLedger).toBe(200);
+  });
+
+  it("does not send when the beforeSubmit persistence callback rejects", async () => {
+    const sendTransaction = vi
+      .spyOn(rpc.Server.prototype, "sendTransaction")
+      .mockResolvedValue({
+        status: "PENDING",
+        hash: "a".repeat(64),
+        latestLedger: 1,
+        latestLedgerCloseTime: "1",
+      } as rpc.Api.SendTransactionResponse);
+    vi.spyOn(rpc.Server.prototype, "getLatestLedger").mockResolvedValue({
+      sequence: 100,
+      id: "ledger-hash",
+      protocolVersion: 22,
+      closeTime: "1",
+    } as Awaited<ReturnType<rpc.Server["getLatestLedger"]>>);
+    const tx = buildTx(new Contract(KNOWN_VAULT).call("deposit"));
+    tx.sign(Keypair.random());
+
+    await expect(
+      submitTx(tx.toXDR(), network, {
+        beforeSubmit: async () => {
+          throw new Error("idempotency persistence unavailable");
+        },
+      })
+    ).rejects.toThrow("idempotency persistence unavailable");
+    expect(sendTransaction).not.toHaveBeenCalled();
   });
 
   it("rejects a transaction invoking an unrecognised contract", () => {

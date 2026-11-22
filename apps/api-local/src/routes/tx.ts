@@ -6,9 +6,16 @@ import {
   handleSubmitRequest,
 } from "@meridian/api-core";
 
+function idempotencyOptions(header: string | string[] | undefined) {
+  return typeof header === "string" ? { idempotencyKey: header } : {};
+}
+
 export const txRoute: FastifyPluginAsync = async (app) => {
   app.post("/deposit", async (req, reply) => {
-    const result = await handleDepositRequest(req.body);
+    const result = await handleDepositRequest(
+      req.body,
+      idempotencyOptions(req.headers["idempotency-key"])
+    );
     if (result.error) {
       app.log.error({ err: result.error }, "[tx/deposit] build failed");
     }
@@ -16,7 +23,10 @@ export const txRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/withdraw", async (req, reply) => {
-    const result = await handleWithdrawRequest(req.body);
+    const result = await handleWithdrawRequest(
+      req.body,
+      idempotencyOptions(req.headers["idempotency-key"])
+    );
     if (result.error) {
       app.log.error({ err: result.error }, "[tx/withdraw] build failed");
     }
@@ -24,7 +34,10 @@ export const txRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/add-trustline", async (req, reply) => {
-    const result = await handleAddTrustlineRequest(req.body);
+    const result = await handleAddTrustlineRequest(
+      req.body,
+      idempotencyOptions(req.headers["idempotency-key"])
+    );
     if (result.error) {
       app.log.error({ err: result.error }, "[tx/add-trustline] build failed");
     }
@@ -32,7 +45,10 @@ export const txRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/submit", async (req, reply) => {
-    const result = await handleSubmitRequest(req.body);
+    const result = await handleSubmitRequest(
+      req.body,
+      idempotencyOptions(req.headers["idempotency-key"])
+    );
     if (result.error) {
       app.log.error({ err: result.error }, "[tx/submit] failed");
     }

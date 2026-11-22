@@ -29,6 +29,7 @@ const redisClient = process.env.REDIS_URL
 await app.register(cors, {
   origin: process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN,
   methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Idempotency-Key"],
 });
 await app.register(rateLimit, {
   max: 100,

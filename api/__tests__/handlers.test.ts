@@ -35,7 +35,29 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
     buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
     buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
-    submitTx: vi.fn(async () => ({ hash: "HASH" })),
+    getTransactionForReconciliation: vi.fn(async () => {
+      throw new Error("transaction reconciliation RPC unavailable");
+    }),
+    submitTx: vi.fn(
+      async (
+        _xdr: string,
+        _network: Parameters<typeof actual.submitTx>[1],
+        options?: Parameters<typeof actual.submitTx>[2]
+      ) => {
+        const identity = {
+          network: "testnet" as const,
+          transactionHash: "a".repeat(64),
+          signedXdr: "SIGNED",
+          sourceAccount: "G_SOURCE",
+          sequence: "42",
+          maxTime: "2000",
+          maxLedger: null,
+          submissionStartLedger: 100,
+        };
+        await options?.beforeSubmit?.(identity);
+        return { hash: identity.transactionHash };
+      }
+    ),
     loadBlendAccrualKeeperConfig: vi.fn(() => ({
       network: {
         network: "testnet",
@@ -192,6 +214,21 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
       skipped: 0,
       failures: [],
     })),
+  };
+});
+
+vi.mock("@meridian/api-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@meridian/api-core")>();
+  return {
+    ...actual,
+    handleSubmitRequest: (
+      body: unknown,
+      options?: Parameters<typeof actual.handleSubmitRequest>[1]
+    ) =>
+      actual.handleSubmitRequest(body, {
+        ...options,
+        store: actual.createInMemoryIdempotencyStore(),
+      }),
   };
 });
 
@@ -618,7 +655,7 @@ describe("POST /api/v1/tx/submit", () => {
       }),
       res
     );
-    expect(res.body).toEqual({ hash: "HASH" });
+    expect(res.body).toEqual({ hash: "a".repeat(64) });
   });
 });
 

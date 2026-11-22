@@ -71,6 +71,13 @@ describe("applyCors", () => {
     expect(res.headers["Access-Control-Allow-Methods"]).toContain("POST");
   });
 
+  it("permits Idempotency-Key in the browser preflight response", () => {
+    const res = fakeRes();
+    applyCors(fakeReq("OPTIONS", { "access-control-request-headers": "content-type,idempotency-key" }), res);
+    expect(res.headers["Access-Control-Allow-Headers"]).toContain("Idempotency-Key");
+    expect(res.statusCode).toBe(204);
+  });
+
   it("returns true and ends the response for OPTIONS preflight", () => {
     const res = fakeRes();
     const handled = applyCors(fakeReq("OPTIONS"), res);

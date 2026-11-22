@@ -285,12 +285,108 @@ export interface SubmitResult {
   ledger: number;
 }
 
+export interface InspectedSubmissionIdentity {
+  network: StellarNetwork["network"];
+  transactionHash: string;
+  signedXdr: string;
+  sourceAccount: string;
+  sequence: string;
+  maxTime: string | null;
+  maxLedger: number | null;
+}
+
+export interface DurableSubmissionIdentity extends InspectedSubmissionIdentity {
+  /** Ledger observed before persistence and the first submission attempt. */
+  submissionStartLedger: number;
+}
+
+export class TransactionFailedError extends Error {
+  constructor(readonly transactionHash: string) {
+    super(`Transaction ${transactionHash} failed on-chain`);
+    this.name = "TransactionFailedError";
+  }
+}
+
+export class TransactionSubmissionRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TransactionSubmissionRejectedError";
+  }
+}
+
+export class TransactionTryAgainLaterError extends Error {
+  constructor() {
+    super("Transaction could not be submitted yet (try again later)");
+    this.name = "TransactionTryAgainLaterError";
+  }
+}
+
+export class TransactionConfirmationTimeoutError extends Error {
+  constructor(readonly transactionHash: string) {
+    super(`Timed out waiting for transaction ${transactionHash} to confirm`);
+    this.name = "TransactionConfirmationTimeoutError";
+  }
+}
+
+export class TransactionHashMismatchError extends Error {
+  constructor(expectedHash: string, observedHash: string) {
+    super(`RPC returned transaction ${observedHash} while waiting for ${expectedHash}`);
+    this.name = "TransactionHashMismatchError";
+  }
+}
+
+/** Parse the exact signed envelope that will be submitted and extract its
+ * stable identity and finite upper validity bound. The returned XDR is kept
+ * byte-for-byte as provided; recovery must resubmit/reconcile this envelope,
+ * never rebuild it. */
+export function inspectSubmissionXdr(
+  signedXdr: string,
+  network: StellarNetwork
+): InspectedSubmissionIdentity {
+  const tx = TransactionBuilder.fromXDR(signedXdr, passphraseFor(network));
+  assertSubmittable(tx, network);
+  if (!(tx instanceof Transaction)) {
+    throw new Error("Fee-bump transactions are not supported");
+  }
+  const maxTimeValue = tx.timeBounds?.maxTime;
+  const maxTime = maxTimeValue == null || String(maxTimeValue) === "0"
+    ? null
+    : String(maxTimeValue);
+  const maxLedgerValue = tx.ledgerBounds?.maxLedger;
+  const maxLedger = maxLedgerValue == null || Number(maxLedgerValue) === 0
+    ? null
+    : Number(maxLedgerValue);
+  if (maxTime === null && maxLedger === null) {
+    throw new Error("Transaction requires a finite upper validity bound");
+  }
+  if (maxTime !== null && !/^\d+$/.test(maxTime)) {
+    throw new Error("Transaction has an invalid time upper bound");
+  }
+  if (maxLedger !== null && (!Number.isSafeInteger(maxLedger) || maxLedger < 1)) {
+    throw new Error("Transaction has an invalid ledger upper bound");
+  }
+  return {
+    network: network.network,
+    transactionHash: Buffer.from(tx.hash()).toString("hex"),
+    signedXdr,
+    sourceAccount: tx.source,
+    sequence: tx.sequence,
+    maxTime,
+    maxLedger,
+  };
+}
+
 export interface ConfirmOptions {
   pollIntervalMs?: number;
   timeoutMs?: number;
   // Injection seams so the polling loop is unit-testable without real timers.
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+}
+
+export interface SubmitOptions extends ConfirmOptions {
+  /** Must persist a durable idempotency claim before the first RPC submission. */
+  beforeSubmit: (identity: DurableSubmissionIdentity) => Promise<void>;
 }
 
 // The slice of rpc.Server the confirmation loop needs. Narrowing it lets tests
@@ -322,16 +418,30 @@ export async function waitForTransaction(
 
   for (;;) {
     const res = await withSorobanTimeout(() => server.getTransaction(hash));
+    if (res.status !== rpc.Api.GetTransactionStatus.NOT_FOUND && res.txHash !== hash) {
+      throw new TransactionHashMismatchError(hash, res.txHash);
+    }
     if (res.status === rpc.Api.GetTransactionStatus.SUCCESS) return res;
     if (res.status === rpc.Api.GetTransactionStatus.FAILED) {
-      throw new Error(`Transaction ${hash} failed on-chain`);
+      throw new TransactionFailedError(hash);
     }
     // NOT_FOUND: still propagating; keep polling until the deadline.
     if (now() >= deadline) {
-      throw new Error(`Timed out waiting for transaction ${hash} to confirm`);
+      throw new TransactionConfirmationTimeoutError(hash);
     }
     await sleep(pollIntervalMs);
   }
+}
+
+/** Read one authoritative RPC observation for a persisted submission identity.
+ * The response includes transaction status and the RPC history window needed
+ * to safely resolve a NOT_FOUND result after transaction validity closes. */
+export async function getTransactionForReconciliation(
+  hash: string,
+  network: StellarNetwork
+): Promise<rpc.Api.GetTransactionResponse> {
+  const server = getRpcServer(network.rpcUrl, 8_000);
+  return withSorobanTimeout(() => server.getTransaction(hash));
 }
 
 /**
@@ -495,27 +605,40 @@ export function assertSubmittable(
 export async function submitTx(
   signedXdr: string,
   network: StellarNetwork,
-  opts: ConfirmOptions = {}
+  opts: SubmitOptions
 ): Promise<SubmitResult> {
   const passphrase = passphraseFor(network);
   const server = getRpcServer(network.rpcUrl, 8_000);
   const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
   assertSubmittable(tx, network);
+  const identity = inspectSubmissionXdr(signedXdr, network);
+  const latestLedger = await withSorobanTimeout(() => server.getLatestLedger());
+  await opts.beforeSubmit({
+    ...identity,
+    submissionStartLedger: latestLedger.sequence,
+  });
 
   const sent = await withSorobanTimeout(() => server.sendTransaction(tx));
   if (sent.status === "ERROR") {
-    throw new Error(
+    throw new TransactionSubmissionRejectedError(
       `Transaction rejected at submission: ${describeSendError(sent)}`
     );
   }
   if (sent.status === "TRY_AGAIN_LATER") {
-    throw new Error("Transaction could not be submitted yet (try again later)");
+    throw new TransactionTryAgainLaterError();
+  }
+  if (sent.hash !== identity.transactionHash) {
+    throw new TransactionHashMismatchError(identity.transactionHash, sent.hash);
   }
 
   // PENDING or DUPLICATE: the transaction is in (or already passed through) the
   // mempool under this hash, so wait for the ledger to record its outcome.
-  const confirmed = await waitForTransaction(server, sent.hash, opts);
-  return { hash: sent.hash, status: "SUCCESS", ledger: confirmed.ledger };
+  const confirmed = await waitForTransaction(
+    server,
+    identity.transactionHash,
+    opts
+  );
+  return { hash: identity.transactionHash, status: "SUCCESS", ledger: confirmed.ledger };
 }
 
 // A faucet grant well above anything a real testnet request would need.
