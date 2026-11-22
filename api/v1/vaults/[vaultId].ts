@@ -7,6 +7,7 @@ import {
   requireGetMethod,
   vaultReadCacheControl,
 } from "../../_lib/middleware.js";
+import { logError } from "../../_lib/logger.js";
 
 const KNOWN_VAULT_IDS = new Set(
   [
@@ -21,7 +22,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!(await checkRateLimit(req, res))) return;
   } catch (err) {
-    console.error("[vaults] rate limit check failed:", err);
+    logError("vault.rate_limit_failed", req, err);
     return res
       .status(503)
       .json({ error: "Rate limiter unavailable; refusing to run" });
@@ -34,7 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const result = await handleGetVaultById(vaultId);
   if (result.error) {
-    console.error("[vaults] fetch error:", result.error);
+    logError("vault.failed", req, result.error);
   }
   if (result.status === 200) {
     res.setHeader("Cache-Control", vaultReadCacheControl());

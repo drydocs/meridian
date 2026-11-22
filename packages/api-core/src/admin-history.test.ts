@@ -107,13 +107,18 @@ describe("handleGetAdminHistory upstream bounds", () => {
     expect(options).toEqual({ limit: 50, maxPages: 5, scanTimeoutMs: 8_000 });
   });
 
-  it("returns 500 when the bounded scan times out", async () => {
+  it("returns a typed 503 when the bounded scan times out", async () => {
     const timeout = new DOMException("signal timed out", "TimeoutError");
     vi.mocked(getAdminActionHistory).mockRejectedValueOnce(timeout);
 
     const result = await handleGetAdminHistory("meridian-usdc");
 
-    expect(result.status).toBe(500);
+    expect(result.status).toBe(503);
+    expect(result.body).toEqual({
+      error: "Upstream request exceeded its deadline",
+      code: "UPSTREAM_DEADLINE_EXCEEDED",
+      retryAfterSeconds: 1,
+    });
     expect(result.error).toBe(timeout);
   });
 });

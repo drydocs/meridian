@@ -6,6 +6,7 @@ import {
   handleAddTrustlineRequest,
 } from "@meridian/api-core";
 import { applyCors, checkRateLimit } from "../../_lib/middleware.js";
+import { logError } from "../../_lib/logger.js";
 
 // Consolidated from four separate files (deposit/withdraw/submit/add-trustline)
 // to stay under Vercel's per-deployment Serverless Functions cap. URL paths
@@ -33,7 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!(await checkRateLimit(req, res, { strict: true }))) return;
   } catch (err) {
-    console.error("[tx] rate limit check failed:", err);
+    logError("tx.rate_limit_failed", req, err);
     return res
       .status(503)
       .json({ error: "Rate limiter unavailable; refusing to run" });
@@ -48,12 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const result = await ACTIONS[action](req.body);
   if (result.error) {
-    const cause = (result.error as { cause?: unknown } | undefined)?.cause;
-    console.error(
-      `[tx/${action}] failed:`,
-      result.error,
-      cause ? { cause } : ""
-    );
+    logError("tx.failed", req, result.error, { action });
   }
   res.status(result.status).json(result.body);
 }
