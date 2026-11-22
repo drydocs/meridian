@@ -162,6 +162,8 @@
     "withdrawBuildFailed": "Impossible de préparer le retrait. Veuillez réessayer.",
     "trustlineBuildFailed": "Impossible de préparer la transaction de ligne de confiance. Veuillez réessayer.",
     "submitFailed": "La soumission de la transaction a échoué. Veuillez réessayer.",
+    "transactionPending": "La transaction {{hash}} a été acceptée et attend sa confirmation. Vérifiez son état avant de réessayer.",
+    "transactionOutcomeUnknown": "La confirmation de la transaction {{hash}} a expiré. Vérifiez son état avant de réessayer.",
     "walletDisconnected": "Votre portefeuille s'est déconnecté. Reconnectez-le et réessayez.",
     "walletDeclined": "Vous avez refusé la demande. Réessayez quand vous êtes prêt.",
     "unknown": "Une erreur est survenue. Veuillez réessayer.",

@@ -162,6 +162,8 @@
     "withdrawBuildFailed": "Could not prepare the withdrawal. Please try again.",
     "trustlineBuildFailed": "Could not prepare the trustline transaction. Please try again.",
     "submitFailed": "Transaction submission failed. Please try again.",
+    "transactionPending": "Transaction {{hash}} was accepted and is still pending confirmation. Check its status before retrying.",
+    "transactionOutcomeUnknown": "Confirmation timed out for transaction {{hash}}. Check its status before retrying.",
     "walletDisconnected": "Your wallet disconnected. Reconnect and try again.",
     "walletDeclined": "You declined the request. Try again when ready.",
     "unknown": "Something went wrong. Please try again.",
