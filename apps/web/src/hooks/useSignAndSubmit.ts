@@ -2,7 +2,10 @@ import { APP_NETWORK } from "@meridian/shared";
 import { useWalletStore } from "../store/wallet";
 import { wallet } from "../lib/wallet";
 import { api } from "../lib/api";
-import { WALLET_DISCONNECTED_ERROR } from "../lib/errorMapper";
+import {
+  TransactionNotConfirmedError,
+  WALLET_DISCONNECTED_ERROR,
+} from "../lib/errorMapper";
 
 export function useSignAndSubmit() {
   const { revalidate } = useWalletStore();
@@ -21,7 +24,10 @@ export function useSignAndSubmit() {
       throw new Error(WALLET_DISCONNECTED_ERROR);
     }
     const signedXdr = await wallet.sign(xdr, passphrase);
-    await api.submitTx({ xdr: signedXdr });
+    const result = await api.submitTx({ xdr: signedXdr });
+    if (result.status === "PENDING" || result.status === "OUTCOME_UNKNOWN") {
+      throw new TransactionNotConfirmedError(result.status, result.hash);
+    }
   }
 
   return { signAndSubmit, passphrase };
