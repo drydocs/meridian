@@ -43,7 +43,7 @@ export async function buildDepositTx(
   amount: string,
   network: StellarNetwork,
   minSharesOut: string = "0"
-): Promise<{ xdr: string; fee: string }> {
+): Promise<{ xdr: string; fee: string; simulationResult: string }> {
   const entry = resolveVaultEntry(vaultId, network);
   return buildCoordinatorDepositTx(
     { contractId: entry.contractId, network },
@@ -66,7 +66,7 @@ export async function buildWithdrawTx(
   shares: string,
   network: StellarNetwork,
   minUsdcOut: string = "0"
-): Promise<{ xdr: string; fee: string }> {
+): Promise<{ xdr: string; fee: string; simulationResult: string }> {
   const entry = resolveVaultEntry(vaultId, network);
   return buildCoordinatorWithdrawTx(
     { contractId: entry.contractId, network },

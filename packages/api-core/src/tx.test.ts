@@ -10,8 +10,16 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
   TransactionOutcomeUnknownError: (
     await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
   ).TransactionOutcomeUnknownError,
-  buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
-  buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
+  buildDepositTx: vi.fn(async () => ({
+    xdr: "DEPOSIT_XDR",
+    fee: "100",
+    simulationResult: "95000000",
+  })),
+  buildWithdrawTx: vi.fn(async () => ({
+    xdr: "WITHDRAW_XDR",
+    fee: "100",
+    simulationResult: "49500000",
+  })),
   buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
   submitTx: vi.fn(async () => ({ hash: "HASH" })),
   assertRequiredTrustlines: vi.fn(async () => undefined),
@@ -148,7 +156,15 @@ describe("handleDepositRequest", () => {
     vi.mocked(buildDepositTx).mockImplementationOnce(
       () =>
         new Promise((resolve) =>
-          setTimeout(() => resolve({ xdr: "DEPOSIT_XDR", fee: "100" }), 5_000)
+          setTimeout(
+            () =>
+              resolve({
+                xdr: "DEPOSIT_XDR",
+                fee: "100",
+                simulationResult: "95000000",
+              }),
+            5_000
+          )
         )
     );
 
@@ -193,7 +209,11 @@ describe("handleDepositRequest", () => {
       riskAcknowledged: true,
     });
     expect(result.status).toBe(200);
-    expect(result.body).toEqual({ xdr: "DEPOSIT_XDR", fee: "100" });
+    expect(result.body).toEqual({
+      xdr: "DEPOSIT_XDR",
+      fee: "100",
+      simulationResult: "95000000",
+    });
     expect(result.error).toBeUndefined();
     expect(buildDepositTx).toHaveBeenCalledWith(
       "blend-usdc-fixed",
@@ -257,7 +277,11 @@ describe("handleWithdrawRequest", () => {
       vaultId: "blend-usdc-fixed",
       shares: "5",
     });
-    expect(result.body).toEqual({ xdr: "WITHDRAW_XDR", fee: "100" });
+    expect(result.body).toEqual({
+      xdr: "WITHDRAW_XDR",
+      fee: "100",
+      simulationResult: "49500000",
+    });
     expect(buildWithdrawTx).toHaveBeenCalledWith(
       "blend-usdc-fixed",
       PUBKEY,

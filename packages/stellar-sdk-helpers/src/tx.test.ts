@@ -16,6 +16,7 @@ import {
   waitForTransaction,
   simErrorMessage,
   prepareSorobanTx,
+  prepareSorobanTxWithResult,
   ContractSimulationError,
   TransactionOutcomeUnknownError,
   VAULT_CONTRACT_ERROR_MESSAGES,
@@ -248,6 +249,36 @@ describe("simErrorMessage snapshots", () => {
 
 describe("prepareSorobanTx contract errors", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("returns the simulated contract result as stroops with the prepared fee", async () => {
+    const caller = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    vi.spyOn(rpc.Server.prototype, "getAccount").mockResolvedValue(
+      new Account(caller, "0")
+    );
+    vi.spyOn(rpc.Server.prototype, "simulateTransaction").mockResolvedValue({
+      id: "1",
+      latestLedger: 1,
+      minResourceFee: "500",
+      events: [],
+      transactionData: new SorobanDataBuilder().setResourceFee("500"),
+      result: {
+        auth: [],
+        retval: nativeToScVal(12_345_678n, { type: "i128" }),
+      },
+      _parsed: true,
+    });
+
+    await expect(
+      prepareSorobanTxWithResult(
+        TESTNET,
+        caller,
+        new Contract(CONTRACT_ADDRESSES.testnet.vault).call("deposit")
+      )
+    ).resolves.toMatchObject({
+      fee: "600",
+      simulationResult: "12345678",
+    });
+  });
 
   it("returns the assembled transaction fee, including its inclusion fee", async () => {
     const caller = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";

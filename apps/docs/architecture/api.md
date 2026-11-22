@@ -123,11 +123,12 @@ Builds an unsigned Soroban deposit transaction.
 ```json
 {
   "xdr": "AAAAAgAAAAA...",
-  "fee": "12345"
+  "fee": "12345",
+  "simulationResult": "995000000"
 }
 ```
 
-The `xdr` field is a base64-encoded unsigned `TransactionEnvelope`. The `fee` is the assembled transaction's total fee in stroops, including the inclusion fee. The client must forward the XDR to the wallet for signing before submitting.
+The `xdr` field is a base64-encoded unsigned `TransactionEnvelope`. The `fee` is the assembled transaction's total fee in stroops, including the inclusion fee. `simulationResult` is the contract call's simulated return amount in stroops (shares minted for a deposit, USDC paid out for a withdrawal), from the same simulation used to assemble the XDR and fee. The client must show the simulation result before forwarding the XDR to the wallet for signing.
 
 ### `POST /api/v1/tx/withdraw`
 
@@ -143,7 +144,7 @@ Builds an unsigned Soroban withdraw transaction.
 }
 ```
 
-**Response:** same shape as deposit: `{ xdr, fee }`.
+**Response:** same shape as deposit: `{ xdr, fee, simulationResult }`.
 
 ### `POST /api/v1/tx/add-trustline`
 

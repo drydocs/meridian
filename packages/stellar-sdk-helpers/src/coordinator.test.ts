@@ -6,7 +6,7 @@ vi.mock("./tx", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./tx")>();
   return {
     ...actual,
-    prepareSorobanTx: vi.fn(),
+    prepareSorobanTxWithResult: vi.fn(),
     simulateView: vi.fn(),
   };
 });
@@ -18,7 +18,7 @@ import {
   fetchVaultAdmin,
   fetchCoordinatorState,
 } from "./coordinator";
-import { prepareSorobanTx, simulateView } from "./tx";
+import { prepareSorobanTxWithResult, simulateView } from "./tx";
 
 const network: StellarNetwork = {
   network: "testnet",
@@ -31,9 +31,10 @@ const WALLET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(prepareSorobanTx).mockResolvedValue({
+  vi.mocked(prepareSorobanTxWithResult).mockResolvedValue({
     xdr: "UNSIGNED_XDR",
     fee: "150",
+    simulationResult: "95000000",
   });
 });
 
@@ -45,10 +46,14 @@ describe("buildCoordinatorDepositTx", () => {
       100_000_000n
     );
 
-    expect(result).toEqual({ xdr: "UNSIGNED_XDR", fee: "150" });
-    expect(prepareSorobanTx).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      xdr: "UNSIGNED_XDR",
+      fee: "150",
+      simulationResult: "95000000",
+    });
+    expect(prepareSorobanTxWithResult).toHaveBeenCalledTimes(1);
     const [passedNetwork, passedCaller, op] =
-      vi.mocked(prepareSorobanTx).mock.calls[0]!;
+      vi.mocked(prepareSorobanTxWithResult).mock.calls[0]!;
     expect(passedNetwork).toBe(network);
     expect(passedCaller).toBe(WALLET);
 
@@ -70,7 +75,7 @@ describe("buildCoordinatorDepositTx", () => {
       95_000_000n
     );
 
-    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    const [, , op] = vi.mocked(prepareSorobanTxWithResult).mock.calls[0]!;
     const invocation = op.body().invokeHostFunctionOp().hostFunction();
     const args = invocation.invokeContract().args();
     expect(args).toHaveLength(3);
@@ -92,7 +97,7 @@ describe("buildCoordinatorDepositTx", () => {
         -1n
       )
     ).rejects.toThrow(/amount must be positive/);
-    expect(prepareSorobanTx).not.toHaveBeenCalled();
+    expect(prepareSorobanTxWithResult).not.toHaveBeenCalled();
   });
 
   it("throws without calling prepareSorobanTx for a negative minSharesOut", async () => {
@@ -104,7 +109,7 @@ describe("buildCoordinatorDepositTx", () => {
         -1n
       )
     ).rejects.toThrow(/minSharesOut must be non-negative/);
-    expect(prepareSorobanTx).not.toHaveBeenCalled();
+    expect(prepareSorobanTxWithResult).not.toHaveBeenCalled();
   });
 });
 
@@ -117,8 +122,12 @@ describe("buildCoordinatorWithdrawTx", () => {
       1_000_000n
     );
 
-    expect(result).toEqual({ xdr: "UNSIGNED_XDR", fee: "150" });
-    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    expect(result).toEqual({
+      xdr: "UNSIGNED_XDR",
+      fee: "150",
+      simulationResult: "95000000",
+    });
+    const [, , op] = vi.mocked(prepareSorobanTxWithResult).mock.calls[0]!;
     const invocation = op.body().invokeHostFunctionOp().hostFunction();
     expect(invocation.invokeContract().functionName().toString()).toBe(
       "withdraw"
@@ -136,7 +145,7 @@ describe("buildCoordinatorWithdrawTx", () => {
       WALLET,
       50_000_000n
     );
-    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    const [, , op] = vi.mocked(prepareSorobanTxWithResult).mock.calls[0]!;
     const args = op
       .body()
       .invokeHostFunctionOp()
@@ -155,7 +164,7 @@ describe("buildCoordinatorWithdrawTx", () => {
         0n
       )
     ).rejects.toThrow(/shares must be positive/);
-    expect(prepareSorobanTx).not.toHaveBeenCalled();
+    expect(prepareSorobanTxWithResult).not.toHaveBeenCalled();
   });
 
   it("throws without calling prepareSorobanTx for a negative minUsdcOut", async () => {
@@ -167,7 +176,7 @@ describe("buildCoordinatorWithdrawTx", () => {
         -1n
       )
     ).rejects.toThrow(/minUsdcOut must be non-negative/);
-    expect(prepareSorobanTx).not.toHaveBeenCalled();
+    expect(prepareSorobanTxWithResult).not.toHaveBeenCalled();
   });
 });
 

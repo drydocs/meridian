@@ -1,5 +1,5 @@
 import { Address, Contract, nativeToScVal, xdr } from "@stellar/stellar-sdk";
-import { prepareSorobanTx, simulateView } from "./tx";
+import { prepareSorobanTxWithResult, simulateView } from "./tx";
 import { getRpcServer, toBigInt } from "./internal";
 import type { StellarNetwork } from "./types";
 import { computePosition, type PositionInfo } from "./positions";
@@ -27,11 +27,11 @@ export async function buildCoordinatorDepositTx(
   walletAddress: string,
   amount: bigint,
   minSharesOut: bigint = 0n
-): Promise<{ xdr: string; fee: string }> {
+): Promise<{ xdr: string; fee: string; simulationResult: string }> {
   if (amount <= 0n) throw new Error("amount must be positive");
   if (minSharesOut < 0n) throw new Error("minSharesOut must be non-negative");
   const contract = new Contract(config.contractId);
-  return prepareSorobanTx(
+  return prepareSorobanTxWithResult(
     config.network,
     walletAddress,
     contract.call(
@@ -57,11 +57,11 @@ export async function buildCoordinatorWithdrawTx(
   walletAddress: string,
   shares: bigint,
   minUsdcOut: bigint = 0n
-): Promise<{ xdr: string; fee: string }> {
+): Promise<{ xdr: string; fee: string; simulationResult: string }> {
   if (shares <= 0n) throw new Error("shares must be positive");
   if (minUsdcOut < 0n) throw new Error("minUsdcOut must be non-negative");
   const contract = new Contract(config.contractId);
-  return prepareSorobanTx(
+  return prepareSorobanTxWithResult(
     config.network,
     walletAddress,
     contract.call(
