@@ -28,6 +28,7 @@ jobs:
       test: ${{ steps.filter.outputs.test }}
       e2e: ${{ steps.filter.outputs.e2e }}
       contracts: ${{ steps.filter.outputs.contracts }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
@@ -64,6 +65,13 @@ jobs:
               - "packages/stellar-sdk-helpers/**"
               - "packages/api-core/**"
               - "!**/*.md"
+            docs:
+              - "**/*.md"
+              - "apps/docs/**"
+              - lychee.toml
+              - .markdownlint.json
+              - .markdownlint-cli2.jsonc
+              - .github/workflows/ci.yml
             contracts:
               - .github/workflows/ci.yml
               - "packages/contracts/**"
@@ -120,6 +128,34 @@ jobs:
               exit 1
             fi
           done
+
+  # Markdown lint plus link checks for the README, root docs and `apps/docs`.
+  # Internal links are strict; external links are best-effort on PRs (hosts
+  # that block CI are allowlisted in lychee.toml).
+  docs-checks:
+    name: Docs Lint & Links
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: lychee
+      - name: Lint Markdown
+        run: pnpm lint:md
+      - name: Check internal links
+        run: pnpm check:links
+      - name: Check external links
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: pnpm check:links:external
 
   test:
     permissions:

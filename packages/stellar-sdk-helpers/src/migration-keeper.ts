@@ -40,6 +40,7 @@ import {
 } from "./keeper-retry";
 import {
   assertAdapterUnchanged,
+  assertVaultHealthy,
   expectString,
   isMigrationCooldownError,
   isStaleAdapterError,
@@ -803,6 +804,11 @@ async function submitMigrationTransaction(
   // process died before the record was written), so the two guards are
   // complementary rather than redundant, see migration-keeper.md.
   if (!priorHash) {
+    await assertVaultHealthy(
+      server,
+      vaultContractId,
+      config.network.passphrase
+    );
     await assertAdapterUnchanged(
       server,
       vaultContractId,

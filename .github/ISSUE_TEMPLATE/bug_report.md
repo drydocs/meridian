@@ -45,7 +45,7 @@ assignees: ""
 
 <!-- Paste relevant logs or attach screenshots. Wrap long logs in code blocks. -->
 
-```
+```text
 paste logs here
 ```
 
