@@ -78,6 +78,65 @@ lower-tail return is positive. An empty return series or confidence outside the
 open interval `(0, 1)` throws `RangeError`. The `computeRiskMetrics` helper
 defaults to 95% confidence.
 
+## Conditional value at risk
+
+`conditionalValueAtRisk` (expected shortfall) averages every return at or
+below the VaR threshold at the same confidence, then negates the mean.
+[Source](https://github.com/drydocs/meridian/blob/main/packages/strategies/src/risk-metrics.ts)
+
+```text
+k = clamp(ceil((1 - c) * n), 1, n)
+threshold = sortedReturns[k - 1]
+CVaR = -mean(return[i] for return[i] <= threshold)
+```
+
+Returns tied with the threshold join the tail, so CVaR is never a smaller loss
+than VaR. It uses the same sign convention: positive is a loss, negative means
+even the tail was a gain. It throws `RangeError` for the same inputs as
+`valueAtRisk`.
+
+## Downside deviation
+
+`downsideDeviation` measures dispersion below a per-period minimum acceptable
+return (MAR), which defaults to zero.
+
+```text
+downside deviation = sqrt(sum(min(0, return[i] - MAR)^2) / n)
+```
+
+Every return counts in `n`, but only shortfalls below the MAR add to the sum.
+The result is zero or higher, and zero when no return fell below the MAR. An
+empty series throws `RangeError`.
+
+## Sortino ratio
+
+`sortinoRatio` is the per-period excess mean over the downside deviation.
+
+```text
+Sortino = (mean - MAR) / downside deviation
+```
+
+It throws `RangeError` for an empty series or a zero downside deviation.
+Annualize it like Sharpe: `annualizeSharpe(sortino, periodsPerYear)`.
+
+## Calmar ratio
+
+`calmarRatio` divides the annualized mean return by the maximum drawdown.
+
+```text
+Calmar = mean(returns) * periodsPerYear / maximum drawdown
+```
+
+The mean is annualized arithmetically, without compounding, so the
+calculation stays in fixed point. `periodsPerYear` defaults to `1`, which gives
+a per-period ratio. The ratio keeps the sign of the mean return. It throws
+`RangeError` for an empty return series, a non-positive `periodsPerYear`, or a
+zero maximum drawdown.
+
+`computeRiskMetrics` returns all four new fields. It reports `sortinoRatio` and
+`calmarRatio` as `null` instead of throwing when their denominator is zero, and
+accepts `minimumAcceptableReturn` and `periodsPerYear` options.
+
 ## Worked fixed-point example
 
 Take daily portfolio values `1`, `0.98`, `0.9849`, `0.9996735` and `1.03966044`.
@@ -97,19 +156,29 @@ const decimal = (value: string) => Decimal.fromString(value, 7);
 const returns = ["-0.02", "0.005", "0.015", "0.04"].map(decimal);
 const drawdowns = ["-0.02", "-0.0151", "-0.0003265", "0"].map(decimal);
 const riskFreePerPeriod = decimal("0.002");
-const metrics = computeRiskMetrics(drawdowns, returns, { riskFreePerPeriod });
+const metrics = computeRiskMetrics(drawdowns, returns, {
+  riskFreePerPeriod,
+  periodsPerYear: 365,
+});
 
 metrics.maxDrawdown.toString(); // "0.020000000000000000"
 metrics.sharpeRatio.toFixed(6); // "0.371992"
 sharpeRatio(returns, riskFreePerPeriod, "sample").toFixed(6); // "0.322155"
 annualizeSharpe(metrics.sharpeRatio, 365).toFixed(6); // "7.106906"
 metrics.valueAtRisk.toString(); // "0.0200000"
+metrics.conditionalValueAtRisk.toString(); // "0.020000000000000000"
+metrics.downsideDeviation.toString(); // "0.010000000000000000"
+metrics.sortinoRatio?.toString(); // "1.000000000000000000"
+metrics.calmarRatio?.toString(); // "182.500000000000000000"
 ```
 
 The mean return is `0.01`, the excess mean is `0.008` and the sum of squared
 deviations is `0.00185`. Population variance is `0.0004625` and sample variance
 is about `0.000616666666666667` at scale 18. At 95% confidence, the tail rank is
-`ceil(0.05 * 4) = 1`, so VaR is `-(-0.02) = 0.02`.
+`ceil(0.05 * 4) = 1`, so VaR is `-(-0.02) = 0.02`, and the tail holds only that
+return, so CVaR is also `0.02`. Only `-0.02` falls below a zero MAR, so the
+downside deviation is `sqrt(0.0004 / 4) = 0.01` and Sortino is
+`0.01 / 0.01 = 1`. Calmar is `0.01 * 365 / 0.02 = 182.5`.
 
 Maximum drawdown and both Sharpe calculations use at least 18 decimal places
 and keep wider input scales. The Sharpe calculations round multiplication and
