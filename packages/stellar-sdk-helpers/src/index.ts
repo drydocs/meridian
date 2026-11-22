@@ -11,6 +11,7 @@ export * from "./keeper-state";
 export * from "./keeper-tx";
 export * from "./known-pools";
 export * from "./migration-keeper";
+export * from "./musdc-token";
 export * from "./orchestration";
 export * from "./position-snapshots";
 export * from "./positions";
