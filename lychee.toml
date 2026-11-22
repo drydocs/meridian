@@ -1,0 +1,32 @@
+# Link checker configuration (https://lychee.cli.rs).
+#
+# Internal links are strict: a broken relative or root-relative link, or a
+# missing heading anchor, fails the check. CI runs lychee twice: once with
+# `--offline` (internal links only, blocking) and once for external links.
+# Run `pnpm check:links` locally (requires `brew install lychee`).
+
+# Resolve VitePress-style extensionless links (`/overview/introduction`).
+fallback_extensions = ["md"]
+include_fragments = "anchor-only"
+# Root-relative links in `apps/docs` resolve against the docs source root.
+root_dir = "apps/docs"
+
+max_retries = 2
+timeout = 20
+accept = ["200..=299", "429"]
+
+exclude_path = ["node_modules", ".vitepress", "CHANGELOG.md"]
+
+# Links excluded from checks. Keep a comment for each entry.
+exclude = [
+  # `../../issues` links are relative to github.com, not the file system.
+  '^file://.*/issues(/\d+)?$',
+  # Rate-limits or blocks CI runners (returns 403/429 for bots).
+  '^https://(www\.)?linkedin\.com',
+  '^https://(www\.)?(twitter|x)\.com',
+  # Stellar testnet faucet: returns 400 without a real funded address.
+  '^https://friendbot\.stellar\.org',
+  # Local development URLs referenced in guides.
+  '^https?://localhost',
+  '^https?://127\.0\.0\.1',
+]

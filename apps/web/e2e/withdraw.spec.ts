@@ -79,10 +79,12 @@ test.describe("withdraw", () => {
     // generic build error instead. All of these exercise the real tx-build
     // path end to end, so accept each rather than depending on the live
     // wallet state and testnet availability.
+    // All raw server strings are now mapped through mapError/en.json, so this
+    // regex matches the localized equivalents instead of the raw server text.
     await expect(
       page.getByText(
         new RegExp(
-          `Missing USDC trustline|Simulation failed: HostError|Failed to build withdraw transaction|${USER_FIXABLE_TX_ERRORS}`
+          `Your wallet is missing the USDC trustline|Something went wrong|You declined the request|Could not prepare the withdrawal|${USER_FIXABLE_TX_ERRORS}`
         )
       )
     ).toBeVisible({ timeout: 20_000 });
