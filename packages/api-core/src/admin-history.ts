@@ -3,16 +3,18 @@ import { getAdminActionHistory } from "@meridian/stellar-sdk-helpers";
 import { APP_NETWORK } from "@meridian/shared";
 import { KNOWN_POOLS } from "@meridian/stellar-sdk-helpers";
 
-// Horizon cannot filter invoke_host_function operations by contract, so every
-// page is network-wide (200 operations) and filtered only after download.
-// Keep the cold-path scan small and time-boxed so one request cannot fan out
-// into thousands of operations; the budget sits under the function's
-// maxDuration in vercel.json.
+// Meridian cannot filter onchain host function operations by contract, so every
+// page is read then deduplicated and filtered until the timeout or the max
+// number of pages is reached. If a vault has lots of admin history, this can
+// take a while, so keep the budget within the function's timeout.
+// Use thousands of operations: the budget sits under the function's
+// 60s timeout on Vercel's pro plan.
 const ADMIN_HISTORY_MAX_PAGES = 5;
-const ADMIN_HISTORY_TIMEOUT_MS = 8_000;
+const ADMIN_HISTORY_TIMEOUT_MS = 45_000;
 
 export async function handleGetAdminHistory(
-  vaultId: string
+  vaultId: string,
+  cursor?: string,
 ): Promise<RouteResult> {
   try {
     const pools =
@@ -27,10 +29,11 @@ export async function handleGetAdminHistory(
       };
     }
 
-    const actions = await getAdminActionHistory(APP_NETWORK, vault.contractId, {
+    const page = await getAdminActionHistory(APP_NETWORK, vault.contractId, {
       limit: 50,
       maxPages: ADMIN_HISTORY_MAX_PAGES,
       scanTimeoutMs: ADMIN_HISTORY_TIMEOUT_MS,
+      cursor,
     });
 
     return {
@@ -38,8 +41,9 @@ export async function handleGetAdminHistory(
       body: {
         vaultId,
         contractId: vault.contractId,
-        actions,
-        updatedAt: new Date().toISOString(),
+        actions: page.actions,
+        nextCursor: page.nextCursor,
+        timestamp: new Date().toISOString(),
       },
     };
   } catch (err) {
