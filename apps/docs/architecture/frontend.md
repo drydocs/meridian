@@ -15,7 +15,7 @@
 
 The public UI is intentionally minimal: one page, one panel. A second, admin-only page (`/admin`) was added for [#615](https://github.com/drydocs/meridian/issues/615), but there is no router. `App.tsx` picks between the pages by checking `window.location.pathname` directly, since a full router is a heavier change than a small static path split needs (see its comment). The previous `/app/admin` path permanently redirects to `/admin` on Vercel.
 
-```
+```text
 App
 ├── Header
 │   └── WalletConnect        # Connect / disconnect + wallet picker (#611)
@@ -41,7 +41,7 @@ AdminDashboard (/admin)
 
 ## Data flow
 
-```
+```text
 useVaults
   └─► api.getVaults() → GET /api/v1/vaults
         └─► returns ApiVault[]

@@ -28,11 +28,13 @@ interface DepositTabProps {
   onAmountChange: (value: string) => void;
   onAmountKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   bestVault: ApiVault | undefined;
-  position: ApiPosition | undefined;
-  hasPosition: boolean;
+  position?: ApiPosition | undefined;
+  hasPosition?: boolean;
   isDepositing: boolean;
   onSubmit: () => void;
   availableBalance?: number;
+  isBalanceError?: boolean;
+  onRetryBalance?: () => void;
 }
 
 export function DepositTab({
@@ -40,11 +42,11 @@ export function DepositTab({
   onAmountChange,
   onAmountKeyDown,
   bestVault,
-  position,
-  hasPosition,
   isDepositing,
   onSubmit,
   availableBalance,
+  isBalanceError,
+  onRetryBalance,
 }: DepositTabProps) {
   const { t, i18n } = useTranslation();
   // True only when the user emptied the field themselves. A completed deposit
@@ -53,6 +55,15 @@ export function DepositTab({
   const error = validateDepositAmount(amount, availableBalance);
   const showError = error !== null && (amount !== "" || clearedByUser);
 
+  function handleMax() {
+    if (availableBalance === undefined) return;
+    const maxAmount = Number.isInteger(availableBalance)
+      ? availableBalance.toString()
+      : parseFloat(availableBalance.toFixed(7)).toString();
+    setClearedByUser(false);
+    onAmountChange(maxAmount);
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -60,12 +71,40 @@ export function DepositTab({
           <span className="text-xs font-medium text-gray-500">
             {t("vaultPanel.amount")}
           </span>
-          {hasPosition && position && (
-            <span className="text-xs text-gray-600">
-              {t("vaultPanel.balance")}:{" "}
-              {formatUsd(position.deposited, i18n.language)}
-            </span>
-          )}
+          {isBalanceError ? (
+            <div
+              data-testid="vault-balance-error"
+              className="flex items-center gap-1.5 text-xs text-amber-400"
+            >
+              <span>{t("vaultPanel.balanceError")}</span>
+              {onRetryBalance && (
+                <button
+                  type="button"
+                  data-testid="vault-balance-retry"
+                  onClick={onRetryBalance}
+                  aria-label={t("vaultPanel.retryBalance")}
+                  className="text-amber-300 hover:text-amber-200 underline font-medium"
+                >
+                  {t("common.retry")}
+                </button>
+              )}
+            </div>
+          ) : availableBalance !== undefined ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-600">
+                {t("vaultPanel.balance")}:{" "}
+                {formatUsd(availableBalance, i18n.language)}
+              </span>
+              <button
+                type="button"
+                data-testid="vault-deposit-max"
+                onClick={handleMax}
+                className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-150"
+              >
+                {t("vaultPanel.max")}
+              </button>
+            </div>
+          ) : null}
         </div>
         <AmountInput
           currency="USDC"

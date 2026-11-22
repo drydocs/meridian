@@ -106,7 +106,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
   submitTx: (body: { xdr: string }) =>
-    apiFetch<{ hash: string }>("/api/v1/tx/submit", {
+    apiFetch<{
+      hash: string;
+      status?: "SUCCESS" | "PENDING" | "OUTCOME_UNKNOWN";
+      code?: "TRANSACTION_OUTCOME_UNKNOWN";
+      ledger?: number;
+    }>("/api/v1/tx/submit", {
       method: "POST",
       body: JSON.stringify(body),
     }),

@@ -31,7 +31,7 @@ Transfers `amount` USDC from the caller into the vault, forwards it to the activ
 
 The mint is priced from the adapter's credit, not from `amount` ([#1263](https://github.com/drydocs/meridian/issues/1263)). A partial fill, a supply cap or a fee taken on deposit can leave the adapter holding less value than the caller sent; pricing from `amount` would still mint the full quote and dilute existing holders. After the adapter's `deposit()` returns the shares it credited, the vault calls `refresh()` and reads the adapter's post-deposit `total_assets()` and `total_shares()` once, and prices everything from those reads:
 
-```
+```text
 quoted_shares   = amount * (total_shares + OFFSET) / (assets_before + OFFSET)
 credited_value  = adapter_shares_credited * assets_after / adapter_shares_after
 backing         = min(amount, assets_after - assets_before)
@@ -66,7 +66,7 @@ Burns `shares` mUSDC from the caller, redeems the proportional adapter position,
 
 The `InsufficientShares` check reads the caller's live mUSDC balance, the same balance the burn operates on, so the two can never disagree. The check is kept rather than left to the burn's own failure so callers get the typed error instead of a panic.
 
-```
+```text
 adapter_shares_to_burn = shares * total_adapter_shares / total_shares
 usdc_out = <whatever the adapter's withdraw() returns for that many adapter shares>
 principal_out = Principal(caller) * shares / caller_shares
@@ -106,6 +106,10 @@ Returns the address's cost basis: the net USDC it has deposited and not yet with
 ### `get_total_assets() -> i128`
 
 Returns the live USDC value of the vault's position, read directly from the active adapter's `total_assets()`. Includes yield accrued by the underlying protocol (for Blend, only as of the adapter's last `accrue()` call, described below).
+
+### `get_health() -> Health`
+
+Returns a read-only reconciliation snapshot. `total_shares_mismatch` compares the vault's `TOTAL_SH` counter with the mUSDC token's `total_supply`; `adapter_shares_mismatch` compares `ADPT_SH` with the active adapter's own protocol-share balance. The response also includes the adapter's cached and live asset values, the last accrual ledger, and migration state. Each optional external read has a corresponding `*_stale` flag; when a legacy token or adapter does not expose that view or the read fails, the value falls back to a cached estimate and the flag is `true`. Consumers must not treat a fallback as a successful reconciliation. When a migration is active, `migration_earliest_ledger` is the first ledger at which `migrate_adapter` can execute; it is `0` otherwise. This view never refreshes or writes state, so keepers can use it as a preflight check before submitting a transaction.
 
 ### `get_total_shares() -> i128`
 

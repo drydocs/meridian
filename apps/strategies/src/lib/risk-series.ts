@@ -1,9 +1,13 @@
 import {
   Decimal,
   annualizeSharpe,
+  calmarRatio,
   computeRiskMetrics,
+  conditionalValueAtRisk,
+  downsideDeviation,
   durationToMilliseconds,
   maxDrawdown,
+  sortinoRatio,
   valueAtRisk,
 } from "@meridian/strategies";
 import type { BacktestSnapshot, RiskMetrics } from "@meridian/strategies";
@@ -112,7 +116,11 @@ export function periodsPerYear(step: string): Decimal {
 }
 
 export type InsufficientDataReason =
-  "too-few-returns" | "zero-variance" | "empty-drawdown";
+  | "too-few-returns"
+  | "zero-variance"
+  | "empty-drawdown"
+  | "zero-downside-deviation"
+  | "zero-drawdown";
 
 export type MetricResult =
   | { readonly status: "ok"; readonly value: Decimal }
@@ -137,6 +145,12 @@ export type RiskMetricsSummary =
       readonly annualizedSharpe: MetricResult;
       /** One-step loss magnitude as a ratio of value; negative is a gain. */
       readonly valueAtRisk: MetricResult;
+      /** Mean one-step loss in the VaR tail; same sign convention as VaR. */
+      readonly conditionalValueAtRisk: MetricResult;
+      /** Per-period Sortino scaled by `sqrt(periodsPerYear)`, MAR 0. */
+      readonly annualizedSortino: MetricResult;
+      /** Mean step return times `periodsPerYear`, over max drawdown. */
+      readonly calmarRatio: MetricResult;
     };
 
 export interface RiskMetricsInput {
@@ -225,6 +239,9 @@ export function summarizeRiskMetrics(
           : ok(maxDrawdown(drawdown)),
       annualizedSharpe: insufficient("too-few-returns"),
       valueAtRisk: insufficient("too-few-returns"),
+      conditionalValueAtRisk: insufficient("too-few-returns"),
+      annualizedSortino: insufficient("too-few-returns"),
+      calmarRatio: insufficient("too-few-returns"),
     };
   }
 
@@ -232,6 +249,7 @@ export function summarizeRiskMetrics(
   try {
     metrics = computeRiskMetrics(drawdown, returns, {
       confidenceLevel: confidence,
+      periodsPerYear: periods,
     });
   } catch (error) {
     // With two or more returns and a validated confidence, the only RangeError
@@ -244,6 +262,8 @@ export function summarizeRiskMetrics(
       maxDrawdown: ok(maxDrawdown(drawdown)),
       annualizedSharpe: insufficient("zero-variance"),
       valueAtRisk: ok(valueAtRisk(returns, confidence)),
+      conditionalValueAtRisk: ok(conditionalValueAtRisk(returns, confidence)),
+      ...downsideSummary(returns, drawdown, periods),
     };
   }
 
@@ -252,5 +272,37 @@ export function summarizeRiskMetrics(
     maxDrawdown: ok(metrics.maxDrawdown),
     annualizedSharpe: ok(annualizeSharpe(metrics.sharpeRatio, periods)),
     valueAtRisk: ok(metrics.valueAtRisk),
+    conditionalValueAtRisk: ok(metrics.conditionalValueAtRisk),
+    annualizedSortino:
+      metrics.sortinoRatio === null
+        ? insufficient("zero-downside-deviation")
+        : ok(annualizeSharpe(metrics.sortinoRatio, periods)),
+    calmarRatio:
+      metrics.calmarRatio === null
+        ? insufficient("zero-drawdown")
+        : ok(metrics.calmarRatio),
+  };
+}
+
+/**
+ * Sortino and Calmar for two or more returns, reporting a zero denominator
+ * as `insufficient` rather than throwing. Used when Sharpe fails on a
+ * zero-variance series, so the downside ratios are still shown.
+ */
+function downsideSummary(
+  returns: readonly Decimal[],
+  drawdown: readonly Decimal[],
+  periods: Decimal
+): Pick<
+  Extract<RiskMetricsSummary, { kind: "computed" }>,
+  "annualizedSortino" | "calmarRatio"
+> {
+  return {
+    annualizedSortino: downsideDeviation(returns).isZero()
+      ? insufficient("zero-downside-deviation")
+      : ok(annualizeSharpe(sortinoRatio(returns), periods)),
+    calmarRatio: maxDrawdown(drawdown).isZero()
+      ? insufficient("zero-drawdown")
+      : ok(calmarRatio(returns, drawdown, periods)),
   };
 }
