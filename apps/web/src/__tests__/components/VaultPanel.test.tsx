@@ -240,11 +240,12 @@ describe("VaultPanel — network mismatch", () => {
     expect(screen.queryByTestId("network-mismatch-banner")).toBeNull();
   });
 
-  it("disables signing while the wallet network is unknown", () => {
+  it("allows signing while the wallet network is unknown", () => {
     useWalletStore.setState({
       walletNetworkName: null,
       walletNetworkPassphrase: null,
     });
+    mockPositions({ isError: false, data: [POSITION] });
 
     render(<VaultPanel />);
 
@@ -253,8 +254,17 @@ describe("VaultPanel — network mismatch", () => {
     });
     expect(
       (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement).disabled
-    ).toBe(true);
+    ).toBe(false);
     expect(screen.getByText("networkMismatch.unknown")).toBeDefined();
+
+    fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    expect(
+      (screen.getByTestId("vault-withdraw-submit") as HTMLButtonElement)
+        .disabled
+    ).toBe(false);
   });
 });
 

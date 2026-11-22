@@ -24,7 +24,7 @@
     "mainnet": "Réseau principal",
     "testnet": "Testnet",
     "message": "Votre portefeuille est connecté à un autre réseau Stellar. Changez de réseau dans votre portefeuille avant de signer.",
-    "unknown": "Le réseau de votre portefeuille n'a pas pu être vérifié. Les actions de signature sont désactivées jusqu'à sa vérification.",
+    "unknown": "Le réseau de votre portefeuille n'a pas pu être vérifié. Vérifiez le réseau sélectionné dans votre portefeuille avant de signer.",
     "expected": "Attendu : {{network}}",
     "detected": "Détecté : {{network}}",
     "unknownNetwork": "Inconnu",

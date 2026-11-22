@@ -24,7 +24,7 @@
     "mainnet": "Mainnet",
     "testnet": "Testnet",
     "message": "Your wallet is connected to a different Stellar network. Switch networks in your wallet before signing.",
-    "unknown": "Your wallet network could not be verified. Signing actions are disabled until it can be checked.",
+    "unknown": "Your wallet network could not be verified. Check your wallet's selected network before signing.",
     "expected": "Expected: {{network}}",
     "detected": "Detected: {{network}}",
     "unknownNetwork": "Unknown",

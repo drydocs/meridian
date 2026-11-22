@@ -31,6 +31,7 @@ export function VaultPanel() {
   const { t } = useTranslation();
   const { connected, publicKey, walletNetworkPassphrase } = useWalletStore();
   const signingDisabled =
+    walletNetworkPassphrase !== null &&
     walletNetworkPassphrase !== APP_NETWORK.passphrase;
   const { balance: availableBalance, refetch: refetchBalance } =
     useUsdcBalance();

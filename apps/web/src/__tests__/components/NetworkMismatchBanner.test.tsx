@@ -12,7 +12,9 @@ vi.mock("../../lib/wallet", () => ({
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, string>) =>
-      `${key}${values?.network ? `:${values.network}` : ""}${
+      `${
+        key === "networkMismatch.unknownNetwork" ? "Unknown" : key
+      }${values?.network ? `:${values.network}` : ""}${
         values?.error ? `:${values.error}` : ""
       }`,
   }),
