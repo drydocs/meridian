@@ -4,5 +4,5 @@ export {
   redact,
   requestId,
   writeLog,
-} from "@meridian/shared";
-export type { LogLevel } from "@meridian/shared";
+} from "@meridian/shared/logger";
+export type { LogLevel } from "@meridian/shared/logger";

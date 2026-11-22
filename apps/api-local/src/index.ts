@@ -15,7 +15,7 @@ import { positionsRoute } from "./routes/positions";
 import { txRoute } from "./routes/tx";
 import { keepersRoute } from "./routes/keepers";
 import { adminRoute } from "./routes/admin";
-import { writeLog } from "@meridian/shared";
+import { writeLog } from "@meridian/shared/logger";
 
 // Rate limits: one shared 100 req/min limiter across all routes, matching the
 // deployed handlers' shared Upstash sliding window (api/_lib/middleware.ts).
