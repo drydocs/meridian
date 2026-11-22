@@ -319,6 +319,8 @@ export interface RpcAdminHistoryOptions {
  */
 const ADMIN_TOPIC_XDR: string = xdr.ScVal.scvSymbol("admin").toXDR("base64");
 
+const ADMIN_EVENT_SCHEMA_VERSION = 1;
+
 /**
  * Reads vault admin actions from RPC `getEvents` instead of paging through
  * Horizon's global invocation history.
@@ -336,14 +338,20 @@ export async function getRpcAdminHistory(
   const limit = options.limit ?? 200;
 
   // Soroban RPC's getEvents topic filter matches an event's topic array by
-  // exact segment count; a shorter filter does not match a longer one. The
-  // vault's admin events all carry two segments — (admin, <action>) — so the
-  // filter needs a second, wildcarded position to match them at all.
+  // exact segment count; a shorter filter does not match a longer one. Query
+  // both the legacy (admin, <action>) shape and the versioned
+  // (admin, <action>, <schema_version>) shape so pre-upgrade history remains
+  // visible alongside new events.
   const filters: rpc.Api.EventFilter[] = [
     {
       type: "contract",
       contractIds: [vaultContractId],
       topics: [[ADMIN_TOPIC_XDR, "*"]],
+    },
+    {
+      type: "contract",
+      contractIds: [vaultContractId],
+      topics: [[ADMIN_TOPIC_XDR, "*", "*"]],
     },
   ];
 
@@ -358,9 +366,28 @@ export async function getRpcAdminHistory(
       });
 
   const actions: RpcAdminAction[] = [];
+  const skippedVersions = new Map<number, number>();
   for (const event of response.events ?? []) {
     const parsed = parseAdminEvent(event);
-    if (parsed) actions.push(parsed);
+    if (parsed) {
+      actions.push(parsed);
+      continue;
+    }
+
+    const schema = readSchemaStatus(event);
+    if (!schema.supported && schema.version !== null) {
+      skippedVersions.set(
+        schema.version,
+        (skippedVersions.get(schema.version) ?? 0) + 1
+      );
+    }
+  }
+
+  for (const [version, count] of skippedVersions) {
+    console.warn(
+      `[admin-history] skipped ${count} admin event${count === 1 ? "" : "s"} with unsupported schema version ${version}`,
+      { version, count }
+    );
   }
 
   return { actions, nextCursor: response.cursor };
@@ -370,11 +397,14 @@ export async function getRpcAdminHistory(
  * Converts one RPC event into an {@link RpcAdminAction}, or `null` when the
  * event is not a recognised admin action.
  *
- * The vault emits `(admin, <action>)` topics, so `topic[0]` is the constant
- * `admin` symbol and `topic[1]` carries the action. The event value is already
- * a decoded `xdr.ScVal`, so no base64 round-trip is needed.
+ * The vault emits `(admin, <action>)` legacy topics or
+ * `(admin, <action>, <schema_version>)` versioned topics, so `topic[0]` is the
+ * constant `admin` symbol and `topic[1]` carries the action. The event value
+ * is already a decoded `xdr.ScVal`, so no base64 round-trip is needed.
  */
 function parseAdminEvent(event: rpc.Api.EventResponse): RpcAdminAction | null {
+  if (!readSchemaStatus(event).supported) return null;
+
   const action = parseTopicAction(event.topic[1]);
   if (!action) return null;
 
@@ -430,6 +460,27 @@ function parseAdminEvent(event: rpc.Api.EventResponse): RpcAdminAction | null {
       return { ...base, payload: { newAdapter, earliestLedger } };
     }
   }
+}
+
+type EventSchemaStatus =
+  { supported: true } | { supported: false; version: number | null };
+
+function readSchemaStatus(event: rpc.Api.EventResponse): EventSchemaStatus {
+  // Legacy events have no version segment. Versioned events must carry the
+  // one schema this reader knows how to decode; unknown versions are skipped
+  // rather than interpreted using v1 field positions.
+  if (event.topic.length === 2) return { supported: true };
+  if (event.topic.length !== 3) return { supported: false, version: null };
+
+  const versionTopic = event.topic[2];
+  if (!versionTopic || versionTopic.switch().name !== "scvU32") {
+    return { supported: false, version: null };
+  }
+
+  const version = versionTopic.u32();
+  return version === ADMIN_EVENT_SCHEMA_VERSION
+    ? { supported: true }
+    : { supported: false, version };
 }
 
 /**
