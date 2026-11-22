@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fields (Sortino and Calmar are `null` when their denominator is zero) and
   accepts `minimumAcceptableReturn` and `periodsPerYear`. The app's risk
   panel shows CVaR, annualized Sortino and Calmar.
+  `RunReport.riskMetrics` now carries `valueAtRisk`, `conditionalValueAtRisk`,
+  `downsideDeviation`, `sortinoRatio` and `calmarRatio`, and
+  `REPORT_FORMAT_VERSION` is bumped to 3. Version 2 reports are rejected with
+  `UnknownReportVersionError`.
 - **SDK: typed errors, retry policy and instrumentation hooks (#1299).** `@meridian/sdk`
   now throws `MeridianError` subclasses with a stable `code` and `retryable`
   flag, accepts `timeouts` (RPC default stays 12000ms), an opt-in `retry`
