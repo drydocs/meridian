@@ -11,10 +11,10 @@ export const adminRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/history", async (req, reply) => {
-    const { vaultId } = req.query as { vaultId?: string };
+    const { vaultId, cursor } = req.query as { vaultId?: string; cursor?: string };
     if (!vaultId) return reply.code(400).send({ error: "vaultId is required" });
 
-    const result = await handleGetAdminHistory(vaultId);
+    const result = await handleGetAdminHistory(vaultId, cursor);
     if (result.error) {
       app.log.error(result.error, "[admin] failed to read admin history");
     }
