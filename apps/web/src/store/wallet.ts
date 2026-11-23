@@ -43,11 +43,22 @@ export const useWalletStore = create<WalletStore>()(
           return;
         }
 
+        if (get().publicKey !== key) {
+          return;
+        }
+
+        let activeKey = key;
+
         // Reconcile passive address if supported
         if (typeof wallet.getAddress === "function") {
           try {
             const reportedAddress = await wallet.getAddress();
-            if (reportedAddress && reportedAddress !== get().publicKey) {
+            if (
+              get().publicKey === activeKey &&
+              reportedAddress &&
+              reportedAddress !== get().publicKey
+            ) {
+              activeKey = reportedAddress;
               set({ publicKey: reportedAddress, connected: true });
               const fallback = `Wallet account switched to ${shortenAddress(reportedAddress)}`;
               const message =
@@ -72,6 +83,7 @@ export const useWalletStore = create<WalletStore>()(
           try {
             const reportedNetwork = await wallet.getNetwork();
             if (
+              get().publicKey === activeKey &&
               (reportedNetwork === "mainnet" ||
                 reportedNetwork === "testnet") &&
               reportedNetwork !== get().network
