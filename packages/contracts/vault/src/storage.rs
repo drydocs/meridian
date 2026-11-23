@@ -87,6 +87,19 @@ pub struct MigrationSnapshot {
     pub ledger_seq: u32,
 }
 
+/// Read-only view of a pending migration: the snapshot plus the earliest
+/// ledger at which `migrate_adapter` may execute and the ledgers remaining
+/// until then. `pending` is false (and the other fields are zero/`None`)
+/// when no migration is in progress.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct MigrationStatus {
+    pub pending: bool,
+    pub snapshot: Option<MigrationSnapshot>,
+    pub executable_at_ledger: u32,
+    pub remaining_ledgers: u32,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {

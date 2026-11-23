@@ -64,6 +64,44 @@ fn migration_moves_the_whole_position_after_the_full_timelock() {
 }
 
 #[test]
+fn migration_status_reports_pending_ready_and_empty_states() {
+    let f = Fixture::new();
+    let alice = Address::generate(&f.env);
+    f.fund(&alice, usdc(100));
+    f.deposit(&alice, usdc(100));
+    let new = f.new_venue();
+
+    // Empty state: no migration pending.
+    let status = f.vault.get_migration_status();
+    assert!(!status.pending);
+    assert!(status.snapshot.is_none());
+    assert_eq!(status.earliest_executable_ledger, 0);
+    assert_eq!(status.remaining_ledgers, 0);
+
+    // Pending state: snapshot taken, cooldown running.
+    f.authorize_admin("begin_migration", (new.adapter.address.clone(),));
+    f.vault.begin_migration(&new.adapter.address);
+    let status = f.vault.get_migration_status();
+    assert!(status.pending);
+    assert_eq!(status.snapshot.unwrap().adapter, new.adapter.address);
+    assert_eq!(status.remaining_ledgers, MIN_LEDGER_GAP);
+    assert_eq!(
+        status.earliest_executable_ledger,
+        f.env.ledger().sequence() + MIN_LEDGER_GAP
+    );
+
+    // Ready state: cooldown elapsed.
+    f.advance_ledgers(MIN_LEDGER_GAP);
+    let status = f.vault.get_migration_status();
+    assert!(status.pending);
+    assert_eq!(status.remaining_ledgers, 0);
+    assert!(f.env.ledger().sequence() >= status.earliest_executable_ledger);
+
+    // The existing snapshot getter is unchanged.
+    assert_eq!(f.vault.get_migration_snapshot().adapter, new.adapter.address);
+}
+
+#[test]
 fn users_deposit_and_withdraw_against_the_new_adapter_after_migrating() {
     let f = Fixture::new();
     let alice = Address::generate(&f.env);
