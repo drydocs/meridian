@@ -39,7 +39,7 @@ export async function handleGetAdminHistory(
           limit: 50,
           maxPages: ADMIN_HISTORY_MAX_PAGES,
           scanTimeoutMs: ADMIN_HISTORY_TIMEOUT_MS,
-          cursor,
+          cursor: cursor ?? null,
         }),
        "admin history"
     )) as GetAdminActionHistoryResult;
