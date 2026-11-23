@@ -440,6 +440,27 @@ This suite is a blocking CI check. Tests that depend on live testnet RPC or othe
 suite deterministic — real testnet RPC is still exercised in the deposit/withdraw tx-build specs, which
 accept valid RPC failure states as expected outcomes. Before merging a PR, this job must pass (see #535).
 
+### Fuzz / property tests
+
+CI runs a bounded corpus of fuzz cases on every PR (256 random trials per
+schema, seeded for determinism):
+
+- `packages/stellar-sdk-helpers/src/fuzz-decoders.test.ts` covers the ScVal
+  decoder used by transaction building, event summarisation and position
+  reads. Invalid input must return `null` rather than throwing.
+- `packages/api-core/src/request-fuzz.test.ts` covers request-body zod
+  schemas (`DepositRequestSchema`, `WithdrawRequestSchema`,
+  `TrustlineRequestSchema`, `SubmitRequestSchema`). Invalid input must yield
+  `{ success: false }` rather than a thrown exception.
+
+For a longer local run, raise the trial count by setting the seed and loop
+bound in those files (search for `FUZZ_SEED` / `256 random`) and run:
+
+```sh
+pnpm --filter @meridian/stellar-sdk-helpers test
+pnpm --filter @meridian/api-core test
+```
+
 ---
 
 ## Getting Help
