@@ -16,6 +16,7 @@ import { txRoute } from "./routes/tx";
 import { keepersRoute } from "./routes/keepers";
 import { adminRoute } from "./routes/admin";
 import { writeLog } from "@meridian/shared/logger";
+import { configRoute } from "./routes/config";
 
 // Rate limits: one shared 100 req/min limiter across all routes, matching the
 // deployed handlers' shared Upstash sliding window (api/_lib/middleware.ts).
@@ -56,6 +57,7 @@ app.register(positionsRoute, { prefix: "/api/v1/positions" });
 app.register(txRoute, { prefix: "/api/v1/tx" });
 app.register(keepersRoute, { prefix: "/api/v1/keepers" });
 app.register(adminRoute, { prefix: "/api/v1/admin" });
+app.register(configRoute, { prefix: "/api/v1/config" });
 
 app.get("/health", async () => ({ status: "ok" }));
 
