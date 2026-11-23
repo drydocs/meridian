@@ -45,6 +45,40 @@ function estimatePrincipal(position: ApiPosition | undefined): number {
   return Math.max(0, position.deposited - position.earned);
 }
 
+export interface VaultTransactionPreview {
+  operation: "deposit" | "withdraw";
+  amount: string;
+  asset: string;
+  expectedResult: string;
+  fee: string;
+  minimumReceived: string;
+}
+
+interface PendingDeposit {
+  operation: "deposit";
+  xdr: string;
+  preview: VaultTransactionPreview;
+  vaultId: string;
+  depositAmount: number;
+  sharesBefore: number;
+  depositedBefore: number;
+  positionsBefore: ApiPosition[] | undefined;
+  matchedBefore: ApiPosition | undefined;
+}
+
+interface PendingWithdraw {
+  operation: "withdraw";
+  xdr: string;
+  preview: VaultTransactionPreview;
+  vaultId: string;
+  withdrawnShares: number;
+  sharesBefore: number;
+  positionsBefore: ApiPosition[] | undefined;
+  matchedBefore: ApiPosition | undefined;
+}
+
+type PendingTransaction = PendingDeposit | PendingWithdraw;
+
 export function useVaultActions() {
   const { t } = useTranslation();
   const { publicKey, network } = useWalletStore();
@@ -52,13 +86,16 @@ export function useVaultActions() {
   const { push } = useToastStore();
   const [isDepositing, setIsDepositing] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [pendingTransaction, setPendingTransaction] =
+    useState<PendingTransaction | null>(null);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
 
   const { signAndSubmit, passphrase } = useSignAndSubmit();
   const { hasRequiredTrustlines, addTrustline } = useTrustlines();
   const { hasBlendUsdcBalance, fundFromBlendFaucet } = useBlendFaucet();
   const { startPolling } = usePositionPolling();
 
-  async function deposit(
+  async function prepareDeposit(
     amount: string,
     vaultId: string,
     asset: string,
@@ -67,6 +104,8 @@ export function useVaultActions() {
   ): Promise<boolean> {
     if (!riskAcknowledged) return false;
     if (!publicKey || !passphrase) return false;
+    setPendingTransaction(null);
+    setSimulationError(null);
     setIsDepositing(true);
     try {
       // Snapshot the cached positions before any async work so the optimistic
@@ -89,8 +128,7 @@ export function useVaultActions() {
       if (resolvedMinSharesOut === undefined) {
         const state = await resolveVaultState(queryClient);
         if (!state) {
-          push("error", t("vaultActions.vaultStateUnavailable"));
-          return false;
+          throw new Error(t("vaultActions.vaultStateUnavailable"));
         }
         resolvedMinSharesOut = computeMinSharesOut(
           parseFloat(amount),
@@ -105,7 +143,7 @@ export function useVaultActions() {
       const hasTrustlines = await hasRequiredTrustlines(publicKey, network);
       if (!hasTrustlines) {
         const ok = await addTrustline();
-        if (!ok) return false;
+        if (!ok) throw new Error(t("vaultActions.preparationFailed"));
       }
 
       // On testnet, automatically fund the wallet from Blend's faucet when the
@@ -114,75 +152,55 @@ export function useVaultActions() {
         const hasFunds = await hasBlendUsdcBalance(publicKey, network);
         if (!hasFunds) {
           const ok = await fundFromBlendFaucet(publicKey, network);
-          if (!ok) return false;
+          if (!ok) throw new Error(t("vaultActions.preparationFailed"));
         }
       }
 
-      const { xdr } = await api.buildDeposit({
+      const { xdr, fee, simulationResult } = await api.buildDeposit({
         walletAddress: publicKey,
         vaultId,
         amount,
         min_shares_out: resolvedMinSharesOut,
         riskAcknowledged: true,
       });
-      await signAndSubmit(xdr);
-
-      // Without this, the vault panel's TVL/APY keep serving their cached
-      // value for up to staleTime (5 min) after a deposit actually lands.
-      queryClient.invalidateQueries({ queryKey: ["vaults"] });
-
-      // Optimistically raise the position in-place so the position card
-      // reflects the deposit immediately instead of waiting for the async
-      // balance/indexer to catch up. Skipped when there is no cached entry,
-      // since we won't fabricate a position we never had.
-      if (matchedBefore && Number.isFinite(depositAmount)) {
-        // A vault share is not one USDC. Once yield accrues the share price
-        // rises above 1.0, so `depositAmount` USDC mints fewer than
-        // `depositAmount` shares, and crediting the raw amount would overstate
-        // the position for the whole optimistic window. Convert through the
-        // implied share price (`deposited / shares`). Inside this block
-        // `sharesBefore` is a positive share count, so the only case with no
-        // price to derive is a position with no prior deposit, which falls
-        // back to 1:1.
-        const impliedSharePrice =
-          depositedBefore > 0 ? depositedBefore / sharesBefore : 1;
-        const sharesMinted = depositAmount / impliedSharePrice;
-
-        queryClient.setQueryData(
-          ["positions", publicKey],
-          (positionsBefore ?? []).map((p) =>
-            p === matchedBefore
-              ? {
-                  ...p,
-                  shares: sharesBefore + sharesMinted,
-                  deposited: depositedBefore + depositAmount,
-                }
-              : p
-          )
-        );
-      }
-
-      // Hand off to position polling - it re-checks every 3s, stops once the
-      // live share count rises above sharesBefore, and gives up after 30s.
-      startPolling(vaultId, sharesBefore, "increase");
-
-      push("success", `${t("vaultActions.deposited")} ${amount} ${asset}`);
+      setPendingTransaction({
+        operation: "deposit",
+        xdr,
+        preview: {
+          operation: "deposit",
+          amount,
+          asset,
+          expectedResult: simulationResult,
+          fee,
+          minimumReceived: resolvedMinSharesOut,
+        },
+        vaultId,
+        depositAmount,
+        sharesBefore,
+        depositedBefore,
+        positionsBefore,
+        matchedBefore,
+      });
       return true;
     } catch (err) {
-      push("error", mapError(err, t, "vaultActions.depositFailed").message);
+      setSimulationError(
+        mapError(err, t, "vaultActions.depositFailed").message
+      );
       return false;
     } finally {
       setIsDepositing(false);
     }
   }
 
-  async function withdraw(
+  async function prepareWithdraw(
     shares: string,
     vaultId: string,
     asset: string,
     minUsdcOut?: string
   ): Promise<boolean> {
     if (!publicKey || !passphrase) return false;
+    setPendingTransaction(null);
+    setSimulationError(null);
     setIsWithdrawing(true);
     try {
       // Snapshot the current positions before any async work so the optimistic
@@ -207,8 +225,7 @@ export function useVaultActions() {
       if (resolvedMinUsdcOut === undefined) {
         const state = await resolveVaultState(queryClient);
         if (!state) {
-          push("error", t("vaultActions.vaultStateUnavailable"));
-          return false;
+          throw new Error(t("vaultActions.vaultStateUnavailable"));
         }
         resolvedMinUsdcOut = computeMinUsdcOut({
           shares: parseFloat(shares),
@@ -219,58 +236,169 @@ export function useVaultActions() {
         });
       }
 
-      const { xdr } = await api.buildWithdraw({
+      const { xdr, fee, simulationResult } = await api.buildWithdraw({
         walletAddress: publicKey,
         vaultId,
         shares,
         min_usdc_out: resolvedMinUsdcOut,
       });
-
-      await signAndSubmit(xdr);
-
-      // Without this, the vault panel's TVL/APY keep serving their cached
-      // value for up to staleTime (5 min) after a withdrawal actually lands.
-      queryClient.invalidateQueries({ queryKey: ["vaults"] });
-
-      // Optimistic update: partial withdrawal scales the position down in-place
-      // so the position card stays visible with an approximate remaining balance.
-      // Full withdrawal (or no prior data) clears the cache entirely.
-      if (matchedBefore && withdrawnShares < sharesBefore) {
-        const remainingRatio = (sharesBefore - withdrawnShares) / sharesBefore;
-        queryClient.setQueryData(
-          ["positions", publicKey],
-          (positionsBefore ?? []).map((p) =>
-            p === matchedBefore
-              ? {
-                  ...p,
-                  shares: sharesBefore - withdrawnShares,
-                  deposited: p.deposited * remainingRatio,
-                }
-              : p
-          )
-        );
-      } else {
-        queryClient.setQueryData(["positions", publicKey], []);
-      }
-
-      // Hand off to position polling - it re-checks every 3s, stops once
-      // this withdrawal's live share count drops below sharesBefore, and
-      // gives up after 30s.
-      startPolling(vaultId, sharesBefore, "decrease");
-
-      push("success", `${t("vaultActions.withdrew")} ${shares} ${asset}`);
+      setPendingTransaction({
+        operation: "withdraw",
+        xdr,
+        preview: {
+          operation: "withdraw",
+          amount: shares,
+          asset,
+          expectedResult: simulationResult,
+          fee,
+          minimumReceived: resolvedMinUsdcOut,
+        },
+        vaultId,
+        withdrawnShares,
+        sharesBefore,
+        positionsBefore,
+        matchedBefore,
+      });
       return true;
     } catch (err) {
-      push("error", mapError(err, t, "vaultActions.withdrawalFailed").message);
+      setSimulationError(
+        mapError(err, t, "vaultActions.withdrawalFailed").message
+      );
       return false;
     } finally {
       setIsWithdrawing(false);
     }
   }
 
+  async function confirmPrepared(): Promise<boolean> {
+    if (!pendingTransaction || !publicKey || !passphrase) return false;
+    const pending = pendingTransaction;
+    const busy =
+      pending.operation === "deposit" ? setIsDepositing : setIsWithdrawing;
+    busy(true);
+    try {
+      await signAndSubmit(pending.xdr);
+      queryClient.invalidateQueries({ queryKey: ["vaults"] });
+
+      if (pending.operation === "deposit") {
+        if (pending.matchedBefore && Number.isFinite(pending.depositAmount)) {
+          const impliedSharePrice =
+            pending.depositedBefore > 0
+              ? pending.depositedBefore / pending.sharesBefore
+              : 1;
+          const sharesMinted = pending.depositAmount / impliedSharePrice;
+
+          queryClient.setQueryData(
+            ["positions", publicKey],
+            (pending.positionsBefore ?? []).map((position) =>
+              position === pending.matchedBefore
+                ? {
+                    ...position,
+                    shares: pending.sharesBefore + sharesMinted,
+                    deposited: pending.depositedBefore + pending.depositAmount,
+                  }
+                : position
+            )
+          );
+        }
+        startPolling(pending.vaultId, pending.sharesBefore, "increase");
+        push(
+          "success",
+          `${t("vaultActions.deposited")} ${pending.preview.amount} ${pending.preview.asset}`
+        );
+      } else {
+        if (
+          pending.matchedBefore &&
+          pending.withdrawnShares < pending.sharesBefore
+        ) {
+          const remainingRatio =
+            (pending.sharesBefore - pending.withdrawnShares) /
+            pending.sharesBefore;
+          queryClient.setQueryData(
+            ["positions", publicKey],
+            (pending.positionsBefore ?? []).map((position) =>
+              position === pending.matchedBefore
+                ? {
+                    ...position,
+                    shares: pending.sharesBefore - pending.withdrawnShares,
+                    deposited: position.deposited * remainingRatio,
+                  }
+                : position
+            )
+          );
+        } else {
+          queryClient.setQueryData(["positions", publicKey], []);
+        }
+        startPolling(pending.vaultId, pending.sharesBefore, "decrease");
+        push(
+          "success",
+          `${t("vaultActions.withdrew")} ${pending.preview.amount} ${pending.preview.asset}`
+        );
+      }
+
+      setPendingTransaction(null);
+      return true;
+    } catch (err) {
+      push(
+        "error",
+        mapError(
+          err,
+          t,
+          pending.operation === "deposit"
+            ? "vaultActions.depositFailed"
+            : "vaultActions.withdrawalFailed"
+        ).message
+      );
+      return false;
+    } finally {
+      busy(false);
+    }
+  }
+
+  function cancelPrepared() {
+    setPendingTransaction(null);
+    setSimulationError(null);
+  }
+
+  async function deposit(
+    amount: string,
+    vaultId: string,
+    asset: string,
+    minSharesOut?: string,
+    riskAcknowledged?: boolean
+  ): Promise<boolean> {
+    return (
+      (await prepareDeposit(
+        amount,
+        vaultId,
+        asset,
+        minSharesOut,
+        riskAcknowledged
+      )) && confirmPrepared()
+    );
+  }
+
+  async function withdraw(
+    shares: string,
+    vaultId: string,
+    asset: string,
+    minUsdcOut?: string
+  ): Promise<boolean> {
+    return (
+      (await prepareWithdraw(shares, vaultId, asset, minUsdcOut)) &&
+      confirmPrepared()
+    );
+  }
+
   return {
     deposit,
     withdraw,
+    prepareDeposit,
+    prepareWithdraw,
+    confirmPrepared,
+    cancelPrepared,
+    preview: pendingTransaction?.preview ?? null,
+    simulationError,
     isDepositing,
     isWithdrawing,
   };

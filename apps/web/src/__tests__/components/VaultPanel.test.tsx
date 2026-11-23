@@ -9,8 +9,10 @@ import { useWalletConnect } from "../../hooks/useWalletConnect";
 import { useUsdcBalance } from "../../hooks/useUsdcBalance";
 
 const refetchPositions = vi.fn();
-const deposit = vi.fn(async () => true);
-const withdraw = vi.fn(async () => true);
+const prepareDeposit = vi.fn(async () => true);
+const prepareWithdraw = vi.fn(async () => true);
+const confirmPrepared = vi.fn(async () => true);
+const cancelPrepared = vi.fn();
 const handleConnect = vi.fn();
 const acceptRiskDisclosure = vi.fn();
 const cancelRiskDisclosure = vi.fn();
@@ -90,8 +92,19 @@ beforeEach(() => {
   mockVaultsLoaded();
   mockPositions({ isError: false });
   vi.mocked(useVaultActions).mockReturnValue({
-    deposit,
-    withdraw,
+    prepareDeposit,
+    prepareWithdraw,
+    confirmPrepared,
+    cancelPrepared,
+    preview: {
+      operation: "deposit",
+      amount: "25",
+      asset: "USDC",
+      expectedResult: "123456789",
+      fee: "100000",
+      minimumReceived: "120000000",
+    },
+    simulationError: null,
     isDepositing: false,
     isWithdrawing: false,
   } as unknown as ReturnType<typeof useVaultActions>);
@@ -209,7 +222,7 @@ describe("VaultPanel — deposit", () => {
     fireEvent.click(screen.getByTestId("vault-deposit-submit"));
 
     await waitFor(() => {
-      expect(deposit).toHaveBeenCalledWith(
+      expect(prepareDeposit).toHaveBeenCalledWith(
         "25",
         "meridian-usdc",
         "USDC",
@@ -217,9 +230,56 @@ describe("VaultPanel — deposit", () => {
         true
       );
     });
+    fireEvent.click(screen.getByTestId("simulation-confirm"));
     await waitFor(() => {
       expect(screen.getByPlaceholderText("0.00")).toHaveProperty("value", "");
     });
+  });
+
+  it("shows the exact simulated quote before signing and allows cancellation", async () => {
+    render(<VaultPanel />);
+
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "25" },
+    });
+    fireEvent.click(screen.getByTestId("vault-deposit-submit"));
+
+    expect(
+      await screen.findByTestId("transaction-simulation-dialog")
+    ).toBeDefined();
+    expect(screen.getByText("12.3456789 mUSDC")).toBeDefined();
+    expect(screen.getByText("12 mUSDC")).toBeDefined();
+    expect(screen.getByText("0.01 XLM")).toBeDefined();
+    expect(screen.queryByText(/XDR/)).toBeNull();
+    expect(confirmPrepared).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("simulation-cancel"));
+    expect(cancelPrepared).toHaveBeenCalledOnce();
+    expect(confirmPrepared).not.toHaveBeenCalled();
+  });
+
+  it("offers a retry when simulation fails and does not request a signature", async () => {
+    vi.mocked(useVaultActions).mockReturnValue({
+      prepareDeposit,
+      prepareWithdraw,
+      confirmPrepared,
+      cancelPrepared,
+      preview: null,
+      simulationError: "RPC unavailable",
+      isDepositing: false,
+      isWithdrawing: false,
+    } as unknown as ReturnType<typeof useVaultActions>);
+    render(<VaultPanel />);
+
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "25" },
+    });
+    fireEvent.click(screen.getByTestId("vault-deposit-submit"));
+
+    expect(await screen.findByRole("alert")).toBeDefined();
+    fireEvent.click(screen.getByTestId("simulation-retry"));
+    await waitFor(() => expect(prepareDeposit).toHaveBeenCalledTimes(2));
+    expect(confirmPrepared).not.toHaveBeenCalled();
   });
 
   it("defers slippage floor computation to useVaultActions (fresh vault state)", async () => {
@@ -234,7 +294,7 @@ describe("VaultPanel — deposit", () => {
     await waitFor(() => {
       // Panel must not price from stale position.deposited/shares; the
       // action hook fetches live totalAssets/totalShares at build time.
-      expect(deposit).toHaveBeenCalledWith(
+      expect(prepareDeposit).toHaveBeenCalledWith(
         "25",
         "meridian-usdc",
         "USDC",
@@ -259,7 +319,7 @@ describe("VaultPanel — deposit", () => {
     fireEvent.click(screen.getByTestId("vault-deposit-submit"));
 
     await waitFor(() => {
-      expect(deposit).toHaveBeenCalledWith(
+      expect(prepareDeposit).toHaveBeenCalledWith(
         "25",
         "meridian-usdc",
         "USDC",
@@ -278,14 +338,14 @@ describe("VaultPanel — deposit", () => {
     });
     fireEvent.click(screen.getByTestId("vault-deposit-submit"));
 
-    expect(deposit).not.toHaveBeenCalled();
+    expect(prepareDeposit).not.toHaveBeenCalled();
     expect(screen.getByTestId("risk-disclosure")).toBeDefined();
 
     fireEvent.click(screen.getByTestId("risk-disclosure-acknowledgement"));
     fireEvent.click(screen.getByTestId("risk-disclosure-accept"));
 
     await waitFor(() => {
-      expect(deposit).toHaveBeenCalledWith(
+      expect(prepareDeposit).toHaveBeenCalledWith(
         "25",
         "meridian-usdc",
         "USDC",
@@ -311,12 +371,29 @@ describe("VaultPanel — withdraw", () => {
       expect(screen.queryByText("vaultPanel.yourPosition")).toBeNull();
       expect(screen.getByText("vaultPanel.position")).toBeDefined();
       expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
-      expect(withdraw).not.toHaveBeenCalled();
+      expect(prepareWithdraw).not.toHaveBeenCalled();
     }
   );
 
   it("shows the position and calls withdraw with the entered shares", async () => {
     mockPositions({ isError: false, data: [POSITION] });
+    vi.mocked(useVaultActions).mockReturnValue({
+      prepareDeposit,
+      prepareWithdraw,
+      confirmPrepared,
+      cancelPrepared,
+      preview: {
+        operation: "withdraw",
+        amount: "10",
+        asset: "USDC",
+        expectedResult: "198765432",
+        fee: "100000",
+        minimumReceived: "190000000",
+      },
+      simulationError: null,
+      isDepositing: false,
+      isWithdrawing: false,
+    } as unknown as ReturnType<typeof useVaultActions>);
     render(<VaultPanel />);
 
     fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
@@ -326,13 +403,16 @@ describe("VaultPanel — withdraw", () => {
     fireEvent.click(screen.getByTestId("vault-withdraw-submit"));
 
     await waitFor(() => {
-      expect(withdraw).toHaveBeenCalledWith(
+      expect(prepareWithdraw).toHaveBeenCalledWith(
         "10",
         "meridian-usdc",
         "USDC",
         undefined
       );
     });
+    expect(await screen.findByText("19.8765432 USDC")).toBeDefined();
+    expect(screen.getByText("19 USDC")).toBeDefined();
+    expect(confirmPrepared).not.toHaveBeenCalled();
   });
 
   it("shows the no-position message when withdrawing with nothing deposited", () => {
@@ -361,7 +441,7 @@ describe("VaultPanel — withdraw", () => {
     fireEvent.click(screen.getByTestId("vault-withdraw-submit"));
 
     await waitFor(() => {
-      expect(withdraw).toHaveBeenCalledWith(
+      expect(prepareWithdraw).toHaveBeenCalledWith(
         "10",
         "meridian-usdc",
         "USDC",
@@ -379,7 +459,7 @@ describe("VaultPanel — withdraw", () => {
     fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
     expect(screen.getByText("vaultPanel.position")).toBeDefined();
     expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
-    expect(withdraw).not.toHaveBeenCalled();
+    expect(prepareWithdraw).not.toHaveBeenCalled();
   });
 });
 
@@ -461,7 +541,7 @@ describe("VaultPanel — refetches USDC balance after a successful deposit (#106
 
     // Wait for handleDeposit's await chain to settle
     await waitFor(() => {
-      expect(deposit).toHaveBeenCalledWith(
+      expect(prepareDeposit).toHaveBeenCalledWith(
         "50",
         "meridian-usdc",
         "USDC",
@@ -470,7 +550,7 @@ describe("VaultPanel — refetches USDC balance after a successful deposit (#106
       );
     });
 
-    // The refetch should have fired because the deposit succeeded
+    fireEvent.click(screen.getByTestId("simulation-confirm"));
     await waitFor(() => {
       expect(refetch).toHaveBeenCalledTimes(1);
     });
@@ -479,7 +559,7 @@ describe("VaultPanel — refetches USDC balance after a successful deposit (#106
   it("does not refetch when the deposit fails", async () => {
     const refetch = vi.fn();
     vi.mocked(useUsdcBalance).mockReturnValue({ balance: 100, refetch });
-    deposit.mockResolvedValueOnce(false);
+    confirmPrepared.mockResolvedValueOnce(false);
     render(<VaultPanel />);
 
     fireEvent.change(screen.getByPlaceholderText("0.00"), {
@@ -488,9 +568,11 @@ describe("VaultPanel — refetches USDC balance after a successful deposit (#106
     fireEvent.click(screen.getByTestId("vault-deposit-submit"));
 
     await waitFor(() => {
-      expect(deposit).toHaveBeenCalled();
+      expect(prepareDeposit).toHaveBeenCalled();
     });
 
+    fireEvent.click(screen.getByTestId("simulation-confirm"));
+    await waitFor(() => expect(confirmPrepared).toHaveBeenCalledOnce());
     expect(refetch).not.toHaveBeenCalled();
   });
 });

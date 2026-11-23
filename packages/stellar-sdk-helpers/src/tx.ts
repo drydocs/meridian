@@ -208,6 +208,39 @@ export async function prepareSorobanTx(
   caller: string,
   op: xdr.Operation
 ): Promise<{ xdr: string; fee: string }> {
+  const { xdr: preparedXdr, fee } = await prepareSorobanTxInternal(
+    network,
+    caller,
+    op,
+    false
+  );
+  return { xdr: preparedXdr, fee };
+}
+
+/**
+ * Prepare a transaction and return the contract call's simulated i128 result
+ * as a stroops string. Used by vault previews to show the result of the same
+ * simulation that produced the unsigned transaction and fee.
+ */
+export async function prepareSorobanTxWithResult(
+  network: StellarNetwork,
+  caller: string,
+  op: xdr.Operation
+): Promise<{ xdr: string; fee: string; simulationResult: string }> {
+  const { xdr: preparedXdr, fee, simulationResult } =
+    await prepareSorobanTxInternal(network, caller, op, true);
+  if (simulationResult === undefined) {
+    throw new Error("Transaction simulation returned no numeric result");
+  }
+  return { xdr: preparedXdr, fee, simulationResult };
+}
+
+async function prepareSorobanTxInternal(
+  network: StellarNetwork,
+  caller: string,
+  op: xdr.Operation,
+  includeSimulationResult: boolean
+): Promise<{ xdr: string; fee: string; simulationResult?: string }> {
   const passphrase = passphraseFor(network);
   const server = getRpcServer(network.rpcUrl, 8_000);
   const account = await withRetry(
@@ -235,10 +268,21 @@ export async function prepareSorobanTx(
     error.cause = sim.error;
     throw error;
   }
+  const simulatedValue = includeSimulationResult
+    ? rpc.Api.isSimulationSuccess(sim) && sim.result
+      ? scValToNative(sim.result.retval)
+      : undefined
+    : undefined;
+  if (includeSimulationResult && typeof simulatedValue !== "bigint") {
+    throw new Error("Transaction simulation returned an unexpected result");
+  }
   const prepared = rpc.assembleTransaction(tx, sim).build();
   return {
     xdr: prepared.toEnvelope().toXDR("base64"),
     fee: prepared.fee,
+    ...(simulatedValue === undefined
+      ? {}
+      : { simulationResult: simulatedValue.toString() }),
   };
 }
 

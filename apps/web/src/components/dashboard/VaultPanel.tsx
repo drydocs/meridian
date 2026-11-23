@@ -12,6 +12,7 @@ import { YieldHistoryChart } from "./YieldHistoryChart";
 import { DepositTab } from "./DepositTab";
 import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
+import { TransactionSimulationDialog } from "./TransactionSimulationDialog";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
 
@@ -22,6 +23,13 @@ function formatTvl(value: number): string {
 }
 
 type Tab = "deposit" | "withdraw";
+
+type SimulationRequest = {
+  operation: Tab;
+  amount: string;
+  vaultId: string;
+  asset: string;
+};
 
 export function VaultPanel() {
   const { data, isLoading: vaultsLoading } = useVaults();
@@ -46,10 +54,22 @@ export function VaultPanel() {
     isError: positionsError,
     refetch: refetchPositions,
   } = usePositions(publicKey);
-  const { deposit, withdraw, isDepositing, isWithdrawing } = useVaultActions();
+  const {
+    prepareDeposit,
+    prepareWithdraw,
+    confirmPrepared,
+    cancelPrepared,
+    preview,
+    simulationError,
+    isDepositing,
+    isWithdrawing,
+  } = useVaultActions();
 
   const [tab, setTab] = useState<Tab>("deposit");
   const [amount, setAmount] = useState("");
+  const [simulationRequest, setSimulationRequest] =
+    useState<SimulationRequest | null>(null);
+  const [showSimulationDialog, setShowSimulationDialog] = useState(false);
   // Deposit-time gate. useWalletConnect's gate only fires from the connect
   // button, so a wallet already connected elsewhere (e.g. via AdminLogin,
   // which skips the disclosure) would otherwise reach this deposit button
@@ -99,30 +119,77 @@ export function VaultPanel() {
     // vault state read at tx-build time. Do not derive them from cached
     // position.deposited / position.shares — that share price can lag yield
     // accrual and cause unnecessary SlippageExceeded reverts.
-    const ok = await deposit(
+    const request: SimulationRequest = {
+      operation: "deposit",
       amount,
-      vault.id,
-      vault.asset,
+      vaultId: vault.id,
+      asset: vault.asset,
+    };
+    setSimulationRequest(request);
+    setShowSimulationDialog(true);
+    await prepareDeposit(
+      request.amount,
+      request.vaultId,
+      request.asset,
       undefined,
       hasAcceptedRiskDisclosure()
     );
-    if (ok) {
-      setAmount("");
-      // A successful deposit changes the wallet's USDC balance; refresh
-      // so the over-balance guard stops comparing against stale data.
-      refetchBalance();
-    }
   }
 
   async function handleWithdraw() {
     if (!amount || !bestVault || !position) return;
     if (position.vaultId !== bestVault.id) return;
     if (parseFloat(amount) > position.shares) return;
-    const ok = await withdraw(amount, bestVault.id, bestVault.asset, undefined);
-    if (ok) {
+    const request: SimulationRequest = {
+      operation: "withdraw",
+      amount,
+      vaultId: bestVault.id,
+      asset: bestVault.asset,
+    };
+    setSimulationRequest(request);
+    setShowSimulationDialog(true);
+    await prepareWithdraw(
+      request.amount,
+      request.vaultId,
+      request.asset,
+      undefined
+    );
+  }
+
+  async function retrySimulation() {
+    if (!simulationRequest) return;
+    if (simulationRequest.operation === "deposit") {
+      await prepareDeposit(
+        simulationRequest.amount,
+        simulationRequest.vaultId,
+        simulationRequest.asset,
+        undefined,
+        hasAcceptedRiskDisclosure()
+      );
+    } else {
+      await prepareWithdraw(
+        simulationRequest.amount,
+        simulationRequest.vaultId,
+        simulationRequest.asset,
+        undefined
+      );
+    }
+  }
+
+  async function confirmSimulation() {
+    const confirmed = await confirmPrepared();
+    setShowSimulationDialog(false);
+    setSimulationRequest(null);
+    if (confirmed) {
       setAmount("");
       refetchBalance();
     }
+  }
+
+  function cancelSimulation() {
+    cancelPrepared();
+    setShowSimulationDialog(false);
+    setSimulationRequest(null);
   }
 
   function handleTabChange(next: Tab) {
@@ -331,6 +398,16 @@ export function VaultPanel() {
           />
         )}
       </div>
+      {showSimulationDialog && (
+        <TransactionSimulationDialog
+          preview={preview}
+          isPreparing={isDepositing || isWithdrawing}
+          error={simulationError}
+          onRetry={() => void retrySimulation()}
+          onConfirm={() => void confirmSimulation()}
+          onCancel={cancelSimulation}
+        />
+      )}
     </div>
   );
 }

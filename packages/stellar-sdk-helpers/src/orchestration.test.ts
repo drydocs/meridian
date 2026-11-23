@@ -56,10 +56,12 @@ vi.mock("./coordinator", () => ({
   buildCoordinatorDepositTx: vi.fn(async () => ({
     xdr: "COORDINATOR_DEPOSIT_XDR",
     fee: "200",
+    simulationResult: "95000000",
   })),
   buildCoordinatorWithdrawTx: vi.fn(async () => ({
     xdr: "COORDINATOR_WITHDRAW_XDR",
     fee: "200",
+    simulationResult: "99500000",
   })),
   fetchCoordinatorPosition: vi.fn(async (_config: unknown, vaultId: string) =>
     vaultId === "meridian-usdc" ? [MERIDIAN_USDC] : [MERIDIAN_EURC]
@@ -96,7 +98,11 @@ describe("getLatestLedgerSequence", () => {
 describe("buildDepositTx", () => {
   it("routes a meridian vault deposit through buildCoordinatorDepositTx", async () => {
     const result = await buildDepositTx("meridian-usdc", WALLET, "10", network);
-    expect(result).toEqual({ xdr: "COORDINATOR_DEPOSIT_XDR", fee: "200" });
+    expect(result).toEqual({
+      xdr: "COORDINATOR_DEPOSIT_XDR",
+      fee: "200",
+      simulationResult: "95000000",
+    });
     expect(buildCoordinatorDepositTx).toHaveBeenCalledWith(
       { contractId: VAULT_CONTRACT, network },
       WALLET,
@@ -125,7 +131,11 @@ describe("buildDepositTx", () => {
 describe("buildWithdrawTx", () => {
   it("routes a meridian vault withdrawal through buildCoordinatorWithdrawTx", async () => {
     const result = await buildWithdrawTx("meridian-usdc", WALLET, "5", network);
-    expect(result).toEqual({ xdr: "COORDINATOR_WITHDRAW_XDR", fee: "200" });
+    expect(result).toEqual({
+      xdr: "COORDINATOR_WITHDRAW_XDR",
+      fee: "200",
+      simulationResult: "99500000",
+    });
     expect(buildCoordinatorWithdrawTx).toHaveBeenCalledWith(
       { contractId: VAULT_CONTRACT, network },
       WALLET,

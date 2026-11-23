@@ -154,20 +154,26 @@ export const api = {
     min_shares_out?: string;
     riskAcknowledged: true;
   }) =>
-    apiFetch<{ xdr: string; fee: string }>("/api/v1/tx/deposit", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    apiFetch<{ xdr: string; fee: string; simulationResult: string }>(
+      "/api/v1/tx/deposit",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      }
+    ),
   buildWithdraw: (body: {
     walletAddress: string;
     vaultId: string;
     shares: string;
     min_usdc_out?: string;
   }) =>
-    apiFetch<{ xdr: string; fee: string }>("/api/v1/tx/withdraw", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    apiFetch<{ xdr: string; fee: string; simulationResult: string }>(
+      "/api/v1/tx/withdraw",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      }
+    ),
   submitTx: (body: { xdr: string }) =>
     apiFetch<{
       hash: string;

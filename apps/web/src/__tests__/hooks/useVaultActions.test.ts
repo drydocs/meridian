@@ -75,8 +75,16 @@ vi.mock("../../lib/wallet", () => ({
 vi.mock("../../lib/api", () => ({
   api: {
     addTrustline: vi.fn(async () => ({ xdr: "TRUSTLINE_XDR" })),
-    buildDeposit: vi.fn(async () => ({ xdr: "DEPOSIT_XDR" })),
-    buildWithdraw: vi.fn(async () => ({ xdr: "WITHDRAW_XDR" })),
+    buildDeposit: vi.fn(async () => ({
+      xdr: "DEPOSIT_XDR",
+      fee: "100000",
+      simulationResult: "99500000",
+    })),
+    buildWithdraw: vi.fn(async () => ({
+      xdr: "WITHDRAW_XDR",
+      fee: "100000",
+      simulationResult: "99500000",
+    })),
     submitTx: vi.fn(async () => ({ hash: "TX_HASH" })),
     getPositions: vi.fn(async () => ({ positions: [] })),
     getVaultState: vi.fn(async () => ({
@@ -179,6 +187,38 @@ afterEach(() => {
 });
 
 describe("useVaultActions — deposit", () => {
+  it("prepares the simulated quote without signing until it is confirmed", async () => {
+    const { result } = renderHook(() => useVaultActions());
+
+    await act(async () => {
+      await result.current.prepareDeposit(
+        "10",
+        "blend-usdc-fixed",
+        "USDC",
+        undefined,
+        true
+      );
+    });
+
+    expect(result.current.preview).toEqual({
+      operation: "deposit",
+      amount: "10",
+      asset: "USDC",
+      expectedResult: "99500000",
+      fee: "100000",
+      minimumReceived: "4.9750000",
+    });
+    expect(wallet.sign).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.confirmPrepared();
+    });
+    expect(wallet.sign).toHaveBeenCalledWith(
+      "DEPOSIT_XDR",
+      APP_NETWORK.passphrase
+    );
+  });
+
   it("builds, signs, and submits a deposit successfully", async () => {
     const { result } = renderHook(() => useVaultActions());
 
@@ -585,9 +625,6 @@ describe("useVaultActions — fresh vault state slippage", () => {
 
     expect(ok).toBe(false);
     expect(api.buildDeposit).not.toHaveBeenCalled();
-    expect(useToastStore.getState().toasts[0]).toMatchObject({
-      kind: "error",
-      message: "Vault state unavailable",
-    });
+    expect(result.current.simulationError).toBe("Vault state unavailable");
   });
 });
