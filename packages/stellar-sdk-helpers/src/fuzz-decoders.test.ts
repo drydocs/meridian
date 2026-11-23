@@ -56,7 +56,10 @@ describe("decodeScVal — adversarial inputs never throw", () => {
     ["truncated enum tag", "AAAA"],
     ["AAAAAA (zero-only)", "AAAAAA=="],
     ["JSON string of an ScVal", '{"switch":"scvAddress"}'],
-    ["null bytes only", Buffer.from([0, 0, 0, 0, 0, 0, 0, 0]).toString("base64")],
+    [
+      "null bytes only",
+      Buffer.from([0, 0, 0, 0, 0, 0, 0, 0]).toString("base64"),
+    ],
     ["512 random bytes", randomBase64(mulberry32(FUZZ_SEED), 512)],
     ["8 KiB random bytes", randomBase64(mulberry32(FUZZ_SEED + 1), 8 * 1024)],
   ])("returns null for %s", (_label, input) => {
