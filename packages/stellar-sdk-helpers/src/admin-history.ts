@@ -152,27 +152,78 @@ export interface GetAdminActionHistoryOptions {
    * otherwise keep paging until `maxPages`. Unbounded when omitted.
    */
   scanTimeoutMs?: number;
+
+  // --- new: object-form used by packages/api-core ---
+  horizonUrl?: string;
+  networkPassphrase?: string;
+  network?: StellarNetwork;
+  vaultId?: string;
+  contractId?: string;
+  vaultContractId?: string;
+  adminId?: string;
+  signerPublicKey?: string;
+  startDate?: string;
+  endDate?: string;
+  cursor?: string | null;
+  timeoutMs?: number;
 }
+
+export type GetAdminActionHistoryResult = {
+  actions: AdminAction[];
+  nextCursor: string | null;
+};
 
 // Matches the other HTTP call sites in this package (keeper-state.ts,
 // position-snapshots.ts, rate-sources.ts): without a bound, one hung Horizon
 // request stalls the whole paged scan instead of failing fast.
 const DEFAULT_HORIZON_PAGE_TIMEOUT_MS = 10_000;
 
+// Old positional form: getAdminActionHistory(network, vaultContractId, options)
+// New object form: getAdminActionHistory({ vaultId / contractId, cursor, ... })
 export async function getAdminActionHistory(
-  network: StellarNetwork,
-  vaultContractId: string,
+  networkOrOptions: StellarNetwork | GetAdminActionHistoryOptions,
+  vaultContractId?: string,
   options: GetAdminActionHistoryOptions = {}
-): Promise<AdminAction[]> {
-  const { limit = 50, maxPages = 20, pageTimeoutMs, scanTimeoutMs } = options;
+): Promise<AdminAction[] | GetAdminActionHistoryResult> {
+    const isObjectForm =
+    typeof networkOrOptions === "object" &&
+    networkOrOptions !== null &&
+    ("vaultContractId" in networkOrOptions ||
+      "contractId" in networkOrOptions ||
+      "vaultId" in networkOrOptions ||
+      "horizonUrl" in networkOrOptions ||
+      "cursor" in networkOrOptions);
+
+  const opts: GetAdminActionHistoryOptions = isObjectForm
+    ? (networkOrOptions as GetAdminActionHistoryOptions)
+    : options;
+
+  const network: StellarNetwork = isObjectForm
+    ? (opts.network ?? ({ network: "mainnet" } as StellarNetwork))
+    : (networkOrOptions as StellarNetwork);
+
+  const targetContractId =
+  (isObjectForm
+    ? (opts.vaultContractId ?? opts.contractId ?? opts.vaultId)
+    : vaultContractId) ?? "";
+  const {
+    limit = 50,
+    maxPages = 20,
+    pageTimeoutMs,
+    scanTimeoutMs,
+    cursor: initialCursor,
+    timeoutMs,
+  } = opts;
   const pageTimeout = pageTimeoutMs ?? DEFAULT_HORIZON_PAGE_TIMEOUT_MS;
-  const { baseUrl } = buildHorizonServer(network.network);
+  const effectiveScanTimeout = scanTimeoutMs ?? timeoutMs;
+  // If caller passed horizonUrl, use it. Otherwise use network -> Horizon URL.
+  const baseUrl = opts.horizonUrl ?? buildHorizonServer(network.network).baseUrl;
   const scanSignal =
-    scanTimeoutMs === undefined
+    effectiveScanTimeout === undefined
       ? undefined
-      : AbortSignal.timeout(scanTimeoutMs);
+      : AbortSignal.timeout(effectiveScanTimeout);
   const actions: AdminAction[] = [];
-  let cursor: string | undefined;
+  let cursor: string | undefined = initialCursor ?? undefined;
   let pages = 0;
 
   while (actions.length < limit && pages < maxPages) {
@@ -231,10 +282,14 @@ export async function getAdminActionHistory(
         const contractId = contractParam.value as string;
         const functionName = functionParam.value as string;
 
-        if (
-          contractId.toLowerCase() === vaultContractId.toLowerCase() &&
-          ADMIN_FUNCTIONS.has(functionName as AdminActionType)
-        ) {
+      if (
+              contractId.toLowerCase() === targetContractId.toLowerCase() &&
+              ADMIN_FUNCTIONS.has(functionName as AdminActionType)
+      ) {
+      if (opts.adminId && record.source_account !== opts.adminId) continue;
+      if (opts.signerPublicKey && record.source_account !== opts.signerPublicKey) continue;
+      if (opts.startDate && record.created_at < opts.startDate) continue;
+      if (opts.endDate && record.created_at > opts.endDate) continue;
           const decodedParams = params.map((p) => {
             const decoded = decodeScVal(p.value);
             return { type: p.type, value: decoded?.value ?? p.value };
@@ -261,13 +316,22 @@ export async function getAdminActionHistory(
     }
 
     pages++;
-    const nextLink = data._links?.next?.href;
-    if (!nextLink) break;
-    const nextUrl = new URL(nextLink, baseUrl);
-    cursor = nextUrl.searchParams.get("cursor") ?? undefined;
-  }
+const nextLink = data._links?.next?.href;
+if (!nextLink) {
+  cursor = undefined;
+  break;
+}
+const nextUrl = new URL(nextLink, baseUrl);
+cursor = nextUrl.searchParams.get("cursor") ?? undefined;
+// If we already filled the page, don't keep scanning
+if (actions.length >= limit) break;
+}
 
-  return actions;
+// Object-form callers (api-core) expect a page. Old callers expect an array.
+if (isObjectForm) {
+  return { actions, nextCursor: cursor ?? null };
+}
+return actions;
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
