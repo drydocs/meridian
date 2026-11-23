@@ -1,0 +1,5 @@
+target/
+artifacts/
+# Keep the per-target corpus directories but ignore cargo-fuzz's local
+# scratch data inside them.
+corpus/*/.cargo_fuzz

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["vault", "blend-adapter", "defindex-adapter", "adapter-common", "musdc-token", "integration-tests"]
+exclude = ["fuzz"]
 
 [profile.release]
 opt-level = "z"
