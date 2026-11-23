@@ -20,12 +20,7 @@ export const vaultsRoute: FastifyPluginAsync = async (app) => {
       app.log.error(result.error, "[vaults] failed to fetch vaults");
     }
     if (result.status === 200) {
-      reply.header(
-        "Cache-Control",
-        typeof vaultReadCacheControl === "function"
-          ? vaultReadCacheControl()
-          : "no-store"
-      );
+      reply.header("Cache-Control", vaultReadCacheControl());
     }
     return reply.code(result.status).send(result.body);
   });
@@ -39,12 +34,7 @@ export const vaultsRoute: FastifyPluginAsync = async (app) => {
       app.log.error(result.error, "[vaults] failed to fetch vault by id");
     }
     if (result.status === 200) {
-      reply.header(
-        "Cache-Control",
-        typeof vaultReadCacheControl === "function"
-          ? vaultReadCacheControl()
-          : "no-store"
-      );
+      reply.header("Cache-Control", vaultReadCacheControl());
     }
     return reply.code(result.status).send(result.body);
   });

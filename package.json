@@ -6,7 +6,6 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
-    "test:conformance": "pnpm --filter @meridian/api test __tests__/conformance.test.ts",
     "coverage": "turbo run coverage",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",

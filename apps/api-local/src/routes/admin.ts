@@ -24,11 +24,7 @@ export const adminRoute: FastifyPluginAsync = async (app) => {
       app.log.error(result.error, "[admin] failed to read admin history");
     }
     if (result.status === 200) {
-      reply.header(
-        "Cache-Control",
-        HISTORY_CACHE_CONTROL ??
-          "public, s-maxage=30, stale-while-revalidate=120"
-      );
+      reply.header("Cache-Control", HISTORY_CACHE_CONTROL);
     }
     return reply.code(result.status).send(result.body);
   });
