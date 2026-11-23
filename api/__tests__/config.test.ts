@@ -38,6 +38,7 @@ vi.mock("@meridian/api-core", async (importOriginal) => {
           address: "CBNKERYAG7VZNBH2V3TF5JBXLD3MXLVQW5GG4AO445EUDCPKP4D2DDP2",
           protocol: "blend",
         },
+        degraded: false,
         supportedAssets: ["USDC", "EURC"],
         features: {
           defindexEnabled: false,
@@ -118,6 +119,7 @@ describe("GET /api/v1/config", () => {
       network: "mainnet",
       supportedAssets: ["USDC", "EURC"],
       activeAdapter: { protocol: "blend" },
+      degraded: false,
     });
   });
 
@@ -126,7 +128,7 @@ describe("GET /api/v1/config", () => {
     const err = new Error("rpc unavailable");
     vi.mocked(handleGetConfig).mockResolvedValueOnce({
       status: 200,
-      body: { network: "mainnet", activeAdapter: null },
+      body: { network: "mainnet", activeAdapter: null, degraded: true },
       error: err,
     });
 
@@ -135,7 +137,11 @@ describe("GET /api/v1/config", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.headers["Cache-Control"]).toBe("no-store");
-    expect(res.body).toEqual({ network: "mainnet", activeAdapter: null });
+    expect(res.body).toEqual({
+      network: "mainnet",
+      activeAdapter: null,
+      degraded: true,
+    });
     expect(errSpy).toHaveBeenCalledWith(
       "[config] active adapter lookup failed:",
       err
@@ -200,5 +206,6 @@ describe("OpenAPI documentation", () => {
     expect(spec).toContain("operationId: getPublicConfig");
     expect(spec).toContain("PublicConfigResponse");
     expect(spec).toContain("Cache-Control:");
+    expect(spec).toContain("degraded:");
   });
 });

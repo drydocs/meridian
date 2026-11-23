@@ -34,6 +34,7 @@ Returns public network, contract, active adapter, supported asset, and feature-f
     "address": "CBNKERYAG7VZNBH2V3TF5JBXLD3MXLVQW5GG4AO445EUDCPKP4D2DDP2",
     "protocol": "blend"
   },
+  "degraded": false,
   "supportedAssets": ["USDC", "EURC"],
   "features": {
     "defindexEnabled": false,
@@ -43,7 +44,7 @@ Returns public network, contract, active adapter, supported asset, and feature-f
 }
 ```
 
-Cached briefly with `Cache-Control: public, max-age=60, s-maxage=60, stale-while-revalidate=300`. If live active adapter resolution fails, `activeAdapter` is returned as `null` with `Cache-Control: no-store` so transient RPC failures are not cached.
+Cached briefly with `Cache-Control: public, max-age=60, s-maxage=60, stale-while-revalidate=300`. If live active adapter resolution fails, `activeAdapter` is returned as `null` with `degraded: true` (distinguishing an RPC failure from a vault with no adapter) and `Cache-Control: no-store` so transient RPC failures are not cached.
 
 ### `GET /api/v1/vaults`
 

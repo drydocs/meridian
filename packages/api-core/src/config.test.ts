@@ -73,6 +73,7 @@ describe("handleGetConfig", () => {
         address: "CBNKERYAG7VZNBH2V3TF5JBXLD3MXLVQW5GG4AO445EUDCPKP4D2DDP2",
         protocol: "blend",
       },
+      degraded: false,
       supportedAssets: [...shared.SUPPORTED_STABLECOINS],
       features: {
         defindexEnabled: false,
@@ -105,6 +106,7 @@ describe("handleGetConfig", () => {
         defindexVault: shared.CONTRACT_ADDRESSES.testnet.defindex.vault,
         defindexFactory: shared.CONTRACT_ADDRESSES.testnet.defindex.factory,
       },
+      degraded: false,
       supportedAssets: [...shared.SUPPORTED_STABLECOINS],
       features: {
         defindexEnabled: true,
@@ -151,6 +153,7 @@ describe("handleGetConfig", () => {
     expect(result.body).toMatchObject({
       network: "mainnet",
       activeAdapter: null,
+      degraded: true,
     });
   });
 
@@ -174,7 +177,10 @@ describe("handleGetConfig", () => {
     expect(result.status).toBe(200);
     expect(result.error).toBeUndefined();
     expect(helpers.fetchCoordinatorState).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({ activeAdapter: null });
+    expect(result.body).toMatchObject({
+      activeAdapter: null,
+      degraded: false,
+    });
 
     vi.doUnmock("@meridian/shared");
   });

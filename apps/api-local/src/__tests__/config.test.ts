@@ -45,6 +45,7 @@ describe("GET /api/v1/config", () => {
         address: "CCKOKEMM7X6NQ6C6XXRRH6BPKLINDZBNHHCHY4YDR3VZNOLOQJCSZCEA",
         protocol: "blend",
       },
+      degraded: false,
       supportedAssets: ["USDC", "EURC"],
       features: {
         defindexEnabled: true,
@@ -70,14 +71,18 @@ describe("GET /api/v1/config", () => {
     const err = new Error("rpc unavailable");
     vi.mocked(handleGetConfig).mockResolvedValue({
       status: 200,
-      body: { network: "mainnet", activeAdapter: null },
+      body: { network: "mainnet", activeAdapter: null, degraded: true },
       error: err,
     });
 
     const res = await app.inject({ method: "GET", url: "/api/v1/config" });
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-store");
-    expect(res.json()).toEqual({ network: "mainnet", activeAdapter: null });
+    expect(res.json()).toEqual({
+      network: "mainnet",
+      activeAdapter: null,
+      degraded: true,
+    });
     expect(logWarn).toHaveBeenCalledWith(
       err,
       "[config] active adapter lookup failed"

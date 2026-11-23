@@ -43,6 +43,7 @@ export interface PublicConfigResponse {
   passphrase: string;
   contracts: PublicConfigContracts;
   activeAdapter: ActiveAdapterInfo | null;
+  degraded: boolean;
   supportedAssets: readonly SupportedStablecoin[];
   features: PublicConfigFeatures;
 }
@@ -88,6 +89,7 @@ export async function handleGetConfig(): Promise<RouteResult> {
       defindexFactory: APP_ADDRESSES.defindex.factory || null,
     },
     activeAdapter,
+    degraded: adapterError !== undefined,
     supportedAssets: [...SUPPORTED_STABLECOINS],
     features: {
       defindexEnabled: isDefindexConfigured(),

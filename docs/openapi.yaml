@@ -316,6 +316,7 @@ components:
         - passphrase
         - contracts
         - activeAdapter
+        - degraded
         - supportedAssets
         - features
       properties:
@@ -335,6 +336,11 @@ components:
             - $ref: "#/components/schemas/ActiveAdapterInfo"
           nullable: true
           description: Active vault adapter resolved on-chain, or null if unavailable
+        degraded:
+          type: boolean
+          description: >-
+            True when live active adapter resolution failed (so clients can
+            distinguish an RPC failure from a vault with no adapter configured)
         supportedAssets:
           type: array
           items:
