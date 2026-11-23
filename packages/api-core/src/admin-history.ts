@@ -1,5 +1,6 @@
 import type { RouteResult } from "./types";
 import { getAdminActionHistory } from "@meridian/stellar-sdk-helpers";
+import type { GetAdminActionHistoryResult } from "@meridian/stellar-sdk-helpers";
 import { APP_NETWORK } from "@meridian/shared";
 import { KNOWN_POOLS } from "@meridian/stellar-sdk-helpers";
 import { deadlineResult, withUpstreamDeadline } from "./deadline";
@@ -31,25 +32,26 @@ export async function handleGetAdminHistory(
       };
     }
 
-    const actions = await withUpstreamDeadline(
+            const result = (await withUpstreamDeadline(
       () =>
-        getAdminActionHistory(APP_NETWORK, contractId, {
+        getAdminActionHistory({
+          network: APP_NETWORK,
+          vaultContractId: contractId,
           limit: 50,
           maxPages: ADMIN_HISTORY_MAX_PAGES,
           scanTimeoutMs: ADMIN_HISTORY_TIMEOUT_MS,
           cursor,
         }),
-      "admin history"
-    );
-
+       "admin history"
+    )) as GetAdminActionHistoryResult;
     return {
       status: 200,
       body: {
         vaultId,
         contractId,
-        actions,
-        nextCursor: (actions as any)?.nextCursor ?? null,
-       updatedAt: new Date().toISOString(),
+        actions: result.actions,
+        nextCursor: result.nextCursor ?? null,
+        updatedAt: new Date().toISOString(),
       },
     };
   } catch (err) {
