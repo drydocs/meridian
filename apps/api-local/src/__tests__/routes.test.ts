@@ -649,3 +649,33 @@ describe("GET /api/v1/vaults/:vaultId", () => {
     expect(fetchAllVaults).not.toHaveBeenCalled();
   });
 });
+
+describe("method guards on positions routes", () => {
+  it.each([
+    `/api/v1/positions/${WALLET}`,
+    `/api/v1/positions/${WALLET}/history`,
+  ])("rejects non-GET methods on %s with 405", async (url) => {
+    const app = buildApp();
+    const res = await app.inject({ method: "POST", url });
+    expect(res.statusCode).toBe(405);
+    expect(res.headers.allow).toBe("GET");
+    expect(resolvePositions).not.toHaveBeenCalled();
+    expect(getPositionHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe("method guards on tx routes", () => {
+  it.each(["deposit", "withdraw", "add-trustline", "submit"])(
+    "rejects GET on /api/v1/tx/%s with 405",
+    async (route) => {
+      const app = buildApp();
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/v1/tx/${route}`,
+      });
+      expect(res.statusCode).toBe(405);
+      expect(res.headers.allow).toBe("POST");
+      expect(submitTx).not.toHaveBeenCalled();
+    }
+  );
+});

@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ErrorBoundary } from "../../components/ui/ErrorBoundary";
+import { reportError } from "../../lib/errorReporter";
 
+vi.mock("../../lib/errorReporter", () => ({
+  reportError: vi.fn(),
+}));
 vi.mock("react-i18next", () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   withTranslation: () => (WrappedComponent: any) => {
@@ -41,6 +45,10 @@ describe("ErrorBoundary", () => {
 
     expect(screen.getByText("errorBoundary.title")).toBeDefined();
     expect(screen.getByText("errorBoundary.reload")).toBeDefined();
+    expect(reportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "render panic" }),
+      expect.objectContaining({ category: "render" })
+    );
 
     consoleErrorSpy.mockRestore();
   });

@@ -2,7 +2,7 @@
 
 TypeScript SDK for building on Meridian: vault deposits and withdrawals, keeper transaction submission with retry and fee escalation, and the Blend adapter client. It runs on top of `@stellar/stellar-sdk`.
 
-The package is at `0.1.0`. It exports `SDK_VERSION`, `VaultBase`, the typed error classes, the retry policy and the instrumentation hooks documented below. The keeper and adapter modules are tracked in #803 to #807.
+The package is at `0.1.0`. It exports `SDK_VERSION`, `VaultBase`, `BlendAdapterClient`, the typed error classes, the retry policy and the instrumentation hooks documented below. The keeper modules are tracked in #803 to #807.
 
 ## Install
 
@@ -33,6 +33,33 @@ import { SDK_VERSION } from "@meridian/sdk";
 ```js
 const { SDK_VERSION } = require("@meridian/sdk");
 ```
+
+## Blend adapter
+
+`BlendAdapterClient` reads a configured Meridian Blend adapter and the pool it
+supplies to. It makes the same contract calls as the rate source and accrual
+keeper (`get_protocol`, `get_pool`, `total_assets`, `accrue`), and never signs
+or submits anything.
+
+```ts
+import { BlendAdapterClient } from "@meridian/sdk";
+
+const blend = new BlendAdapterClient({
+  adapterId: adapterContractId,
+  network, // { network, rpcUrl, passphrase }, as for VaultBase
+});
+
+const { poolId, protocol } = await blend.discover();
+const reserve = await blend.getReserve(usdcSac); // typed rates and totals
+const apyBps = await blend.getSupplyApy(usdcSac); // e.g. 512 for 5.12%
+const positions = await blend.getPositions(caller);
+const tx = await blend.buildAccrueTx(caller); // unsigned XDR
+```
+
+Amounts are in stroops and rates are decimals (`0.05` is 5%) unless the field
+name ends in `Bps`. An adapter that has not been initialized with a pool throws
+`UnsupportedError`; a pool response that doesn't match the expected shape throws
+`MalformedPoolResponseError`.
 
 ## Errors
 

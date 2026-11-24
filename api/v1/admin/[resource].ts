@@ -4,10 +4,11 @@ import {
   applyCors,
   checkRateLimit,
   requireGetMethod,
+  HISTORY_CACHE_CONTROL,
 } from "../../_lib/middleware.js";
 import { logError } from "../../_lib/logger.js";
 
-const HISTORY_CACHE_CONTROL = "public, s-maxage=60, stale-while-revalidate=120";
+
 
 // Consolidated from two separate files (history/vault-state) to stay under
 // Vercel's per-deployment serverless functions cap. api/v1/admin/history and api/v1/admin/vault-state are

@@ -8,7 +8,9 @@
       "@meridian/api-core": ["../packages/api-core/src/index.ts"],
       "@meridian/stellar-sdk-helpers": [
         "../packages/stellar-sdk-helpers/src/index.ts"
-      ]
+      ],
+      "@meridian/api-local/app": ["../apps/api-local/src/app.ts"],
+      "@meridian/api-local": ["../apps/api-local/src/index.ts"]
     }
   },
   "include": ["**/*.ts"]
