@@ -9,6 +9,43 @@ Meridian has two API implementations that share the same interface:
 
 ## Endpoints
 
+The machine-readable OpenAPI specification lives at [`docs/openapi.yaml`](https://github.com/drydocs/meridian/blob/main/docs/openapi.yaml).
+
+### `GET /api/v1/config`
+
+Returns public network, contract, active adapter, supported asset, and feature-flag metadata derived from `@meridian/shared` constants. Never includes secrets, private infrastructure URLs, keeper settings, or admin-only data.
+
+**Response**
+
+```json
+{
+  "network": "mainnet",
+  "passphrase": "Public Global Stellar Network ; September 2015",
+  "contracts": {
+    "vault": "CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ",
+    "usdc": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+    "musdc": "CAEJJPN73VOEWUVCXCXMIXOHMFLUXAYVFMCTCJHQFI5R2NIB2S5YTOFL",
+    "eurc": "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
+    "blendPool": "CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD",
+    "defindexVault": null,
+    "defindexFactory": null
+  },
+  "activeAdapter": {
+    "address": "CBNKERYAG7VZNBH2V3TF5JBXLD3MXLVQW5GG4AO445EUDCPKP4D2DDP2",
+    "protocol": "blend"
+  },
+  "degraded": false,
+  "supportedAssets": ["USDC", "EURC"],
+  "features": {
+    "defindexEnabled": false,
+    "musdcTrustlineRequired": false,
+    "riskAcknowledgementRequired": true
+  }
+}
+```
+
+Cached briefly with `Cache-Control: public, max-age=60, s-maxage=60, stale-while-revalidate=300`. If live active adapter resolution fails, `activeAdapter` is returned as `null` with `degraded: true` (distinguishing an RPC failure from a vault with no adapter) and `Cache-Control: no-store` so transient RPC failures are not cached.
+
 ### `GET /api/v1/vaults`
 
 Returns all available vaults with live APY and TVL.
@@ -236,6 +273,8 @@ The Fastify server (`apps/api-local/`) runs the same packages directly via `tsx`
 ## Vault ID to contract address mapping
 
 The vault contract's `deposit`/`withdraw` take no protocol-selection parameter. Which protocol a deposit reaches is fixed by whichever adapter the target vault instance has set, not by anything passed in the call. Building a deposit transaction therefore resolves `vaultId` directly to the specific deployed vault contract address to call, via the mapping in `packages/stellar-sdk-helpers/src/known-pools.ts`:
+
+This adapter-based model uses no separate on-chain router contract; see [ADR-0002](./adr/0002-no-onchain-router.md) and [ADR-0001](./adr/0001-one-vault-per-asset.md).
 
 | Vault ID prefix | Resolves to                                                |
 | --------------- | ---------------------------------------------------------- |

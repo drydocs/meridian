@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { APP_NETWORK } from "@meridian/shared";
 import { useWalletStore } from "../store/wallet";
 import { wallet } from "../lib/wallet";
@@ -9,6 +10,7 @@ import {
 } from "../lib/errorMapper";
 
 export function useSignAndSubmit() {
+  const { t } = useTranslation();
   const { revalidate } = useWalletStore();
   // The passphrase is a build-time invariant, not user state. Sourcing it from
   // APP_NETWORK avoids the stale-persisted-network bug (#851) where the store
@@ -31,6 +33,18 @@ export function useSignAndSubmit() {
         // `walletConnect.walletDisconnected` string so mapError() can detect the
         // disconnect in every locale.
         throw new Error(WALLET_DISCONNECTED_ERROR);
+      }
+      if (typeof wallet.getNetwork === "function") {
+        const currentNetwork = await wallet.getNetwork();
+        if (currentNetwork && currentNetwork !== APP_NETWORK.network) {
+          throw new Error(
+            t("walletConnect.networkMismatch", {
+              walletNetwork: currentNetwork,
+              appNetwork: APP_NETWORK.network,
+              defaultValue: `Wallet network mismatch: wallet is on ${currentNetwork}, but app requires ${APP_NETWORK.network}`,
+            })
+          );
+        }
       }
       const signedXdr = await wallet.sign(xdr, passphrase, {
         signal: controller.signal,

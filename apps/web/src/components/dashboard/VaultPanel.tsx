@@ -8,6 +8,7 @@ import { useRiskDisclosure } from "../../hooks/useRiskDisclosure";
 import { useUsdcBalance } from "../../hooks/useUsdcBalance";
 import { getWalletMeta, hasAcceptedRiskDisclosure } from "../../lib/wallet";
 import { PositionSummary } from "./PositionSummary";
+import { PositionPnlCard } from "./PositionPnlCard";
 import { YieldHistoryChart } from "./YieldHistoryChart";
 import { DepositTab } from "./DepositTab";
 import { WithdrawTab } from "./WithdrawTab";
@@ -228,6 +229,11 @@ export function VaultPanel() {
       {/* Position summary */}
       {connected && hasPosition && position && (
         <PositionSummary position={position} />
+      )}
+
+      {/* Position PnL & yield breakdown */}
+      {connected && hasPosition && position && (
+        <PositionPnlCard position={position} />
       )}
 
       {/* Yield history: position value over time, by protocol */}

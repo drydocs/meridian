@@ -64,7 +64,7 @@ jobs:
       - uses: actions/setup-node@v7
         if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.verification == 'true'
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
         if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.verification == 'true'

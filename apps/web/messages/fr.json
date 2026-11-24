@@ -19,7 +19,10 @@
     "installed": "Installé",
     "install": "Installer",
     "timedOut": "Le portefeuille n'a pas répondu",
-    "timedOutHint": "La fenêtre du portefeuille est peut-être derrière votre navigateur. Vérifiez-la et réessayez."
+    "timedOutHint": "La fenêtre du portefeuille est peut-être derrière votre navigateur. Vérifiez-la et réessayez.",
+    "accountChanged": "Compte de portefeuille changé pour {{address}}",
+    "networkChanged": "Réseau de portefeuille changé pour {{network}}",
+    "networkMismatch": "Incompatibilité de réseau: le portefeuille est sur {{walletNetwork}}, mais l'application requiert {{appNetwork}}"
   },
 
   "vaultPanel": {
@@ -48,6 +51,16 @@
       "nonPositive": "Le montant doit être supérieur à zéro.",
       "exceedsBalance": "Le montant dépasse votre solde disponible."
     }
+  },
+
+  "positionPnl": {
+    "title": "Détail du rendement",
+    "principal": "Capital déposé",
+    "grossYield": "Rendement brut",
+    "performanceFee": "Frais de performance ({{percent}} %)",
+    "netYield": "Rendement net",
+    "currentValue": "Valeur actuelle",
+    "unavailable": "Le détail de la position est actuellement indisponible."
   },
 
   "yieldHistory": {
