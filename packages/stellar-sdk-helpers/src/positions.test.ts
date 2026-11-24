@@ -70,6 +70,7 @@ describe("computePosition", () => {
     });
     expect(p).toBeDefined();
     expect(p!.earned).toBe(0);
+    expect(p!.principal).toBe(100);
   });
 });
 

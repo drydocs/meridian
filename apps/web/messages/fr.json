@@ -51,6 +51,16 @@
     }
   },
 
+  "positionPnl": {
+    "title": "Détail du rendement",
+    "principal": "Capital déposé",
+    "grossYield": "Rendement brut",
+    "performanceFee": "Frais de performance ({{percent}} %)",
+    "netYield": "Rendement net",
+    "currentValue": "Valeur actuelle",
+    "unavailable": "Le détail de la position est actuellement indisponible."
+  },
+
   "yieldHistory": {
     "title": "Historique du rendement",
     "range7": "7 j",
