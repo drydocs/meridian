@@ -111,7 +111,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    if (!(await checkRateLimit(req, res, { strict: true }))) return;
+    // Reports are not fund-moving, so this route is not strict, and it gets its
+    // own bucket so violation reports never spend the budget of /tx/* routes.
+    if (!(await checkRateLimit(req, res, { bucket: "csp-report" }))) return;
   } catch {
     console.error("[csp-report] rate limit check failed");
     return res.status(503).json({ error: "Report service unavailable" });

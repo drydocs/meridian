@@ -149,12 +149,19 @@ export function enforceStrictRateLimit(res: VercelResponse): boolean {
 
 export interface RateLimitOptions {
   strict?: boolean;
+  /**
+   * Namespaces the rate-limit counter. Routes that pass a bucket spend their
+   * own budget per IP instead of sharing the default one, so noisy low-value
+   * traffic (for example CSP violation reports) cannot starve other routes.
+   */
+  bucket?: string;
 }
 
 /**
  * Check rate limit for the incoming request.
  * - If strict: true (fund-moving/keeper endpoints), returns 503 if Upstash is unconfigured on any deployment (only local dev without VERCEL_ENV falls back).
  * - For non-strict routes (read-only), falls back to the in-memory rate limiter.
+ * - Pass `bucket` to give a route its own counter instead of the shared per-IP one.
  * Writes a 429 or 503 response and returns false when blocked.
  */
 export async function checkRateLimit(
@@ -162,16 +169,17 @@ export async function checkRateLimit(
   res: VercelResponse,
   options: RateLimitOptions = {}
 ): Promise<boolean> {
-  const { strict = false } = options;
+  const { strict = false, bucket } = options;
 
   if (strict && !enforceStrictRateLimit(res)) {
     return false;
   }
 
   const ip = clientIp(req);
+  const key = bucket ? `${bucket}:${ip}` : ip;
 
   if (ratelimit) {
-    const { success, limit, remaining, reset } = await ratelimit.limit(ip);
+    const { success, limit, remaining, reset } = await ratelimit.limit(key);
     res.setHeader("x-ratelimit-limit", String(limit));
     res.setHeader("x-ratelimit-remaining", String(remaining));
     res.setHeader(
@@ -190,9 +198,9 @@ export async function checkRateLimit(
 
   // In-memory fallback
   const now = Date.now();
-  const entry = counts.get(ip);
+  const entry = counts.get(key);
   if (!entry || now > entry.resetAt) {
-    counts.set(ip, { n: 1, resetAt: now + WINDOW_MS });
+    counts.set(key, { n: 1, resetAt: now + WINDOW_MS });
     res.setHeader("x-ratelimit-limit", String(LIMIT));
     res.setHeader("x-ratelimit-remaining", String(LIMIT - 1));
     res.setHeader("x-ratelimit-reset", "60");

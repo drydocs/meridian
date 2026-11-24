@@ -2,7 +2,10 @@ import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import handler from "../v1/csp-report.js";
-import { resetRateLimitForTesting } from "../_lib/middleware.js";
+import {
+  checkRateLimit,
+  resetRateLimitForTesting,
+} from "../_lib/middleware.js";
 
 function fakeReq(
   method: string,
@@ -180,7 +183,8 @@ describe("CSP report endpoint", () => {
     expect(wrongMethod.headers.Allow).toBe("POST");
   });
 
-  it("fails closed on deployed environments without distributed rate limiting", async () => {
+  it("is not strict: deployed environments without Upstash use the in-memory limiter", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
     const previousEnvironment = process.env.VERCEL_ENV;
     process.env.VERCEL_ENV = "preview";
     try {
@@ -194,15 +198,35 @@ describe("CSP report endpoint", () => {
         ),
         response
       );
-      expect(response.statusCode).toBe(503);
-      expect(response.body).toEqual({
-        error:
-          "Service Unavailable: Distributed rate limiting is required on deployed environments for this route.",
-        code: "RATE_LIMIT_BACKEND_UNAVAILABLE",
-      });
+      expect(response.statusCode).toBe(204);
     } finally {
       if (previousEnvironment === undefined) delete process.env.VERCEL_ENV;
       else process.env.VERCEL_ENV = previousEnvironment;
     }
+  });
+
+  it("rate limits reports in their own bucket without spending other routes' budget", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const body = JSON.stringify({
+      "csp-report": { "effective-directive": "script-src" },
+    });
+
+    // Flood the report endpoint from one IP until it is throttled.
+    let throttled = false;
+    for (let i = 0; i < 200 && !throttled; i++) {
+      const response = fakeRes();
+      await handler(fakeReq("POST", body), response);
+      if (response.statusCode === 429) throttled = true;
+      else expect(response.statusCode).toBe(204);
+    }
+    expect(throttled).toBe(true);
+
+    // The same IP must still have its full default budget for other routes
+    // (for example /api/v1/tx/deposit, which uses the default bucket).
+    const other = fakeRes();
+    expect(
+      await checkRateLimit(fakeReq("POST", ""), other, { strict: false })
+    ).toBe(true);
+    expect(other.statusCode).not.toBe(429);
   });
 });
