@@ -93,7 +93,7 @@ None of these block a mainnet deploy today. What remains before going live:
 
 - [ ] Security audit commissioned and findings resolved (firm-only engagement, explicitly out of scope for this runbook, see the note at the top)
 - [ ] `ADMIN` key custody finalized (hardware-backed or multisig, per "Prerequisites specific to mainnet") and its holder(s) briefed on the [incident-response runbook](./incident-response.md)
-- [ ] Configure `MERIDIAN_ALERT_WEBHOOK_URL` (unset as of the mainnet launch) so admin-action alerts actually reach someone, per [Incident Response](./incident-response.md#detection-what-s-actually-watching-right-now)
+- [ ] Configure `MERIDIAN_ALERT_WEBHOOK_URL` (unset as of the mainnet launch) so admin-action alerts actually reach someone, per [Incident Response](./incident-response.md#detection-what-is-actually-watching-right-now)
 - [x] `scripts/deploy-mainnet.sh`'s `ALLOWED_BLEND_POOL_IDS` allow-list populated with a reviewed mainnet Blend pool address (independently verified against a real on-chain deposit transaction, not just the label). Not separately rehearsed against testnet's own RPC first; the deploy below was its first real run.
 - [x] [Incident-response runbook](./incident-response.md) landed; still needs its holder(s) actually briefed on it, and `MERIDIAN_ALERT_WEBHOOK_URL` configured (see the two items above) before a live incident has both a playbook and something that surfaces one in real time
 - [x] `MERIDIAN_KEEPER_SECRET_KEY` funded (`mainnet-accrual-keeper`, `GDJGFHB4PFTYBSQ3DDANCK5ANUT4OD373GRIFPELMGAZAU4USANEX7RC`) and configured on the production deployment; `accrue()` has no auth requirement, so no custody decision was needed for this one.

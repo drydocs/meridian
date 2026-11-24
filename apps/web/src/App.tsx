@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { setQueryClient } from "./lib/queryClient";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
 import { WalletConnect } from "./components/onboarding/WalletConnect";
 import { Toasts } from "./components/ui/Toasts";
@@ -12,6 +13,7 @@ import { StatusPage } from "./pages/StatusPage";
 import { NotFound } from "./pages/NotFound";
 
 const queryClient = new QueryClient();
+setQueryClient(queryClient);
 
 // No router dependency for a few extra routes: the app has a handful of
 // pages, and pulling in react-router for a couple of static path splits

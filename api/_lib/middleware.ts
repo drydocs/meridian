@@ -1,7 +1,14 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { APP_NETWORK, DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import {
+  CONFIG_CACHE_CONTROL,
+  MAINNET_VAULT_CACHE_CONTROL,
+  TESTNET_VAULT_CACHE_CONTROL,
+  HISTORY_CACHE_CONTROL,
+  vaultReadCacheControl,
+} from "@meridian/api-core";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
@@ -91,30 +98,20 @@ export function requireGetMethod(
   return true;
 }
 
-// Cache policy shared by both vault-read endpoints: the list in
-// v1/vaults/index.ts and the single-vault read in v1/vaults/[vaultId].ts.
-// Both must use the same policy — #1051 happened because the detail endpoint
-// cached unconditionally while the list did not, so on testnet the detail
-// panel served pre-deposit balances and APY for up to a minute while the list
-// beside it was already current. Mainnet APY/TVL move slowly, so a short
-// fresh window keeps DeFiLlama call volume low, and stale-while-revalidate
-// lets the edge keep serving the last good payload through a transient
-// DeFiLlama outage instead of failing the whole dashboard. Testnet reads hit
-// the chain on every call (fetchAllVaults bypasses its cache there) so
-// deposits/withdrawals show up immediately during testing; an HTTP cache
-// layered on top would defeat that, so testnet gets no-store.
-const MAINNET_VAULT_CACHE_CONTROL =
-  "public, s-maxage=60, stale-while-revalidate=300";
-const TESTNET_VAULT_CACHE_CONTROL = "no-store";
+export {
+  MAINNET_VAULT_CACHE_CONTROL,
+  TESTNET_VAULT_CACHE_CONTROL,
+  HISTORY_CACHE_CONTROL,
+  vaultReadCacheControl,
+};
 
 /**
- * Cache-Control for successful (200) vault-read responses: a short CDN cache
- * on mainnet, nothing at all on testnet so post-deposit reads stay fresh.
+ * Cache-Control for GET /api/v1/config responses. Returns a short cache policy
+ * when complete, or no-store if active adapter resolution degraded so transient
+ * RPC errors are not cached at the edge.
  */
-export function vaultReadCacheControl(): string {
-  return APP_NETWORK.network === "testnet"
-    ? TESTNET_VAULT_CACHE_CONTROL
-    : MAINNET_VAULT_CACHE_CONTROL;
+export function configCacheControl(degraded = false): string {
+  return degraded ? "no-store" : CONFIG_CACHE_CONTROL;
 }
 
 function clientIp(req: VercelRequest): string {
@@ -174,8 +171,15 @@ export async function checkRateLimit(
   const ip = clientIp(req);
 
   if (ratelimit) {
-    const { success } = await ratelimit.limit(ip);
+    const { success, limit, remaining, reset } = await ratelimit.limit(ip);
+    res.setHeader("x-ratelimit-limit", String(limit));
+    res.setHeader("x-ratelimit-remaining", String(remaining));
+    res.setHeader(
+      "x-ratelimit-reset",
+      String(Math.max(1, Math.ceil((reset - Date.now()) / 1000)))
+    );
     if (!success) {
+      res.setHeader("retry-after", "60");
       res
         .status(429)
         .json({ error: "Too many requests. Try again in a minute." });
@@ -189,15 +193,31 @@ export async function checkRateLimit(
   const entry = counts.get(ip);
   if (!entry || now > entry.resetAt) {
     counts.set(ip, { n: 1, resetAt: now + WINDOW_MS });
+    res.setHeader("x-ratelimit-limit", String(LIMIT));
+    res.setHeader("x-ratelimit-remaining", String(LIMIT - 1));
+    res.setHeader("x-ratelimit-reset", "60");
     return true;
   }
   if (entry.n >= LIMIT) {
+    res.setHeader("x-ratelimit-limit", String(LIMIT));
+    res.setHeader("x-ratelimit-remaining", "0");
+    res.setHeader(
+      "x-ratelimit-reset",
+      String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000)))
+    );
+    res.setHeader("retry-after", "60");
     res
       .status(429)
       .json({ error: "Too many requests. Try again in a minute." });
     return false;
   }
   entry.n++;
+  res.setHeader("x-ratelimit-limit", String(LIMIT));
+  res.setHeader("x-ratelimit-remaining", String(LIMIT - entry.n));
+  res.setHeader(
+    "x-ratelimit-reset",
+    String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000)))
+  );
   return true;
 }
 

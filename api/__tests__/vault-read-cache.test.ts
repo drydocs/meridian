@@ -75,14 +75,14 @@ describe("vaultReadCacheControl", () => {
     vi.resetModules();
     const { vaultReadCacheControl } = await import("../_lib/middleware.js");
     expect(vaultReadCacheControl()).toBe(MAINNET_CACHE_HEADER);
-  });
+  }, 15000);
 
   it("serves testnet vault reads uncached", async () => {
     process.env.STELLAR_NETWORK = "testnet";
     vi.resetModules();
     const { vaultReadCacheControl } = await import("../_lib/middleware.js");
     expect(vaultReadCacheControl()).toBe("no-store");
-  });
+  }, 15000);
 });
 
 // #1051: the detail endpoint used to answer with

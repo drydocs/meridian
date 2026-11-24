@@ -2,12 +2,13 @@
 
 Meridian is a pnpm workspace managed by Turborepo.
 
-```
+```text
 meridian/
 ├── api/                          # Vercel serverless functions (production API)
 │   ├── _lib/
 │   │   └── middleware.ts         # CORS + rate-limit helpers shared by handlers
 │   └── v1/
+│       ├── config.ts             # GET /api/v1/config
 │       ├── admin/                # GET /api/v1/admin/vault-state, GET /api/v1/admin/history
 │       │   └── [resource].ts
 │       ├── keepers/              # /api/v1/keepers/* (accrue, health, rebalance, alert)
@@ -105,7 +106,7 @@ meridian/
 
 ## Task pipeline
 
-```
+```text
 build → depends on ^build (packages built before apps)
 dev   → persistent, no cache
 test  → depends on ^build

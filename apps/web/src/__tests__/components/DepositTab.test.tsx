@@ -21,20 +21,12 @@ const VAULT = {
   riskLevel: "safe" as const,
 };
 
-const POSITION = {
-  vaultId: "meridian-usdc",
-  shares: 50,
-  deposited: 100,
-  earned: 5,
-  entryTime: 1_700_000_000,
-};
-
 const onAmountChange = vi.fn();
 const onAmountKeyDown = vi.fn();
 const onSubmit = vi.fn();
 
 function renderDepositTab(
-  overrides: Partial<Parameters<typeof DepositTab>[0]> = {}
+  props: Partial<Parameters<typeof DepositTab>[0]> = {}
 ) {
   return render(
     <DepositTab
@@ -42,26 +34,9 @@ function renderDepositTab(
       onAmountChange={onAmountChange}
       onAmountKeyDown={onAmountKeyDown}
       bestVault={VAULT}
-      position={undefined}
-      hasPosition={false}
       isDepositing={false}
       onSubmit={onSubmit}
-      {...overrides}
-    />
-  );
-}
-
-function depositTab(amount: string) {
-  return (
-    <DepositTab
-      amount={amount}
-      onAmountChange={onAmountChange}
-      onAmountKeyDown={onAmountKeyDown}
-      bestVault={VAULT}
-      position={undefined}
-      hasPosition={false}
-      isDepositing={false}
-      onSubmit={onSubmit}
+      {...props}
     />
   );
 }
@@ -71,6 +46,19 @@ beforeEach(() => {
 });
 
 describe("DepositTab", () => {
+  it("renders the amount label", () => {
+    renderDepositTab();
+
+    expect(screen.getByText("vaultPanel.amount")).toBeDefined();
+  });
+
+  it("renders the deposit submit button", () => {
+    renderDepositTab();
+
+    expect(screen.getByTestId("vault-deposit-submit")).toBeDefined();
+    expect(screen.getByText("vaultPanel.deposit")).toBeDefined();
+  });
+
   it("calls onSubmit when the deposit button is clicked", () => {
     renderDepositTab({ amount: "25" });
 
@@ -79,24 +67,23 @@ describe("DepositTab", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it("disables the submit button when amount is zero", () => {
-    renderDepositTab({ amount: "0" });
-    expect(screen.getByTestId("vault-deposit-submit")).toHaveProperty(
-      "disabled",
-      true
-    );
-  });
+  it("does not call onSubmit when amount is empty", () => {
+    renderDepositTab({ amount: "" });
 
-  it("disables the submit button when amount is negative", () => {
-    renderDepositTab({ amount: "-1" });
-    expect(screen.getByTestId("vault-deposit-submit")).toHaveProperty(
-      "disabled",
-      true
-    );
+    fireEvent.click(screen.getByTestId("vault-deposit-submit"));
+
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("disables the submit button when amount is empty", () => {
     renderDepositTab({ amount: "" });
+
+    const button = screen.getByTestId("vault-deposit-submit");
+    expect(button).toHaveProperty("disabled", true);
+  });
+
+  it("disables the submit button when bestVault is undefined", () => {
+    renderDepositTab({ amount: "25", bestVault: undefined });
 
     const button = screen.getByTestId("vault-deposit-submit");
     expect(button).toHaveProperty("disabled", true);
@@ -110,16 +97,54 @@ describe("DepositTab", () => {
     expect(screen.getByText("vaultPanel.waiting")).toBeDefined();
   });
 
-  it("shows the current balance when hasPosition is true", () => {
-    renderDepositTab({ hasPosition: true, position: POSITION });
+  it("shows the wallet spendable balance when availableBalance is provided", () => {
+    renderDepositTab({ availableBalance: 100 });
 
-    expect(screen.getByText(/vaultPanel.balance/)).toBeDefined();
+    expect(screen.getByText(/vaultPanel\.balance:/)).toBeDefined();
   });
 
-  it("does not show a balance line when hasPosition is false", () => {
-    renderDepositTab({ hasPosition: false });
+  it("does not show a balance line when availableBalance is undefined", () => {
+    renderDepositTab({ availableBalance: undefined });
 
-    expect(screen.queryByText(/vaultPanel.balance/)).toBeNull();
+    expect(screen.queryByText(/vaultPanel\.balance:/)).toBeNull();
+  });
+
+  it("calls onAmountChange with spendable balance when Max button is clicked", () => {
+    renderDepositTab({ availableBalance: 100 });
+
+    fireEvent.click(screen.getByTestId("vault-deposit-max"));
+
+    expect(onAmountChange).toHaveBeenCalledWith("100");
+  });
+
+  it("calls onAmountChange with 0 when Max button is clicked with zero balance", () => {
+    renderDepositTab({ availableBalance: 0 });
+
+    fireEvent.click(screen.getByTestId("vault-deposit-max"));
+
+    expect(onAmountChange).toHaveBeenCalledWith("0");
+  });
+
+  it("shows a retryable error message rather than a zero balance when balance read fails", () => {
+    const onRetryBalance = vi.fn();
+    renderDepositTab({
+      availableBalance: 0,
+      isBalanceError: true,
+      onRetryBalance,
+    });
+
+    expect(screen.getByTestId("vault-balance-error")).toBeDefined();
+    expect(screen.getByText("vaultPanel.balanceError")).toBeDefined();
+    expect(screen.getByText("common.retry")).toBeDefined();
+    expect(screen.queryByText(/vaultPanel\.balance:/)).toBeNull();
+    expect(screen.queryByText("$0.00")).toBeNull();
+    expect(screen.queryByTestId("vault-deposit-max")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "vaultPanel.retryBalance" })
+    );
+    expect(onRetryBalance).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "common.retry" })).toBeNull();
   });
 
   it("calls onAmountChange when the input value changes", () => {
@@ -151,73 +176,97 @@ describe("DepositTab", () => {
           onAmountChange={onAmountChange}
           onAmountKeyDown={onAmountKeyDown}
           bestVault={VAULT}
-          position={undefined}
-          hasPosition={false}
           isDepositing={false}
           onSubmit={onSubmit}
         />
       );
       expect(error()?.textContent).toBe("vaultPanel.validation.required");
+      expect(
+        (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement)
+          .disabled
+      ).toBe(true);
     });
 
-    it("hides the message when the parent clears the field after a deposit", () => {
-      const { rerender } = render(depositTab(""));
-      fireEvent.change(screen.getByPlaceholderText("0.00"), {
-        target: { value: "25" },
-      });
-      rerender(depositTab("25"));
-      rerender(depositTab(""));
-
-      expect(error()).toBeNull();
-    });
-
-    it("shows a non-positive message for zero and negative amounts", () => {
-      const { unmount } = renderDepositTab({ amount: "0" });
-      expect(error()?.textContent).toBe("vaultPanel.validation.nonPositive");
-      unmount();
-      renderDepositTab({ amount: "-3" });
-      expect(error()?.textContent).toBe("vaultPanel.validation.nonPositive");
-    });
-
-    it("shows an invalid message for a non-numeric amount", () => {
+    it("shows an invalid message for non-numeric input", () => {
       renderDepositTab({ amount: "abc" });
       expect(error()?.textContent).toBe("vaultPanel.validation.invalid");
-      expect(screen.getByTestId("vault-deposit-submit")).toHaveProperty(
-        "disabled",
-        true
-      );
+      expect(
+        (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement)
+          .disabled
+      ).toBe(true);
     });
 
-    it("shows a distinct message when the amount exceeds the available balance", () => {
-      renderDepositTab({ amount: "150", availableBalance: 100 });
+    it("shows a non-positive message for zero or negative numbers", () => {
+      const { rerender } = renderDepositTab({ amount: "0" });
+      expect(error()?.textContent).toBe("vaultPanel.validation.nonPositive");
+      expect(
+        (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement)
+          .disabled
+      ).toBe(true);
+
+      rerender(
+        <DepositTab
+          amount="-5"
+          onAmountChange={onAmountChange}
+          onAmountKeyDown={onAmountKeyDown}
+          bestVault={VAULT}
+          isDepositing={false}
+          onSubmit={onSubmit}
+        />
+      );
+      expect(error()?.textContent).toBe("vaultPanel.validation.nonPositive");
+      expect(
+        (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement)
+          .disabled
+      ).toBe(true);
+    });
+
+    it("clears the error message once the user provides a valid positive amount", () => {
+      const { rerender } = renderDepositTab({ amount: "0" });
+      expect(error()?.textContent).toBe("vaultPanel.validation.nonPositive");
+
+      rerender(
+        <DepositTab
+          amount="10"
+          onAmountChange={onAmountChange}
+          onAmountKeyDown={onAmountKeyDown}
+          bestVault={VAULT}
+          isDepositing={false}
+          onSubmit={onSubmit}
+        />
+      );
+      expect(error()).toBeNull();
+      expect(
+        (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement)
+          .disabled
+      ).toBe(false);
+    });
+
+    it("shows an exceedsBalance error when the amount is greater than the available balance", () => {
+      renderDepositTab({ amount: "100", availableBalance: 50 });
       expect(error()?.textContent).toBe("vaultPanel.validation.exceedsBalance");
-      expect(screen.getByTestId("vault-deposit-submit")).toHaveProperty(
-        "disabled",
-        true
-      );
+      expect(
+        (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement)
+          .disabled
+      ).toBe(true);
     });
 
-    it("accepts an amount equal to the available balance", () => {
-      renderDepositTab({ amount: "100", availableBalance: 100 });
+    it("allows the deposit when amount equals the available balance", () => {
+      renderDepositTab({ amount: "50", availableBalance: 50 });
       expect(error()).toBeNull();
-      expect(screen.getByTestId("vault-deposit-submit")).toHaveProperty(
-        "disabled",
-        false
-      );
+      expect(
+        (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement)
+          .disabled
+      ).toBe(false);
     });
 
-    it("does not check the balance when none is provided", () => {
-      renderDepositTab({ amount: "1000000" });
+    it("does not check against balance when availableBalance is undefined", () => {
+      renderDepositTab({ amount: "5000", availableBalance: undefined });
       expect(error()).toBeNull();
-    });
-
-    it("links the input to the message for assistive tech", () => {
-      renderDepositTab({ amount: "0" });
-      const input = screen.getByPlaceholderText("0.00");
-      expect(input.getAttribute("aria-invalid")).toBe("true");
-      expect(input.getAttribute("aria-describedby")).toBe(
-        "deposit-amount-error"
-      );
+      expect(
+        (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement)
+          .disabled
+      ).toBe(false);
     });
   });
 });

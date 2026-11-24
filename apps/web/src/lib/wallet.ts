@@ -3,6 +3,8 @@ import {
   isAllowed,
   requestAccess,
   signTransaction as freighterSign,
+  getAddress as freighterGetAddress,
+  getNetwork as freighterGetNetwork,
 } from "@stellar/freighter-api";
 import {
   isConnected as lobstrIsConnected,
@@ -73,6 +75,9 @@ export interface E2EMockWallet {
   authorized: boolean;
   address: string;
   sign: (xdr: string, networkPassphrase: string) => Promise<string>;
+  network?: string;
+  getAddress?: () => Promise<string | null> | string | null;
+  getNetwork?: () => Promise<string | null> | string | null;
 }
 
 declare global {
@@ -112,6 +117,8 @@ export interface WalletAdapter {
   isAuthorized(): Promise<boolean>;
   connect(): Promise<string>;
   sign(xdr: string, networkPassphrase: string): Promise<string>;
+  getAddress?(): Promise<string | null>;
+  getNetwork?(): Promise<string | null>;
 }
 
 class FreighterWallet implements WalletAdapter {
@@ -156,6 +163,47 @@ class FreighterWallet implements WalletAdapter {
         if (result.error) throw new Error(result.error.message);
         if (!result.signedTxXdr) throw new Error("Signing cancelled");
         return result.signedTxXdr;
+      }
+    );
+  }
+
+  async getAddress(): Promise<string | null> {
+    return withMockWallet(
+      (mock) => (mock.getAddress ? mock.getAddress() : (mock.address ?? null)),
+      async () => {
+        const installed = await this.isInstalled();
+        if (!installed) return null;
+        if (typeof freighterGetAddress !== "function") return null;
+        const result = await freighterGetAddress();
+        if (result.error || !result.address) return null;
+        return result.address;
+      }
+    );
+  }
+
+  async getNetwork(): Promise<string | null> {
+    return withMockWallet(
+      (mock) => (mock.getNetwork ? mock.getNetwork() : (mock.network ?? null)),
+      async () => {
+        const installed = await this.isInstalled();
+        if (!installed) return null;
+        if (typeof freighterGetNetwork !== "function") return null;
+        const result = await freighterGetNetwork();
+        if (result.error) return null;
+        if (
+          result.networkPassphrase ===
+            "Public Global Stellar Network ; September 2015" ||
+          result.network?.toUpperCase() === "PUBLIC"
+        ) {
+          return "mainnet";
+        }
+        if (
+          result.networkPassphrase === "Test SDF Network ; September 2015" ||
+          result.network?.toUpperCase() === "TESTNET"
+        ) {
+          return "testnet";
+        }
+        return result.network ? result.network.toLowerCase() : null;
       }
     );
   }
@@ -492,4 +540,10 @@ export const wallet: WalletAdapter = {
   connect: () => getWalletAdapter(getSelectedWalletId()).connect(),
   sign: (xdr, networkPassphrase) =>
     getWalletAdapter(getSelectedWalletId()).sign(xdr, networkPassphrase),
+  getAddress: () =>
+    getWalletAdapter(getSelectedWalletId()).getAddress?.() ??
+    Promise.resolve(null),
+  getNetwork: () =>
+    getWalletAdapter(getSelectedWalletId()).getNetwork?.() ??
+    Promise.resolve(null),
 };

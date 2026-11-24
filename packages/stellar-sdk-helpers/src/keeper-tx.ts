@@ -46,6 +46,10 @@ export const KEEPER_BASE_FEE_STROOPS = 10_000;
 // require bidding anywhere near this.
 export const KEEPER_MAX_FEE_STROOPS = 1_000_000;
 
+// Match the Stellar SDK's missing-export errors without treating contract
+// traps (InvalidAction) as if an older vault simply lacked this view.
+const MISSING_FUNCTION_PATTERN = /non-existent contract function|MissingValue/i;
+
 export interface FeeEscalationConfig {
   maxFee: number;
   multiplier: number;
@@ -261,6 +265,43 @@ export async function assertAdapterUnchanged(
   );
   if (liveAdapterId !== expectedAdapterId) {
     throw new StaleAdapterError(expectedAdapterId, liveAdapterId);
+  }
+}
+
+/**
+ * Reads the vault's reconciliation view immediately before a keeper action.
+ * The shape check is deliberately tolerant of older vault deployments that
+ * predate get_health; a deployed health response with either mismatch flag is
+ * not safe to act on and is rejected.
+ */
+export async function assertVaultHealthy(
+  server: KeeperRpcServer,
+  vaultContractId: string,
+  networkPassphrase: string
+): Promise<void> {
+  let health: unknown;
+  try {
+    health = await simulateView(
+      server as never,
+      vaultContractId,
+      networkPassphrase,
+      "get_health"
+    );
+  } catch (error) {
+    // Older vault deployments do not export get_health. A missing contract
+    // function is the one safe error to ignore; RPC and other contract errors
+    // still block a keeper action.
+    const message = errorMessage(error);
+    if (MISSING_FUNCTION_PATTERN.test(message)) return;
+    throw error;
+  }
+  if (!health || typeof health !== "object") return;
+  const value = health as Record<string, unknown>;
+  if (value.total_shares_mismatch === true) {
+    throw new Error("vault health check failed: total shares mismatch");
+  }
+  if (value.adapter_shares_mismatch === true) {
+    throw new Error("vault health check failed: adapter shares mismatch");
   }
 }
 
