@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
-import rateLimit from "@fastify/rate-limit";
+import {
+  Account,
+  Asset,
+  Keypair,
+  Operation,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
+import { APP_NETWORK } from "@meridian/shared";
+import { InMemoryRateLimitStore } from "@meridian/api-core";
+import { registerRateLimit } from "../rate-limit.js";
 import { positionsRoute } from "../routes/positions.js";
 import { txRoute } from "../routes/tx.js";
 import { vaultsRoute } from "../routes/vaults.js";
@@ -555,47 +564,141 @@ describe("GET /api/v1/vaults", () => {
   });
 });
 
-describe("rate limiting on /api/v1/tx", () => {
-  it("shares one 100 request budget across tx routes", async () => {
+describe("rate limiting policies", () => {
+  function buildLimitedApp(store = new InMemoryRateLimitStore()) {
     const app = Fastify({ logger: false });
-    await app.register(rateLimit, { max: 100, timeWindow: "1 minute" });
+    registerRateLimit(app, store);
     app.register(txRoute, { prefix: "/api/v1/tx" });
-    await app.ready();
+    app.register(vaultsRoute, { prefix: "/api/v1/vaults" });
+    return app;
+  }
 
-    vi.mocked(buildDepositTx).mockResolvedValue({ xdr: "TXXDR", fee: "100" });
-    vi.mocked(buildWithdrawTx).mockResolvedValue({
-      xdr: "WITHDRAWXDR",
-      fee: "100",
-    });
-
-    const deposit = {
+  function deposit(wallet: string) {
+    return {
       method: "POST" as const,
       url: "/api/v1/tx/deposit",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        walletAddress: WALLET,
+        walletAddress: wallet,
         vaultId: "blend-usdc-fixed",
         amount: "10",
         riskAcknowledged: true,
       }),
     };
-    const withdraw = {
-      method: "POST" as const,
-      url: "/api/v1/tx/withdraw",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        walletAddress: WALLET,
-        vaultId: "blend-usdc-fixed",
-        shares: "5",
-      }),
-    };
+  }
 
-    for (let i = 0; i < 50; i++) {
-      expect((await app.inject(deposit)).statusCode).toBe(200);
-      expect((await app.inject(withdraw)).statusCode).toBe(200);
+  function signedSubmit(signer: Keypair) {
+    const tx = new TransactionBuilder(new Account(signer.publicKey(), "1"), {
+      fee: "100",
+      networkPassphrase: APP_NETWORK.passphrase,
+    })
+      .addOperation(
+        Operation.payment({
+          destination: signer.publicKey(),
+          asset: Asset.native(),
+          amount: "1",
+        })
+      )
+      .setTimeout(30)
+      .build();
+    tx.sign(signer);
+    return {
+      method: "POST" as const,
+      url: "/api/v1/tx/submit",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ xdr: tx.toXDR() }),
+    };
+  }
+
+  beforeEach(() => {
+    vi.mocked(buildDepositTx).mockResolvedValue({ xdr: "TXXDR", fee: "100" });
+    vi.mocked(submitTx).mockResolvedValue({
+      hash: "abc123",
+      status: "SUCCESS",
+      ledger: 42,
+    });
+  });
+
+  it("blocks a signed wallet after its submit limit even when the IP changes", async () => {
+    const app = buildLimitedApp();
+    await app.ready();
+    const signer = Keypair.random();
+
+    for (let i = 0; i < 5; i++) {
+      const res = await app.inject({
+        ...signedSubmit(signer),
+        remoteAddress: `10.0.0.${i}`,
+      });
+      expect(res.statusCode).toBe(200);
     }
 
-    expect((await app.inject(deposit)).statusCode).toBe(429);
+    const blocked = await app.inject({
+      ...signedSubmit(signer),
+      remoteAddress: "10.0.1.1",
+    });
+
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.headers["ratelimit-limit"]).toBe("5");
+    expect(blocked.headers["retry-after"]).toBeDefined();
+  });
+
+  it("does not let one wallet block another wallet", async () => {
+    const app = buildLimitedApp();
+    await app.ready();
+    const signer = Keypair.random();
+    const otherSigner = Keypair.random();
+
+    for (let i = 0; i < 5; i++) {
+      await app.inject({
+        ...signedSubmit(signer),
+        remoteAddress: `10.1.0.${i}`,
+      });
+    }
+
+    const blocked = await app.inject({
+      ...signedSubmit(signer),
+      remoteAddress: "10.1.1.1",
+    });
+    const allowed = await app.inject({
+      ...signedSubmit(otherSigner),
+      remoteAddress: "10.1.1.2",
+    });
+
+    expect(blocked.statusCode).toBe(429);
+    expect(allowed.statusCode).toBe(200);
+  });
+
+  it("keeps transaction builds IP-only, ignoring the named wallet", async () => {
+    const app = buildLimitedApp();
+    await app.ready();
+
+    for (let i = 0; i < 20; i++) {
+      const res = await app.inject({
+        ...deposit(WALLET),
+        remoteAddress: `10.2.0.${i}`,
+      });
+      expect(res.statusCode).toBe(200);
+    }
+  });
+
+  it("keeps transaction budgets separate from read budgets and emits headers", async () => {
+    vi.stubEnv("RATE_LIMIT_TX_BUILD_LIMIT", "2");
+    vi.mocked(fetchAllVaults).mockResolvedValue([] as never);
+    const app = buildLimitedApp();
+    await app.ready();
+
+    const first = await app.inject(deposit(WALLET));
+    expect(first.statusCode).toBe(200);
+    expect(first.headers["ratelimit-limit"]).toBe("2");
+    expect(first.headers["ratelimit-remaining"]).toBe("1");
+    expect(first.headers["ratelimit-policy"]).toBe("2;w=60");
+
+    expect((await app.inject(deposit(WALLET))).statusCode).toBe(200);
+    expect((await app.inject(deposit(WALLET))).statusCode).toBe(429);
+
+    const read = await app.inject({ method: "GET", url: "/api/v1/vaults" });
+    expect(read.statusCode).toBe(200);
+    expect(read.headers["ratelimit-limit"]).toBe("100");
   });
 });
 

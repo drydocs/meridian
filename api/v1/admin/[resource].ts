@@ -18,7 +18,7 @@ import { logError } from "../../_lib/logger.js";
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   try {
-    if (!(await checkRateLimit(req, res))) return;
+    if (!(await checkRateLimit(req, res, { route: "admin" }))) return;
   } catch (err) {
     logError("admin.rate_limit_failed", req, err);
     return res

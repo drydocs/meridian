@@ -1,9 +1,13 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
-import rateLimit from "@fastify/rate-limit";
 import type Redis from "ioredis";
 import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import {
+  InMemoryRateLimitStore,
+  RedisRateLimitStore,
+} from "@meridian/api-core";
 import { writeLog } from "@meridian/shared/logger";
+import { registerRateLimit } from "./rate-limit.js";
 import { vaultsRoute } from "./routes/vaults.js";
 import { positionsRoute } from "./routes/positions.js";
 import { txRoute } from "./routes/tx.js";
@@ -15,8 +19,6 @@ export interface BuildAppOptions {
   logger?: boolean | object | undefined;
   redisClient?: Redis | undefined;
   enableRateLimit?: boolean | undefined;
-  rateLimitMax?: number | undefined;
-  rateLimitTimeWindow?: string | undefined;
   allowedOrigin?: string | undefined;
 }
 
@@ -47,15 +49,12 @@ export async function buildApp(
   });
 
   if (options.enableRateLimit !== false) {
-    await app.register(rateLimit, {
-      max: options.rateLimitMax ?? 100,
-      timeWindow: options.rateLimitTimeWindow ?? "1 minute",
-      ...(options.redisClient ? { redis: options.redisClient } : {}),
-      errorResponseBuilder: () => ({
-        statusCode: 429,
-        error: "Too many requests. Try again in a minute.",
-      }),
-    });
+    registerRateLimit(
+      app,
+      options.redisClient
+        ? new RedisRateLimitStore(options.redisClient)
+        : new InMemoryRateLimitStore()
+    );
   }
 
   app.addHook("onSend", (_req, reply, _payload, done) => {

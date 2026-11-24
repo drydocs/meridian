@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
+  Account,
+  Asset,
+  Keypair,
+  Operation,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
+import { APP_NETWORK } from "@meridian/shared";
+import {
   applyCors,
   checkRateLimit,
   isCronAuthorized,
@@ -14,12 +22,14 @@ import {
 function fakeReq(
   method: string,
   headers: Record<string, string> = {},
-  remoteAddress = "127.0.0.1"
+  remoteAddress = "127.0.0.1",
+  body?: unknown
 ): VercelRequest {
   return {
     method,
     headers,
     socket: { remoteAddress },
+    ...(body === undefined ? {} : { body }),
   } as unknown as VercelRequest;
 }
 
@@ -289,5 +299,106 @@ describe("isCronSecretConfigured / isCronAuthorized", () => {
     expect(
       isCronAuthorized(fakeReq("GET", { authorization: "Bearer wrong" }))
     ).toBe(false);
+  });
+});
+
+describe("checkRateLimit — per-route and per-wallet policies", () => {
+  function signedSubmitBody(): { wallet: string; body: { xdr: string } } {
+    const signer = Keypair.random();
+    const tx = new TransactionBuilder(new Account(signer.publicKey(), "1"), {
+      fee: "100",
+      networkPassphrase: APP_NETWORK.passphrase,
+    })
+      .addOperation(
+        Operation.payment({
+          destination: signer.publicKey(),
+          asset: Asset.native(),
+          amount: "1",
+        })
+      )
+      .setTimeout(30)
+      .build();
+    tx.sign(signer);
+    return { wallet: signer.publicKey(), body: { xdr: tx.toXDR() } };
+  }
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("emits RateLimit headers that match the read policy", async () => {
+    const res = fakeRes();
+    expect(
+      await checkRateLimit(fakeReq("GET", {}, "1.2.3.4"), res, {
+        route: "read",
+      })
+    ).toBe(true);
+
+    expect(res.headers["RateLimit-Limit"]).toBe("100");
+    expect(res.headers["RateLimit-Remaining"]).toBe("99");
+    expect(res.headers["RateLimit-Policy"]).toBe("100;w=60");
+    expect(res.headers["RateLimit-Reset"]).toMatch(/^\d+$/);
+    expect(res.headers["Retry-After"]).toBeUndefined();
+  });
+
+  it("keys signed submits by wallet and returns 429 with Retry-After", async () => {
+    const { body } = signedSubmitBody();
+
+    for (let i = 0; i < 5; i++) {
+      expect(
+        await checkRateLimit(
+          fakeReq("POST", {}, `1.2.3.${i}`, body),
+          fakeRes(),
+          {
+            route: "tx-submit",
+          }
+        )
+      ).toBe(true);
+    }
+
+    const res = fakeRes();
+    expect(
+      await checkRateLimit(fakeReq("POST", {}, "1.2.3.99", body), res, {
+        route: "tx-submit",
+      })
+    ).toBe(false);
+    expect(res.statusCode).toBe(429);
+    expect(res.headers["RateLimit-Limit"]).toBe("5");
+    expect(res.headers["RateLimit-Remaining"]).toBe("0");
+    expect(Number(res.headers["Retry-After"])).toBeGreaterThanOrEqual(1);
+  });
+
+  it("ignores a walletAddress the caller cannot prove", async () => {
+    const walletAddress = signedSubmitBody().wallet;
+
+    for (let i = 0; i < 6; i++) {
+      expect(
+        await checkRateLimit(
+          fakeReq("POST", {}, `1.2.4.${i}`, { walletAddress }),
+          fakeRes(),
+          { route: "tx-submit" }
+        )
+      ).toBe(true);
+    }
+  });
+
+  it("keeps transaction and read budgets separate", async () => {
+    vi.stubEnv("RATE_LIMIT_TX_BUILD_LIMIT", "1");
+    const ip = "1.2.3.41";
+
+    expect(
+      await checkRateLimit(fakeReq("POST", {}, ip), fakeRes(), {
+        route: "tx-build",
+      })
+    ).toBe(true);
+    expect(
+      await checkRateLimit(fakeReq("POST", {}, ip), fakeRes(), {
+        route: "tx-build",
+      })
+    ).toBe(false);
+
+    expect(
+      await checkRateLimit(fakeReq("GET", {}, ip), fakeRes(), {
+        route: "read",
+      })
+    ).toBe(true);
   });
 });

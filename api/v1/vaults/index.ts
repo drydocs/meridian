@@ -12,7 +12,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   if (requireGetMethod(req, res)) return;
   try {
-    if (!(await checkRateLimit(req, res))) return;
+    if (!(await checkRateLimit(req, res, { route: "read" }))) return;
   } catch (err) {
     logError("vaults.rate_limit_failed", req, err);
     return res

@@ -4,19 +4,21 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
 import {
   CONFIG_CACHE_CONTROL,
-  MAINNET_VAULT_CACHE_CONTROL,
-  TESTNET_VAULT_CACHE_CONTROL,
   HISTORY_CACHE_CONTROL,
+  InMemoryRateLimitStore,
+  MAINNET_VAULT_CACHE_CONTROL,
+  RedisRateLimitStore,
+  TESTNET_VAULT_CACHE_CONTROL,
+  enforceRateLimit,
+  resolveRateLimitPolicy,
+  verifiedWalletFromRequest,
   vaultReadCacheControl,
+  type RateLimitRoute,
+  type RateLimitStore,
 } from "@meridian/api-core";
-import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN;
-
-const LIMIT = 100;
-const WINDOW = "60 s";
-const WINDOW_MS = 60_000;
 
 // Vercel's Upstash integration provisions credentials under either store-prefixed or standard names
 const UPSTASH_URL =
@@ -36,18 +38,22 @@ export function isDistributedRateLimitingConfigured(): boolean {
   return UPSTASH_CONFIGURED;
 }
 
-const ratelimit = UPSTASH_CONFIGURED
-  ? new Ratelimit({
-      redis: new Redis({ url: UPSTASH_URL!, token: UPSTASH_TOKEN! }),
-      limiter: Ratelimit.slidingWindow(LIMIT, WINDOW),
-    })
+const redis = UPSTASH_CONFIGURED
+  ? new Redis({ url: UPSTASH_URL!, token: UPSTASH_TOKEN! })
   : null;
 
-const counts = new Map<string, { n: number; resetAt: number }>();
+// The Upstash REST client exposes the same INCR/PEXPIRE/PTTL commands as
+// ioredis, so both deployments run the one fixed-window store in api-core
+// instead of Upstash's separate sliding-window implementation.
+const distributedStore: RateLimitStore | null = redis
+  ? new RedisRateLimitStore(redis)
+  : null;
+
+const memoryStore = new InMemoryRateLimitStore();
 
 /** Clears all in-memory rate-limit buckets. Exposed for tests only. */
 export function resetRateLimitForTesting(): void {
-  counts.clear();
+  memoryStore.reset();
 }
 
 /**
@@ -148,6 +154,9 @@ export function enforceStrictRateLimit(res: VercelResponse): boolean {
 }
 
 export interface RateLimitOptions {
+  /** Policy to enforce. Defaults to the read policy. */
+  route?: RateLimitRoute;
+  /** Overrides the policy's distributed-store requirement. */
   strict?: boolean;
   /**
    * Namespaces the rate-limit counter. Routes that pass a bucket spend their
@@ -159,73 +168,51 @@ export interface RateLimitOptions {
 
 /**
  * Check rate limit for the incoming request.
- * - If strict: true (fund-moving/keeper endpoints), returns 503 if Upstash is unconfigured on any deployment (only local dev without VERCEL_ENV falls back).
- * - For non-strict routes (read-only), falls back to the in-memory rate limiter.
- * - Pass `bucket` to give a route its own counter instead of the shared per-IP one.
- * Writes a 429 or 503 response and returns false when blocked.
+ * - The route selects the policy: reads, transaction builds, transaction
+ *   submits, keepers, and admin routes each get their own budget.
+ * - Transaction submits also key on the wallet, but only when the XDR carries
+ *   a signature from that wallet; rotating IPs does not reset a wallet's
+ *   budget, and naming someone else's address does not spend it.
+ * - `strict` (or a strict policy) returns 503 when Upstash is unconfigured on
+ *   any deployment; only local dev without VERCEL_ENV falls back to memory.
+ * - Pass `bucket` to give a route its own counter instead of the shared per-IP
+ *   one.
+ * Writes standard RateLimit headers, and a 429 or 503 response, returning
+ * false when blocked.
  */
 export async function checkRateLimit(
   req: VercelRequest,
   res: VercelResponse,
   options: RateLimitOptions = {}
 ): Promise<boolean> {
-  const { strict = false, bucket } = options;
+  const route = options.route ?? "read";
+  const policy = resolveRateLimitPolicy(route);
+  const strict = options.strict ?? policy.strict;
 
   if (strict && !enforceStrictRateLimit(res)) {
     return false;
   }
 
-  const ip = clientIp(req);
-  const key = bucket ? `${bucket}:${ip}` : ip;
-
-  if (ratelimit) {
-    const { success, limit, remaining, reset } = await ratelimit.limit(key);
-    res.setHeader("x-ratelimit-limit", String(limit));
-    res.setHeader("x-ratelimit-remaining", String(remaining));
-    res.setHeader(
-      "x-ratelimit-reset",
-      String(Math.max(1, Math.ceil((reset - Date.now()) / 1000)))
-    );
-    if (!success) {
-      res.setHeader("retry-after", "60");
-      res
-        .status(429)
-        .json({ error: "Too many requests. Try again in a minute." });
-      return false;
+  const decision = await enforceRateLimit(
+    distributedStore ?? memoryStore,
+    route,
+    {
+      ip: clientIp(req),
+      wallet: verifiedWalletFromRequest(req.body),
+      bucket: options.bucket,
     }
-    return true;
+  );
+
+  for (const [name, value] of Object.entries(decision.headers)) {
+    res.setHeader(name, value);
   }
 
-  // In-memory fallback
-  const now = Date.now();
-  const entry = counts.get(key);
-  if (!entry || now > entry.resetAt) {
-    counts.set(key, { n: 1, resetAt: now + WINDOW_MS });
-    res.setHeader("x-ratelimit-limit", String(LIMIT));
-    res.setHeader("x-ratelimit-remaining", String(LIMIT - 1));
-    res.setHeader("x-ratelimit-reset", "60");
-    return true;
-  }
-  if (entry.n >= LIMIT) {
-    res.setHeader("x-ratelimit-limit", String(LIMIT));
-    res.setHeader("x-ratelimit-remaining", "0");
-    res.setHeader(
-      "x-ratelimit-reset",
-      String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000)))
-    );
-    res.setHeader("retry-after", "60");
-    res
-      .status(429)
-      .json({ error: "Too many requests. Try again in a minute." });
+  if (!decision.allowed) {
+    res.status(429).json({
+      error: "Too many requests. Try again in a minute.",
+    });
     return false;
   }
-  entry.n++;
-  res.setHeader("x-ratelimit-limit", String(LIMIT));
-  res.setHeader("x-ratelimit-remaining", String(LIMIT - entry.n));
-  res.setHeader(
-    "x-ratelimit-reset",
-    String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000)))
-  );
   return true;
 }
 
