@@ -9,6 +9,7 @@ import {
   loadKeeperHeartbeatStore,
 } from "@meridian/stellar-sdk-helpers";
 import type { RouteResult } from "./types";
+import { deadlineResult, withUpstreamDeadline } from "./deadline";
 
 export interface KeeperHealthEntry {
   id: "accrual" | "migration";
@@ -84,16 +85,18 @@ export async function handleGetVaultState(): Promise<RouteResult> {
   }
 
   try {
-    const state = await fetchCoordinatorState({
-      contractId: entry.contractId,
-      network: APP_NETWORK,
-    });
+    const state = await withUpstreamDeadline(
+      () =>
+        fetchCoordinatorState({
+          contractId: entry.contractId,
+          network: APP_NETWORK,
+        }),
+      "vault state"
+    );
     return { status: 200, body: state };
   } catch (err) {
     return {
-      status: 503,
-      body: { error: "Failed to read vault state" },
-      error: err,
+      ...deadlineResult(err, "Failed to read vault state", 503),
     };
   }
 }

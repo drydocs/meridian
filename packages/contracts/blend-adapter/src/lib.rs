@@ -26,6 +26,7 @@ use soroban_sdk::{
 
 const POOL_KEY: Symbol = symbol_short!("POOL");
 const TOTAL_KEY: Symbol = symbol_short!("TOTAL");
+const LAST_ACCRUAL_KEY: Symbol = symbol_short!("LAST_ACCR");
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -81,6 +82,7 @@ impl MeridianBlendAdapter {
         store_vault_and_usdc(env, vault, usdc);
         env.storage().instance().set(&POOL_KEY, pool);
         env.storage().instance().set(&TOTAL_KEY, &0_i128);
+        env.storage().instance().set(&LAST_ACCRUAL_KEY, &0_u32);
     }
 
     /// Called by the vault after transferring `amount` USDC to this adapter.
@@ -277,6 +279,9 @@ impl MeridianBlendAdapter {
 
         let prev: i128 = env.storage().instance().get(&TOTAL_KEY).unwrap_or(0);
         env.storage().instance().set(&TOTAL_KEY, &current_value);
+        env.storage()
+            .instance()
+            .set(&LAST_ACCRUAL_KEY, &env.ledger().sequence());
 
         env.events()
             .publish((symbol_short!("accrue"),), (prev, current_value));
@@ -311,6 +316,28 @@ impl MeridianBlendAdapter {
         // initialize() sets this key to 0. This unwrap_or pattern is the idiomatic way to handle
         // optional storage values in Soroban.
         env.storage().instance().get(&TOTAL_KEY).unwrap_or(0)
+    }
+
+    /// Returns the live Blend valuation without updating the cached total.
+    pub fn live_total_assets(env: Env) -> i128 {
+        let pool = adapter_common::get_or_not_initialized::<_, ContractError>(
+            &env,
+            env.storage().instance().get(&POOL_KEY),
+        );
+        let usdc = get_usdc(&env);
+        let client = BlendPoolClient::new(&env, &pool);
+        let reserve = client.get_reserve(&usdc);
+        let b_tokens = client
+            .get_positions(&env.current_contract_address())
+            .collateral
+            .get(reserve.config.index)
+            .unwrap_or(0);
+        b_tokens_to_usdc(b_tokens, reserve.data.b_rate)
+            .unwrap_or_else(|err| panic_with_error!(&env, err))
+    }
+
+    pub fn last_accrual_ledger(env: Env) -> u32 {
+        env.storage().instance().get(&LAST_ACCRUAL_KEY).unwrap_or(0)
     }
 
     /// Returns the adapter's current bToken share balance, read directly from

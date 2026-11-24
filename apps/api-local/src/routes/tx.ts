@@ -38,4 +38,16 @@ export const txRoute: FastifyPluginAsync = async (app) => {
     }
     reply.code(result.status).send(result.body);
   });
+
+  for (const url of ["/deposit", "/withdraw", "/add-trustline", "/submit"]) {
+    app.route({
+      method: ["GET", "PUT", "PATCH", "DELETE"],
+      url,
+      handler: async (_req, reply) =>
+        reply
+          .code(405)
+          .header("Allow", "POST")
+          .send({ error: "Method not allowed" }),
+    });
+  }
 };

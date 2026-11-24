@@ -36,6 +36,30 @@ describe("RiskMetricsPanel", () => {
     );
     expect(screen.getByText("Value at risk (95%)")).toBeTruthy();
     expect(screen.getByText(/from 4 per-step returns/)).toBeTruthy();
+  });
+
+  it("shows the downside metrics for a completed run", () => {
+    render(<RiskMetricsPanel snapshots={RUN} step="P1D" />);
+
+    // The 5% tail is the single -10% step.
+    expect(screen.getByTestId("risk-metric-cvar-value")).toHaveProperty(
+      "textContent",
+      "10.00%"
+    );
+    // Downside deviation sqrt(0.01 / 4) = 0.05, mean 0.05: sqrt(365).
+    expect(screen.getByTestId("risk-metric-sortino-value")).toHaveProperty(
+      "textContent",
+      "19.10"
+    );
+    // 0.05 x 365 / 0.10.
+    expect(screen.getByTestId("risk-metric-calmar-value")).toHaveProperty(
+      "textContent",
+      "182.50"
+    );
+    expect(screen.getByText("Conditional VaR (95%)")).toBeTruthy();
+    expect(metric("cvar").getByText(/^CVaR = /)).toBeTruthy();
+    expect(metric("sortino").getByText(/^Sortino = /)).toBeTruthy();
+    expect(metric("calmar").getByText(/^Calmar = /)).toBeTruthy();
     expect(screen.getByText(/365 periods per 365-day year/)).toBeTruthy();
   });
 
@@ -83,7 +107,14 @@ describe("RiskMetricsPanel", () => {
   it("shows not enough data for every metric with no snapshots", () => {
     render(<RiskMetricsPanel snapshots={[]} step="P1D" />);
 
-    for (const id of ["max-drawdown", "sharpe", "var"]) {
+    for (const id of [
+      "max-drawdown",
+      "sharpe",
+      "var",
+      "cvar",
+      "sortino",
+      "calmar",
+    ]) {
       expect(metric(id).getByText("Not enough data")).toBeTruthy();
     }
     expect(
@@ -127,6 +158,16 @@ describe("RiskMetricsPanel", () => {
       "textContent",
       "-10.00%"
     );
+    expect(screen.getByTestId("risk-metric-cvar-value")).toHaveProperty(
+      "textContent",
+      "-10.00%"
+    );
+    expect(
+      metric("sortino").getByText(/No per-step return fell below 0%/)
+    ).toBeTruthy();
+    expect(
+      metric("calmar").getByText(/never fell below an earlier peak/)
+    ).toBeTruthy();
     expect(screen.queryByText(/NaN/)).toBeNull();
   });
 

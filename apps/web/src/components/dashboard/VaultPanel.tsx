@@ -8,6 +8,7 @@ import { useRiskDisclosure } from "../../hooks/useRiskDisclosure";
 import { useUsdcBalance } from "../../hooks/useUsdcBalance";
 import { getWalletMeta, hasAcceptedRiskDisclosure } from "../../lib/wallet";
 import { PositionSummary } from "./PositionSummary";
+import { PositionPnlCard } from "./PositionPnlCard";
 import { YieldHistoryChart } from "./YieldHistoryChart";
 import { DepositTab } from "./DepositTab";
 import { WithdrawTab } from "./WithdrawTab";
@@ -28,8 +29,11 @@ export function VaultPanel() {
   const vaults = data?.vaults;
   const { t } = useTranslation();
   const { connected, publicKey } = useWalletStore();
-  const { balance: availableBalance, refetch: refetchBalance } =
-    useUsdcBalance();
+  const {
+    balance: availableBalance,
+    isError: balanceError,
+    refetch: refetchBalance,
+  } = useUsdcBalance();
   const {
     handleConnect,
     status: connectStatus,
@@ -116,7 +120,10 @@ export function VaultPanel() {
     if (position.vaultId !== bestVault.id) return;
     if (parseFloat(amount) > position.shares) return;
     const ok = await withdraw(amount, bestVault.id, bestVault.asset, undefined);
-    if (ok) setAmount("");
+    if (ok) {
+      setAmount("");
+      refetchBalance();
+    }
   }
 
   function handleTabChange(next: Tab) {
@@ -215,6 +222,11 @@ export function VaultPanel() {
         <PositionSummary position={position} />
       )}
 
+      {/* Position PnL & yield breakdown */}
+      {connected && hasPosition && position && (
+        <PositionPnlCard position={position} />
+      )}
+
       {/* Yield history: position value over time, by protocol */}
       {connected && hasPosition && position && (
         <YieldHistoryChart publicKey={publicKey} />
@@ -303,6 +315,8 @@ export function VaultPanel() {
             isDepositing={isDepositing}
             onSubmit={handleDeposit}
             availableBalance={availableBalance}
+            isBalanceError={balanceError}
+            onRetryBalance={refetchBalance}
           />
         ) : (
           <WithdrawTab

@@ -2,6 +2,8 @@
 
 The `MeridianVault` contract is a Soroban smart contract written in Rust, located at `packages/contracts/vault/src/lib.rs`. It is a protocol-agnostic coordinator: it holds no direct opinion about where funds actually earn yield. Instead it delegates all protocol-specific work to a swappable **adapter** contract (see [Adapter Contracts](#adapter-contracts) below).
 
+The architecture behind this contract is recorded in the ADRs for [one vault per asset](./adr/0001-one-vault-per-asset.md), [no separate on-chain router](./adr/0002-no-onchain-router.md), [custom mUSDC shares](./adr/0003-custom-musdc-share-token.md), [contract immutability](./adr/0004-immutable-contracts.md), [the migration timelock](./adr/0006-migration-timelock.md), and [the migration slippage cap](./adr/0007-admin-migration-slippage-cap.md).
+
 ## Tokens
 
 | Token | Role                                                                                                               |
@@ -31,7 +33,7 @@ Transfers `amount` USDC from the caller into the vault, forwards it to the activ
 
 The mint is priced from the adapter's credit, not from `amount` ([#1263](https://github.com/drydocs/meridian/issues/1263)). A partial fill, a supply cap or a fee taken on deposit can leave the adapter holding less value than the caller sent; pricing from `amount` would still mint the full quote and dilute existing holders. After the adapter's `deposit()` returns the shares it credited, the vault calls `refresh()` and reads the adapter's post-deposit `total_assets()` and `total_shares()` once, and prices everything from those reads:
 
-```
+```text
 quoted_shares   = amount * (total_shares + OFFSET) / (assets_before + OFFSET)
 credited_value  = adapter_shares_credited * assets_after / adapter_shares_after
 backing         = min(amount, assets_after - assets_before)
@@ -66,7 +68,7 @@ Burns `shares` mUSDC from the caller, redeems the proportional adapter position,
 
 The `InsufficientShares` check reads the caller's live mUSDC balance, the same balance the burn operates on, so the two can never disagree. The check is kept rather than left to the burn's own failure so callers get the typed error instead of a panic.
 
-```
+```text
 adapter_shares_to_burn = shares * total_adapter_shares / total_shares
 usdc_out = <whatever the adapter's withdraw() returns for that many adapter shares>
 principal_out = Principal(caller) * shares / caller_shares
@@ -106,6 +108,10 @@ Returns the address's cost basis: the net USDC it has deposited and not yet with
 ### `get_total_assets() -> i128`
 
 Returns the live USDC value of the vault's position, read directly from the active adapter's `total_assets()`. Includes yield accrued by the underlying protocol (for Blend, only as of the adapter's last `accrue()` call, described below).
+
+### `get_health() -> Health`
+
+Returns a read-only reconciliation snapshot. `total_shares_mismatch` compares the vault's `TOTAL_SH` counter with the mUSDC token's `total_supply`; `adapter_shares_mismatch` compares `ADPT_SH` with the active adapter's own protocol-share balance. The response also includes the adapter's cached and live asset values, the last accrual ledger, and migration state. Each optional external read has a corresponding `*_stale` flag; when a legacy token or adapter does not expose that view or the read fails, the value falls back to a cached estimate and the flag is `true`. Consumers must not treat a fallback as a successful reconciliation. When a migration is active, `migration_earliest_ledger` is the first ledger at which `migrate_adapter` can execute; it is `0` otherwise. This view never refreshes or writes state, so keepers can use it as a preflight check before submitting a transaction.
 
 ### `get_total_shares() -> i128`
 
@@ -326,12 +332,21 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `MigrationCooldownNotMet`        | 20   | `migrate_adapter` was called before `MIN_LEDGER_GAP` ledgers had elapsed since `begin_migration`.                                                                                                 |
 | `MigrationStabilityDrift`        | 21   | `migrate_adapter`'s target adapter's pre-deposit balance fell outside `max_slippage_bps` of the `begin_migration` snapshot, indicating the target was drained or manipulated during the cooldown. |
 | `MigrationSnapshotAssetsInvalid` | 22   | `begin_migration` was called against a target adapter reporting a negative `total_assets()`.                                                                                                      |
+| `AdapterCreditedNothing`         | 23   | `deposit` or `migrate_adapter` received zero or negative shares from the adapter.                                                                                                                 |
+| `DivisionByZero`                 | 24   | An internal division attempted to divide by zero.                                                                                                                                                 |
+| `MigrationBaselineInvalid`       | 25   | `migrate_adapter` read a zero or negative asset baseline from the old adapter while the vault held adapter shares.                                                                                |
 | `ReentrancyDetected`             | 26   | `deposit`, `withdraw`, `withdraw_assets`, `set_adapter`, `begin_migration`, `migrate_adapter` or `on_transfer` was called while another guarded call was still running.                           |
-| `AdapterUsdcMismatch`            | 27   | `set_adapter` or `begin_migration` was given a target whose `get_usdc()` differs from the vault's USDC, is missing, or fails.                                                                     |
-| `AdapterVaultMismatch`           | 28   | `set_adapter` or `begin_migration` was given a target whose `get_vault()` is not this vault, is missing, or fails.                                                                                |
+| `AdapterUsdcMismatch`            | 27   | `set_adapter`, `begin_migration`, or constructor wiring was given a target whose `get_usdc()` differs from the vault's USDC, is missing, or fails.                                                |
+| `AdapterVaultMismatch`           | 28   | `set_adapter`, `begin_migration`, or constructor wiring was given a target whose `get_vault()` is not this vault, is missing, or fails.                                                           |
 | `AdapterResidualPosition`        | 29   | `set_adapter` was given a target that already holds a position (nonzero `total_shares()` or `total_assets()`).                                                                                    |
 | `DepositValueMismatch`           | 30   | `deposit`'s adapter reported a credit worth more than the USDC it was given or more than its `total_assets()` grew by, beyond the documented tolerance.                                           |
 | `MaxSharesExceeded`              | 31   | `withdraw_assets` burned share count exceeded the caller-specified maximum bound (`max_shares_in`).                                                                                               |
+| `InvalidAdminAddress`            | 32   | Constructor initialization rejected a zero or vault-self admin address.                                                                                                                           |
+| `InvalidUsdcAddress`             | 33   | Constructor initialization rejected a zero or vault-self USDC address.                                                                                                                            |
+| `InvalidMusdcAddress`            | 34   | Constructor initialization rejected a zero or vault-self mUSDC address.                                                                                                                           |
+| `InvalidAdapterAddress`          | 35   | Constructor initialization rejected a zero or vault-self adapter address.                                                                                                                         |
+| `InvalidTreasuryAddress`         | 36   | Constructor initialization rejected a zero or vault-self treasury address.                                                                                                                        |
+| `MusdcAdminMismatch`             | 37   | Constructor initialization found that mUSDC is not administered by this vault.                                                                                                                    |
 
 ## Contract storage
 

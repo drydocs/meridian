@@ -12,6 +12,7 @@ import {
   setCachedPositions,
 } from "./position-cache";
 import type { RouteResult } from "./types";
+import { deadlineResult, withUpstreamDeadline } from "./deadline";
 
 interface PositionRead {
   positions: PositionInfo[];
@@ -100,7 +101,10 @@ export async function handleGetPositions(
   }
 
   try {
-    const result = await readPositions(publicKey, options.refresh ?? false);
+    const result = await withUpstreamDeadline(
+      () => readPositions(publicKey, options.refresh ?? false),
+      "position read"
+    );
     return {
       status: 200,
       body: { positions: result.positions },
@@ -108,9 +112,7 @@ export async function handleGetPositions(
     };
   } catch (err) {
     return {
-      status: 503,
-      body: { error: "Failed to read positions" },
-      error: err,
+      ...deadlineResult(err, "Failed to read positions", 503),
     };
   }
 }

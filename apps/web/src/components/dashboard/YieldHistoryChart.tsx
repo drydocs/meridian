@@ -10,7 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { usePositionHistory } from "../../hooks/usePositionHistory";
-import { formatUsd } from "../../lib/format";
+import { formatDate, formatUsd } from "../../lib/format";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
 import { toChartData } from "../../lib/yieldHistory";
 
@@ -41,8 +41,8 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
   // A single point draws no line; wait for a second snapshot.
   const hasHistory = points.length >= 2;
 
-  const formatDate = (ms: number) =>
-    new Date(ms).toLocaleDateString(locale, { month: "short", day: "numeric" });
+  const formatTickDate = (ms: number) =>
+    formatDate(ms, i18n.language, { month: "short", day: "numeric" });
 
   return (
     <section
@@ -128,7 +128,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
                 type="number"
                 scale="time"
                 domain={["dataMin", "dataMax"]}
-                tickFormatter={formatDate}
+                tickFormatter={formatTickDate}
                 tick={{ fill: "#6b7280", fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
@@ -143,7 +143,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
                 tickLine={false}
               />
               <Tooltip
-                labelFormatter={(ms) => formatDate(Number(ms))}
+                labelFormatter={(ms) => formatTickDate(Number(ms))}
                 formatter={(value, name) => [
                   formatUsd(Number(value), i18n.language),
                   PROTOCOL_LABEL[String(name)] ?? String(name),

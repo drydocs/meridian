@@ -342,15 +342,15 @@ Source:
 `runBacktest` returns a `BacktestResult`. A `RunReport` is the separate,
 versioned record a caller keeps for a run:
 
-| Field           | Meaning                                                              |
-| --------------- | -------------------------------------------------------------------- |
-| `version`       | Report format version, `REPORT_FORMAT_VERSION` (`2`)                 |
-| `scenario`      | The validated scenario the run was produced from                     |
-| `engineVersion` | The engine that produced the run                                     |
-| `riskMetrics`   | `maxDrawdown`, `sharpeProxy`, `volatility`                           |
-| `eventCounts`   | `rebalances`, `deposits`, `withdrawals`, `priceFeedMisses`           |
-| `finalState`    | Timestamp, holdings per asset, and total value at the end of the run |
-| `generators`    | The state of each seeded random stream at the start and the end      |
+| Field           | Meaning                                                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`       | Report format version, `REPORT_FORMAT_VERSION` (`3`)                                                                                    |
+| `scenario`      | The validated scenario the run was produced from                                                                                        |
+| `engineVersion` | The engine that produced the run                                                                                                        |
+| `riskMetrics`   | `maxDrawdown`, `sharpeProxy`, `volatility`, `valueAtRisk`, `conditionalValueAtRisk`, `downsideDeviation`, `sortinoRatio`, `calmarRatio` |
+| `eventCounts`   | `rebalances`, `deposits`, `withdrawals`, `priceFeedMisses`                                                                              |
+| `finalState`    | Timestamp, holdings per asset, and total value at the end of the run                                                                    |
+| `generators`    | The state of each seeded random stream at the start and the end                                                                         |
 
 `serializeReport` and `reportToJSON` write a lossless wire format: every
 fixed-point value becomes its stroop count as a decimal string, and generator

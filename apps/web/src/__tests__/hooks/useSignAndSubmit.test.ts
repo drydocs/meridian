@@ -14,6 +14,8 @@ vi.mock("../../lib/wallet", () => ({
   wallet: {
     sign: vi.fn(async () => "SIGNED_XDR"),
     isAuthorized: vi.fn(async () => true),
+    getNetwork: vi.fn(async () => APP_NETWORK.network),
+    getAddress: vi.fn(async () => KEY),
   },
 }));
 
@@ -31,6 +33,7 @@ describe("useSignAndSubmit (#965)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(wallet.isAuthorized).mockResolvedValue(true);
+    vi.mocked(wallet.getNetwork!).mockResolvedValue(APP_NETWORK.network);
     useWalletStore.setState({
       publicKey: KEY,
       connected: true,
@@ -89,6 +92,17 @@ describe("useSignAndSubmit (#965)", () => {
       expect(wallet.sign).not.toHaveBeenCalled();
       expect(api.submitTx).not.toHaveBeenCalled();
     });
+
+    it("blocks signing when there is a network mismatch (#1300)", async () => {
+      vi.mocked(wallet.getNetwork!).mockResolvedValue(OTHER_NETWORK);
+      const { result } = renderHook(() => useSignAndSubmit());
+
+      await expect(result.current.signAndSubmit("XDR")).rejects.toThrow(
+        /network mismatch/i
+      );
+      expect(wallet.sign).not.toHaveBeenCalled();
+      expect(api.submitTx).not.toHaveBeenCalled();
+    });
   });
 
   describe("revalidation on success", () => {
@@ -118,5 +132,24 @@ describe("useSignAndSubmit (#965)", () => {
       expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
       expect(useWalletStore.getState().connected).toBe(true);
     });
+
+    it.each(["PENDING", "OUTCOME_UNKNOWN"] as const)(
+      "does not treat %s as a successful submission",
+      async (status) => {
+        vi.mocked(api.submitTx).mockResolvedValueOnce({
+          hash: "TX_HASH",
+          status,
+        });
+        const { result } = renderHook(() => useSignAndSubmit());
+
+        await expect(
+          result.current.signAndSubmit("UNSIGNED_XDR")
+        ).rejects.toMatchObject({
+          name: "TransactionNotConfirmedError",
+          status,
+          hash: "TX_HASH",
+        });
+      }
+    );
   });
 });

@@ -137,6 +137,7 @@ Your Stellar account does not have the required trustline to hold USDC or vault 
      - **Testnet USDC Issuer**: `GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5`
   3. Ensure your account holds at least **1.5–2 XLM** to cover the 0.5 XLM minimum reserve requirement per trustline.
   4. Contributors can build and inspect the trustline transaction using curl:
+
      ```bash
      curl -s -X POST http://localhost:3001/api/v1/tx/add-trustline \
        -H "Content-Type: application/json" \
@@ -159,13 +160,16 @@ The account lacks enough native XLM to pay network resource fees or satisfy the 
 - **Next Action**:
   - **On Testnet**:
     - Fund your account via Stellar Friendbot:
+
       ```bash
       curl "https://friendbot.stellar.org?addr=<YOUR_PUBLIC_KEY>"
       ```
+
     - Or use Meridian's built-in testnet faucet integration on testnet builds.
   - **On Mainnet**:
     - Transfer 2–5 XLM to your public key from an exchange or another wallet.
     - Check your spendable balance vs. reserved balance using Horizon:
+
       ```bash
       curl -s "https://horizon.stellar.org/accounts/<YOUR_PUBLIC_KEY>" | jq .balances
       ```

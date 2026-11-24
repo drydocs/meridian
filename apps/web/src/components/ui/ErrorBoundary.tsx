@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { withTranslation, type WithTranslation } from "react-i18next";
+import { reportError } from "../../lib/errorReporter";
 
 interface ErrorBoundaryProps extends WithTranslation {
   children: ReactNode;
@@ -24,6 +25,10 @@ class ErrorBoundaryBase extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    reportError(error, {
+      category: "render",
+      componentStack: info.componentStack ?? "",
+    });
     console.error(
       "[ErrorBoundary] caught render error:",
       error,
