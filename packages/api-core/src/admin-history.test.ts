@@ -19,7 +19,10 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>();
   return {
     ...actual,
-    getAdminActionHistory: vi.fn(async () => []),
+    getAdminActionHistory: vi.fn(async () => ({
+      actions: [],
+      nextCursor: null,
+    })),
   };
 });
 
@@ -29,6 +32,8 @@ import {
   KNOWN_POOLS,
 } from "@meridian/stellar-sdk-helpers";
 import { handleGetAdminHistory } from "./admin-history";
+
+const getAdminActionHistoryMock = vi.mocked(getAdminActionHistory);
 
 function useNetwork(name: "mainnet" | "testnet") {
   Object.assign(appNetwork, STELLAR_NETWORKS[name]);
@@ -104,7 +109,12 @@ describe("handleGetAdminHistory upstream bounds", () => {
 
     expect(getAdminActionHistory).toHaveBeenCalledTimes(1);
     const [, , options] = vi.mocked(getAdminActionHistory).mock.calls[0]!;
-    expect(options).toEqual({ limit: 50, maxPages: 5, scanTimeoutMs: 8_000 });
+    expect(options).toEqual({
+      limit: 50,
+      maxPages: 5,
+      scanTimeoutMs: 8_000,
+      cursor: null,
+    });
   });
 
   it("returns a typed 503 when the bounded scan times out", async () => {
@@ -122,16 +132,12 @@ describe("handleGetAdminHistory upstream bounds", () => {
     expect(result.error).toBe(timeout);
   });
 });
+
 describe("handleGetAdminHistory cursor pagination", () => {
   it("forwards cursor to getAdminActionHistory", async () => {
-    getAdminActionHistoryMock.mockResolvedValueOnce({
-      actions: [],
-      nextCursor: null,
-    } as never);
+    await handleGetAdminHistory("meridian-usdc", "cursor-abc");
 
-    await handleGetAdminHistory("vault-123", "cursor-abc");
-
-    expect(getAdminActionHistoryMock.mock.calls[0][2]).toMatchObject({
+    expect(getAdminActionHistoryMock.mock.calls[0]![2]).toMatchObject({
       cursor: "cursor-abc",
     });
   });
@@ -142,8 +148,21 @@ describe("handleGetAdminHistory cursor pagination", () => {
       nextCursor: "next-123",
     } as never);
 
-    const result = await handleGetAdminHistory("vault-123", "cursor-abc");
+    const result = await handleGetAdminHistory("meridian-usdc", "cursor-abc");
 
     expect(result.body).toMatchObject({ nextCursor: "next-123" });
+  });
+  it("returns 400 on malformed cursor", async () => {
+    getAdminActionHistoryMock.mockRejectedValueOnce(
+      new Error("Invalid cursor")
+    );
+
+    const result = await handleGetAdminHistory("meridian-usdc", "!!!bad!!!");
+
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({
+      error: "Invalid cursor",
+      vaultId: "meridian-usdc",
+    });
   });
 });
