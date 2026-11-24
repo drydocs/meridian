@@ -26,7 +26,8 @@ export function computePositionPnl(
       ? position.principal
       : Math.max(
           0,
-          currentValue - (Number.isFinite(position.earned) ? position.earned : 0)
+          currentValue -
+            (Number.isFinite(position.earned) ? position.earned : 0)
         );
   const grossYield = currentValue - principal;
   const performanceFee =
