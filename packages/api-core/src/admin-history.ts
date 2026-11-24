@@ -31,17 +31,15 @@ export async function handleGetAdminHistory(
       };
     }
 
-            const result = (await withUpstreamDeadline(
+    const result = (await withUpstreamDeadline(
       () =>
-        getAdminActionHistory({
-          network: APP_NETWORK,
-          vaultContractId: contractId,
+        getAdminActionHistory(APP_NETWORK, contractId, {
           limit: 50,
           maxPages: ADMIN_HISTORY_MAX_PAGES,
           scanTimeoutMs: ADMIN_HISTORY_TIMEOUT_MS,
           cursor: cursor ?? null,
         }),
-       "admin history"
+      "admin history",
     )) as GetAdminActionHistoryResult;
     return {
       status: 200,
@@ -54,6 +52,14 @@ export async function handleGetAdminHistory(
       },
     };
   } catch (err) {
+    // Malformed opaque cursor is a client error, not a 500.
+    // The helper throws Error("Invalid cursor") before any Horizon call.
+    if (err instanceof Error && err.message === "Invalid cursor") {
+      return {
+        status: 400,
+        body: { error: "Invalid cursor", vaultId },
+      };
+    }
     return {
       ...deadlineResult(err, "Failed to fetch admin history"),
     };
