@@ -18,7 +18,7 @@
   },
   "devDependencies": {
     "@meridian/api-local": "workspace:*",
-    "@vercel/node": "^27.0.2",
+    "@vercel/node": "^32.0.0",
     "vitest": "^5.1.0"
   }
 }
