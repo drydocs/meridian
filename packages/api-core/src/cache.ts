@@ -23,9 +23,7 @@ export const HISTORY_CACHE_CONTROL =
  * Cache-Control for successful (200) vault-read responses: a short CDN cache
  * on mainnet, nothing at all on testnet so post-deposit reads stay fresh.
  */
-export function vaultReadCacheControl(
-  network?: "mainnet" | "testnet"
-): string {
+export function vaultReadCacheControl(network?: "mainnet" | "testnet"): string {
   const activeNetwork =
     network ??
     (process.env.STELLAR_NETWORK === "testnet"
