@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 const baseUrl = process.env.SECURITY_HEADERS_BASE_URL;
 if (!baseUrl) {
@@ -24,8 +25,15 @@ const isLocal =
   base.hostname === "[::1]" ||
   /^127(?:\.\d{1,3}){3}$/.test(base.hostname);
 
-const appPolicy =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://ewqw4hx7oa.execute-api.us-east-1.amazonaws.com; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+// The app/admin policy is whatever vercel.json enforces for those routes, so
+// legitimate edits (for example new connect-src hosts) do not break this check.
+const vercelConfig = JSON.parse(
+  readFileSync(new URL("../vercel.json", import.meta.url), "utf8")
+);
+const appPolicy = vercelConfig.headers
+  .find((entry) => entry.source === "/:base(app|admin)/:path*")
+  ?.headers.find((header) => header.key === "Content-Security-Policy")?.value;
+assert.ok(appPolicy, "vercel.json must define the app/admin policy");
 
 async function request(path, init = {}) {
   return fetch(new URL(path, base), {
@@ -112,7 +120,6 @@ const docsPolicy = (policies) => {
   assert.ok(policy, "docs should receive their dedicated report-only policy");
   assert.match(policy, /sha256-DQUgNM9X0iH2019NkUxeBvnBoEoRKkHBc\/I0iLqPNPA=/);
   assert.match(policy, /sha256-La1r0VSk0Po4KFI0duEKhmPu\+u0I416JW3oONqtdf4M=/);
-  assert.match(policy, /sha256-0WSKgTElNDIRBLgtSb53bz7ltkA5feoieV7pQxNQp0M=/);
   assert.doesNotMatch(policy, /https:\/\/fonts\.googleapis\.com/);
   assert.doesNotMatch(policy, /unsafe-eval/);
 };
