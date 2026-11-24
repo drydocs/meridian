@@ -86,6 +86,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     })),
     selectBestVault: vi.fn(() => FIXTURE_VAULTS[0]),
     isVaultCacheWarm: vi.fn(() => true),
+    getLatestLedgerSequence: vi.fn(async () => 1_000_000),
     resolvePositions: vi.fn(async () => FIXTURE_POSITIONS),
     getPositionHistory: vi.fn(async () => FIXTURE_HISTORY_SNAPSHOTS),
     loadPositionSnapshotStore: vi.fn(() => ({ track: vi.fn(async () => {}) })),
