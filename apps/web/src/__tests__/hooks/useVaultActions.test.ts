@@ -65,12 +65,16 @@ vi.mock("@tanstack/react-query", async () => {
   };
 });
 
-vi.mock("../../lib/wallet", () => ({
-  wallet: {
-    sign: vi.fn(async () => "SIGNED_XDR"),
-    isAuthorized: vi.fn(async () => true),
-  },
-}));
+vi.mock("../../lib/wallet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/wallet")>();
+  return {
+    ...actual,
+    wallet: {
+      sign: vi.fn(async () => "SIGNED_XDR"),
+      isAuthorized: vi.fn(async () => true),
+    },
+  };
+});
 
 vi.mock("../../lib/api", () => ({
   api: {
@@ -203,7 +207,8 @@ describe("useVaultActions — deposit", () => {
     });
     expect(wallet.sign).toHaveBeenCalledWith(
       "DEPOSIT_XDR",
-      APP_NETWORK.passphrase
+      APP_NETWORK.passphrase,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
     expect(useToastStore.getState().toasts[0]).toMatchObject({

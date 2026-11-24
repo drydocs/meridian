@@ -28,6 +28,8 @@ import {
   setSelectedWalletId,
   getWalletMeta,
   getWalletAdapter,
+  WalletTimeoutError,
+  WalletCancelledError,
 } from "../../lib/wallet";
 
 const ADDRESS = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -200,5 +202,63 @@ describe("wallet — e2e mock wallet path", () => {
     await expect(wallet.sign("XDR", "passphrase")).rejects.toThrow(
       "User declined access"
     );
+  });
+});
+
+describe("wallet — timeouts and cancellation", () => {
+  it("connect rejects with a typed timeout when the wallet never resolves", async () => {
+    vi.mocked(requestAccess).mockImplementation(
+      () => new Promise<never>(() => {})
+    );
+
+    await expect(wallet.connect({ timeoutMs: 10 })).rejects.toBeInstanceOf(
+      WalletTimeoutError
+    );
+  });
+
+  it("sign rejects with a typed timeout when the wallet never resolves", async () => {
+    vi.mocked(freighterSign).mockImplementation(
+      () => new Promise<never>(() => {})
+    );
+
+    await expect(
+      wallet.sign("XDR", "passphrase", { timeoutMs: 10 })
+    ).rejects.toBeInstanceOf(WalletTimeoutError);
+  });
+
+  it("isAuthorized rejects with a typed timeout when the permission check never resolves", async () => {
+    vi.mocked(isConnected).mockResolvedValue({ isConnected: true });
+    vi.mocked(isAllowed).mockImplementation(() => new Promise<never>(() => {}));
+
+    await expect(wallet.isAuthorized({ timeoutMs: 10 })).rejects.toBeInstanceOf(
+      WalletTimeoutError
+    );
+  });
+
+  it("connect rejects with a typed cancellation error when the signal aborts", async () => {
+    vi.mocked(requestAccess).mockImplementation(
+      () => new Promise<never>(() => {})
+    );
+    const controller = new AbortController();
+
+    const pending = wallet.connect({ signal: controller.signal });
+    controller.abort();
+
+    await expect(pending).rejects.toBeInstanceOf(WalletCancelledError);
+  });
+
+  it("ignores a wallet result that arrives after the timeout", async () => {
+    let resolveConnect!: (value: { address: string }) => void;
+    vi.mocked(requestAccess).mockImplementation(
+      () => new Promise((resolve) => (resolveConnect = resolve))
+    );
+
+    await expect(wallet.connect({ timeoutMs: 10 })).rejects.toBeInstanceOf(
+      WalletTimeoutError
+    );
+
+    // The late result must not throw or change the already-settled promise.
+    resolveConnect({ address: ADDRESS });
+    await Promise.resolve();
   });
 });

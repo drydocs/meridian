@@ -49,6 +49,8 @@ beforeEach(() => {
   useWalletStore.setState({ publicKey: null, connected: false });
   vi.mocked(useWalletConnect).mockReturnValue({
     handleConnect,
+    cancelConnect: vi.fn(),
+    retryConnect: vi.fn(),
     status: "idle",
     attemptedWalletId: "freighter",
     showRiskDisclosure: false,

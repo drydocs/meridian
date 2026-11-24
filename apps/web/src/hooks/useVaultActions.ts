@@ -15,6 +15,7 @@ import {
   fetchFreshVaultState,
 } from "./useVaultState";
 import { mapError } from "../lib/errorMapper";
+import { WalletCancelledError } from "../lib/wallet";
 
 /**
  * Live vault totals for pricing a slippage floor, falling back to the cached
@@ -52,8 +53,11 @@ export function useVaultActions() {
   const { push } = useToastStore();
   const [isDepositing, setIsDepositing] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  // True only while the wallet signature is pending, so the UI shows the
+  // cancel control at the point where aborting actually helps.
+  const [isSigning, setIsSigning] = useState(false);
 
-  const { signAndSubmit, passphrase } = useSignAndSubmit();
+  const { signAndSubmit, cancelSign, passphrase } = useSignAndSubmit();
   const { hasRequiredTrustlines, addTrustline } = useTrustlines();
   const { hasBlendUsdcBalance, fundFromBlendFaucet } = useBlendFaucet();
   const { startPolling } = usePositionPolling();
@@ -125,6 +129,7 @@ export function useVaultActions() {
         min_shares_out: resolvedMinSharesOut,
         riskAcknowledged: true,
       });
+      setIsSigning(true);
       await signAndSubmit(xdr);
 
       // Without this, the vault panel's TVL/APY keep serving their cached
@@ -169,9 +174,11 @@ export function useVaultActions() {
       push("success", `${t("vaultActions.deposited")} ${amount} ${asset}`);
       return true;
     } catch (err) {
+      if (err instanceof WalletCancelledError) return false;
       push("error", mapError(err, t, "vaultActions.depositFailed").message);
       return false;
     } finally {
+      setIsSigning(false);
       setIsDepositing(false);
     }
   }
@@ -226,6 +233,7 @@ export function useVaultActions() {
         min_usdc_out: resolvedMinUsdcOut,
       });
 
+      setIsSigning(true);
       await signAndSubmit(xdr);
 
       // Without this, the vault panel's TVL/APY keep serving their cached
@@ -261,9 +269,11 @@ export function useVaultActions() {
       push("success", `${t("vaultActions.withdrew")} ${shares} ${asset}`);
       return true;
     } catch (err) {
+      if (err instanceof WalletCancelledError) return false;
       push("error", mapError(err, t, "vaultActions.withdrawalFailed").message);
       return false;
     } finally {
+      setIsSigning(false);
       setIsWithdrawing(false);
     }
   }
@@ -273,5 +283,7 @@ export function useVaultActions() {
     withdraw,
     isDepositing,
     isWithdrawing,
+    isSigning,
+    cancelPending: cancelSign,
   };
 }

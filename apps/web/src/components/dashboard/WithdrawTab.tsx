@@ -10,6 +10,9 @@ interface WithdrawTabProps {
   position: ApiPosition | undefined;
   hasPosition: boolean;
   isWithdrawing: boolean;
+  // True only while the wallet signature is pending; gates the cancel control.
+  isSigning?: boolean;
+  onCancel?: () => void;
   onSubmit: () => void;
 }
 
@@ -21,6 +24,8 @@ export function WithdrawTab({
   position,
   hasPosition,
   isWithdrawing,
+  isSigning,
+  onCancel,
   onSubmit,
 }: WithdrawTabProps) {
   const { t } = useTranslation();
@@ -66,6 +71,16 @@ export function WithdrawTab({
           >
             {isWithdrawing ? t("vaultPanel.waiting") : t("vaultPanel.withdraw")}
           </button>
+          {isSigning && onCancel && (
+            <button
+              type="button"
+              data-testid="vault-withdraw-cancel"
+              onClick={onCancel}
+              className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium py-2.5 transition-colors duration-150"
+            >
+              {t("common.cancel")}
+            </button>
+          )}
         </>
       )}
     </div>

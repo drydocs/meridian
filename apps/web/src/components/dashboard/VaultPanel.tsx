@@ -35,6 +35,8 @@ export function VaultPanel() {
   } = useUsdcBalance();
   const {
     handleConnect,
+    cancelConnect,
+    retryConnect,
     status: connectStatus,
     attemptedWalletId,
     showRiskDisclosure,
@@ -46,7 +48,14 @@ export function VaultPanel() {
     isError: positionsError,
     refetch: refetchPositions,
   } = usePositions(publicKey);
-  const { deposit, withdraw, isDepositing, isWithdrawing } = useVaultActions();
+  const {
+    deposit,
+    withdraw,
+    isDepositing,
+    isWithdrawing,
+    isSigning,
+    cancelPending,
+  } = useVaultActions();
 
   const [tab, setTab] = useState<Tab>("deposit");
   const [amount, setAmount] = useState("");
@@ -287,15 +296,59 @@ export function VaultPanel() {
                 })}
               </a>
             ) : (
-              <button
-                onClick={() => void handleConnect()}
-                disabled={connectStatus === "connecting"}
-                className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
-              >
-                {connectStatus === "connecting"
-                  ? t("common.connecting")
-                  : t("common.connectWallet")}
-              </button>
+              <>
+                <button
+                  onClick={() => void handleConnect()}
+                  disabled={connectStatus === "connecting"}
+                  className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
+                >
+                  {connectStatus === "connecting"
+                    ? t("common.connecting")
+                    : t("common.connectWallet")}
+                </button>
+                {connectStatus === "connecting" && (
+                  <button
+                    type="button"
+                    data-testid="vault-connect-cancel"
+                    onClick={cancelConnect}
+                    className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium py-2.5 transition-colors duration-150"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                )}
+                {connectStatus === "timed-out" && (
+                  <div
+                    data-testid="vault-connect-timeout"
+                    role="status"
+                    className="rounded-xl border border-amber-800/70 bg-amber-950/20 p-3 text-xs text-amber-200"
+                  >
+                    <p className="font-semibold mb-1">
+                      {t("walletConnect.timedOut")}
+                    </p>
+                    <p className="mb-2 leading-snug">
+                      {t("walletConnect.timedOutHint")}
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        data-testid="vault-connect-retry"
+                        onClick={retryConnect}
+                        className="rounded-lg bg-amber-700/60 px-3 py-1.5 font-medium text-amber-100 hover:bg-amber-700 transition-colors duration-150"
+                      >
+                        {t("common.retry")}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="vault-connect-dismiss"
+                        onClick={cancelConnect}
+                        className="rounded-lg border border-amber-800/70 px-3 py-1.5 text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         ) : tab === "deposit" ? (
@@ -307,6 +360,8 @@ export function VaultPanel() {
             position={position}
             hasPosition={!!hasPosition}
             isDepositing={isDepositing}
+            isSigning={isSigning}
+            onCancel={cancelPending}
             onSubmit={handleDeposit}
             availableBalance={availableBalance}
             isBalanceError={balanceError}
@@ -321,6 +376,8 @@ export function VaultPanel() {
             position={position}
             hasPosition={!!hasPosition}
             isWithdrawing={isWithdrawing}
+            isSigning={isSigning}
+            onCancel={cancelPending}
             onSubmit={handleWithdraw}
           />
         )}

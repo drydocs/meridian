@@ -12,6 +12,8 @@ const refetchPositions = vi.fn();
 const deposit = vi.fn(async () => true);
 const withdraw = vi.fn(async () => true);
 const handleConnect = vi.fn();
+const cancelConnect = vi.fn();
+const retryConnect = vi.fn();
 const acceptRiskDisclosure = vi.fn();
 const cancelRiskDisclosure = vi.fn();
 
@@ -70,6 +72,8 @@ function mockPositions(overrides: Partial<ReturnType<typeof usePositions>>) {
 function mockConnect(overrides: Partial<ReturnType<typeof useWalletConnect>>) {
   vi.mocked(useWalletConnect).mockReturnValue({
     handleConnect,
+    cancelConnect,
+    retryConnect,
     status: "idle",
     attemptedWalletId: "freighter",
     showRiskDisclosure: false,
@@ -94,6 +98,8 @@ beforeEach(() => {
     withdraw,
     isDepositing: false,
     isWithdrawing: false,
+    isSigning: false,
+    cancelPending: vi.fn(),
   } as unknown as ReturnType<typeof useVaultActions>);
   mockConnect({});
   // Default: no balance information — DepositTab's guard is skipped.

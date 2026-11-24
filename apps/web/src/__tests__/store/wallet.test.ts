@@ -2,13 +2,21 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useWalletStore } from "../../store/wallet";
 import { APP_NETWORK } from "@meridian/shared";
 
-vi.mock("../../lib/wallet", () => ({
-  wallet: {
-    isAuthorized: vi.fn(),
-  },
-}));
+vi.mock("../../lib/wallet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/wallet")>();
+  return {
+    ...actual,
+    wallet: {
+      isAuthorized: vi.fn(),
+    },
+  };
+});
 
-import { wallet } from "../../lib/wallet";
+import {
+  wallet,
+  WalletTimeoutError,
+  WalletCancelledError,
+} from "../../lib/wallet";
 
 const KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
@@ -63,6 +71,51 @@ describe("useWalletStore", () => {
     expect(useWalletStore.getState()).toMatchObject({
       publicKey: null,
       connected: false,
+    });
+  });
+
+  it("revalidate keeps the session when the authorization check times out", async () => {
+    useWalletStore.setState({ publicKey: KEY, connected: true });
+    vi.mocked(wallet.isAuthorized).mockRejectedValue(
+      new WalletTimeoutError("authorize", 10_000)
+    );
+
+    await expect(
+      useWalletStore.getState().revalidate()
+    ).resolves.toBeUndefined();
+    expect(useWalletStore.getState()).toMatchObject({
+      publicKey: KEY,
+      connected: true,
+    });
+  });
+
+  it("revalidate keeps the session when the authorization check is cancelled", async () => {
+    useWalletStore.setState({ publicKey: KEY, connected: true });
+    vi.mocked(wallet.isAuthorized).mockRejectedValue(
+      new WalletCancelledError("authorize")
+    );
+
+    await expect(
+      useWalletStore.getState().revalidate()
+    ).resolves.toBeUndefined();
+    expect(useWalletStore.getState()).toMatchObject({
+      publicKey: KEY,
+      connected: true,
+    });
+  });
+
+  it("revalidate surfaces deadline errors to a caller that passed a signal", async () => {
+    useWalletStore.setState({ publicKey: KEY, connected: true });
+    const timeout = new WalletTimeoutError("authorize", 10_000);
+    vi.mocked(wallet.isAuthorized).mockRejectedValue(timeout);
+    const controller = new AbortController();
+
+    await expect(
+      useWalletStore.getState().revalidate(controller.signal)
+    ).rejects.toBe(timeout);
+    expect(useWalletStore.getState()).toMatchObject({
+      publicKey: KEY,
+      connected: true,
     });
   });
 

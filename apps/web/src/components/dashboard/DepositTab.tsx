@@ -31,6 +31,9 @@ interface DepositTabProps {
   position?: ApiPosition | undefined;
   hasPosition?: boolean;
   isDepositing: boolean;
+  // True only while the wallet signature is pending; gates the cancel control.
+  isSigning?: boolean;
+  onCancel?: () => void;
   onSubmit: () => void;
   availableBalance?: number;
   isBalanceError?: boolean;
@@ -43,6 +46,8 @@ export function DepositTab({
   onAmountKeyDown,
   bestVault,
   isDepositing,
+  isSigning,
+  onCancel,
   onSubmit,
   availableBalance,
   isBalanceError,
@@ -136,6 +141,16 @@ export function DepositTab({
       >
         {isDepositing ? t("vaultPanel.waiting") : t("vaultPanel.deposit")}
       </button>
+      {isSigning && onCancel && (
+        <button
+          type="button"
+          data-testid="vault-deposit-cancel"
+          onClick={onCancel}
+          className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium py-2.5 transition-colors duration-150"
+        >
+          {t("common.cancel")}
+        </button>
+      )}
     </div>
   );
 }
