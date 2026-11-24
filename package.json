@@ -15,6 +15,8 @@
     "lint:md": "markdownlint-cli2",
     "check:links": "lychee --config lychee.toml --offline --no-progress --hidden \"**/*.md\"",
     "check:links:external": "lychee --config lychee.toml --no-progress --hidden \"**/*.md\"",
+    "test:csp-hashes": "node scripts/check-csp-hashes.mjs",
+    "test:security-headers": "node scripts/check-security-headers.mjs",
     "verify:contracts": "tsx scripts/verify-contract-addresses.ts",
     "check:wasm-size": "tsx scripts/check-wasm-size.ts",
     "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts"
