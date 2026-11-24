@@ -274,6 +274,8 @@ The Fastify server (`apps/api-local/`) runs the same packages directly via `tsx`
 
 The vault contract's `deposit`/`withdraw` take no protocol-selection parameter. Which protocol a deposit reaches is fixed by whichever adapter the target vault instance has set, not by anything passed in the call. Building a deposit transaction therefore resolves `vaultId` directly to the specific deployed vault contract address to call, via the mapping in `packages/stellar-sdk-helpers/src/known-pools.ts`:
 
+This adapter-based model uses no separate on-chain router contract; see [ADR-0002](./adr/0002-no-onchain-router.md) and [ADR-0001](./adr/0001-one-vault-per-asset.md).
+
 | Vault ID prefix | Resolves to                                                |
 | --------------- | ---------------------------------------------------------- |
 | `blend-`        | A vault instance with `BlendAdapter` set as its adapter    |
