@@ -38,13 +38,15 @@ fn preview_deposit_matches_executed_deposit_after_yield_accrual() {
 
     let bob_deposit_amount = usdc(50);
 
-    // Preview deposit automatically refreshes adapter and quotes exact shares
+    // Preview deposit refreshes the adapter and quotes the most the deposit can mint
     let quoted_shares = f.vault.preview_deposit(&bob_deposit_amount);
 
-    // Bob executes deposit
+    // The executed mint is priced from the adapter's credit and capped at the
+    // quote, so it can fall short of the quote by one stroop of rounding
     let minted_shares = f.deposit(&bob, bob_deposit_amount);
-    assert_eq!(minted_shares, quoted_shares);
-    assert_eq!(f.musdc_balance(&bob), quoted_shares);
+    assert!(minted_shares <= quoted_shares);
+    assert!(quoted_shares - minted_shares <= 1);
+    assert_eq!(f.musdc_balance(&bob), minted_shares);
 }
 
 #[test]
