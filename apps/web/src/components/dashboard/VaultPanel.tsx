@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { useVaults } from "../../hooks/useVaults";
 import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
@@ -9,25 +9,25 @@ import { useUsdcBalance } from "../../hooks/useUsdcBalance";
 import { getWalletMeta, hasAcceptedRiskDisclosure } from "../../lib/wallet";
 import { PositionSummary } from "./PositionSummary";
 import { PositionPnlCard } from "./PositionPnlCard";
-import { YieldHistoryChart } from "./YieldHistoryChart";
 import { DepositTab } from "./DepositTab";
 import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
+import { formatApy, formatCompactUsd, parseMoneyInput } from "../../lib/format";
 
-function formatTvl(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-  return `$${value.toFixed(0)}`;
-}
+const YieldHistoryChart = lazy(() =>
+  import("./YieldHistoryChart").then((m) => ({
+    default: m.YieldHistoryChart,
+  }))
+);
 
 type Tab = "deposit" | "withdraw";
 
 export function VaultPanel() {
   const { data, isLoading: vaultsLoading } = useVaults();
   const vaults = data?.vaults;
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { connected, publicKey } = useWalletStore();
   const {
     balance: availableBalance,
@@ -36,6 +36,8 @@ export function VaultPanel() {
   } = useUsdcBalance();
   const {
     handleConnect,
+    cancelConnect,
+    retryConnect,
     status: connectStatus,
     attemptedWalletId,
     showRiskDisclosure,
@@ -47,7 +49,14 @@ export function VaultPanel() {
     isError: positionsError,
     refetch: refetchPositions,
   } = usePositions(publicKey);
-  const { deposit, withdraw, isDepositing, isWithdrawing } = useVaultActions();
+  const {
+    deposit,
+    withdraw,
+    isDepositing,
+    isWithdrawing,
+    isSigning,
+    cancelPending,
+  } = useVaultActions();
 
   const [tab, setTab] = useState<Tab>("deposit");
   const [amount, setAmount] = useState("");
@@ -59,6 +68,7 @@ export function VaultPanel() {
   const depositRiskDisclosure = useRiskDisclosure();
 
   function onAmountKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     const allowed = [
       "Backspace",
       "Delete",
@@ -68,6 +78,8 @@ export function VaultPanel() {
       "Home",
       "End",
       ".",
+      ",",
+      " ",
     ];
     if (allowed.includes(e.key) || (e.key >= "0" && e.key <= "9")) return;
     e.preventDefault();
@@ -118,8 +130,20 @@ export function VaultPanel() {
   async function handleWithdraw() {
     if (!amount || !bestVault || !position) return;
     if (position.vaultId !== bestVault.id) return;
-    if (parseFloat(amount) > position.shares) return;
-    const ok = await withdraw(amount, bestVault.id, bestVault.asset, undefined);
+    const canonicalAmount = parseMoneyInput(amount, i18n.language);
+    if (
+      canonicalAmount === null ||
+      canonicalAmount === "" ||
+      Number(canonicalAmount) > position.shares
+    ) {
+      return;
+    }
+    const ok = await withdraw(
+      canonicalAmount,
+      bestVault.id,
+      bestVault.asset,
+      undefined
+    );
     if (ok) {
       setAmount("");
       refetchBalance();
@@ -158,12 +182,12 @@ export function VaultPanel() {
               />
             </svg>
             <div>
-              <p className="text-xs text-gray-500">Meridian</p>
+              <p className="text-xs text-gray-400">Meridian</p>
               <p className="text-sm font-semibold text-paper">USDC Vault</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-gray-500 mb-0.5">
+            <p className="text-xs text-gray-400 mb-0.5">
               {t("vaultPanel.network")}
             </p>
             <p className="text-xs font-semibold text-gray-300">Stellar</p>
@@ -183,26 +207,26 @@ export function VaultPanel() {
         ) : bestVault ? (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-xs text-gray-500 mb-1.5">
+              <p className="text-xs text-gray-400 mb-1.5">
                 {t("vaultPanel.apy")}
               </p>
               <div className="flex items-baseline gap-0.5">
                 <span className="text-5xl font-black text-emerald-400 tabular-nums tracking-tight">
-                  {bestVault.apy.toFixed(2)}
+                  {formatApy(bestVault.apy, i18n.language)}
                 </span>
                 <span className="text-xl font-bold text-emerald-600">%</span>
               </div>
             </div>
             <div className="pb-1 sm:text-center">
-              <p className="text-xs text-gray-500 mb-1.5">
+              <p className="text-xs text-gray-400 mb-1.5">
                 {t("vaultPanel.tvl")}
               </p>
               <p className="text-lg font-bold text-paper">
-                {formatTvl(bestVault.tvl)}
+                {formatCompactUsd(bestVault.tvl, i18n.language)}
               </p>
             </div>
             <div className="pb-1 sm:text-right">
-              <p className="text-xs text-gray-500 mb-1.5">
+              <p className="text-xs text-gray-400 mb-1.5">
                 {t("vaultPanel.route")}
               </p>
               <p className="text-lg font-bold text-paper">
@@ -211,7 +235,7 @@ export function VaultPanel() {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-400">
             {t("vaultPanel.noLiveRateData")}
           </p>
         )}
@@ -229,7 +253,13 @@ export function VaultPanel() {
 
       {/* Yield history: position value over time, by protocol */}
       {connected && hasPosition && position && (
-        <YieldHistoryChart publicKey={publicKey} />
+        <Suspense
+          fallback={
+            <div className="mx-7 my-5 h-48 rounded-xl border border-gray-800 bg-gray-900/50 animate-pulse" />
+          }
+        >
+          <YieldHistoryChart publicKey={publicKey} />
+        </Suspense>
       )}
 
       {/* Position load error — deposit/withdraw stay usable, only the
@@ -241,7 +271,7 @@ export function VaultPanel() {
           </p>
           <button
             onClick={() => void refetchPositions()}
-            className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
+            className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
           >
             {t("common.retry")}
           </button>
@@ -250,16 +280,34 @@ export function VaultPanel() {
 
       {/* Tab switcher */}
       {connected && (
-        <div className="flex border-b border-gray-800">
+        <div
+          role="tablist"
+          aria-label={t("vaultPanel.tabs.actions", "Vault actions")}
+          className="flex border-b border-gray-800"
+        >
           {(["deposit", "withdraw"] as Tab[]).map((tabId) => (
             <button
               key={tabId}
+              role="tab"
+              id={`vault-tab-${tabId}`}
+              aria-selected={tab === tabId}
+              aria-controls={`vault-tabpanel-${tabId}`}
+              tabIndex={tab === tabId ? 0 : -1}
               data-testid={`vault-tab-${tabId}`}
               onClick={() => handleTabChange(tabId)}
-              className={`flex-1 py-3 text-sm font-semibold transition-colors duration-150 ${
+              onKeyDown={(e) => {
+                if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  const nextTab: Tab =
+                    tabId === "deposit" ? "withdraw" : "deposit";
+                  handleTabChange(nextTab);
+                  document.getElementById(`vault-tab-${nextTab}`)?.focus();
+                }
+              }}
+              className={`flex-1 py-3 text-sm font-semibold transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-settled focus-visible:outline-none ${
                 tab === tabId
                   ? "text-paper border-b-2 border-settled"
-                  : "text-gray-600 hover:text-gray-400"
+                  : "text-gray-400 hover:text-gray-200"
               }`}
             >
               {t(`vaultPanel.${tabId}`)}
@@ -286,49 +334,107 @@ export function VaultPanel() {
                 href={getWalletMeta(attemptedWalletId).installUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center w-full rounded-xl border border-amber-800/70 bg-amber-950/20 hover:border-amber-700 text-amber-400 hover:text-amber-300 text-sm font-medium py-3 transition-colors duration-150"
+                className="flex items-center justify-center w-full rounded-xl border border-amber-800/70 bg-amber-950/20 hover:border-amber-700 text-amber-400 hover:text-amber-300 text-sm font-medium py-3 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
               >
                 {t("common.installWallet", {
                   name: getWalletMeta(attemptedWalletId).name,
                 })}
               </a>
             ) : (
-              <button
-                onClick={() => void handleConnect()}
-                disabled={connectStatus === "connecting"}
-                className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
-              >
-                {connectStatus === "connecting"
-                  ? t("common.connecting")
-                  : t("common.connectWallet")}
-              </button>
+              <>
+                <button
+                  onClick={() => void handleConnect()}
+                  disabled={connectStatus === "connecting"}
+                  className="w-full rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-500 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+                >
+                  {connectStatus === "connecting"
+                    ? t("common.connecting")
+                    : t("common.connectWallet")}
+                </button>
+                {connectStatus === "connecting" && (
+                  <button
+                    type="button"
+                    data-testid="vault-connect-cancel"
+                    onClick={cancelConnect}
+                    className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium py-2.5 transition-colors duration-150"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                )}
+                {connectStatus === "timed-out" && (
+                  <div
+                    data-testid="vault-connect-timeout"
+                    role="status"
+                    className="rounded-xl border border-amber-800/70 bg-amber-950/20 p-3 text-xs text-amber-200"
+                  >
+                    <p className="font-semibold mb-1">
+                      {t("walletConnect.timedOut")}
+                    </p>
+                    <p className="mb-2 leading-snug">
+                      {t("walletConnect.timedOutHint")}
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        data-testid="vault-connect-retry"
+                        onClick={retryConnect}
+                        className="rounded-lg bg-amber-700/60 px-3 py-1.5 font-medium text-amber-100 hover:bg-amber-700 transition-colors duration-150"
+                      >
+                        {t("common.retry")}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="vault-connect-dismiss"
+                        onClick={cancelConnect}
+                        className="rounded-lg border border-amber-800/70 px-3 py-1.5 text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
-        ) : tab === "deposit" ? (
-          <DepositTab
-            amount={amount}
-            onAmountChange={setAmount}
-            onAmountKeyDown={onAmountKeyDown}
-            bestVault={bestVault}
-            position={position}
-            hasPosition={!!hasPosition}
-            isDepositing={isDepositing}
-            onSubmit={handleDeposit}
-            availableBalance={availableBalance}
-            isBalanceError={balanceError}
-            onRetryBalance={refetchBalance}
-          />
         ) : (
-          <WithdrawTab
-            amount={amount}
-            onAmountChange={setAmount}
-            onAmountKeyDown={onAmountKeyDown}
-            bestVault={bestVault}
-            position={position}
-            hasPosition={!!hasPosition}
-            isWithdrawing={isWithdrawing}
-            onSubmit={handleWithdraw}
-          />
+          <div
+            role="tabpanel"
+            id={`vault-tabpanel-${tab}`}
+            aria-labelledby={`vault-tab-${tab}`}
+            tabIndex={0}
+            className="outline-none"
+          >
+            {tab === "deposit" ? (
+              <DepositTab
+                amount={amount}
+                onAmountChange={setAmount}
+                onAmountKeyDown={onAmountKeyDown}
+                bestVault={bestVault}
+                position={position}
+                hasPosition={!!hasPosition}
+                isDepositing={isDepositing}
+                isSigning={isSigning}
+                onCancel={cancelPending}
+                onSubmit={handleDeposit}
+                availableBalance={availableBalance}
+                isBalanceError={balanceError}
+                onRetryBalance={refetchBalance}
+              />
+            ) : (
+              <WithdrawTab
+                amount={amount}
+                onAmountChange={setAmount}
+                onAmountKeyDown={onAmountKeyDown}
+                bestVault={bestVault}
+                position={position}
+                hasPosition={!!hasPosition}
+                isWithdrawing={isWithdrawing}
+                isSigning={isSigning}
+                onCancel={cancelPending}
+                onSubmit={handleWithdraw}
+              />
+            )}
+          </div>
         )}
         {depositRiskDisclosure.show && (
           <RiskDisclosureModal

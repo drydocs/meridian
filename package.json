@@ -19,6 +19,7 @@
     "test:security-headers": "node scripts/check-security-headers.mjs",
     "verify:contracts": "tsx scripts/verify-contract-addresses.ts",
     "check:wasm-size": "tsx scripts/check-wasm-size.ts",
+    "bundle:check": "pnpm --filter @meridian/web bundle:check",
     "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts"
   },
   "dependencies": {

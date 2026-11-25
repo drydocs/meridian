@@ -10,6 +10,7 @@
  */
 
 import type { TFunction } from "i18next";
+import { WalletTimeoutError, WalletCancelledError } from "./wallet";
 
 /**
  * Stable, locale-independent code thrown by the disconnected guard in
@@ -174,6 +175,15 @@ export function mapError(
 
   if (!(err instanceof Error)) {
     return { message: fallbackKey ? t(fallbackKey) : t("errors.unknown") };
+  }
+
+  // Typed wallet errors carry no user-readable text worth showing; map them
+  // to stable messages rather than falling through to the unknown-error path.
+  if (err instanceof WalletTimeoutError) {
+    return { message: t("errors.walletTimeout") };
+  }
+  if (err instanceof WalletCancelledError) {
+    return { message: t("errors.walletCancelled") };
   }
 
   const raw = err.message;
