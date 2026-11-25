@@ -188,7 +188,7 @@ describe("useSignAndSubmit — cancellation", () => {
     );
     const { result } = renderHook(() => useSignAndSubmit());
 
-    let pending!: Promise<void>;
+    let pending!: Promise<string>;
     act(() => {
       pending = result.current.signAndSubmit("XDR");
     });
