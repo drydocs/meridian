@@ -232,8 +232,9 @@ describe("handleDepositRequest", () => {
       PUBKEY,
       "10",
       expect.anything(),
-      "9.4525"
+      "9.5"
     );
+    expect(quoteVaultAction).not.toHaveBeenCalled();
   });
 
   it("returns an allowlisted builder error while retaining it for logging", async () => {
@@ -293,8 +294,9 @@ describe("handleWithdrawRequest", () => {
       PUBKEY,
       "5",
       expect.anything(),
-      "4.72625"
+      "4.9"
     );
+    expect(quoteVaultAction).not.toHaveBeenCalled();
   });
 
   it("hides internal builder errors from the caller while retaining them for logging", async () => {
