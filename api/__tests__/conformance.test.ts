@@ -181,7 +181,10 @@ function normalizeBody(body: unknown): unknown {
     if (key === "statusCode" && (body as Record<string, unknown>)["error"]) {
       continue;
     }
-    if (
+    // Each request gets its own ID, so only its presence is compared.
+    if (key === "requestId" && typeof value === "string") {
+      normalized[key] = "[REQUEST_ID]";
+    } else if (
       (key === "updatedAt" || key === "checkedAt") &&
       typeof value === "string" &&
       !isNaN(Date.parse(value))
