@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { Suspense, lazy, useCallback, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setQueryClient } from "./lib/queryClient";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
@@ -8,9 +8,15 @@ import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useWalletStore } from "./store/wallet";
 import { useDocumentLanguage } from "./hooks/useDocumentLanguage";
 import { useTranslation } from "react-i18next";
-import { AdminLogin } from "./pages/AdminLogin";
-import { StatusPage } from "./pages/StatusPage";
 import { NotFound } from "./pages/NotFound";
+
+const AdminLogin = lazy(() =>
+  import("./pages/AdminLogin").then((m) => ({ default: m.AdminLogin }))
+);
+
+const StatusPage = lazy(() =>
+  import("./pages/StatusPage").then((m) => ({ default: m.StatusPage }))
+);
 
 const queryClient = new QueryClient();
 setQueryClient(queryClient);
@@ -128,9 +134,25 @@ export default function App() {
   }, []);
 
   const page = isAdminRoute() ? (
-    <AdminLogin />
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-night text-paper flex items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+        </div>
+      }
+    >
+      <AdminLogin />
+    </Suspense>
   ) : isStatusRoute() ? (
-    <StatusPage />
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-night text-paper flex items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+        </div>
+      }
+    >
+      <StatusPage />
+    </Suspense>
   ) : isDashboardRoute() ? (
     <Dashboard />
   ) : (

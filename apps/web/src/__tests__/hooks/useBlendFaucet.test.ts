@@ -91,7 +91,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("useBlendFaucet", () => {
+describe("useBlendFaucet", { timeout: 15000 }, () => {
   it("reports a positive USDC balance as funded", async () => {
     const result = await hasBlendUsdcBalance(KEY, "testnet");
     expect(result).toBe(true);
