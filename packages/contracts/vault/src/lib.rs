@@ -411,7 +411,7 @@ impl MeridianVault {
             .get(&ADAPTER)
             .ok_or(ContractError::NotInitialized)?;
         let adapter_client = AdapterClient::new(&env, &adapter_addr);
-        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let total_shares = Self::get_total_shares(env.clone());
 
         // Refresh the adapter's cached total before pricing so this
         // depositor's own transaction is priced with up-to-date yield.
@@ -635,7 +635,7 @@ impl MeridianVault {
 
         AdapterClient::new(&env, &adapter_addr).refresh();
 
-        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let total_shares = Self::get_total_shares(env.clone());
         let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
 
         if total_shares <= 0 {
@@ -712,7 +712,7 @@ impl MeridianVault {
             .get(&ADAPTER)
             .ok_or(ContractError::NotInitialized)?;
 
-        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let total_shares = Self::get_total_shares(env.clone());
         let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
 
         if total_shares <= 0 {
@@ -1137,9 +1137,33 @@ impl MeridianVault {
         Ok(AdapterClient::new(&env, &adapter_addr).total_assets())
     }
 
-    /// Returns total mUSDC shares outstanding.
+    /// Returns the token's live supply, including holder-initiated burns.
+    /// Returns zero before initialization. A failed supply read aborts instead
+    /// of pricing against a potentially stale cached counter.
     pub fn get_total_shares(env: Env) -> i128 {
-        env.storage().instance().get(&TOTAL_SH).unwrap_or(0)
+        match env.storage().instance().get::<_, Address>(&MUSDC) {
+            Some(musdc) => MusdcViewClient::new(&env, &musdc).total_supply(),
+            None => 0,
+        }
+    }
+
+    /// Admin-only reconciliation of the diagnostic share counter to live supply.
+    /// No caller-supplied value is accepted, and adapter assets and positions
+    /// are untouched. Fails before initialization or without admin authorization;
+    /// a failed token read rolls back the operation.
+    pub fn sync_total_shares(env: Env) -> Result<i128, ContractError> {
+        Self::with_lock(&env, || {
+            Self::require_admin(&env)?;
+            Self::extend_instance(&env);
+            let before: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+            let supply = Self::get_total_shares(env.clone());
+            env.storage().instance().set(&TOTAL_SH, &supply);
+            env.events().publish(
+                (ADMIN_EVT, symbol_short!("sync_sh"), EVENT_SCHEMA_VERSION),
+                (before, supply),
+            );
+            Ok(supply)
+        })
     }
 
     /// Reconciles the vault's counters and adapter valuation without writing.
@@ -1148,7 +1172,9 @@ impl MeridianVault {
     pub fn get_health(env: Env) -> Result<Health, ContractError> {
         let adapter = Self::adapter(&env)?;
         let adapter_client = AdapterClient::new(&env, &adapter);
-        let total_shares = Self::get_total_shares(env.clone());
+        // Keep the cached value visible so operators can detect and reconcile
+        // historical drift even though pricing uses the token's live supply.
+        let total_shares = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
         let musdc = Self::musdc(&env)?;
         let supply_result = MusdcViewClient::new(&env, &musdc).try_total_supply();
         let musdc_supply_stale = !matches!(&supply_result, Ok(Ok(_)));
@@ -1285,7 +1311,7 @@ impl MeridianVault {
         if shares == 0 {
             return Ok(0);
         }
-        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let total_shares = Self::get_total_shares(env.clone());
         if total_shares <= 0 {
             return Ok(0);
         }
@@ -1301,7 +1327,7 @@ impl MeridianVault {
     /// empty vault is exactly `10_000_000` and a vault with shares but no
     /// assets prices near zero instead of erroring.
     pub fn get_share_price(env: Env) -> Result<i128, ContractError> {
-        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let total_shares = Self::get_total_shares(env.clone());
         let (_, total_assets) = Self::pricing_state(&env)?;
         pricing::share_price(total_assets, total_shares)
     }
@@ -1362,7 +1388,7 @@ impl MeridianVault {
         let adapter = Self::adapter(&env)?;
         AdapterClient::new(&env, &adapter).refresh();
 
-        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let total_shares = Self::get_total_shares(env.clone());
         let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
         if total_shares <= 0 {
             return Err(ContractError::NoSharesOutstanding);
@@ -1473,7 +1499,7 @@ impl MeridianVault {
     }
 
     /// Replace the yield adapter. The vault must have no shares outstanding
-    /// (`TOTAL_SH == 0`) *and* no position left at the old adapter
+    /// (live mUSDC supply is zero) *and* no position left at the old adapter
     /// (`ADPT_SH == 0`) before calling this.
     ///
     /// Checking `TOTAL_SH` alone is not sufficient: the two counters can
@@ -1982,7 +2008,7 @@ impl MeridianVault {
     /// `(total_shares, total_assets)` as the adapter currently reports them.
     fn pricing_state(env: &Env) -> Result<(i128, i128), ContractError> {
         let adapter = Self::adapter(env)?;
-        let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
+        let total_shares = Self::get_total_shares(env.clone());
         Ok((
             total_shares,
             AdapterClient::new(env, &adapter).total_assets(),
@@ -6713,7 +6739,13 @@ mod tests {
                     .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
                 let balance = Self::read_balance(&env, &to);
                 Self::write_balance(&env, &to, balance + amount);
+                let supply = Self::total_supply(env.clone());
+                env.storage().instance().set(&TOTAL_SH, &(supply + amount));
                 fire(&env, HOOK_MINT);
+            }
+
+            pub fn total_supply(env: Env) -> i128 {
+                env.storage().instance().get(&TOTAL_SH).unwrap_or(0)
             }
 
             pub fn balance(env: Env, id: Address) -> i128 {
@@ -6739,6 +6771,8 @@ mod tests {
                     .extend_ttl(INSTANCE_THRESHOLD, INSTANCE_BUMP);
                 let balance = Self::read_balance(&env, &from);
                 Self::write_balance(&env, &from, balance - amount);
+                let supply = Self::total_supply(env.clone());
+                env.storage().instance().set(&TOTAL_SH, &(supply - amount));
                 fire(&env, HOOK_BURN);
             }
 
