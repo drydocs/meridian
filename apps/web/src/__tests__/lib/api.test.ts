@@ -58,6 +58,29 @@ describe("API error reporting", () => {
     });
   });
 
+  it("requests state for the specified vault", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          protocol: "blend",
+          adapterId: "adapter",
+          totalShares: 10,
+          totalAssets: 10,
+          paused: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.getVaultState("meridian-eurc");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/admin/vault-state?vaultId=meridian-eurc",
+      expect.any(Object)
+    );
+  });
+
   it("reports non-GET methods and client HTTP failures", async () => {
     vi.stubGlobal(
       "fetch",

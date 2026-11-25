@@ -470,16 +470,16 @@ describe("useVaultActions — fresh vault state slippage", () => {
 
     let ok: boolean | undefined;
     await act(async () => {
-      ok = await result.current.withdraw("10", "blend-usdc-fixed", "USDC");
+      ok = await result.current.withdraw("10", "meridian-eurc", "EURC");
     });
 
     expect(ok).toBe(true);
-    expect(api.getVaultState).toHaveBeenCalled();
+    expect(api.getVaultState).toHaveBeenCalledWith("meridian-eurc");
     // 10 * (100/50) = 20 gross. No cached position, so the whole payout is
     // priced as gain: 20 - 10% fee = 18, then the 0.5% haircut -> 17.91.
     expect(api.buildWithdraw).toHaveBeenCalledWith({
       walletAddress: KEY,
-      vaultId: "blend-usdc-fixed",
+      vaultId: "meridian-eurc",
       shares: "10",
       min_usdc_out: "17.9100000",
     });

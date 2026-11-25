@@ -20,12 +20,8 @@ const FAKE_POSITION = {
   entryTime: Math.floor(Date.now() / 1000) - 86_400,
 };
 
-// The withdraw tab only renders once the app has resolved the recommended
-// vault, so every test in this file needs /api/v1/vaults to answer before the
-// default 5 s assertion timeout. That endpoint hits real testnet RPC on every
-// request (fetchTestnetVaults is never cached) and is flaky in CI (#535). Its
-// on-chain reads run sequentially with a 10 s budget each, so a cold runner
-// can blow the timeout and leave the submit button below unrendered.
+// The position row needs its vault metadata before enabling withdrawal, so
+// stub the vault list rather than depending on real testnet RPC in CI (#535).
 test.describe("withdraw", () => {
   test.beforeEach(async ({ page }) => {
     await page.route("**/api/v1/vaults", (route) =>
@@ -64,10 +60,15 @@ test.describe("withdraw", () => {
     await expect(page.getByTestId("vault-tab-deposit")).toBeVisible();
 
     await page.getByTestId("vault-tab-withdraw").click();
-    await expect(page.getByTestId("vault-withdraw-submit")).toBeVisible();
+    await expect(
+      page.getByTestId("vault-withdraw-submit-meridian-usdc")
+    ).toBeVisible();
 
-    await page.getByPlaceholder("0.00").fill("10");
-    await page.getByTestId("vault-withdraw-submit").click();
+    await page
+      .getByTestId("withdraw-position-meridian-usdc")
+      .getByPlaceholder("0.00")
+      .fill("10");
+    await page.getByTestId("vault-withdraw-submit-meridian-usdc").click();
 
     // The API now checks the wallet's USDC trustline before it builds the
     // withdraw tx, so TEST_ADDRESS most often fails there with an actionable
@@ -109,8 +110,12 @@ test.describe("withdraw", () => {
     await acknowledgeRiskDisclosure(page);
     await page.getByTestId("vault-tab-withdraw").click();
 
-    await expect(page.getByText("No position in this vault.")).toBeVisible();
-    await expect(page.getByTestId("vault-withdraw-submit")).toHaveCount(0);
+    await expect(
+      page.getByText("No positions available to withdraw.")
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("vault-withdraw-submit-meridian-usdc")
+    ).toHaveCount(0);
   });
 
   test("Max button fills the full position balance", async ({
@@ -130,7 +135,7 @@ test.describe("withdraw", () => {
     await acknowledgeRiskDisclosure(page);
     await page.getByTestId("vault-tab-withdraw").click();
 
-    await page.getByTestId("vault-withdraw-max").click();
+    await page.getByTestId("vault-withdraw-max-meridian-usdc").click();
     await expect(page.getByPlaceholder("0.00")).toHaveValue("42.0000000");
   });
 });

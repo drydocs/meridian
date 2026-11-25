@@ -13,8 +13,10 @@ const STALE_TIME_MS = 30_000;
  * deposit/withdraw slippage floors are computed from current on-chain state
  * rather than a stale position share price.
  */
-export async function fetchFreshVaultState(): Promise<VaultState> {
-  return api.getVaultState();
+export async function fetchFreshVaultState(
+  vaultId?: string
+): Promise<VaultState> {
+  return api.getVaultState(vaultId);
 }
 
 /** Shares expected for `amount` USDC at the live vault share price, with slippage haircut. */
@@ -104,10 +106,10 @@ export function computeMinUsdcOut({
   return Math.max(0, (grossUsdcOut - fee) * slippageFactor).toFixed(7);
 }
 
-export function useVaultState() {
+export function useVaultState(vaultId?: string) {
   return useQuery({
-    queryKey: ["vault-state"],
-    queryFn: () => api.getVaultState(),
+    queryKey: vaultId ? ["vault-state", vaultId] : ["vault-state"],
+    queryFn: () => api.getVaultState(vaultId),
     staleTime: STALE_TIME_MS,
     retry: 1,
   });

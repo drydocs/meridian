@@ -30,7 +30,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (resource === "vault-state") {
     if (requireGetMethod(req, res)) return;
-    const result = await handleGetVaultState();
+    const rawVaultId = req.query["vaultId"];
+    if (rawVaultId !== undefined && typeof rawVaultId !== "string") {
+      return res.status(400).json({ error: "vaultId must be a string" });
+    }
+    const result = await handleGetVaultState(rawVaultId);
     if (result.error) logError("admin.vault_state_failed", req, result.error);
     res.setHeader("Cache-Control", "no-store");
     return res.status(result.status).json(result.body);

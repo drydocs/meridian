@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { VaultPanel } from "../../components/dashboard/VaultPanel";
 import { useWalletStore } from "../../store/wallet";
 import { useVaults } from "../../hooks/useVaults";
@@ -29,12 +35,28 @@ const VAULT = {
   riskLevel: "safe" as const,
 };
 
+const OTHER_VAULT = {
+  ...VAULT,
+  id: "meridian-eurc",
+  asset: "EURC",
+  name: "Meridian",
+  label: "EURC Vault",
+};
+
 const POSITION = {
   vaultId: "meridian-usdc",
   shares: 50,
   deposited: 100,
   earned: 5,
   entryTime: 1_700_000_000,
+};
+
+const OTHER_POSITION = {
+  ...POSITION,
+  vaultId: "meridian-eurc",
+  shares: 25,
+  deposited: 45,
+  earned: 3,
 };
 
 vi.mock("../../components/dashboard/YieldHistoryChart", () => ({
@@ -259,6 +281,13 @@ describe("VaultPanel — deposit", () => {
     });
   });
 
+  it("visually identifies the recommended deposit vault", () => {
+    render(<VaultPanel />);
+
+    expect(screen.getByText("vaultPanel.depositTo")).toBeDefined();
+    expect(screen.getByText("vaultPanel.recommended")).toBeDefined();
+  });
+
   it("defers slippage floor computation to useVaultActions (fresh vault state)", async () => {
     mockPositions({ isError: false, data: [POSITION] });
     render(<VaultPanel />);
@@ -335,7 +364,7 @@ describe("VaultPanel — deposit", () => {
 
 describe("VaultPanel — withdraw", () => {
   it.each([null, "unavailable-vault"])(
-    "does not fall back to a position when the recommendation is %s",
+    "keeps the position visible when the recommendation is %s",
     (recommendedVaultId) => {
       vi.mocked(useVaults).mockReturnValue({
         data: { vaults: [VAULT], recommendedVaultId },
@@ -344,29 +373,56 @@ describe("VaultPanel — withdraw", () => {
       mockPositions({ data: [POSITION] });
       render(<VaultPanel />);
 
+      expect(screen.getByTestId("position-meridian-usdc")).toBeDefined();
       fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
-      expect(screen.queryByText("vaultPanel.yourPosition")).toBeNull();
-      expect(screen.getByText("vaultPanel.position")).toBeDefined();
-      expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
+      expect(
+        screen.getByTestId("vault-withdraw-submit-meridian-usdc")
+      ).toHaveProperty("disabled", true);
       expect(withdraw).not.toHaveBeenCalled();
     }
   );
 
-  it("shows the position and calls withdraw with the entered shares", async () => {
-    mockPositions({ isError: false, data: [POSITION] });
+  it("shows positions with their own vault metadata and current values", () => {
+    vi.mocked(useVaults).mockReturnValue({
+      data: { vaults: [VAULT, OTHER_VAULT], recommendedVaultId: VAULT.id },
+      isLoading: false,
+    } as ReturnType<typeof useVaults>);
+    mockPositions({ isError: false, data: [OTHER_POSITION, POSITION] });
+
+    render(<VaultPanel />);
+
+    const usdcPosition = screen.getByTestId("position-meridian-usdc");
+    const eurcPosition = screen.getByTestId("position-meridian-eurc");
+    expect(usdcPosition).toBeDefined();
+    expect(eurcPosition).toBeDefined();
+    expect(screen.getByText("USDC Vault · Meridian")).toBeDefined();
+    expect(screen.getByText("EURC Vault · Meridian")).toBeDefined();
+    expect(within(usdcPosition).getByText("$100.00")).toBeDefined();
+    expect(within(eurcPosition).getByText("$45.00")).toBeDefined();
+    expect(within(usdcPosition).getByText("+$5.00")).toBeDefined();
+    expect(within(eurcPosition).getByText("+$3.00")).toBeDefined();
+  });
+
+  it("withdraws a non-recommended position against its own vault and asset", async () => {
+    vi.mocked(useVaults).mockReturnValue({
+      data: { vaults: [VAULT, OTHER_VAULT], recommendedVaultId: VAULT.id },
+      isLoading: false,
+    } as ReturnType<typeof useVaults>);
+    mockPositions({ isError: false, data: [OTHER_POSITION, POSITION] });
     render(<VaultPanel />);
 
     fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
-    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+    const eurcPosition = screen.getByTestId("withdraw-position-meridian-eurc");
+    fireEvent.change(within(eurcPosition).getByPlaceholderText("0.00"), {
       target: { value: "10" },
     });
-    fireEvent.click(screen.getByTestId("vault-withdraw-submit"));
+    fireEvent.click(screen.getByTestId("vault-withdraw-submit-meridian-eurc"));
 
     await waitFor(() => {
       expect(withdraw).toHaveBeenCalledWith(
         "10",
-        "meridian-usdc",
-        "USDC",
+        "meridian-eurc",
+        "EURC",
         undefined
       );
     });
@@ -378,44 +434,23 @@ describe("VaultPanel — withdraw", () => {
 
     fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
     expect(screen.getByText("vaultPanel.position")).toBeDefined();
-    expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
+    expect(
+      screen.queryByTestId("vault-withdraw-submit-meridian-usdc")
+    ).toBeNull();
   });
 
-  it("withdraws from the recommended vault when another position is listed first", async () => {
+  it("retains a position when its vault metadata is unavailable", () => {
     mockPositions({
       isError: false,
-      data: [
-        { ...POSITION, vaultId: "blend-usdc-fixed", shares: 10, deposited: 10 },
-        POSITION,
-      ],
+      data: [{ ...POSITION, vaultId: "unknown-vault" }],
     });
     render(<VaultPanel />);
 
     fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
-    fireEvent.change(screen.getByPlaceholderText("0.00"), {
-      target: { value: "10" },
-    });
-    fireEvent.click(screen.getByTestId("vault-withdraw-submit"));
-
-    await waitFor(() => {
-      expect(withdraw).toHaveBeenCalledWith(
-        "10",
-        "meridian-usdc",
-        "USDC",
-        undefined
-      );
-    });
-  });
-  it("does not offer a withdraw from a different vault when the recommended vault has no position", () => {
-    mockPositions({
-      isError: false,
-      data: [{ ...POSITION, vaultId: "blend-usdc-fixed" }],
-    });
-    render(<VaultPanel />);
-
-    fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
-    expect(screen.getByText("vaultPanel.position")).toBeDefined();
-    expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
+    expect(screen.getByTestId("position-unknown-vault")).toBeDefined();
+    expect(
+      screen.getByTestId("vault-withdraw-submit-unknown-vault")
+    ).toHaveProperty("disabled", true);
     expect(withdraw).not.toHaveBeenCalled();
   });
 });

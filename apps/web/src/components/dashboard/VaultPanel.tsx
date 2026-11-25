@@ -14,7 +14,7 @@ import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
-import { formatApy, formatCompactUsd, parseMoneyInput } from "../../lib/format";
+import { formatApy, formatCompactUsd } from "../../lib/format";
 import { ActivityHistory } from "./ActivityHistory";
 import type { LocalActivity } from "../../store/activity";
 
@@ -62,6 +62,9 @@ export function VaultPanel() {
 
   const [tab, setTab] = useState<Tab>("deposit");
   const [amount, setAmount] = useState("");
+  const [withdrawingVaultId, setWithdrawingVaultId] = useState<string | null>(
+    null
+  );
   // Deposit-time gate. useWalletConnect's gate only fires from the connect
   // button, so a wallet already connected elsewhere (e.g. via AdminLogin,
   // which skips the disclosure) would otherwise reach this deposit button
@@ -90,15 +93,13 @@ export function VaultPanel() {
   // Route to the server's recommendation: the highest-APY vault Meridian can
   // actually deposit into (excludes display-only protocols and risky pools).
   const bestVault = vaults?.find((v) => v.id === data?.recommendedVaultId);
-  // Deposits and withdrawals both target the recommended vault. A position
-  // in some other vault must not be shown or withdrawn here: its share price
-  // does not match bestVault, so the withdraw tab would display the wrong
-  // balance and the contract would revert.
-  const position = bestVault
-    ? positions.find((p) => p.vaultId === bestVault.id)
-    : undefined;
-  const hasPosition =
-    position && Number.isFinite(position.deposited) && position.deposited > 0;
+  const positionEntries = positions.map((position) => ({
+    position,
+    vault: vaults?.find((vault) => vault.id === position.vaultId),
+  }));
+  const recommendedPosition = positionEntries.find(
+    ({ position }) => position.vaultId === bestVault?.id
+  )?.position;
 
   async function handleDeposit() {
     if (!amount || !bestVault) return;
@@ -110,10 +111,7 @@ export function VaultPanel() {
   }
 
   async function executeDeposit(vault: NonNullable<typeof bestVault>) {
-    // Slippage floors are computed in useVaultActions from a fresh on-chain
-    // vault state read at tx-build time. Do not derive them from cached
-    // position.deposited / position.shares — that share price can lag yield
-    // accrual and cause unnecessary SlippageExceeded reverts.
+    // Slippage floors use a fresh on-chain state read for this vault.
     const ok = await deposit(
       amount,
       vault.id,
@@ -129,26 +127,18 @@ export function VaultPanel() {
     }
   }
 
-  async function handleWithdraw() {
-    if (!amount || !bestVault || !position) return;
-    if (position.vaultId !== bestVault.id) return;
-    const canonicalAmount = parseMoneyInput(amount, i18n.language);
-    if (
-      canonicalAmount === null ||
-      canonicalAmount === "" ||
-      Number(canonicalAmount) > position.shares
-    ) {
-      return;
-    }
-    const ok = await withdraw(
-      canonicalAmount,
-      bestVault.id,
-      bestVault.asset,
-      undefined
-    );
-    if (ok) {
-      setAmount("");
-      refetchBalance();
+  async function handleWithdraw(
+    vault: (typeof positionEntries)[number]["vault"],
+    shares: string
+  ): Promise<boolean> {
+    if (!vault || vault.protocol !== "meridian") return false;
+    setWithdrawingVaultId(vault.id);
+    try {
+      const ok = await withdraw(shares, vault.id, vault.asset, undefined);
+      if (ok) refetchBalance();
+      return ok;
+    } finally {
+      setWithdrawingVaultId(null);
     }
   }
 
@@ -166,8 +156,15 @@ export function VaultPanel() {
         undefined,
         hasAcceptedRiskDisclosure()
       );
-    } else if (position && activity.vaultId === bestVault?.id) {
-      await withdraw(activity.amount, activity.vaultId, activity.asset);
+    } else if (
+      positionEntries.some(
+        ({ position }) => position.vaultId === activity.vaultId
+      )
+    ) {
+      const vault = vaults?.find((v) => v.id === activity.vaultId);
+      if (vault?.protocol === "meridian") {
+        await withdraw(activity.amount, activity.vaultId, vault.asset);
+      }
     }
   }
 
@@ -257,18 +254,17 @@ export function VaultPanel() {
         )}
       </div>
 
-      {/* Position summary */}
-      {connected && hasPosition && position && (
-        <PositionSummary position={position} />
-      )}
-
-      {/* Position PnL & yield breakdown */}
-      {connected && hasPosition && position && (
-        <PositionPnlCard position={position} />
-      )}
+      {/* Every held position is shown independently of the current recommendation. */}
+      {connected &&
+        positionEntries.map(({ position, vault }) => (
+          <div key={position.vaultId}>
+            <PositionSummary position={position} vault={vault} />
+            <PositionPnlCard position={position} showCurrentValue={false} />
+          </div>
+        ))}
 
       {/* Yield history: position value over time, by protocol */}
-      {connected && hasPosition && position && (
+      {connected && positionEntries.length > 0 && (
         <Suspense
           fallback={
             <div className="mx-7 my-5 h-48 rounded-xl border border-gray-800 bg-gray-900/50 animate-pulse" />
@@ -426,8 +422,8 @@ export function VaultPanel() {
                 onAmountChange={setAmount}
                 onAmountKeyDown={onAmountKeyDown}
                 bestVault={bestVault}
-                position={position}
-                hasPosition={!!hasPosition}
+                position={recommendedPosition}
+                hasPosition={!!recommendedPosition}
                 isDepositing={isDepositing}
                 isSigning={isSigning}
                 onCancel={cancelPending}
@@ -437,18 +433,28 @@ export function VaultPanel() {
                 onRetryBalance={refetchBalance}
               />
             ) : (
-              <WithdrawTab
-                amount={amount}
-                onAmountChange={setAmount}
-                onAmountKeyDown={onAmountKeyDown}
-                bestVault={bestVault}
-                position={position}
-                hasPosition={!!hasPosition}
-                isWithdrawing={isWithdrawing}
-                isSigning={isSigning}
-                onCancel={cancelPending}
-                onSubmit={handleWithdraw}
-              />
+              <div className="space-y-4">
+                {positionEntries.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-2">
+                    {t("vaultPanel.position")}
+                  </p>
+                ) : (
+                  positionEntries.map(({ position, vault }) => (
+                    <WithdrawTab
+                      key={position.vaultId}
+                      position={position}
+                      vault={vault}
+                      onAmountKeyDown={onAmountKeyDown}
+                      isWithdrawing={isWithdrawing}
+                      isSigning={
+                        isSigning && withdrawingVaultId === position.vaultId
+                      }
+                      onCancel={cancelPending}
+                      onSubmit={(shares) => handleWithdraw(vault, shares)}
+                    />
+                  ))
+                )}
+              </div>
             )}
           </div>
         )}

@@ -60,26 +60,30 @@ export async function handleGetKeeperHealth(): Promise<RouteResult> {
 }
 
 /**
- * Reads the Meridian coordinator vault's current operational state for the
- * admin dashboard's Vault State card. There is exactly one coordinator vault
- * per network in KNOWN_POOLS today (see known-pools.ts); if that ever
- * changes, this picks the first one rather than guessing which is "the"
- * vault the dashboard should show.
+ * Reads a Meridian coordinator vault's current operational state. Without a
+ * vault ID, this preserves the admin dashboard's existing default behavior.
  */
-export async function handleGetVaultState(): Promise<RouteResult> {
+export async function handleGetVaultState(
+  vaultId?: string
+): Promise<RouteResult> {
   const pools =
     APP_NETWORK.network === "testnet"
       ? KNOWN_POOLS.testnet
       : KNOWN_POOLS.mainnet;
-  const entry = Object.values(pools).find(
+  const entries = Object.values(pools);
+  const entry = entries.find(
     (p): p is typeof p & { contractId: string } =>
-      p.protocol === "meridian" && Boolean(p.contractId)
+      p.protocol === "meridian" &&
+      Boolean(p.contractId) &&
+      (vaultId === undefined || p.id === vaultId)
   );
   if (!entry) {
     return {
       status: 404,
       body: {
-        error: "No Meridian coordinator vault configured for this network",
+        error: vaultId
+          ? `No Meridian coordinator vault found for ${vaultId}`
+          : "No Meridian coordinator vault configured for this network",
       },
     };
   }
