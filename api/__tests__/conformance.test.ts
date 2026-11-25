@@ -99,6 +99,14 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
       xdr: "AAAA_CONFORMANCE_WITHDRAW_XDR",
       fee: "100",
     })),
+    // Prices the slippage floor when a build request omits its minimum.
+    quoteVaultAction: vi.fn(async ({ action }: { action: string }) => ({
+      action,
+      fee: "0",
+      ledger: 1,
+      recommendedMinimum: action === "deposit" ? "9.9" : "4.9",
+      slippageBps: 50,
+    })),
     buildAddTrustlineTx: vi.fn(async () => ({
       xdr: "AAAA_CONFORMANCE_TRUSTLINE_XDR",
     })),
