@@ -72,7 +72,7 @@ describe("DepositRequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("defaults min_shares_out to 0 when omitted", () => {
+  it("leaves min_shares_out unset when omitted so the API can quote a floor", () => {
     const result = DepositRequestSchema.safeParse({
       walletAddress: VALID_ADDRESS,
       vaultId: "meridian-usdc",
@@ -81,7 +81,7 @@ describe("DepositRequestSchema", () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.min_shares_out).toBe("0");
+      expect(result.data.min_shares_out).toBeUndefined();
     }
   });
 
@@ -97,7 +97,7 @@ describe("DepositRequestSchema", () => {
 });
 
 describe("WithdrawRequestSchema", () => {
-  it("accepts a valid withdraw request", () => {
+  it("accepts a valid withdraw request and leaves min_usdc_out unset", () => {
     const result = WithdrawRequestSchema.safeParse({
       walletAddress: VALID_ADDRESS,
       vaultId: "meridian-usdc",
@@ -105,7 +105,7 @@ describe("WithdrawRequestSchema", () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.min_usdc_out).toBe("0");
+      expect(result.data.min_usdc_out).toBeUndefined();
     }
   });
 
