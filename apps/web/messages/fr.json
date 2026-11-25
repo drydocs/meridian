@@ -18,6 +18,8 @@
     "chooseWallet": "Choisir un portefeuille",
     "installed": "Installé",
     "install": "Installer",
+    "timedOut": "Le portefeuille n'a pas répondu",
+    "timedOutHint": "La fenêtre du portefeuille est peut-être derrière votre navigateur. Vérifiez-la et réessayez.",
     "accountChanged": "Compte de portefeuille changé pour {{address}}",
     "networkChanged": "Réseau de portefeuille changé pour {{network}}",
     "networkMismatch": "Incompatibilité de réseau: le portefeuille est sur {{walletNetwork}}, mais l'application requiert {{appNetwork}}"
@@ -103,7 +105,8 @@
     "connectWallet": "Connecter le portefeuille",
     "connecting": "Connexion...",
     "installWallet": "Installer {{name}}",
-    "retry": "Réessayer"
+    "retry": "Réessayer",
+    "cancel": "Annuler"
   },
 
   "admin": {
@@ -182,7 +185,9 @@
     "walletDeclined": "Vous avez refusé la demande. Réessayez quand vous êtes prêt.",
     "unknown": "Une erreur est survenue. Veuillez réessayer.",
     "unknownWithRef": "Une erreur est survenue (réf. : {{ref}}). Veuillez réessayer.",
-    "fallbackWithRef": "{{action}} (réf. : {{ref}}). Veuillez réessayer."
+    "fallbackWithRef": "{{action}} (réf. : {{ref}}). Veuillez réessayer.",
+    "walletTimeout": "Le portefeuille n'a pas répondu à temps. Sa fenêtre est peut-être derrière votre navigateur — vérifiez-la, puis réessayez.",
+    "walletCancelled": "Requête annulée."
   },
 
   "errorBoundary": {

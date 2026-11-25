@@ -5,6 +5,7 @@ import { useSignAndSubmit } from "./useSignAndSubmit";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "react-i18next";
 import { mapError } from "../lib/errorMapper";
+import { WalletCancelledError } from "../lib/wallet";
 
 // Configurable so the faucet can be rotated or disabled without a code
 // deploy; falls back to Blend's public testnet faucet.
@@ -62,6 +63,7 @@ export function useBlendFaucet() {
       push("success", t("vaultActions.walletFunded"));
       return true;
     } catch (err) {
+      if (err instanceof WalletCancelledError) return false;
       if (err instanceof Error && err.name === "TimeoutError") {
         push("error", t("vaultActions.faucetTimeout"));
         return false;
