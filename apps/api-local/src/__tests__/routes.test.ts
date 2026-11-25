@@ -19,6 +19,14 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     buildDepositTx: vi.fn(),
     buildWithdrawTx: vi.fn(),
     buildAddTrustlineTx: vi.fn(),
+    // Prices the slippage floor when a build request omits its minimum.
+    quoteVaultAction: vi.fn(async ({ action }: { action: string }) => ({
+      action,
+      fee: "0",
+      ledger: 100,
+      recommendedMinimum: action === "deposit" ? "9.9" : "4.9",
+      slippageBps: 50,
+    })),
     submitTx: vi.fn(),
     fetchAllVaults: fetchAllVaultsMock,
     fetchVaultsWithCache: vi.fn(async (...args: unknown[]) => ({
