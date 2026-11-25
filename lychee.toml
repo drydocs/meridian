@@ -26,6 +26,9 @@ exclude = [
   '^https://(www\.)?(twitter|x)\.com',
   # Stellar testnet faucet: returns 400 without a real funded address.
   '^https://friendbot\.stellar\.org',
+  # xBull's site closes TLS connections from CI runners (fatal alert), which
+  # fails the external link check on every run.
+  '^https://xbull\.app',
   # Local development URLs referenced in guides.
   '^https?://localhost',
   '^https?://127\.0\.0\.1',
