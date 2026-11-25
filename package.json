@@ -19,6 +19,8 @@
     "test:security-headers": "node scripts/check-security-headers.mjs",
     "verify:contracts": "tsx scripts/verify-contract-addresses.ts",
     "check:wasm-size": "tsx scripts/check-wasm-size.ts",
+    "check:reproducible-build": "node scripts/reproducible-build.mjs",
+    "verify:build-manifest": "node scripts/reproducible-build.mjs --verify",
     "check:contract-benchmarks": "tsx scripts/check-contract-benchmarks.ts",
     "bundle:check": "pnpm --filter @meridian/web bundle:check",
     "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts"

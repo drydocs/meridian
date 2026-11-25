@@ -74,7 +74,9 @@ jobs:
             contracts:
               - .github/workflows/ci.yml
               - "packages/contracts/**"
+              - "packages/shared/deployed-contracts.json"
               - "scripts/check-wasm-size.ts"
+              - "scripts/reproducible-build.mjs"
               - "packages/shared/src/wasm-size-budget.ts"
               - "scripts/deploy-*.sh"
               - "scripts/redeploy-*.sh"
@@ -257,7 +259,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.contracts == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -313,6 +315,37 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The reproducible build must use the same pinned `stellar` CLI the
+      # deploy scripts and the verify-bytecode job use, because the CLI remaps
+      # paths, injects spec metadata, and optimizes the wasm. Cache the binary
+      # by version so only the first run for a pinned version pays to build it.
+      - name: Read pinned Stellar CLI version
+        id: stellar-cli-version
+        run: |
+          VERSION=$(jq -r '.toolchain.stellarCli' packages/shared/deployed-contracts.json)
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "::error::Failed to read toolchain.stellarCli from deployed-contracts.json"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Cache Stellar CLI binary
+        id: cache-stellar-cli
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/stellar
+          key: stellar-cli-${{ runner.os }}-${{ steps.stellar-cli-version.outputs.version }}
+      - name: Install Stellar CLI build dependencies
+        if: steps.cache-stellar-cli.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev libudev-dev pkg-config
+      - name: Install Stellar CLI
+        if: steps.cache-stellar-cli.outputs.cache-hit != 'true'
+        run: cargo install --locked stellar-cli --version "${{ steps.stellar-cli-version.outputs.version }}"
+      # Two clean builds in isolated target dirs must produce byte-identical
+      # wasm. This is what makes the published hash manifest trustworthy, and
+      # is the check #1421 asks for: a mismatch fails the pipeline here rather
+      # than being discovered against a live deployment later.
+      - name: Verify reproducible wasm builds
+        run: pnpm check:reproducible-build
       - name: Check contract WASM size budgets
         env:
           WASM_SIZE_BASE_REF: ${{ github.event.pull_request.base.sha }}
@@ -332,3 +365,10 @@ jobs:
             packages/contracts/benchmark-results.json
             packages/contracts/benchmark-output.log
           if-no-files-found: warn
+      - name: Upload verified build manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-build-manifest
+          path: packages/contracts/build-manifest.json
+          if-no-files-found: error
+          retention-days: 30
