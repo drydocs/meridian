@@ -4,6 +4,7 @@ import {
   WithdrawRequestSchema,
   TrustlineRequestSchema,
   SubmitRequestSchema,
+  QuoteRequestSchema,
   formatZodError,
 } from "./schemas";
 
@@ -172,6 +173,62 @@ describe("SubmitRequestSchema", () => {
   it("rejects an empty xdr string", () => {
     const result = SubmitRequestSchema.safeParse({ xdr: "" });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("QuoteRequestSchema", () => {
+  const base = { walletAddress: VALID_ADDRESS, vaultId: "meridian-usdc" };
+
+  it("accepts a deposit quote with an amount", () => {
+    expect(
+      QuoteRequestSchema.safeParse({ ...base, action: "deposit", amount: "10" })
+        .success
+    ).toBe(true);
+  });
+
+  it("accepts a withdrawal quote with shares", () => {
+    expect(
+      QuoteRequestSchema.safeParse({ ...base, action: "withdraw", shares: "5" })
+        .success
+    ).toBe(true);
+  });
+
+  it("requires an amount for a deposit quote", () => {
+    const result = QuoteRequestSchema.safeParse({ ...base, action: "deposit" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(formatZodError(result.error)).toContain(
+        "amount: amount is required for deposit quotes"
+      );
+    }
+  });
+
+  it("requires shares for a withdrawal quote", () => {
+    const result = QuoteRequestSchema.safeParse({
+      ...base,
+      action: "withdraw",
+      amount: "10",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(formatZodError(result.error)).toContain(
+        "shares: shares is required for withdrawal quotes"
+      );
+    }
+  });
+
+  it("rejects an unknown action and an over-precise amount", () => {
+    expect(
+      QuoteRequestSchema.safeParse({ ...base, action: "swap", amount: "1" })
+        .success
+    ).toBe(false);
+    expect(
+      QuoteRequestSchema.safeParse({
+        ...base,
+        action: "deposit",
+        amount: "1.12345678",
+      }).success
+    ).toBe(false);
   });
 });
 
