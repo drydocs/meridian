@@ -87,6 +87,16 @@ pub struct MigrationSnapshot {
     pub ledger_seq: u32,
 }
 
+/// An aggregate view of a user's position in the vault at a single ledger snapshot.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct PositionSummary {
+    pub shares: i128,
+    pub principal: i128,
+    pub entry_time: u64,
+    pub current_value: i128,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {

@@ -105,6 +105,17 @@ Returns the ledger timestamp of the address's current deposit, or `0` if it hold
 
 Returns the address's cost basis: the net USDC it has deposited and not yet withdrawn. Yield earned off-chain is computed as `current_share_value - principal`. Reported as `0` for an address holding no mUSDC without modifying storage. An address whose shares arrived by transfer now ([#578](https://github.com/drydocs/meridian/issues/578)) reports the pro-rata basis it inherited via `on_transfer`, not `0`. See [Transferable shares](#transferable-shares) for that split.
 
+### `get_position_summary(address) -> PositionSummary`
+
+Returns an address's position in a single read: shares, cost basis, entry time and current value. An address with no shares gets all zeros and the call does not fail. The single-field getters (`get_position`, `get_principal`, `get_entry_time`) are unchanged.
+
+| Field           | Type   | Meaning                                                                                        |
+| --------------- | ------ | ---------------------------------------------------------------------------------------------- |
+| `shares`        | `i128` | mUSDC held by the address.                                                                     |
+| `principal`     | `i128` | Net USDC cost basis, as returned by `get_principal`.                                           |
+| `entry_time`    | `u64`  | Ledger timestamp of the first deposit, as returned by `get_entry_time`.                        |
+| `current_value` | `i128` | USDC value of the shares at the adapter's reported assets, as returned by `convert_to_assets`. |
+
 ### `get_total_assets() -> i128`
 
 Returns the live USDC value of the vault's position, read directly from the active adapter's `total_assets()`. Includes yield accrued by the underlying protocol (for Blend, only as of the adapter's last `accrue()` call, described below).
