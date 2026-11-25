@@ -391,14 +391,16 @@ describe("VaultPanel — withdraw", () => {
 
     render(<VaultPanel />);
 
-    expect(screen.getByTestId("position-meridian-usdc")).toBeDefined();
-    expect(screen.getByTestId("position-meridian-eurc")).toBeDefined();
+    const usdcPosition = screen.getByTestId("position-meridian-usdc");
+    const eurcPosition = screen.getByTestId("position-meridian-eurc");
+    expect(usdcPosition).toBeDefined();
+    expect(eurcPosition).toBeDefined();
     expect(screen.getByText("USDC Vault · Meridian")).toBeDefined();
     expect(screen.getByText("EURC Vault · Meridian")).toBeDefined();
-    expect(screen.getByText("$100.00")).toBeDefined();
-    expect(screen.getByText("$45.00")).toBeDefined();
-    expect(screen.getByText("+$5.00")).toBeDefined();
-    expect(screen.getByText("+$3.00")).toBeDefined();
+    expect(within(usdcPosition).getByText("$100.00")).toBeDefined();
+    expect(within(eurcPosition).getByText("$45.00")).toBeDefined();
+    expect(within(usdcPosition).getByText("+$5.00")).toBeDefined();
+    expect(within(eurcPosition).getByText("+$3.00")).toBeDefined();
   });
 
   it("withdraws a non-recommended position against its own vault and asset", async () => {
