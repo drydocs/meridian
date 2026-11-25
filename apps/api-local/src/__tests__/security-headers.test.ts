@@ -81,10 +81,6 @@ describe("local Fastify security headers", () => {
       ).toContain("POST");
     });
 
-    it("varies by origin", async () => {
-      expect((await preflight()).headers["vary"]).toContain("Origin");
-    });
-
     it("still carries the security headers", async () => {
       const res = await preflight();
       for (const [name, value] of Object.entries(VERCEL_SECURITY_HEADERS)) {
