@@ -230,5 +230,21 @@
       "title": "Audit de sécurité",
       "notYetAvailable": "Aucun audit de sécurité indépendant n'a encore été réalisé. Un rapport sera lié ici dès qu'il existera."
     }
+  },
+
+  "activity": {
+    "title": "Activité locale",
+    "receipt": "Reçu de transaction",
+    "dismiss": "Fermer le reçu",
+    "viewTx": "Voir tx",
+    "actions": {
+      "deposit": "Déposé",
+      "withdraw": "Retiré"
+    },
+    "status": {
+      "pending": "En attente",
+      "confirmed": "Confirmé",
+      "failed": "Échec"
+    }
   }
 }

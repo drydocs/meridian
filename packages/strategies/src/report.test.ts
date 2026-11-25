@@ -51,6 +51,7 @@ function makeScenario(
     window: { start: toIsoInstant(start), end: toIsoInstant(end), step: STEP },
     assets: [USDC, EURC],
     source: { price: "horizon", rate: "blend" },
+    costs: { swapFeeRate: "0.003", networkFee: "0.0000100" },
     startingCapital: "150",
     strategy: {
       id: "delta-neutral",
@@ -213,6 +214,10 @@ describe("serializeReport / deserializeReport", () => {
     expect(restored.scenario.source).toEqual({
       price: "horizon",
       rate: "blend",
+    });
+    expect(restored.scenario.costs).toEqual({
+      swapFeeRate: "0.003",
+      networkFee: "0.0000100",
     });
     expect(restored.scenario.startingCapital).toBe("150");
     expect(restored.scenario.strategy.params).toEqual({

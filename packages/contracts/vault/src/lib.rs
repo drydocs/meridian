@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 mod errors;
 pub mod pricing;
 mod storage;
@@ -2031,6 +2034,20 @@ mod tests {
         token::{StellarAssetClient, TokenClient},
         Address, Env, Symbol,
     };
+
+    fn report_benchmark(env: &Env, name: &str) {
+        let estimate = env.cost_estimate();
+        let resources = estimate.resources();
+        let memory_bytes = estimate.budget().memory_bytes_cost();
+        let fee_stroops = estimate.fee().total;
+        std::println!(
+            "SOROBAN_BENCHMARK|{}|{}|{}|{}",
+            name,
+            resources.instructions,
+            memory_bytes,
+            fee_stroops
+        );
+    }
 
     type WiringFixture = (Env, Address, Address, Address, Address, Address, Address);
 
@@ -5104,6 +5121,78 @@ mod tests {
         );
     }
 
+    #[test]
+    fn benchmark_vault_deposit() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+        report_benchmark(&env, "vault.deposit");
+    }
+
+    #[test]
+    fn benchmark_vault_withdraw() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0_i128);
+        vault.withdraw(&user, &amount, &0_i128);
+        report_benchmark(&env, "vault.withdraw");
+    }
+
+    #[test]
+    fn benchmark_vault_begin_migration() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        vault.begin_migration(&new_adapter);
+        report_benchmark(&env, "vault.begin_migration");
+    }
+
+    #[test]
+    fn benchmark_vault_migrate_adapter() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0_i128);
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        vault.begin_migration(&new_adapter);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += MIN_LEDGER_GAP);
+        vault.migrate_adapter(&new_adapter, &0);
+        report_benchmark(&env, "vault.migrate_adapter");
+    }
+
+    #[test]
+    fn benchmark_vault_set_paused() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.set_paused(&true);
+        report_benchmark(&env, "vault.set_paused");
+    }
+
+    #[test]
+    fn benchmark_vault_set_adapter() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        vault.set_adapter(&new_adapter);
+        report_benchmark(&env, "vault.set_adapter");
+    }
+
+    #[test]
+    fn benchmark_vault_transfer_admin() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let new_admin = Address::generate(&env);
+        vault.transfer_admin(&new_admin);
+        report_benchmark(&env, "vault.transfer_admin");
+    }
+
+    #[test]
+    fn benchmark_vault_accept_admin() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let new_admin = Address::generate(&env);
+        vault.transfer_admin(&new_admin);
+        vault.accept_admin();
+        report_benchmark(&env, "vault.accept_admin");
+    }
+
     // -----------------------------------------------------------------------
     // Regression: ratio-shifting withdrawal vulnerability
     //
@@ -5532,6 +5621,8 @@ mod tests {
         assert_eq!(target_adapter, new_adapter_id);
         assert_eq!(earliest_ledger, current_ledger + MIN_LEDGER_GAP);
     }
+
+    mod accounting_properties;
 
     #[test]
     fn migrate_publishes_event_with_old_and_new_adapter() {

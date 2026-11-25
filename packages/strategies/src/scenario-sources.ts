@@ -14,13 +14,17 @@ import {
   type BacktestPricePoint,
   type PriceFeed,
 } from "./types";
-import { durationToMilliseconds, type Scenario } from "./scenario";
+import {
+  durationToMilliseconds,
+  scenarioCostSchedule,
+  type Scenario,
+} from "./scenario";
 import {
   loadHistoricalSeries,
   type HistoricalInput,
   type LoadedStream,
 } from "./historical-loader";
-import type { AccrualConfig } from "./backtest/runner";
+import type { AccrualConfig, ExecutionConfig } from "./backtest/runner";
 import type { DefiLlamaPool } from "@meridian/stellar-sdk-helpers";
 
 /**
@@ -56,6 +60,7 @@ export class MissingSourceDataError extends Error {
 export interface ResolvedScenarioSources {
   readonly prices: PriceFeed;
   readonly accrual?: AccrualConfig;
+  readonly execution: ExecutionConfig;
 }
 
 /**
@@ -267,5 +272,6 @@ export async function resolveScenarioSources(
   return {
     prices: priceFeed,
     accrual: accrualConfig,
+    execution: { costSchedule: scenarioCostSchedule(scenario) },
   };
 }
