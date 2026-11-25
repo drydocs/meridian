@@ -138,6 +138,22 @@ describe("ScenarioSchema", () => {
     }
   });
 
+  it("accepts an optional hedge source from PRICE_SOURCES and rejects unknown values", () => {
+    for (const hedge of PRICE_SOURCES) {
+      const scenario = parseScenario({
+        ...VALID_INPUT,
+        source: { price: "horizon", hedge, rate: "blend" },
+      });
+      expect(scenario.source.hedge).toBe(hedge);
+    }
+
+    const message = failureTextFor({
+      ...VALID_INPUT,
+      source: { price: "horizon", hedge: "unknown", rate: "blend" },
+    });
+    expect(message).toContain("source.hedge");
+  });
+
   it("is deterministic: the same input always yields the same scenario", () => {
     expect(parseScenario(VALID_INPUT)).toEqual(parseScenario(VALID_INPUT));
   });

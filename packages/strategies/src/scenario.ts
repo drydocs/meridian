@@ -7,8 +7,8 @@ import { FixedPointDecimal } from "./types";
  *
  * A scenario is the *single* input a run is reproduced from: given the same
  * scenario, the same window/assets/sources/capital/costs/strategy config, a
- * run is deterministic. Nothing here is a live lookup or an ambient default —
- * every value that could change the outcome is written down explicitly.
+ * run is deterministic. Nothing here is a live lookup or an ambient default,
+ * and every value that could change the outcome is written down explicitly.
  *
  * Money and rate fields are fixed-point decimal *strings*, never JS `number`
  * (see #856). A `number` is IEEE-754 binary floating point: `0.1 + 0.2` is not
@@ -217,6 +217,14 @@ export const PriceSourceSchema = z
     { message: `source.price must be one of: ${PRICE_SOURCES.join(", ")}` }
   );
 
+export const HedgeSourceSchema = z
+  .string()
+  .refine(
+    (value): value is PriceSource =>
+      (PRICE_SOURCES as readonly string[]).includes(value),
+    { message: `source.hedge must be one of: ${PRICE_SOURCES.join(", ")}` }
+  );
+
 export const RateSourceSchema = z
   .string()
   .refine(
@@ -225,10 +233,15 @@ export const RateSourceSchema = z
     { message: `source.rate must be one of: ${RATE_SOURCES.join(", ")}` }
   );
 
-/** Price and rate data-source selector. */
+/**
+ * Price, optional hedge price, and rate data-source selector. A declared
+ * `hedge` source reads its prices from the price rows whose `asset` is
+ * `hedge:<asset>` in the historical data given to `resolveScenarioSources`.
+ */
 export const ScenarioSourceSchema = z
   .object({
     price: PriceSourceSchema,
+    hedge: HedgeSourceSchema.optional(),
     rate: RateSourceSchema,
   })
   .strict();
