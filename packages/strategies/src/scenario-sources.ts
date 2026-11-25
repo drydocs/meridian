@@ -206,9 +206,10 @@ export async function resolveScenarioSources(
     throw new Error(`Unsupported price source: ${priceSource}`);
   }
 
-  // The hedge leg's prices are read from the series named "hedge:<asset>" in
-  // `historicalData`, one per scenario asset, with the same loader and the same
-  // window coverage rules as the spot series. No loader or synthetic history
+  // The hedge leg's prices are read from price rows whose `asset` is
+  // "hedge:<asset>" in `historicalData` (the loader names that series
+  // "price:hedge:<asset>"), one per scenario asset, with the same loader and
+  // the same window coverage rules as the spot series. No loader or synthetic history
   // produces them yet, so a scenario that declares `source.hedge` must be
   // given those series by its caller; without them the run fails before it
   // starts with a MissingSourceDataError.
@@ -218,7 +219,7 @@ export async function resolveScenarioSources(
   if (hedgeSource !== undefined) {
     if (hedgeSource === "horizon" || hedgeSource === "defillama") {
       hedgeFeed = buildFeed("hedge", hedgeSource, (asset) => [
-        `hedge:${asset}`,
+        `price:hedge:${asset}`,
       ]);
     } else {
       throw new Error(`Unsupported hedge source: ${hedgeSource}`);

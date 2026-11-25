@@ -235,8 +235,8 @@ export const RateSourceSchema = z
 
 /**
  * Price, optional hedge price, and rate data-source selector. A declared
- * `hedge` source reads its prices from the series named `hedge:<asset>` in the
- * historical data given to `resolveScenarioSources`.
+ * `hedge` source reads its prices from the price rows whose `asset` is
+ * `hedge:<asset>` in the historical data given to `resolveScenarioSources`.
  */
 export const ScenarioSourceSchema = z
   .object({
