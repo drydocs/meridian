@@ -372,6 +372,48 @@ impl Fixture {
         self.vault.withdraw(user, &shares, &0_i128)
     }
 
+    /// `vault.withdraw_assets(user, assets, max_shares_in)`. Computes the
+    /// shares to burn using pricing helpers, authorizes the withdrawal and
+    /// nested mUSDC burn, and returns the net USDC delivered.
+    pub fn withdraw_assets(&self, user: &Address, assets: i128, max_shares_in: i128) -> i128 {
+        let burn_shares = self.compute_shares_for_withdraw_assets(user, assets);
+        self.authorize(
+            user,
+            &self.vault.address,
+            "withdraw_assets",
+            (user.clone(), assets, max_shares_in),
+            &[MockAuthInvoke {
+                contract: &self.musdc,
+                fn_name: "burn",
+                args: (user.clone(), burn_shares).into_val(&self.env),
+                sub_invokes: &[],
+            }],
+        );
+        self.vault.withdraw_assets(user, &assets, &max_shares_in)
+    }
+
+    /// Computes minimal shares needed for an exact-asset withdrawal using
+    /// current adapter assets, total shares, and user position.
+    pub fn compute_shares_for_withdraw_assets(&self, user: &Address, assets: i128) -> i128 {
+        self.venue.adapter.refresh();
+        let total_shares = self.vault.get_total_shares();
+        let total_adapter_shares = self.venue.adapter.total_shares();
+        let total_assets = self.venue.adapter.total_assets();
+        let caller_shares = self.musdc_balance(user);
+        let principal = self.vault.get_principal(user);
+        meridian_vault::pricing::shares_for_withdraw_assets(
+            assets,
+            total_shares,
+            total_adapter_shares,
+            total_assets,
+            caller_shares,
+            principal,
+            meridian_vault::PERFORMANCE_FEE_BPS,
+            meridian_vault::BPS_DENOMINATOR,
+        )
+        .expect("pricing calculation failed")
+    }
+
     /// `musdc.transfer(from, to, amount)`. Only `from` signs; the callback
     /// into the vault is authorized by mUSDC being the direct caller, with no
     /// signature of its own.

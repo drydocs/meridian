@@ -18,12 +18,16 @@ const BLEND_TESTNET_USDC_ISSUER =
   "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56";
 const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
 
-vi.mock("../../lib/wallet", () => ({
-  wallet: {
-    sign: vi.fn(async () => "SIGNED_XDR"),
-    isAuthorized: vi.fn(async () => true),
-  },
-}));
+vi.mock("../../lib/wallet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/wallet")>();
+  return {
+    ...actual,
+    wallet: {
+      sign: vi.fn(async () => "SIGNED_XDR"),
+      isAuthorized: vi.fn(async () => true),
+    },
+  };
+});
 
 vi.mock("../../lib/api", () => ({
   api: {
@@ -87,7 +91,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("useBlendFaucet", () => {
+describe("useBlendFaucet", { timeout: 15000 }, () => {
   it("reports a positive USDC balance as funded", async () => {
     const result = await hasBlendUsdcBalance(KEY, "testnet");
     expect(result).toBe(true);

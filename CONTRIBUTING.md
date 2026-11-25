@@ -70,7 +70,7 @@ Before cloning, confirm you have the required tools installed:
 
 | Tool           | Required version | Check               |
 | -------------- | ---------------- | ------------------- |
-| Node.js        | `>=20`           | `node --version`    |
+| Node.js        | `20.x`           | `node --version`    |
 | pnpm           | `9.x`            | `pnpm --version`    |
 | Rust toolchain | stable (latest)  | `rustc --version`   |
 | Stellar CLI    | latest           | `stellar --version` |
@@ -82,6 +82,25 @@ To install pnpm at the correct version:
 ```bash
 npm install -g pnpm@9
 ```
+
+### Toolchain Version Pinning
+
+Meridian pins its supported Node.js and pnpm versions to ensure consistent local development and CI environments:
+
+- **Node.js**: The supported Node.js major version is pinned in `.node-version` and `.nvmrc` (`20`). CI workflows (`.github/workflows/ci.yml` and `.github/workflows/verify-contract-addresses.yml`) read `.node-version` via `actions/setup-node`'s `node-version-file` input.
+- **pnpm**: The package manager is declared in `package.json` under `"packageManager"` (`pnpm@9.0.0`) and enforced in `"engines"`.
+- **Preinstall Enforcement**: A preinstall check (`scripts/check-version.js`) runs before `pnpm install` to verify that the active Node.js and package manager versions match the repository pins. If an unsupported version is detected, it fails with a clear error message.
+
+#### Updating the Version Pins
+
+When upgrading the repository toolchain (e.g. migrating to a newer Node.js LTS or pnpm major version):
+
+1. **Update `.node-version` and `.nvmrc`**: Update the major version number (e.g., `22`) in both `.node-version` and `.nvmrc`.
+2. **Update `package.json`**:
+   - Update `"packageManager"` with the new target version (e.g., `"pnpm@10.0.0"`).
+   - Update the `"engines"` field (`"node"` and `"pnpm"`) to reflect the supported ranges.
+3. **Update Documentation**: Update the versions listed in the Prerequisites table in this file.
+4. **Verify**: Run `pnpm install`, `pnpm lint`, and `pnpm typecheck` to confirm the new versions pass all checks.
 
 ---
 
@@ -290,6 +309,15 @@ Commits that do not match the `^(feat|fix|docs|chore|refactor|test|style|ci|perf
 
 ## Code Standards
 
+### Architecture Decision Records
+
+When a change alters an accepted architectural decision, update the relevant
+ADR or add a new one in [`apps/docs/architecture/adr/`](apps/docs/architecture/adr/).
+Use the [ADR template](apps/docs/architecture/adr/template.md), update the
+[index](apps/docs/architecture/adr/index.md), and link the record from the
+affected architecture documentation. Routine changes that do not alter an
+architectural decision do not need an ADR.
+
 ### TypeScript (`apps/web`, `apps/api-local`, `packages/*`)
 
 - **Formatting:** Run `pnpm format` before committing. Prettier with default settings.
@@ -313,6 +341,7 @@ Commits that do not match the `^(feat|fix|docs|chore|refactor|test|style|ci|perf
   - `PascalCase` for types and traits
   - `UPPER_SNAKE_CASE` for constants
 - **Error handling:** Use `Result<T, E>` everywhere. No `.unwrap()` in contract code except on values that are provably infallible; explain why in an inline comment.
+- **Adding a `ContractError` variant:** When adding a new variant to `ContractError` in any contract crate (`vault`, `blend-adapter`, `defindex-adapter`, or `musdc-token`), assign the next unused `u32` discriminant (never reuse or renumber existing codes), add a `///` doc comment explaining when it is raised, and document the variant with its cause and recommended client/operator response in `apps/docs/architecture/contract-errors.md`. Run `pnpm --filter @meridian/docs test` (included in `pnpm test`) to verify every variant is cataloged.
 - **Documentation:** All public functions must have doc comments (`///`). Include a one-line summary and a note on any panics or preconditions.
 - **Security:** Validate all inputs. Assume callers are adversarial. Never read from storage without checking the key exists first.
 
@@ -399,6 +428,8 @@ pnpm typecheck     # tsc --noEmit across all packages
 pnpm test          # Vitest across all packages
 pnpm coverage      # Vitest with coverage thresholds across all packages
 pnpm format        # Prettier (auto-fix)
+pnpm lint:md       # markdownlint (config: .markdownlint.json)
+pnpm check:links   # Internal links and heading anchors in all Markdown (needs lychee)
 
 # Run tests for a single package
 pnpm --filter @meridian/stellar-sdk-helpers test
@@ -411,6 +442,12 @@ cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo test --all
 ```
+
+### Docs checks
+
+The **Docs Lint & Links** CI job runs when a pull request (or a push to `main`) touches Markdown, `apps/docs`, or the checker configs. It runs `pnpm lint:md` and `pnpm check:links`, which are strict: a broken relative link, root-relative VitePress link, or heading anchor fails the job. External links are checked with `pnpm check:links:external`, which only warns on pull requests. Install the link checker locally with `brew install lychee` (or `cargo install lychee`).
+
+Hosts that block or rate-limit CI runners, and GitHub-relative links such as `../../issues`, are allowlisted in [`lychee.toml`](lychee.toml); add a comment explaining any new entry. Heading anchors must resolve on both GitHub and VitePress, so avoid apostrophes and other punctuation in headings that are linked to.
 
 ### End-to-end tests
 

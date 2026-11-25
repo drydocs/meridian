@@ -150,6 +150,52 @@ describe("summarizeRiskMetrics", () => {
     ).toBe(true);
   });
 
+  it("reports the engine's downside metrics for the derived series", () => {
+    const summary = summarizeRiskMetrics({ snapshots: RUN, step: "P1D" });
+    if (summary.kind !== "computed") throw new Error(summary.reason);
+
+    const { drawdown, returns } = deriveRiskSeries(RUN);
+    const engine = computeRiskMetrics(drawdown, returns, {
+      periodsPerYear: 365,
+    });
+
+    expect(
+      valueOf(summary.conditionalValueAtRisk).eq(engine.conditionalValueAtRisk)
+    ).toBe(true);
+    expect(valueOf(summary.conditionalValueAtRisk).toString()).toBe(
+      "0.100000000000000000"
+    );
+    // Downside deviation 0.05 and mean 0.05 give a per-period Sortino of 1.
+    expect(valueOf(summary.annualizedSortino).toFixed(6)).toBe("19.104973");
+    // 0.05 x 365 / 0.10.
+    expect(valueOf(summary.calmarRatio).toFixed(6)).toBe("182.500000");
+  });
+
+  it("keeps the downside metrics for a zero-variance run", () => {
+    // Every step is +10%: no variance, no shortfall and no drawdown.
+    const summary = summarizeRiskMetrics({
+      snapshots: snapshots("100", "110", "121", "133.1"),
+      step: "P1D",
+    });
+    if (summary.kind !== "computed") throw new Error(summary.reason);
+
+    expect(summary.annualizedSharpe).toEqual({
+      status: "insufficient",
+      reason: "zero-variance",
+    });
+    expect(valueOf(summary.conditionalValueAtRisk).toFixed(6)).toBe(
+      "-0.100000"
+    );
+    expect(summary.annualizedSortino).toEqual({
+      status: "insufficient",
+      reason: "zero-downside-deviation",
+    });
+    expect(summary.calmarRatio).toEqual({
+      status: "insufficient",
+      reason: "zero-drawdown",
+    });
+  });
+
   it("gives max drawdown as a positive loss magnitude", () => {
     const summary = summarizeRiskMetrics({ snapshots: RUN, step: "P1D" });
     if (summary.kind !== "computed") throw new Error(summary.reason);

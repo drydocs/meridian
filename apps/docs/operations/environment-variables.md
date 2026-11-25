@@ -6,9 +6,41 @@ Admin page access is gated by comparing the connected wallet with the vault's
 on-chain admin address, fetched with `fetchVaultAdmin()` in `AdminLogin.tsx`.
 This is a frontend visibility gate, not server-side authorization.
 
-| Variable       | Required | Default | Description                                                                                                                       |
-| -------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_API_URL` | No       | `""`    | Base URL of the API server. Empty means same origin. In local dev, Vite proxies `/api` to `localhost:3001` so this is not needed. |
+| Variable          | Required | Default | Description                                                                                                                       |
+| ----------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_API_URL`    | No       | `""`    | Base URL of the API server. Empty means same origin. In local dev, Vite proxies `/api` to `localhost:3001` so this is not needed. |
+| `VITE_SENTRY_DSN` | No       | `""`    | Public Sentry browser DSN. Empty disables error reporting, including in local development.                                        |
+
+### Sentry error reporting
+
+Set `VITE_SENTRY_DSN` in the staging and production build environments to
+deliver scrubbed browser errors to Sentry. The browser reporter attaches the
+route, app release/version, and Stellar network. API failures also include
+the request method, path, status (null for network failures), and category.
+Wallet addresses, XDR, and secret-bearing fields are scrubbed before events
+are sent.
+
+For source-map upload, set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and
+`SENTRY_PROJECT` as build-time CI/Vercel variables. The Vite build generates
+hidden source maps only when all three are present, uploads them to Sentry,
+then removes the map files from the build output. `SENTRY_RELEASE` is
+optional; otherwise the release is the Vercel commit SHA or the web package
+version. The same release is attached to browser events and uploaded maps.
+Never prefix the upload token with `VITE_`.
+
+After deploying a staging build, verify delivery by running this in the
+staging page's browser console:
+
+```js
+window.dispatchEvent(
+  new ErrorEvent("error", { message: "staging error reporter smoke test" })
+);
+```
+
+Confirm that the event appears in the staging Sentry project with route,
+release/app version, and network context, and that its stack resolves to the
+web source rather than only bundled JavaScript. This intentionally creates a
+test event in the monitoring project.
 
 ## API: serverless (`api/v1/`) and Fastify (`apps/api-local`)
 
@@ -26,6 +58,7 @@ This is a frontend visibility gate, not server-side authorization.
 | `MERIDIAN_KEEPER_MAX_ATTEMPTS`           | No           | `3`                                | Maximum attempts per submission. Shared by both the accrue keeper and the migration keeper (`rebalance.ts`), not accrue-specific despite the name; sizing it affects both.                                                                                                                                                                                                                                                                                                             |
 | `MERIDIAN_KEEPER_RETRY_BASE_DELAY_MS`    | No           | `1000`                             | Initial exponential-backoff delay for transient keeper failures. Shared by both the accrue keeper and the migration keeper.                                                                                                                                                                                                                                                                                                                                                            |
 | `MERIDIAN_KEEPER_RPC_TIMEOUT_MS`         | No           | `10000`                            | Timeout for keeper RPC calls, in milliseconds. Shared by both the accrue keeper and the migration keeper. Fully governs submission calls; discovery reads are additionally capped at a hardcoded 10s ceiling shared with the rest of `stellar-sdk-helpers`, so values above `10000` only extend the submission side.                                                                                                                                                                   |
+| `RPC_TIMEOUT_MS`                         | No           | `8000`                             | Shared deadline for API upstream RPC and simulation calls, in milliseconds. Accepted range is 100–30000; out-of-range values use the 8000 ms default.                                                                                                                                                                                                                                                                                                                                  |
 | `MERIDIAN_KEEPER_SUBMISSION_TTL_MS`      | No           | `360000`                           | How long a recorded, still-unconfirmed keeper submission keeps blocking a new one for the same target, in milliseconds. Defaults to the 300s transaction validity window plus 60s of clock-skew margin; past it the transaction can never land, so the record is cleared and a retry is allowed. Rejected below `300000`, since a shorter window would expire the record while its transaction can still land. Shared by both keepers. See `apps/docs/operations/migration-keeper.md`. |
 | `MERIDIAN_MIGRATION_KEEPER_SECRET_KEY`   | Yes (keeper) | `""`                               | Stellar secret seed for the migration keeper. Must be the vault's actual admin address; `migrate_adapter` is admin-gated, unlike the permissionless `accrue()`, so this key carries full vault admin authority. Deliberately separate from `MERIDIAN_KEEPER_SECRET_KEY`. See `apps/docs/operations/migration-keeper.md`.                                                                                                                                                               |
 | `MERIDIAN_MIGRATION_MAX_SLIPPAGE_BPS`    | No           | `100`                              | `max_slippage_bps` passed to every `migrate_adapter` call. The config loader rejects anything above `500`, the contract's own `MAX_ADMIN_SLIPPAGE_BPS` hard cap ([#557](https://github.com/drydocs/meridian/issues/557)).                                                                                                                                                                                                                                                              |
@@ -37,14 +70,15 @@ This is a frontend visibility gate, not server-side authorization.
 
 These are shell environment variables read by `scripts/deploy-testnet.sh` and `scripts/redeploy-blend-adapter.sh` at deploy time, not application runtime variables, and not read from `.env` files.
 
-| Variable        | Required                               | Description                                                                                                                                                                                                                                                             |
-| --------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DEPLOYER`      | Yes (both scripts)                     | A funded Stellar secret key that pays transaction fees and signs setup calls only. It is disposable and does not need to be kept after the script finishes.                                                                                                             |
-| `ADMIN`         | No (`deploy-testnet.sh` only)          | A public key that becomes the deployed vault's permanent admin. Defaults to `DEPLOYER`'s own address if unset (with a warning), but a throwaway default is unsuitable past a quick test. Set it explicitly to a separate, durable key; it is required ahead of mainnet. |
-| `NETWORK`       | No (`redeploy-blend-adapter.sh` only)  | Target Stellar network (`testnet` or `mainnet`). Defaults to `testnet`. Selects network-specific Blend pool and USDC contract addresses.                                                                                                                                |
-| `USDC_ID`       | No                                     | Overrides the USDC contract address the deployed adapter/vault is wired to. Defaults to network-specific USDC contract.                                                                                                                                                 |
-| `BLEND_POOL_ID` | No                                     | Overrides the Blend pool address the deployed `BlendAdapter` is wired to. Defaults to network-specific Blend pool contract.                                                                                                                                             |
-| `VAULT_ID`      | Yes (`redeploy-blend-adapter.sh` only) | The already-live vault contract ID to eventually point at the newly deployed adapter via `set_adapter`.                                                                                                                                                                 |
+| Variable        | Required                                            | Description                                                                                                                                                                                                                                                                                                           |
+| --------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEPLOYER`      | Yes (both scripts)                                  | A funded Stellar secret key that pays transaction fees and signs setup calls only. It is disposable and does not need to be kept after the script finishes.                                                                                                                                                           |
+| `ADMIN`         | No (`deploy-testnet.sh` only)                       | A public key that becomes the deployed vault's permanent admin. Defaults to `DEPLOYER`'s own address if unset (with a warning), but a throwaway default is unsuitable past a quick test. Set it explicitly to a separate, durable key; it is required ahead of mainnet.                                               |
+| `TREASURY`      | Yes (`deploy-mainnet.sh`); no (`deploy-testnet.sh`) | Public key or contract address that receives performance-fee mUSDC. Mainnet requires it; testnet defaults to `ADMIN` with a warning if unset. The address is fixed for the life of the vault. Choose and independently review it before deployment; see [Treasury Operations and Fee Accounting](./treasury-fees.md). |
+| `NETWORK`       | No (`redeploy-blend-adapter.sh` only)               | Target Stellar network (`testnet` or `mainnet`). Defaults to `testnet`. Selects network-specific Blend pool and USDC contract addresses.                                                                                                                                                                              |
+| `USDC_ID`       | No                                                  | Overrides the USDC contract address the deployed adapter/vault is wired to. Defaults to network-specific USDC contract.                                                                                                                                                                                               |
+| `BLEND_POOL_ID` | No                                                  | Overrides the Blend pool address the deployed `BlendAdapter` is wired to. Defaults to network-specific Blend pool contract.                                                                                                                                                                                           |
+| `VAULT_ID`      | Yes (`redeploy-blend-adapter.sh` only)              | The already-live vault contract ID to eventually point at the newly deployed adapter via `set_adapter`.                                                                                                                                                                                                               |
 
 `deploy-testnet.sh` prints three contract IDs on success (`VAULT_CONTRACT_ID`, `BLEND_ADAPTER_CONTRACT_ID`, `MUSDC_CONTRACT_ID`). None of these are environment variables the app reads either; `VAULT_CONTRACT_ID` and `MUSDC_CONTRACT_ID` need to be copied into `CONTRACT_ADDRESSES`/`KNOWN_POOLS` in `packages/shared/src/constants.ts` and `packages/stellar-sdk-helpers/src/known-pools.ts` respectively. See [Testnet Deployment](./testnet-deployment.md).
 

@@ -118,8 +118,25 @@ describe("YieldHistoryChart", () => {
     expect(screen.getByTestId("yield-history-earned").textContent).toContain(
       "+$2.50"
     );
-    expect(screen.getByText("Blend Capital")).toBeDefined();
-    expect(screen.getByText("DeFindex")).toBeDefined();
+    expect(screen.getAllByText("Blend Capital").length).toBeGreaterThanOrEqual(
+      1
+    );
+    expect(screen.getAllByText("DeFindex").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("provides an accessible data table alternative and allows toggling it", () => {
+    mock({ data: SNAPSHOTS });
+    render(<YieldHistoryChart publicKey="GKEY" />);
+    const toggleButton = screen.getByTestId("yield-history-toggle-table");
+    const tableContainer = screen.getByTestId("yield-history-table");
+
+    expect(tableContainer.className).toContain("sr-only");
+    expect(toggleButton.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggleButton);
+
+    expect(tableContainer.className).not.toContain("sr-only");
+    expect(toggleButton.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("requests 30 days by default and switches range on click", () => {

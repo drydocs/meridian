@@ -145,6 +145,19 @@ export class ConfirmationTimeoutError extends MeridianError {
   }
 }
 
+/**
+ * A Blend adapter or pool answered with a value outside the shape the SDK
+ * expects (a non-address pool id, a missing reserve table, a reserve without
+ * rate fields). Distinct from `UnsupportedError`: the deployment is supported,
+ * but the response cannot be trusted, so the client refuses to hand callers
+ * half-typed data.
+ */
+export class MalformedPoolResponseError extends MeridianError {
+  constructor(message: string, options: MeridianErrorOptions = {}) {
+    super(ErrorCode.UNSUPPORTED, message, options);
+  }
+}
+
 export function isMeridianError(err: unknown): err is MeridianError {
   return err instanceof MeridianError;
 }

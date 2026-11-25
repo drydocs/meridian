@@ -1,4 +1,14 @@
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { defineConfig } from "vitepress";
+
+// VitePress inlines `window.__VP_HASH_MAP__=...` in every page. The map lists a
+// content hash per docs page, so an inline CSP hash for it would change on any
+// docs edit. Emit it as a content-hashed external script instead, which the
+// docs `script-src 'self'` policy already allows.
+const HASH_MAP_SCRIPT = /<script>(window\.__VP_HASH_MAP__=[\s\S]*?)<\/script>/;
+const hashMapScripts = new Map<string, string>();
 
 export default defineConfig({
   title: "Meridian",
@@ -6,6 +16,24 @@ export default defineConfig({
     "Stablecoin yield aggregator on Stellar, built for emerging market savers.",
   base: "/docs/",
   vite: { server: { port: 3002 } },
+  transformHtml(code) {
+    const match = HASH_MAP_SCRIPT.exec(code);
+    if (!match) return;
+    const source = match[1];
+    const name = `vp-hash-map.${createHash("sha256").update(source).digest("hex").slice(0, 8)}.js`;
+    hashMapScripts.set(name, source);
+    return code.replace(
+      match[0],
+      `<script src="/docs/assets/${name}"></script>`
+    );
+  },
+  buildEnd(siteConfig) {
+    const assets = join(siteConfig.outDir, "assets");
+    mkdirSync(assets, { recursive: true });
+    for (const [name, source] of hashMapScripts) {
+      writeFileSync(join(assets, name), `${source}\n`);
+    }
+  },
   head: [
     [
       "link",
@@ -41,7 +69,13 @@ export default defineConfig({
           { text: "Frontend", link: "/architecture/frontend" },
           { text: "API Layer", link: "/architecture/api" },
           { text: "Vault Contract", link: "/architecture/vault-contract" },
+          {
+            text: "Contract Storage and TTL",
+            link: "/architecture/contract-storage",
+          },
+          { text: "Contract Errors", link: "/architecture/contract-errors" },
           { text: "Signing Flow", link: "/architecture/signing-flow" },
+          { text: "Architecture Decision Records", link: "/architecture/adr/" },
         ],
       },
       {
@@ -79,6 +113,10 @@ export default defineConfig({
         items: [
           { text: "Local Development", link: "/operations/local-development" },
           {
+            text: "Contract Storage and TTL",
+            link: "/architecture/contract-storage",
+          },
+          {
             text: "Testnet Deployment",
             link: "/operations/testnet-deployment",
           },
@@ -105,6 +143,14 @@ export default defineConfig({
           {
             text: "Incident Response",
             link: "/operations/incident-response",
+          },
+          {
+            text: "Wallet Signing Troubleshooting",
+            link: "/operations/wallet-signing-troubleshooting",
+          },
+          {
+            text: "Security Headers",
+            link: "/operations/security-headers",
           },
         ],
       },

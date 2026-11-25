@@ -133,6 +133,27 @@ deploy_vault_stack() {
     return 1
   fi
 
+  local vault_salt="${VAULT_SALT:-$(openssl rand -hex 32)}"
+  local blend_adapter_salt="${BLEND_ADAPTER_SALT:-$(openssl rand -hex 32)}"
+  local musdc_salt="${MUSDC_SALT:-$(openssl rand -hex 32)}"
+  VAULT_ID=$(stellar contract id wasm "${STELLAR_NETWORK_FLAGS[@]}" --source-account "$ADMIN_ADDRESS" --salt "$vault_salt")
+  BLEND_ADAPTER_ID=$(stellar contract id wasm "${STELLAR_NETWORK_FLAGS[@]}" --source-account "$DEPLOYER_ADDRESS" --salt "$blend_adapter_salt")
+  MUSDC_ID=$(stellar contract id wasm "${STELLAR_NETWORK_FLAGS[@]}" --source-account "$DEPLOYER_ADDRESS" --salt "$musdc_salt")
+
+  local zero_account="GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+  local address
+  for address in "$ADMIN_ADDRESS" "$USDC_ID" "$TREASURY_ADDRESS" "$BLEND_POOL_ID"; do
+    if [[ ! "$address" =~ ^[GC][A-Z2-7]{55}$ ]] || [ "$address" = "$zero_account" ]; then
+      echo "ERROR: invalid or zero deployment address: $address" >&2
+      return 1
+    fi
+  done
+  if [ "$ADMIN_ADDRESS" = "$VAULT_ID" ] || [ "$USDC_ID" = "$VAULT_ID" ] ||
+    [ "$TREASURY_ADDRESS" = "$VAULT_ID" ] || [ "$BLEND_ADAPTER_ID" = "$VAULT_ID" ] ||
+    [ "$MUSDC_ID" = "$VAULT_ID" ]; then
+    echo "ERROR: admin, USDC, mUSDC, adapter, and treasury must not alias the vault address ($VAULT_ID)." >&2
+    return 1
+  fi
   cd "$repo_root/packages/contracts"
   # SKIP_BUILD lets a caller drop in WASM already verified elsewhere (e.g. a
   # genuine Linux CI build, downloaded to sidestep `stellar contract build`'s
@@ -182,10 +203,6 @@ deploy_vault_stack() {
   # and mUSDC deploys already on-chain from the failed run stay usable
   # instead of being orphaned. Always echoed below so it can be recovered
   # from terminal scrollback even if the caller didn't set it.
-  local vault_salt="${VAULT_SALT:-$(openssl rand -hex 32)}"
-  local blend_adapter_salt="${BLEND_ADAPTER_SALT:-$(openssl rand -hex 32)}"
-  local musdc_salt="${MUSDC_SALT:-$(openssl rand -hex 32)}"
-  VAULT_ID=$(stellar contract id wasm "${STELLAR_NETWORK_FLAGS[@]}" --source-account "$ADMIN_ADDRESS" --salt "$vault_salt")
   echo "VAULT_SALT (save this: re-run with VAULT_SALT=$vault_salt to resume at the same address if this run fails partway): $vault_salt"
   echo "BLEND_ADAPTER_SALT: $blend_adapter_salt"
   echo "MUSDC_SALT: $musdc_salt"
@@ -218,6 +235,39 @@ deploy_vault_stack() {
     -- --admin "$VAULT_ID" --decimals 7 --name "Meridian USDC" --symbol mUSDC) || return 1
   IFS='|' read -r MUSDC_ID musdc_tx <<< "$musdc_result"
   echo "mUSDC contract ID: $MUSDC_ID"
+
+  # Read back the deployed wiring before submitting the vault transaction.
+  # This prevents a fee-spending mismatch from reaching the vault deploy.
+  local adapter_usdc
+  local adapter_vault
+  local musdc_admin
+  if ! adapter_usdc=$(stellar contract invoke "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" \
+    --id "$BLEND_ADAPTER_ID" -- get_usdc 2>&1 | tr -d '[:space:]"\r'); then
+    echo "ERROR: unable to read the deployed adapter USDC binding." >&2
+    return 1
+  fi
+  if ! adapter_vault=$(stellar contract invoke "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" \
+    --id "$BLEND_ADAPTER_ID" -- get_vault 2>&1 | tr -d '[:space:]"\r'); then
+    echo "ERROR: unable to read the deployed adapter vault binding." >&2
+    return 1
+  fi
+  if ! musdc_admin=$(stellar contract invoke "${STELLAR_NETWORK_FLAGS[@]}" --source "$DEPLOYER" \
+    --id "$MUSDC_ID" -- admin 2>&1 | tr -d '[:space:]"\r'); then
+    echo "ERROR: unable to read the deployed mUSDC admin." >&2
+    return 1
+  fi
+  if [[ "$adapter_usdc" != *"$USDC_ID"* ]]; then
+    echo "ERROR: adapter USDC binding mismatch: expected $USDC_ID, got $adapter_usdc." >&2
+    return 1
+  fi
+  if [[ "$adapter_vault" != *"$VAULT_ID"* ]]; then
+    echo "ERROR: adapter vault binding mismatch: expected $VAULT_ID, got $adapter_vault." >&2
+    return 1
+  fi
+  if [[ "$musdc_admin" != *"$VAULT_ID"* ]]; then
+    echo "ERROR: mUSDC admin mismatch: expected $VAULT_ID, got $musdc_admin." >&2
+    return 1
+  fi
 
   # Deploying with the same salt used to reserve VAULT_ID above lands the
   # vault at that exact address. Its constructor sets

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   assertAdapterUnchanged,
+  assertVaultHealthy,
   DEFAULT_FEE_ESCALATION,
   expectString,
   isDefinitiveOnChainFailure,
@@ -33,6 +34,45 @@ vi.mock("./tx", async (importOriginal) => {
 });
 
 describe("keeper-tx", () => {
+  describe("assertVaultHealthy", () => {
+    it("skips the health preflight when an older vault has no get_health method", async () => {
+      vi.mocked(txModule.simulateView).mockRejectedValueOnce(
+        new Error(
+          "HostError: Error(WasmVm, MissingValue): " +
+            "trying to invoke non-existent contract function get_health"
+        )
+      );
+      await expect(
+        assertVaultHealthy({} as never, "vault", "passphrase")
+      ).resolves.toBeUndefined();
+    });
+
+    it("does not skip the preflight when get_health traps", async () => {
+      const error = new Error("HostError: Error(WasmVm, InvalidAction)");
+      vi.mocked(txModule.simulateView).mockRejectedValueOnce(error);
+      await expect(
+        assertVaultHealthy({} as never, "vault", "passphrase")
+      ).rejects.toBe(error);
+    });
+
+    it("still blocks health preflight on RPC failures", async () => {
+      const error = new Error("RPC request timed out");
+      vi.mocked(txModule.simulateView).mockRejectedValueOnce(error);
+      await expect(
+        assertVaultHealthy({} as never, "vault", "passphrase")
+      ).rejects.toBe(error);
+    });
+
+    it("blocks health preflight when the view reports a counter mismatch", async () => {
+      vi.mocked(txModule.simulateView).mockResolvedValueOnce({
+        total_shares_mismatch: true,
+      });
+      await expect(
+        assertVaultHealthy({} as never, "vault", "passphrase")
+      ).rejects.toThrow("vault health check failed: total shares mismatch");
+    });
+  });
+
   describe("constants and simple helpers", () => {
     it("exports TX_VALIDITY_WINDOW_MS", () => {
       expect(TX_VALIDITY_WINDOW_MS).toBe(300_000);

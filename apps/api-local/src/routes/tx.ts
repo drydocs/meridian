@@ -4,6 +4,7 @@ import {
   handleWithdrawRequest,
   handleAddTrustlineRequest,
   handleSubmitRequest,
+  handleQuoteRequest,
 } from "@meridian/api-core";
 
 export const txRoute: FastifyPluginAsync = async (app) => {
@@ -38,4 +39,29 @@ export const txRoute: FastifyPluginAsync = async (app) => {
     }
     reply.code(result.status).send(result.body);
   });
+
+  app.post("/quote", async (req, reply) => {
+    const result = await handleQuoteRequest(req.body);
+    if (result.error)
+      app.log.error({ err: result.error }, "[tx/quote] quote failed");
+    reply.code(result.status).send(result.body);
+  });
+
+  for (const url of [
+    "/deposit",
+    "/withdraw",
+    "/add-trustline",
+    "/submit",
+    "/quote",
+  ]) {
+    app.route({
+      method: ["GET", "PUT", "PATCH", "DELETE"],
+      url,
+      handler: async (_req, reply) =>
+        reply
+          .code(405)
+          .header("Allow", "POST")
+          .send({ error: "Method not allowed" }),
+    });
+  }
 };
