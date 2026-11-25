@@ -23,8 +23,8 @@ export function AmountInput({
     <div
       className={`flex items-center gap-3 rounded-xl border bg-gray-900/70 px-4 py-3.5 transition-colors duration-150 ${
         invalid
-          ? "border-red-800/70 focus-within:border-red-600"
-          : "border-gray-700 focus-within:border-gray-500"
+          ? "border-red-800/70 focus-within:border-red-600 focus-within:ring-2 focus-within:ring-red-500"
+          : "border-gray-700 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500"
       }`}
     >
       {/* Accessible name for screen readers — ties the input to its currency denomination */}

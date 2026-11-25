@@ -28,6 +28,11 @@
   "vaultPanel": {
     "deposit": "Deposit",
     "withdraw": "Withdraw",
+    "tabs": {
+      "deposit": "Deposit",
+      "withdraw": "Withdraw",
+      "actions": "Vault actions"
+    },
     "network": "Network",
     "apy": "APY",
     "tvl": "TVL",
@@ -44,7 +49,7 @@
     "waiting": "Waiting for signature...",
     "positionsError": "Couldn't load your position. Deposits and withdrawals still work.",
     "balanceError": "Couldn't load your balance.",
-    "retryBalance": "Reload balance",
+    "retryBalance": "Retry loading balance",
     "validation": {
       "required": "Enter an amount to deposit.",
       "invalid": "Enter a valid number.",
@@ -73,7 +78,12 @@
     "earned": "Earned so far",
     "loadError": "Couldn't load your yield history.",
     "empty": "No history yet. Your position value is recorded over time, so the chart fills in after a few snapshots.",
-    "chartLabel": "Position value over time, by protocol"
+    "chartLabel": "Position value over time, by protocol",
+    "viewTable": "View data as table",
+    "hideTable": "Hide tabular data",
+    "tableCaption": "Yield history data points",
+    "date": "Date",
+    "total": "Total"
   },
 
   "riskDisclosure": {
@@ -102,6 +112,7 @@
   },
 
   "common": {
+    "skipToContent": "Skip to content",
     "connectWallet": "Connect Wallet",
     "connecting": "Connecting...",
     "installWallet": "Install {{name}}",

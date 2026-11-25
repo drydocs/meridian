@@ -70,7 +70,7 @@ export function AdminActionHistory({
         <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
           {t("adminHistory.title", "Admin Action History")}
         </h2>
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-xs text-gray-400 mt-1">
           {t(
             "adminHistory.subtitle",
             "Chronological log of vault administration calls"
@@ -96,7 +96,7 @@ export function AdminActionHistory({
           </div>
         ) : actions.length === 0 ? (
           <div className="rounded-xl border border-gray-800 bg-gray-900/40 px-4 py-8 text-center">
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-400">
               {t("adminHistory.empty", "No admin actions recorded yet")}
             </p>
           </div>
@@ -129,20 +129,20 @@ export function AdminActionHistory({
                     <p className="text-sm text-gray-300 truncate">
                       {action.summary}
                     </p>
-                    <p className="text-xs text-gray-600 mt-0.5">
+                    <p className="text-xs text-gray-400 mt-0.5">
                       {action.sourceAccount.slice(0, 8)}...
                       {action.sourceAccount.slice(-4)}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-400">
                       {formatTimestamp(action.timestamp, t, i18n.language)}
                     </p>
                     <a
                       href={explorerUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-blue-400 hover:text-blue-300 transition-colors duration-150"
+                      className="text-xs text-blue-400 hover:text-blue-300 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none rounded"
                     >
                       {t("adminHistory.viewTx", "View tx")}
                     </a>
