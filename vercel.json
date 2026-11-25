@@ -3,7 +3,8 @@
   "outputDirectory": "dist",
   "functions": {
     "api/v1/keepers/[action].ts": { "maxDuration": 60 },
-    "api/v1/admin/[resource].ts": { "maxDuration": 10 }
+    "api/v1/admin/[resource].ts": { "maxDuration": 10 },
+    "api/v1/csp-report.ts": { "maxDuration": 5 }
   },
   "redirects": [
     {
@@ -31,6 +32,10 @@
         {
           "key": "Strict-Transport-Security",
           "value": "max-age=63072000; includeSubDomains; preload"
+        },
+        {
+          "key": "Content-Security-Policy-Report-Only",
+          "value": "default-src 'self'; script-src 'self' 'sha256-WdxMG+bu8T+Derz02Av31p3fbfeL5L/jepusFRDcpjI=' 'sha256-DQUgNM9X0iH2019NkUxeBvnBoEoRKkHBc/I0iLqPNPA=' 'sha256-La1r0VSk0Po4KFI0duEKhmPu+u0I416JW3oONqtdf4M='; script-src-attr 'none'; style-src 'self' 'sha256-NJ0izZB7cNaFZ4xXmpU4DPQSnBsjoIUNTUphmLjwpeU=' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://ewqw4hx7oa.execute-api.us-east-1.amazonaws.com; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; report-uri /api/v1/csp-report"
         }
       ]
     },
@@ -39,8 +44,53 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://ewqw4hx7oa.execute-api.us-east-1.amazonaws.com; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://ewqw4hx7oa.execute-api.us-east-1.amazonaws.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
         }
+      ]
+    },
+    {
+      "source": "/",
+      "headers": [
+        {
+          "key": "Content-Security-Policy-Report-Only",
+          "value": "default-src 'self'; script-src 'self' 'sha256-WdxMG+bu8T+Derz02Av31p3fbfeL5L/jepusFRDcpjI='; script-src-attr 'none'; style-src 'self' 'sha256-NJ0izZB7cNaFZ4xXmpU4DPQSnBsjoIUNTUphmLjwpeU=' https://fonts.googleapis.com; style-src-attr 'none'; img-src 'self' data:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /api/v1/csp-report"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" }
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        {
+          "key": "Content-Security-Policy-Report-Only",
+          "value": "default-src 'self'; script-src 'self' 'sha256-WdxMG+bu8T+Derz02Av31p3fbfeL5L/jepusFRDcpjI='; script-src-attr 'none'; style-src 'self' 'sha256-NJ0izZB7cNaFZ4xXmpU4DPQSnBsjoIUNTUphmLjwpeU=' https://fonts.googleapis.com; style-src-attr 'none'; img-src 'self' data:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /api/v1/csp-report"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" }
+      ]
+    },
+    {
+      "source": "/docs/:path*",
+      "headers": [
+        {
+          "key": "Content-Security-Policy-Report-Only",
+          "value": "default-src 'self'; script-src 'self' 'sha256-DQUgNM9X0iH2019NkUxeBvnBoEoRKkHBc/I0iLqPNPA=' 'sha256-La1r0VSk0Po4KFI0duEKhmPu+u0I416JW3oONqtdf4M='; script-src-attr 'none'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /api/v1/csp-report"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" }
       ]
     }
   ]

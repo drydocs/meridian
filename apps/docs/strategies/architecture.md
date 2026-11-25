@@ -342,15 +342,15 @@ Source:
 `runBacktest` returns a `BacktestResult`. A `RunReport` is the separate,
 versioned record a caller keeps for a run:
 
-| Field           | Meaning                                                              |
-| --------------- | -------------------------------------------------------------------- |
-| `version`       | Report format version, `REPORT_FORMAT_VERSION` (`2`)                 |
-| `scenario`      | The validated scenario the run was produced from                     |
-| `engineVersion` | The engine that produced the run                                     |
-| `riskMetrics`   | `maxDrawdown`, `sharpeProxy`, `volatility`                           |
-| `eventCounts`   | `rebalances`, `deposits`, `withdrawals`, `priceFeedMisses`           |
-| `finalState`    | Timestamp, holdings per asset, and total value at the end of the run |
-| `generators`    | The state of each seeded random stream at the start and the end      |
+| Field           | Meaning                                                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`       | Report format version, `REPORT_FORMAT_VERSION` (`3`)                                                                                    |
+| `scenario`      | The validated scenario the run was produced from                                                                                        |
+| `engineVersion` | The engine that produced the run                                                                                                        |
+| `riskMetrics`   | `maxDrawdown`, `sharpeProxy`, `volatility`, `valueAtRisk`, `conditionalValueAtRisk`, `downsideDeviation`, `sortinoRatio`, `calmarRatio` |
+| `eventCounts`   | `rebalances`, `deposits`, `withdrawals`, `priceFeedMisses`                                                                              |
+| `finalState`    | Timestamp, holdings per asset, and total value at the end of the run                                                                    |
+| `generators`    | The state of each seeded random stream at the start and the end                                                                         |
 
 `serializeReport` and `reportToJSON` write a lossless wire format: every
 fixed-point value becomes its stroop count as a decimal string, and generator
@@ -393,6 +393,12 @@ deployed contract address, or the `CONTRACT_ADDRESSES` table appears in them.
 
 ## Related
 
+- [Example strategy and CLI](https://github.com/drydocs/meridian/tree/main/packages/strategies/examples):
+  a minimal simulation-only `Strategy<TConfig>` implementation
+  ([`target-weight-strategy.ts`](https://github.com/drydocs/meridian/blob/main/packages/strategies/examples/target-weight-strategy.ts)),
+  matching scenario
+  ([`target-weight.scenario.json`](https://github.com/drydocs/meridian/blob/main/packages/strategies/examples/target-weight.scenario.json)),
+  and runnable CLI (`pnpm --filter @meridian/strategies example`).
 - [Delta-neutral strategy](./delta-neutral.md): the hedged carry strategy and
   its modeled hedge venue.
 - [Self-repaying loan strategy](./self-repaying-loan.md): the loan model and

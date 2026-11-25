@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computePosition } from "./positions";
+import { computePosition, computePositionFromSummary } from "./positions";
 
 const VAULT = "CVAULT";
 
@@ -70,6 +70,7 @@ describe("computePosition", () => {
     });
     expect(p).toBeDefined();
     expect(p!.earned).toBe(0);
+    expect(p!.principal).toBe(100);
   });
 });
 
@@ -154,5 +155,50 @@ describe("computePosition reports gross value with the raw ratio", () => {
       entryTime: 0n,
     });
     expect(position?.deposited).toBe(0.0000004);
+  });
+});
+
+describe("computePositionFromSummary", () => {
+  it("returns empty array when shares <= 0", () => {
+    expect(
+      computePositionFromSummary(VAULT, {
+        shares: 0n,
+        principal: 0n,
+        entryTime: 0n,
+        currentValue: 0n,
+      })
+    ).toEqual([]);
+  });
+
+  it("computes position for a fresh deposit", () => {
+    const [p] = computePositionFromSummary(VAULT, {
+      shares: 100_0000000n,
+      principal: 100_0000000n,
+      entryTime: 1_700_000_000n,
+      currentValue: 100_0000000n,
+    });
+    expect(p).toEqual({
+      vaultId: VAULT,
+      shares: 100,
+      deposited: 100,
+      earned: 0,
+      entryTime: 1_700_000_000,
+    });
+  });
+
+  it("computes position with earnings", () => {
+    const [p] = computePositionFromSummary(VAULT, {
+      shares: 100_0000000n,
+      principal: 100_0000000n,
+      entryTime: 1_700_000_000n,
+      currentValue: 120_0000000n,
+    });
+    expect(p).toEqual({
+      vaultId: VAULT,
+      shares: 100,
+      deposited: 120,
+      earned: 20,
+      entryTime: 1_700_000_000,
+    });
   });
 });

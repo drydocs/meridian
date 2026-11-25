@@ -13,7 +13,11 @@ export function AdminDashboard() {
   const { t } = useTranslation();
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-10 space-y-6">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="max-w-4xl mx-auto px-6 py-10 space-y-6 outline-none"
+    >
       <h1 className="text-lg font-extrabold text-paper mb-6">
         {t("admin.title")}
       </h1>
@@ -31,6 +35,6 @@ export function AdminDashboard() {
         vaultId="meridian-usdc"
         network={APP_NETWORK.network}
       />
-    </div>
+    </main>
   );
 }

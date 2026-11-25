@@ -1,16 +1,3 @@
-import {
-  isConnected,
-  isAllowed,
-  requestAccess,
-  signTransaction as freighterSign,
-} from "@stellar/freighter-api";
-import {
-  isConnected as lobstrIsConnected,
-  getPublicKey as lobstrGetPublicKey,
-  signTransaction as lobstrSign,
-} from "@lobstrco/signer-extension-api";
-import { xBullWalletConnect } from "@creit.tech/xbull-wallet-connect";
-
 // Closing the Albedo popup does not reject the request the way a genuine
 // failure does: @albedo-link/intent's transportCloseHandler() resolves every
 // pending request with intentErrors.actionRejectedByUser
@@ -20,6 +7,70 @@ import { xBullWalletConnect } from "@creit.tech/xbull-wallet-connect";
 // presence (specifically -4) is what distinguishes a user cancellation from
 // a real failure on an otherwise-empty result.
 const ALBEDO_USER_REJECTED_CODE = -4;
+
+type FreighterModule = {
+  isConnected: () => Promise<{ isConnected: boolean }>;
+  isAllowed: () => Promise<{ isAllowed: boolean }>;
+  requestAccess: () => Promise<{
+    address: string;
+    error?: { message: string };
+  }>;
+  signTransaction: (
+    xdr: string,
+    opts?: { networkPassphrase?: string }
+  ) => Promise<{ signedTxXdr?: string; error?: { message: string } }>;
+  getAddress?: () => Promise<{ address?: string; error?: { message: string } }>;
+  getNetwork?: () => Promise<{
+    network?: string;
+    networkPassphrase?: string;
+    error?: { message: string };
+  }>;
+};
+
+async function getFreighter(): Promise<FreighterModule> {
+  const mod = await import("@stellar/freighter-api");
+  if ("isConnected" in mod && typeof mod.isConnected === "function") {
+    return mod as unknown as FreighterModule;
+  }
+  return (mod as unknown as { default: FreighterModule }).default;
+}
+
+type LobstrModule = {
+  isConnected: () => Promise<boolean>;
+  getPublicKey: () => Promise<string>;
+  signTransaction: (xdr: string) => Promise<string>;
+};
+
+async function getLobstr(): Promise<LobstrModule> {
+  const mod = await import("@lobstrco/signer-extension-api");
+  if ("isConnected" in mod && typeof mod.isConnected === "function") {
+    return mod as unknown as LobstrModule;
+  }
+  return (mod as unknown as { default: LobstrModule }).default;
+}
+
+type XBullModule = {
+  xBullWalletConnect: new () => {
+    connect: () => Promise<string>;
+    sign: (params: {
+      xdr: string;
+      network?: string;
+      publicKey?: string;
+    }) => Promise<string>;
+    closeConnections: () => void;
+  };
+};
+
+async function getXBull(): Promise<XBullModule> {
+  const mod = await import("@creit.tech/xbull-wallet-connect");
+  if (
+    "xBullWalletConnect" in mod &&
+    typeof mod.xBullWalletConnect === "function"
+  ) {
+    return mod as unknown as XBullModule;
+  }
+  return (mod as unknown as { default: XBullModule }).default;
+}
 
 type AlbedoModule = {
   publicKey: (params: Record<string, unknown>) => Promise<{
@@ -73,6 +124,9 @@ export interface E2EMockWallet {
   authorized: boolean;
   address: string;
   sign: (xdr: string, networkPassphrase: string) => Promise<string>;
+  network?: string;
+  getAddress?: () => Promise<string | null> | string | null;
+  getNetwork?: () => Promise<string | null> | string | null;
 }
 
 declare global {
@@ -100,62 +154,232 @@ async function withMockWallet<T>(
   return real();
 }
 
+/** The wallet interactions that can hang and therefore need a deadline. */
+export type WalletOperation = "install" | "authorize" | "connect" | "sign";
+
+/**
+ * Default deadline per operation. A wallet popup that is blocked or hidden
+ * behind the browser never resolves its promise, so these bounds are what
+ * guarantee the UI leaves its pending state. `sign` is longer than `connect`
+ * because the user may need time to review the transaction in their wallet.
+ */
+export const WALLET_TIMEOUTS: Record<WalletOperation, number> = {
+  install: 5_000,
+  authorize: 10_000,
+  connect: 90_000,
+  sign: 120_000,
+};
+
+export interface WalletCallOptions {
+  /** Aborts the call, rejecting with {@link WalletCancelledError}. */
+  signal?: AbortSignal;
+  /** Overrides {@link WALLET_TIMEOUTS} for this call. */
+  timeoutMs?: number;
+}
+
+/** Typed timeout so callers can distinguish "slow wallet" from a real error. */
+export class WalletTimeoutError extends Error {
+  readonly code = "WALLET_TIMEOUT";
+  constructor(
+    readonly operation: WalletOperation,
+    readonly timeoutMs: number
+  ) {
+    super(`Wallet ${operation} timed out after ${timeoutMs}ms`);
+    this.name = "WalletTimeoutError";
+  }
+}
+
+/** Thrown when the caller aborts an in-flight wallet call. */
+export class WalletCancelledError extends Error {
+  readonly code = "WALLET_CANCELLED";
+  constructor(readonly operation: WalletOperation) {
+    super(`Wallet ${operation} cancelled`);
+    this.name = "WalletCancelledError";
+  }
+}
+
+/**
+ * Races `task` against a timeout and an optional AbortSignal. Whichever
+ * settles first wins; the underlying wallet promise may keep running (the
+ * SDKs expose no cancellation API), but its eventual result is ignored.
+ */
+function withWalletDeadline<T>(
+  operation: WalletOperation,
+  task: () => T | Promise<T>,
+  options: WalletCallOptions = {}
+): Promise<T> {
+  const timeoutMs = options.timeoutMs ?? WALLET_TIMEOUTS[operation];
+  const { signal } = options;
+
+  if (signal?.aborted) {
+    return Promise.reject(new WalletCancelledError(operation));
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    function settle(action: () => void) {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      action();
+    }
+
+    function onAbort() {
+      settle(() => reject(new WalletCancelledError(operation)));
+    }
+
+    timer = setTimeout(() => {
+      settle(() => reject(new WalletTimeoutError(operation, timeoutMs)));
+    }, timeoutMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    // Promise.resolve().then(task) catches a synchronous throw from `task`
+    // as well as an async rejection, so the promise always settles.
+    Promise.resolve()
+      .then(task)
+      .then(
+        (value) => settle(() => resolve(value)),
+        (err) => settle(() => reject(err))
+      );
+  });
+}
+
 /**
  * Common interface every supported wallet implements. Call sites depend on
  * this, not on any wallet-specific API, so adding a wallet means adding an
  * implementation and selecting it below, not touching callers.
  */
 export interface WalletAdapter {
-  isInstalled(): Promise<boolean>;
+  isInstalled(options?: WalletCallOptions): Promise<boolean>;
   // Whether the user has granted this site access. False if the wallet is
   // absent or the site permission was revoked.
-  isAuthorized(): Promise<boolean>;
-  connect(): Promise<string>;
-  sign(xdr: string, networkPassphrase: string): Promise<string>;
+  isAuthorized(options?: WalletCallOptions): Promise<boolean>;
+  connect(options?: WalletCallOptions): Promise<string>;
+  sign(
+    xdr: string,
+    networkPassphrase: string,
+    options?: WalletCallOptions
+  ): Promise<string>;
+  getAddress?(): Promise<string | null>;
+  getNetwork?(): Promise<string | null>;
 }
 
 class FreighterWallet implements WalletAdapter {
-  async isInstalled(): Promise<boolean> {
-    return withMockWallet(
-      (mock) => mock.installed,
-      async () => {
-        const result = await isConnected();
-        return result.isConnected;
-      }
+  async isInstalled(options: WalletCallOptions = {}): Promise<boolean> {
+    return withWalletDeadline(
+      "install",
+      () =>
+        withMockWallet(
+          (mock) => mock.installed,
+          async () => {
+            const { isConnected } = await getFreighter();
+            const result = await isConnected();
+            return result.isConnected;
+          }
+        ),
+      options
     );
   }
 
-  async isAuthorized(): Promise<boolean> {
+  async isAuthorized(options: WalletCallOptions = {}): Promise<boolean> {
+    return withWalletDeadline(
+      "authorize",
+      () =>
+        withMockWallet(
+          (mock) => mock.installed && mock.authorized,
+          async () => {
+            const installed = await this.isInstalled();
+            if (!installed) return false;
+            const { isAllowed } = await getFreighter();
+            const result = await isAllowed();
+            return result.isAllowed;
+          }
+        ),
+      options
+    );
+  }
+
+  async connect(options: WalletCallOptions = {}): Promise<string> {
+    return withWalletDeadline(
+      "connect",
+      () =>
+        withMockWallet(
+          (mock) => mock.address,
+          async () => {
+            const { requestAccess } = await getFreighter();
+            const result = await requestAccess();
+            if (result.error) throw new Error(result.error.message);
+            return result.address;
+          }
+        ),
+      options
+    );
+  }
+
+  async sign(
+    xdr: string,
+    networkPassphrase: string,
+    options: WalletCallOptions = {}
+  ): Promise<string> {
+    return withWalletDeadline(
+      "sign",
+      () =>
+        withMockWallet(
+          (mock) => mock.sign(xdr, networkPassphrase),
+          async () => {
+            const { signTransaction } = await getFreighter();
+            const result = await signTransaction(xdr, { networkPassphrase });
+            if (result.error) throw new Error(result.error.message);
+            if (!result.signedTxXdr) throw new Error("Signing cancelled");
+            return result.signedTxXdr;
+          }
+        ),
+      options
+    );
+  }
+
+  async getAddress(): Promise<string | null> {
     return withMockWallet(
-      (mock) => mock.installed && mock.authorized,
+      (mock) => (mock.getAddress ? mock.getAddress() : (mock.address ?? null)),
       async () => {
         const installed = await this.isInstalled();
-        if (!installed) return false;
-        const result = await isAllowed();
-        return result.isAllowed;
-      }
-    );
-  }
-
-  async connect(): Promise<string> {
-    return withMockWallet(
-      (mock) => mock.address,
-      async () => {
-        const result = await requestAccess();
-        if (result.error) throw new Error(result.error.message);
+        if (!installed) return null;
+        const freighter = await getFreighter();
+        if (typeof freighter.getAddress !== "function") return null;
+        const result = await freighter.getAddress();
+        if (result.error || !result.address) return null;
         return result.address;
       }
     );
   }
 
-  async sign(xdr: string, networkPassphrase: string): Promise<string> {
+  async getNetwork(): Promise<string | null> {
     return withMockWallet(
-      (mock) => mock.sign(xdr, networkPassphrase),
+      (mock) => (mock.getNetwork ? mock.getNetwork() : (mock.network ?? null)),
       async () => {
-        const result = await freighterSign(xdr, { networkPassphrase });
-        if (result.error) throw new Error(result.error.message);
-        if (!result.signedTxXdr) throw new Error("Signing cancelled");
-        return result.signedTxXdr;
+        const installed = await this.isInstalled();
+        if (!installed) return null;
+        const freighter = await getFreighter();
+        if (typeof freighter.getNetwork !== "function") return null;
+        const result = await freighter.getNetwork();
+        if (result.error) return null;
+        if (
+          result.networkPassphrase ===
+            "Public Global Stellar Network ; September 2015" ||
+          result.network?.toUpperCase() === "PUBLIC"
+        ) {
+          return "mainnet";
+        }
+        if (
+          result.networkPassphrase === "Test SDF Network ; September 2015" ||
+          result.network?.toUpperCase() === "TESTNET"
+        ) {
+          return "testnet";
+        }
+        return result.network ? result.network.toLowerCase() : null;
       }
     );
   }
@@ -190,8 +414,19 @@ const LOBSTR_PUBLIC_KEY_STORAGE_KEY = "meridian-lobstr-public-key";
 //   2. signTransaction() takes only the XDR; the extension derives the network
 //      from its own pairing with the mobile app.
 export class LobstrWallet implements WalletAdapter {
-  async isInstalled(): Promise<boolean> {
-    return withMockWallet((mock) => mock.installed, lobstrIsConnected);
+  async isInstalled(options: WalletCallOptions = {}): Promise<boolean> {
+    return withWalletDeadline(
+      "install",
+      () =>
+        withMockWallet(
+          (mock) => mock.installed,
+          async () => {
+            const { isConnected } = await getLobstr();
+            return isConnected();
+          }
+        ),
+      options
+    );
   }
 
   // LOBSTR's API offers no passive "is site authorized" query like Freighter's
@@ -202,39 +437,61 @@ export class LobstrWallet implements WalletAdapter {
   // authorized instead. This cannot detect a revocation made inside the
   // extension since the last connect(), but LOBSTR exposes no non-prompting
   // signal for that.
-  async isAuthorized(): Promise<boolean> {
-    return withMockWallet(
-      (mock) => mock.installed && mock.authorized,
-      async () => {
-        const installed = await this.isInstalled();
-        if (!installed) return false;
-        return readStoredPublicKey(LOBSTR_PUBLIC_KEY_STORAGE_KEY) !== null;
-      }
+  async isAuthorized(options: WalletCallOptions = {}): Promise<boolean> {
+    return withWalletDeadline(
+      "authorize",
+      () =>
+        withMockWallet(
+          (mock) => mock.installed && mock.authorized,
+          async () => {
+            const installed = await this.isInstalled();
+            if (!installed) return false;
+            return readStoredPublicKey(LOBSTR_PUBLIC_KEY_STORAGE_KEY) !== null;
+          }
+        ),
+      options
     );
   }
 
-  async connect(): Promise<string> {
-    return withMockWallet(
-      (mock) => mock.address,
-      async () => {
-        const publicKey = await lobstrGetPublicKey();
-        if (!publicKey) throw new Error("LOBSTR wallet returned no public key");
-        storePublicKey(LOBSTR_PUBLIC_KEY_STORAGE_KEY, publicKey);
-        return publicKey;
-      }
+  async connect(options: WalletCallOptions = {}): Promise<string> {
+    return withWalletDeadline(
+      "connect",
+      () =>
+        withMockWallet(
+          (mock) => mock.address,
+          async () => {
+            const { getPublicKey } = await getLobstr();
+            const publicKey = await getPublicKey();
+            if (!publicKey)
+              throw new Error("LOBSTR wallet returned no public key");
+            storePublicKey(LOBSTR_PUBLIC_KEY_STORAGE_KEY, publicKey);
+            return publicKey;
+          }
+        ),
+      options
     );
   }
 
-  async sign(xdr: string, networkPassphrase: string): Promise<string> {
-    return withMockWallet(
-      (mock) => mock.sign(xdr, networkPassphrase),
-      async () => {
-        // LOBSTR's signTransaction does not accept a networkPassphrase; the
-        // extension uses the network already configured in the paired mobile app.
-        const signedXdr = await lobstrSign(xdr);
-        if (!signedXdr) throw new Error("Signing cancelled");
-        return signedXdr;
-      }
+  async sign(
+    xdr: string,
+    networkPassphrase: string,
+    options: WalletCallOptions = {}
+  ): Promise<string> {
+    return withWalletDeadline(
+      "sign",
+      () =>
+        withMockWallet(
+          (mock) => mock.sign(xdr, networkPassphrase),
+          async () => {
+            // LOBSTR's signTransaction does not accept a networkPassphrase; the
+            // extension uses the network already configured in the paired mobile app.
+            const { signTransaction } = await getLobstr();
+            const signedXdr = await signTransaction(xdr);
+            if (!signedXdr) throw new Error("Signing cancelled");
+            return signedXdr;
+          }
+        ),
+      options
     );
   }
 }
@@ -267,60 +524,87 @@ function isXBullExtensionPresent(): boolean {
 // guidance, and always closes it via closeConnections() in a finally block to
 // avoid leaking listeners into the next bridge instance.
 export class XBullWallet implements WalletAdapter {
-  async isInstalled(): Promise<boolean> {
-    return withMockWallet(
-      (mock) => mock.installed,
-      async () => isXBullExtensionPresent()
+  async isInstalled(options: WalletCallOptions = {}): Promise<boolean> {
+    return withWalletDeadline(
+      "install",
+      () =>
+        withMockWallet(
+          (mock) => mock.installed,
+          async () => isXBullExtensionPresent()
+        ),
+      options
     );
   }
 
-  async isAuthorized(): Promise<boolean> {
-    return withMockWallet(
-      (mock) => mock.installed && mock.authorized,
-      async () => {
-        const installed = await this.isInstalled();
-        if (!installed) return false;
-        return readStoredPublicKey(XBULL_PUBLIC_KEY_STORAGE_KEY) !== null;
-      }
+  async isAuthorized(options: WalletCallOptions = {}): Promise<boolean> {
+    return withWalletDeadline(
+      "authorize",
+      () =>
+        withMockWallet(
+          (mock) => mock.installed && mock.authorized,
+          async () => {
+            const installed = await this.isInstalled();
+            if (!installed) return false;
+            return readStoredPublicKey(XBULL_PUBLIC_KEY_STORAGE_KEY) !== null;
+          }
+        ),
+      options
     );
   }
 
-  async connect(): Promise<string> {
-    return withMockWallet(
-      (mock) => mock.address,
-      async () => {
-        const bridge = new xBullWalletConnect();
-        try {
-          const publicKey = await bridge.connect();
-          if (!publicKey)
-            throw new Error("xBull wallet returned no public key");
-          storePublicKey(XBULL_PUBLIC_KEY_STORAGE_KEY, publicKey);
-          return publicKey;
-        } finally {
-          bridge.closeConnections();
-        }
-      }
+  async connect(options: WalletCallOptions = {}): Promise<string> {
+    return withWalletDeadline(
+      "connect",
+      () =>
+        withMockWallet(
+          (mock) => mock.address,
+          async () => {
+            const { xBullWalletConnect } = await getXBull();
+            const bridge = new xBullWalletConnect();
+            try {
+              const publicKey = await bridge.connect();
+              if (!publicKey)
+                throw new Error("xBull wallet returned no public key");
+              storePublicKey(XBULL_PUBLIC_KEY_STORAGE_KEY, publicKey);
+              return publicKey;
+            } finally {
+              bridge.closeConnections();
+            }
+          }
+        ),
+      options
     );
   }
 
-  async sign(xdr: string, networkPassphrase: string): Promise<string> {
-    return withMockWallet(
-      (mock) => mock.sign(xdr, networkPassphrase),
-      async () => {
-        const bridge = new xBullWalletConnect();
-        try {
-          const signedXdr = await bridge.sign({
-            xdr,
-            network: networkPassphrase,
-            publicKey:
-              readStoredPublicKey(XBULL_PUBLIC_KEY_STORAGE_KEY) ?? undefined,
-          });
-          if (!signedXdr) throw new Error("Signing cancelled");
-          return signedXdr;
-        } finally {
-          bridge.closeConnections();
-        }
-      }
+  async sign(
+    xdr: string,
+    networkPassphrase: string,
+    options: WalletCallOptions = {}
+  ): Promise<string> {
+    return withWalletDeadline(
+      "sign",
+      () =>
+        withMockWallet(
+          (mock) => mock.sign(xdr, networkPassphrase),
+          async () => {
+            const { xBullWalletConnect } = await getXBull();
+            const bridge = new xBullWalletConnect();
+            try {
+              const signedXdr = await bridge.sign({
+                xdr,
+                network: networkPassphrase,
+                publicKey:
+                  readStoredPublicKey(XBULL_PUBLIC_KEY_STORAGE_KEY) ??
+                  undefined,
+              });
+              if (!signedXdr) throw new Error("Signing cancelled");
+              return signedXdr;
+            } finally {
+              bridge.closeConnections();
+            }
+          }
+        ),
+      options
     );
   }
 }
@@ -342,10 +626,15 @@ function albedoNetworkFromPassphrase(passphrase: string): string {
 }
 
 export class AlbedoWallet implements WalletAdapter {
-  async isInstalled(): Promise<boolean> {
-    return withMockWallet(
-      (mock) => mock.installed,
-      async () => true
+  async isInstalled(options: WalletCallOptions = {}): Promise<boolean> {
+    return withWalletDeadline(
+      "install",
+      () =>
+        withMockWallet(
+          (mock) => mock.installed,
+          async () => true
+        ),
+      options
     );
   }
 
@@ -354,44 +643,64 @@ export class AlbedoWallet implements WalletAdapter {
   // tab focus (store/wallet.ts revalidate() runs isAuthorized on mount and
   // focus). Treat "installed + a public key stored by a prior connect()" as
   // authorized instead.
-  async isAuthorized(): Promise<boolean> {
-    return withMockWallet(
-      (mock) => mock.installed && mock.authorized,
-      async () => {
-        const installed = await this.isInstalled();
-        if (!installed) return false;
-        return readStoredPublicKey(ALBEDO_PUBLIC_KEY_STORAGE_KEY) !== null;
-      }
+  async isAuthorized(options: WalletCallOptions = {}): Promise<boolean> {
+    return withWalletDeadline(
+      "authorize",
+      () =>
+        withMockWallet(
+          (mock) => mock.installed && mock.authorized,
+          async () => {
+            const installed = await this.isInstalled();
+            if (!installed) return false;
+            return readStoredPublicKey(ALBEDO_PUBLIC_KEY_STORAGE_KEY) !== null;
+          }
+        ),
+      options
     );
   }
 
-  async connect(): Promise<string> {
-    return withMockWallet(
-      (mock) => mock.address,
-      async () => {
-        const albedo = await getAlbedo();
-        const result = await albedo.publicKey({});
-        if (result?.code === ALBEDO_USER_REJECTED_CODE) {
-          throw new Error("Connection cancelled");
-        }
-        if (!result?.pubkey)
-          throw new Error("Albedo wallet returned no public key");
-        storePublicKey(ALBEDO_PUBLIC_KEY_STORAGE_KEY, result.pubkey);
-        return result.pubkey;
-      }
+  async connect(options: WalletCallOptions = {}): Promise<string> {
+    return withWalletDeadline(
+      "connect",
+      () =>
+        withMockWallet(
+          (mock) => mock.address,
+          async () => {
+            const albedo = await getAlbedo();
+            const result = await albedo.publicKey({});
+            if (result?.code === ALBEDO_USER_REJECTED_CODE) {
+              throw new Error("Connection cancelled");
+            }
+            if (!result?.pubkey)
+              throw new Error("Albedo wallet returned no public key");
+            storePublicKey(ALBEDO_PUBLIC_KEY_STORAGE_KEY, result.pubkey);
+            return result.pubkey;
+          }
+        ),
+      options
     );
   }
 
-  async sign(xdr: string, networkPassphrase: string): Promise<string> {
-    return withMockWallet(
-      (mock) => mock.sign(xdr, networkPassphrase),
-      async () => {
-        const albedo = await getAlbedo();
-        const network = albedoNetworkFromPassphrase(networkPassphrase);
-        const result = await albedo.tx({ xdr, network, submit: false });
-        if (!result?.signed_envelope_xdr) throw new Error("Signing cancelled");
-        return result.signed_envelope_xdr;
-      }
+  async sign(
+    xdr: string,
+    networkPassphrase: string,
+    options: WalletCallOptions = {}
+  ): Promise<string> {
+    return withWalletDeadline(
+      "sign",
+      () =>
+        withMockWallet(
+          (mock) => mock.sign(xdr, networkPassphrase),
+          async () => {
+            const albedo = await getAlbedo();
+            const network = albedoNetworkFromPassphrase(networkPassphrase);
+            const result = await albedo.tx({ xdr, network, submit: false });
+            if (!result?.signed_envelope_xdr)
+              throw new Error("Signing cancelled");
+            return result.signed_envelope_xdr;
+          }
+        ),
+      options
     );
   }
 }
@@ -487,9 +796,22 @@ export function getWalletAdapter(id: WalletId): WalletAdapter {
 // user's choice; callers that need to act on a *specific* wallet before it
 // becomes the selection (the connect picker) use getWalletAdapter directly.
 export const wallet: WalletAdapter = {
-  isInstalled: () => getWalletAdapter(getSelectedWalletId()).isInstalled(),
-  isAuthorized: () => getWalletAdapter(getSelectedWalletId()).isAuthorized(),
-  connect: () => getWalletAdapter(getSelectedWalletId()).connect(),
-  sign: (xdr, networkPassphrase) =>
-    getWalletAdapter(getSelectedWalletId()).sign(xdr, networkPassphrase),
+  isInstalled: (options) =>
+    getWalletAdapter(getSelectedWalletId()).isInstalled(options),
+  isAuthorized: (options) =>
+    getWalletAdapter(getSelectedWalletId()).isAuthorized(options),
+  connect: (options) =>
+    getWalletAdapter(getSelectedWalletId()).connect(options),
+  sign: (xdr, networkPassphrase, options) =>
+    getWalletAdapter(getSelectedWalletId()).sign(
+      xdr,
+      networkPassphrase,
+      options
+    ),
+  getAddress: () =>
+    getWalletAdapter(getSelectedWalletId()).getAddress?.() ??
+    Promise.resolve(null),
+  getNetwork: () =>
+    getWalletAdapter(getSelectedWalletId()).getNetwork?.() ??
+    Promise.resolve(null),
 };

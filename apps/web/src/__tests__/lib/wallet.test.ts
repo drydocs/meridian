@@ -5,6 +5,8 @@ vi.mock("@stellar/freighter-api", () => ({
   isAllowed: vi.fn(),
   requestAccess: vi.fn(),
   signTransaction: vi.fn(),
+  getAddress: vi.fn(),
+  getNetwork: vi.fn(),
 }));
 
 vi.mock("@lobstrco/signer-extension-api", () => ({
@@ -18,6 +20,8 @@ import {
   isAllowed,
   requestAccess,
   signTransaction as freighterSign,
+  getAddress as freighterGetAddress,
+  getNetwork as freighterGetNetwork,
 } from "@stellar/freighter-api";
 import { isConnected as lobstrIsConnected } from "@lobstrco/signer-extension-api";
 import {
@@ -28,6 +32,8 @@ import {
   setSelectedWalletId,
   getWalletMeta,
   getWalletAdapter,
+  WalletTimeoutError,
+  WalletCancelledError,
 } from "../../lib/wallet";
 
 const ADDRESS = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -200,5 +206,103 @@ describe("wallet — e2e mock wallet path", () => {
     await expect(wallet.sign("XDR", "passphrase")).rejects.toThrow(
       "User declined access"
     );
+  });
+
+  describe("passive reporting (#1300)", () => {
+    it("getAddress returns the active address when connected", async () => {
+      vi.mocked(isConnected).mockResolvedValue({ isConnected: true });
+      vi.mocked(freighterGetAddress).mockResolvedValue({ address: ADDRESS });
+      await expect(wallet.getAddress?.()).resolves.toBe(ADDRESS);
+    });
+
+    it("getAddress returns null when extension is absent", async () => {
+      vi.mocked(isConnected).mockResolvedValue({ isConnected: false });
+      await expect(wallet.getAddress?.()).resolves.toBeNull();
+    });
+
+    it("getNetwork returns mainnet for PUBLIC", async () => {
+      vi.mocked(isConnected).mockResolvedValue({ isConnected: true });
+      vi.mocked(freighterGetNetwork).mockResolvedValue({
+        network: "PUBLIC",
+        networkPassphrase: "Public Global Stellar Network ; September 2015",
+      });
+      await expect(wallet.getNetwork?.()).resolves.toBe("mainnet");
+    });
+
+    it("getNetwork returns testnet for TESTNET", async () => {
+      vi.mocked(isConnected).mockResolvedValue({ isConnected: true });
+      vi.mocked(freighterGetNetwork).mockResolvedValue({
+        network: "TESTNET",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      });
+      await expect(wallet.getNetwork?.()).resolves.toBe("testnet");
+    });
+
+    it("LOBSTR and xBull adapters do not define passive reporting", () => {
+      const lobstr = getWalletAdapter("lobstr");
+      const xbull = getWalletAdapter("xbull");
+      expect(lobstr.getAddress).toBeUndefined();
+      expect(lobstr.getNetwork).toBeUndefined();
+      expect(xbull.getAddress).toBeUndefined();
+      expect(xbull.getNetwork).toBeUndefined();
+    });
+  });
+});
+
+describe("wallet — timeouts and cancellation", () => {
+  it("connect rejects with a typed timeout when the wallet never resolves", async () => {
+    vi.mocked(requestAccess).mockImplementation(
+      () => new Promise<never>(() => {})
+    );
+
+    await expect(wallet.connect({ timeoutMs: 10 })).rejects.toBeInstanceOf(
+      WalletTimeoutError
+    );
+  });
+
+  it("sign rejects with a typed timeout when the wallet never resolves", async () => {
+    vi.mocked(freighterSign).mockImplementation(
+      () => new Promise<never>(() => {})
+    );
+
+    await expect(
+      wallet.sign("XDR", "passphrase", { timeoutMs: 10 })
+    ).rejects.toBeInstanceOf(WalletTimeoutError);
+  });
+
+  it("isAuthorized rejects with a typed timeout when the permission check never resolves", async () => {
+    vi.mocked(isConnected).mockResolvedValue({ isConnected: true });
+    vi.mocked(isAllowed).mockImplementation(() => new Promise<never>(() => {}));
+
+    await expect(wallet.isAuthorized({ timeoutMs: 10 })).rejects.toBeInstanceOf(
+      WalletTimeoutError
+    );
+  });
+
+  it("connect rejects with a typed cancellation error when the signal aborts", async () => {
+    vi.mocked(requestAccess).mockImplementation(
+      () => new Promise<never>(() => {})
+    );
+    const controller = new AbortController();
+
+    const pending = wallet.connect({ signal: controller.signal });
+    controller.abort();
+
+    await expect(pending).rejects.toBeInstanceOf(WalletCancelledError);
+  });
+
+  it("ignores a wallet result that arrives after the timeout", async () => {
+    let resolveConnect!: (value: { address: string }) => void;
+    vi.mocked(requestAccess).mockImplementation(
+      () => new Promise((resolve) => (resolveConnect = resolve))
+    );
+
+    await expect(wallet.connect({ timeoutMs: 10 })).rejects.toBeInstanceOf(
+      WalletTimeoutError
+    );
+
+    // The late result must not throw or change the already-settled promise.
+    resolveConnect({ address: ADDRESS });
+    await Promise.resolve();
   });
 });

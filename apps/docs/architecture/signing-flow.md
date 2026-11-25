@@ -4,7 +4,7 @@ Meridian's core security property is that the server never holds or touches priv
 
 ## Sequence diagram
 
-```
+```text
 Browser                    API (Vercel)              Stellar RPC
    │                           │                          │
    │  POST /tx/deposit         │                          │

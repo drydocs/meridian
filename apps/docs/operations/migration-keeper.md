@@ -75,7 +75,8 @@ protocol from what's actually available on-chain:
   those set, it falls back to an in-memory store that does **not** survive
   across separate serverless invocations (each Vercel Cron tick is a fresh
   process), which in practice means DeFindex never accumulates a comparable
-  rate outside of Upstash being configured.
+  rate outside of Upstash being configured. This shared-store choice is
+  recorded in [ADR-0008](../architecture/adr/0008-upstash-keeper-state.md).
 
 Rate comparison stays deliberately pluggable (`RateSourceFn` in
 `migration-keeper.ts`): `createDefaultRateSource(config.network)` is
@@ -89,7 +90,7 @@ A GitHub Actions workflow (`.github/workflows/keepers.yml`) calls
 `POST /api/v1/keepers/rebalance` hourly. Not Vercel Cron: the Hobby plan
 restricts Cron Jobs to once per day, which neither this nor the accrue
 keeper's 15-minute schedule could express, so scheduling lives in GitHub
-Actions instead (see [#513](https://github.com/drydocs/meridian/issues/513) and `apps/docs/operations/accrual-keeper.md`).
+Actions instead (see [#513](https://github.com/drydocs/meridian/issues/513), `apps/docs/operations/accrual-keeper.md`, and [ADR-0005](../architecture/adr/0005-github-actions-keeper-scheduling.md)).
 Hourly, not every 15 minutes like the accrue keeper: a migration decision is
 not time-sensitive the way interest accrual staleness is, and unnecessary
 runs cost nothing while no candidate adapters are configured (or DeFindex
@@ -200,6 +201,8 @@ would need to become per-vault-scoped first (tracked on [#511](https://github.co
 rate source work, since both matter most once a second vault is likely).
 
 ## Two-Phase Migration (`begin_migration` / `migrate_adapter`)
+
+The roughly one-day cooldown and its rationale are recorded in [ADR-0006](../architecture/adr/0006-migration-timelock.md).
 
 `migrate_adapter` requires an active `begin_migration` snapshot for the same
 target adapter, at least `MIN_LEDGER_GAP` ledgers old (~1 day as of [#557](https://github.com/drydocs/meridian/issues/557);

@@ -35,6 +35,14 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
     buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
     buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
+    // Prices the slippage floor when a build request omits its minimum.
+    quoteVaultAction: vi.fn(async ({ action }: { action: string }) => ({
+      action,
+      fee: "0",
+      ledger: 1,
+      recommendedMinimum: action === "deposit" ? "9.9" : "4.9",
+      slippageBps: 50,
+    })),
     submitTx: vi.fn(async () => ({ hash: "HASH" })),
     loadBlendAccrualKeeperConfig: vi.fn(() => ({
       network: {

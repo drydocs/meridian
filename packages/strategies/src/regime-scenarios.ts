@@ -233,7 +233,8 @@ export function scenarioFundingRate(scenario: Scenario): FundingRate {
 /** The delta-neutral configuration the scenario describes, priced by `prices`. */
 export function scenarioDeltaNeutralConfig(
   scenario: Scenario,
-  prices: PriceFeed
+  prices: PriceFeed,
+  hedgeFeed?: PriceFeed
 ): DeltaNeutralConfig {
   return {
     id: `${scenario.strategy.id}:${param(scenario, PARAM.regime)}`,
@@ -244,5 +245,6 @@ export function scenarioDeltaNeutralConfig(
     rebalanceBandBps: Number(param(scenario, PARAM.neutralityBandBps)),
     fundingRate: scenarioFundingRate(scenario),
     priceFeed: prices,
+    ...(hedgeFeed ? { hedgeFeed } : {}),
   };
 }

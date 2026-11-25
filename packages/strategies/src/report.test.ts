@@ -51,6 +51,7 @@ function makeScenario(
     window: { start: toIsoInstant(start), end: toIsoInstant(end), step: STEP },
     assets: [USDC, EURC],
     source: { price: "horizon", rate: "blend" },
+    costs: { swapFeeRate: "0.003", networkFee: "0.0000100" },
     startingCapital: "150",
     strategy: {
       id: "delta-neutral",
@@ -70,6 +71,11 @@ function makeRiskMetrics(
     maxDrawdown: FixedPointDecimal.fromString(maxDrawdown),
     sharpeProxy: FixedPointDecimal.fromString(sharpeProxy),
     volatility: FixedPointDecimal.fromString(volatility),
+    valueAtRisk: FixedPointDecimal.fromString("0.0300000"),
+    conditionalValueAtRisk: FixedPointDecimal.fromString("0.0450000"),
+    downsideDeviation: FixedPointDecimal.fromString("0.0060000"),
+    sortinoRatio: FixedPointDecimal.fromString("2.0000000"),
+    calmarRatio: null,
   };
 }
 
@@ -171,6 +177,19 @@ describe("serializeReport / deserializeReport", () => {
     expect(restored.riskMetrics.volatility.toStroops()).toBe(
       original.riskMetrics.volatility.toStroops()
     );
+    expect(restored.riskMetrics.valueAtRisk.toStroops()).toBe(
+      original.riskMetrics.valueAtRisk.toStroops()
+    );
+    expect(restored.riskMetrics.conditionalValueAtRisk.toStroops()).toBe(
+      original.riskMetrics.conditionalValueAtRisk.toStroops()
+    );
+    expect(restored.riskMetrics.downsideDeviation.toStroops()).toBe(
+      original.riskMetrics.downsideDeviation.toStroops()
+    );
+    expect(restored.riskMetrics.sortinoRatio?.toStroops()).toBe(
+      original.riskMetrics.sortinoRatio?.toStroops()
+    );
+    expect(restored.riskMetrics.calmarRatio).toBeNull();
 
     // Event counts
     expect(restored.eventCounts).toEqual(original.eventCounts);
@@ -195,6 +214,10 @@ describe("serializeReport / deserializeReport", () => {
     expect(restored.scenario.source).toEqual({
       price: "horizon",
       rate: "blend",
+    });
+    expect(restored.scenario.costs).toEqual({
+      swapFeeRate: "0.003",
+      networkFee: "0.0000100",
     });
     expect(restored.scenario.startingCapital).toBe("150");
     expect(restored.scenario.strategy.params).toEqual({
@@ -287,6 +310,53 @@ describe("serializeReport / deserializeReport", () => {
     };
 
     expect(() => deserializeReport(corrupted)).toThrow(ScenarioValidationError);
+  });
+});
+
+describe("tail and downside metrics in the wire format", () => {
+  it("writes VaR, CVaR and downside deviation as stroop strings", () => {
+    const wire = serializeReport(makeReport());
+    expect(wire.riskMetrics.valueAtRisk).toBe("300000");
+    expect(wire.riskMetrics.conditionalValueAtRisk).toBe("450000");
+    expect(wire.riskMetrics.downsideDeviation).toBe("60000");
+  });
+
+  it("keeps a null Sortino or Calmar ratio as null through JSON", () => {
+    const base = makeReport();
+    const report: RunReport = {
+      ...base,
+      riskMetrics: {
+        ...base.riskMetrics,
+        sortinoRatio: null,
+        calmarRatio: null,
+      },
+    };
+    const restored = reportFromJSON(reportToJSON(report));
+    expect(restored.riskMetrics.sortinoRatio).toBeNull();
+    expect(restored.riskMetrics.calmarRatio).toBeNull();
+  });
+
+  it("round-trips a non-null Calmar ratio", () => {
+    const base = makeReport();
+    const report: RunReport = {
+      ...base,
+      riskMetrics: {
+        ...base.riskMetrics,
+        calmarRatio: FixedPointDecimal.fromString("-1.2500000"),
+      },
+    };
+    const restored = reportFromJSON(reportToJSON(report));
+    expect(restored.riskMetrics.calmarRatio?.toStroops()).toBe(-12500000n);
+  });
+
+  it("rejects a report whose tail metric is missing", () => {
+    const wire = serializeReport(makeReport());
+    const rest: Partial<SerializedRunReport["riskMetrics"]> = {
+      ...wire.riskMetrics,
+    };
+    delete rest.conditionalValueAtRisk;
+    const json = JSON.stringify({ ...wire, riskMetrics: rest });
+    expect(() => reportFromJSON(json)).toThrow(TypeError);
   });
 });
 
@@ -440,6 +510,27 @@ describe("version checking", () => {
     const v1: Partial<SerializedRunReport> = serializeReport(makeReport());
     delete v1.generators;
     const json = JSON.stringify({ ...v1, version: 1 });
+
+    expect(() => reportFromJSON(json)).toThrow(UnknownReportVersionError);
+  });
+
+  it("rejects a version 2 report, which carries no tail or downside metrics", () => {
+    // The shape a report took before #1434 added VaR, CVaR, downside
+    // deviation, Sortino and Calmar to the risk metrics.
+    const wire = serializeReport(makeReport());
+    const v2Metrics: Partial<SerializedRunReport["riskMetrics"]> = {
+      ...wire.riskMetrics,
+    };
+    delete v2Metrics.valueAtRisk;
+    delete v2Metrics.conditionalValueAtRisk;
+    delete v2Metrics.downsideDeviation;
+    delete v2Metrics.sortinoRatio;
+    delete v2Metrics.calmarRatio;
+    const json = JSON.stringify({
+      ...wire,
+      version: 2,
+      riskMetrics: v2Metrics,
+    });
 
     expect(() => reportFromJSON(json)).toThrow(UnknownReportVersionError);
   });
@@ -610,6 +701,11 @@ function simulateRun(
       maxDrawdown: FixedPointDecimal.fromStroops(0n),
       sharpeProxy: FixedPointDecimal.fromStroops(gainPerStep),
       volatility: FixedPointDecimal.fromStroops(0n),
+      valueAtRisk: FixedPointDecimal.fromStroops(0n),
+      conditionalValueAtRisk: FixedPointDecimal.fromStroops(0n),
+      downsideDeviation: FixedPointDecimal.fromStroops(0n),
+      sortinoRatio: null,
+      calmarRatio: null,
     },
     eventCounts: {
       rebalances,
@@ -1166,10 +1262,10 @@ describe("report completeness", () => {
     // Pinned to the literal, so bumping the constant without a deliberate
     // change to the wire format cannot pass unnoticed.
     const report = makeReport();
-    expect(report.version).toBe(2);
+    expect(report.version).toBe(3);
 
     const wire = serializeReport(report);
-    expect(wire.version).toBe(2);
+    expect(wire.version).toBe(3);
   });
 
   it("holds all four event-count categories", () => {

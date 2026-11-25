@@ -16,6 +16,7 @@ import {
 } from "./keeper-retry";
 import {
   assertAdapterUnchanged,
+  assertVaultHealthy,
   expectString,
   isStaleAdapterError,
   isTransientKeeperError,
@@ -314,6 +315,11 @@ async function submitAccrualTransaction(
   // rechecking an already-sent transaction (priorHash), which must keep
   // tracking that hash rather than re-deciding whether to send it.
   if (!priorHash) {
+    await assertVaultHealthy(
+      server,
+      adapter.vaultContractId,
+      config.network.passphrase
+    );
     await assertAdapterUnchanged(
       server,
       adapter.vaultContractId,

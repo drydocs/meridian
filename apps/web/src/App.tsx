@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { setQueryClient } from "./lib/queryClient";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
 import { WalletConnect } from "./components/onboarding/WalletConnect";
 import { Toasts } from "./components/ui/Toasts";
@@ -7,10 +8,16 @@ import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useWalletStore } from "./store/wallet";
 import { useDocumentLanguage } from "./hooks/useDocumentLanguage";
 import { useTranslation } from "react-i18next";
-import { AdminLogin } from "./pages/AdminLogin";
-import { StatusPage } from "./pages/StatusPage";
 import { NotFound } from "./pages/NotFound";
 import { isClientError } from "./lib/api";
+
+const AdminLogin = lazy(() =>
+  import("./pages/AdminLogin").then((m) => ({ default: m.AdminLogin }))
+);
+
+const StatusPage = lazy(() =>
+  import("./pages/StatusPage").then((m) => ({ default: m.StatusPage }))
+);
 
 // Retry only transient failures. 4xx responses are client errors and will not
 // succeed on retry, so they fail immediately. Retries use bounded exponential
@@ -28,6 +35,7 @@ const queryClient = new QueryClient({
     },
   },
 });
+setQueryClient(queryClient);
 
 // Tracks browser connectivity. Starts from navigator.onLine and updates on
 // the browser online/offline events. When the connection returns, the query
@@ -144,7 +152,7 @@ function Dashboard({ online }: { online: boolean }) {
             <WalletConnect />
             <button
               onClick={toggleLanguage}
-              className="text-sm border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150"
+              className="text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
             >
               {i18n.language === "en" ? "FR" : "EN"}
             </button>
@@ -154,7 +162,11 @@ function Dashboard({ online }: { online: boolean }) {
 
       <OfflineBanner online={online} />
 
-      <main className="relative z-10 max-w-xl mx-auto px-6 py-10">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="relative z-10 max-w-xl mx-auto px-6 py-10 outline-none"
+      >
         <ErrorBoundary>
           <VaultPanel />
         </ErrorBoundary>
@@ -165,6 +177,7 @@ function Dashboard({ online }: { online: boolean }) {
 
 export default function App() {
   const online = useConnectivity();
+  const { t } = useTranslation();
   useDocumentLanguage();
   useEffect(() => {
     const revalidate = () => void useWalletStore.getState().revalidate();
@@ -178,9 +191,25 @@ export default function App() {
   }, []);
 
   const page = isAdminRoute() ? (
-    <AdminLogin />
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-night text-paper flex items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+        </div>
+      }
+    >
+      <AdminLogin />
+    </Suspense>
   ) : isStatusRoute() ? (
-    <StatusPage />
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-night text-paper flex items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+        </div>
+      }
+    >
+      <StatusPage />
+    </Suspense>
   ) : isDashboardRoute() ? (
     <Dashboard online={online} />
   ) : (
@@ -189,6 +218,12 @@ export default function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-emerald-700 focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 font-medium text-sm"
+      >
+        {t("common.skipToContent")}
+      </a>
       {page}
       <Toasts />
     </QueryClientProvider>

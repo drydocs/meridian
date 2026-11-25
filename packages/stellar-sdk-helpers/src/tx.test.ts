@@ -17,6 +17,7 @@ import {
   simErrorMessage,
   prepareSorobanTx,
   ContractSimulationError,
+  TransactionOutcomeUnknownError,
   VAULT_CONTRACT_ERROR_MESSAGES,
   buildAddTrustlineTx,
   assertRequiredTrustlines,
@@ -584,7 +585,7 @@ describe("waitForTransaction", () => {
         now: steppingClock(5_000),
         timeoutMs: 10_000,
       })
-    ).rejects.toThrow(/Timed out/);
+    ).rejects.toMatchObject(new TransactionOutcomeUnknownError("TXHASH"));
   });
 });
 
