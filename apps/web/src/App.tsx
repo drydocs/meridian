@@ -60,12 +60,15 @@ function Dashboard() {
   }, [i18n]);
 
   return (
-    <div className="relative min-h-screen bg-night text-paper overflow-hidden">
+    <div className="relative min-h-dvh bg-night text-paper overflow-hidden">
+      {/* The oversized watermark is a desktop-only decoration: on mobile it
+          would load and paint a 170vh SVG for no benefit, so do not render it
+          below the md breakpoint at all (#1428). */}
       <svg
         aria-hidden="true"
         viewBox="4 4 32 17"
         fill="none"
-        className="pointer-events-none fixed left-[6vw] top-1/2 z-0 h-[170vh] w-auto max-w-none -translate-y-1/2 opacity-[0.055]"
+        className="pointer-events-none fixed left-[6vw] top-1/2 z-0 hidden h-[170vh] w-auto max-w-none -translate-y-1/2 opacity-[0.055] md:block"
       >
         <defs>
           <linearGradient
@@ -89,8 +92,8 @@ function Dashboard() {
         <circle cx="17" cy="17.3" r="2.6" fill="url(#app-bg-convergence)" />
       </svg>
 
-      <header className="sticky top-0 z-50 border-b border-gray-800 bg-night/95 backdrop-blur-sm pb-4">
-        <div className="max-w-xl mx-auto px-6 h-20 flex items-end justify-between pb-4">
+      <header className="sticky top-0 z-50 border-b border-gray-800 bg-night/95 backdrop-blur-sm">
+        <div className="max-w-xl mx-auto app-gutter min-h-20 flex flex-wrap items-end justify-between gap-3 pb-4">
           <span className="font-extrabold text-lg tracking-tight text-paper">
             {t("header.title")}
           </span>
@@ -98,7 +101,7 @@ function Dashboard() {
             <WalletConnect />
             <button
               onClick={toggleLanguage}
-              className="text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
             >
               {i18n.language === "en" ? "FR" : "EN"}
             </button>
@@ -109,7 +112,7 @@ function Dashboard() {
       <main
         id="main-content"
         tabIndex={-1}
-        className="relative z-10 max-w-xl mx-auto px-6 py-10 outline-none"
+        className="relative z-10 w-full max-w-xl mx-auto app-gutter app-bottom-gutter py-6 sm:py-10 outline-none"
       >
         <ErrorBoundary>
           <VaultPanel />

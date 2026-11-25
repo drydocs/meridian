@@ -19,7 +19,7 @@ export function Toasts() {
 
   return (
     <div
-      className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-72"
+      className="app-toast-region fixed z-50 flex max-h-[calc(100dvh-2rem)] flex-col gap-2 overflow-y-auto"
       role="status"
       aria-live="polite"
       aria-relevant="additions"
@@ -46,7 +46,7 @@ export function Toasts() {
           <span className="flex-1 leading-snug">{toast.message}</span>
           <button
             onClick={() => dismiss(toast.id)}
-            className="shrink-0 opacity-50 hover:opacity-100 transition-opacity duration-100 text-xs"
+            className="-mr-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center opacity-50 hover:opacity-100 transition-opacity duration-100 text-xs"
             aria-label={t("toasts.dismiss", { kind: toast.kind })}
           >
             <span aria-hidden="true">✕</span>

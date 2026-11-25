@@ -109,7 +109,7 @@ export function WithdrawTab({
               type="button"
               data-testid="vault-withdraw-cancel"
               onClick={onCancel}
-              className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium py-2.5 transition-colors duration-150"
+              className="w-full min-h-11 rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium py-2.5 transition-colors duration-150"
             >
               {t("common.cancel")}
             </button>

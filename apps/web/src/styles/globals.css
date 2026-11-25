@@ -17,3 +17,38 @@ html,
 body {
   overflow-x: hidden;
 }
+
+/* Mobile-first app shell (#1428): dynamic viewport height avoids the
+   100vh jump on mobile browser chrome, and the gutters respect notches /
+   rounded corners on notched Android and iOS devices. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+.app-gutter {
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+
+.app-bottom-gutter {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+}
+
+.app-toast-region {
+  top: max(1rem, env(safe-area-inset-top));
+  left: max(1rem, env(safe-area-inset-left));
+  right: max(1rem, env(safe-area-inset-right));
+}
+
+@media (min-width: 640px) {
+  .app-toast-region {
+    left: auto;
+    right: max(1rem, env(safe-area-inset-right));
+    width: 18rem;
+  }
+}
