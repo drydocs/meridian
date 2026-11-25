@@ -46,6 +46,27 @@ Also confirm before building: `CONTRACT_ADDRESSES.mainnet` and `KNOWN_POOLS.main
 6. Run the exact same verification chain as "Verifying the deployment" in the testnet doc (`get_total_assets` returns `0`, `get_adapter` → `get_pool`/`get_protocol` resolve) before treating the deployment as live. A `HostError: Error(WasmVm, MissingValue)` here means the same thing it means on testnet: you're pointed at a stale build.
 7. Run `pnpm verify:contracts -- --live`, then confirm the deployed bytecode against a from-source CI rebuild, the same way and for the same reason as "A note on reproducible builds" in the testnet doc. This matters more on mainnet, not less, since a locally-built WASM that silently drifted from source is now backing real funds.
 
+## Reproducible builds and the verified hash manifest
+
+[#1421](https://github.com/drydocs/meridian/issues/1421). A deploy is only as trustworthy as the WASM it uploads, and `stellar contract build` is not byte-reproducible across toolchain versions (see "A note on reproducible builds" in the testnet doc). Two things close that gap:
+
+- `pnpm check:reproducible-build` builds every `meridian_*.wasm` contract twice in isolated `CARGO_TARGET_DIR`s with the pinned toolchain, fails on any SHA-256 mismatch, and writes `packages/contracts/build-manifest.json`. The manifest records the `stellar-cli`, `rustc`, `cargo`, and `soroban-sdk` versions plus each artifact's hash. It requires the pinned `stellar` CLI (the version in `deployed-contracts.json`) on `PATH`, and refuses to run with a different one; CI installs that version before running the check.
+- `scripts/lib/deploy-vault-stack.sh` verifies every WASM it is about to upload against that manifest and aborts if a hash is missing or different. This applies whether the script built the WASM itself or `SKIP_BUILD` was set, so an artifact built on a different machine is only accepted if it matches the double-built hash for this exact commit.
+
+The manifest is not committed (it describes one build of one commit). Obtain it one of two ways before deploying:
+
+```bash
+# Option A: generate it locally on a clean checkout of the deploy commit.
+pnpm install --frozen-lockfile
+pnpm check:reproducible-build
+
+# Option B: download the CI artifact from the successful run for that commit
+# (GitHub -> Actions -> CI -> contract-build-manifest), then:
+#   packages/contracts/build-manifest.json
+```
+
+`SKIP_BUILD` still requires the manifest: dropping a WASM from a genuine Linux CI build into `packages/contracts/target/wasm32v1-none/release` works only if its hash matches the manifest recorded for this commit. If the deploy aborts with "not in the verified build manifest", either regenerate the manifest with the same toolchain the artifact was built with, or rebuild and deploy the verified artifact instead of the stale one.
+
 ## Updating the app to use the new deployment
 
 Same two files as testnet, mainnet keys instead of testnet keys:

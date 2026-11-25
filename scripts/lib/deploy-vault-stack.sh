@@ -44,6 +44,12 @@
 #                          elsewhere (e.g. downloaded from a genuine Linux CI
 #                          build) without this script's own build silently
 #                          overwriting it with a locally-built one first.
+#                          SKIP_BUILD does not skip verification: whether this
+#                          script built the WASM or a caller dropped it in,
+#                          every artifact must match the hashes in
+#                          packages/contracts/build-manifest.json (see
+#                          scripts/reproducible-build.mjs and #1421) or the
+#                          deploy aborts before uploading anything.
 #
 # After sourcing, call deploy_vault_stack. It sets VAULT_ID, BLEND_ADAPTER_ID,
 # MUSDC_ID, and VAULT_INITIALIZED (1 if the vault itself was deployed this
@@ -171,6 +177,20 @@ deploy_vault_stack() {
   local wasm_vault="$wasm_dir/meridian_vault.wasm"
   local wasm_blend_adapter="$wasm_dir/meridian_blend_adapter.wasm"
   local wasm_musdc_token="$wasm_dir/meridian_musdc_token.wasm"
+
+  # Refuse to upload anything that is not recorded in the verified
+  # reproducible-build manifest (#1421). This is what makes SKIP_BUILD safe:
+  # a WASM dropped in from elsewhere is accepted only if its SHA-256 matches
+  # the hash a double build of this exact commit produced. The script already
+  # cd'd into packages/contracts, so these paths resolve against it.
+  if ! node "$repo_root/scripts/reproducible-build.mjs" --verify \
+    "$wasm_vault" "$wasm_blend_adapter" "$wasm_musdc_token"; then
+    echo "ERROR: refusing to deploy WASM that is not in the verified build manifest." >&2
+    echo "Run 'pnpm check:reproducible-build', or download the" >&2
+    echo "contract-build-manifest CI artifact into" >&2
+    echo "packages/contracts/build-manifest.json, before deploying (#1421)." >&2
+    return 1
+  fi
 
   echo "Uploading vault WASM..."
   local vault_hash
