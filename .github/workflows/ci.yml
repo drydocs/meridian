@@ -180,7 +180,9 @@ jobs:
         if: needs.changes.outputs.strategies == 'true'
         run: |
           pnpm exec turbo run build --filter=@meridian/strategies...
-          summary="$(pnpm --filter @meridian/strategies --silent example)"
+          # pnpm prints a `> package script` banner before the script output, so
+          # keep only the JSON object the example writes.
+          summary="$(pnpm --filter @meridian/strategies example | sed -n '/^{/,$p')"
           printf '%s\n' "$summary"
           node -e '
             const s = JSON.parse(process.argv[1]);
