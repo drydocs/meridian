@@ -233,6 +233,13 @@ describe("QuoteRequestSchema", () => {
 });
 
 describe("formatZodError", () => {
+  it("falls back to a generic message when no field has an error", () => {
+    const result = SubmitRequestSchema.safeParse("not an object");
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(formatZodError(result.error)).toBe("Invalid request");
+  });
+
   it("joins multiple field errors into a single semicolon-separated string", () => {
     const result = DepositRequestSchema.safeParse({});
     expect(result.success).toBe(false);
