@@ -69,6 +69,11 @@ export default defineConfig({
           { text: "Frontend", link: "/architecture/frontend" },
           { text: "API Layer", link: "/architecture/api" },
           { text: "Vault Contract", link: "/architecture/vault-contract" },
+          {
+            text: "Contract Storage and TTL",
+            link: "/architecture/contract-storage",
+          },
+          { text: "Contract Errors", link: "/architecture/contract-errors" },
           { text: "Signing Flow", link: "/architecture/signing-flow" },
           { text: "Architecture Decision Records", link: "/architecture/adr/" },
         ],
@@ -107,6 +112,10 @@ export default defineConfig({
         text: "Operations",
         items: [
           { text: "Local Development", link: "/operations/local-development" },
+          {
+            text: "Contract Storage and TTL",
+            link: "/architecture/contract-storage",
+          },
           {
             text: "Testnet Deployment",
             link: "/operations/testnet-deployment",

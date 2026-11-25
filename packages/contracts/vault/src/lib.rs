@@ -6,7 +6,7 @@ mod storage;
 
 pub use errors::ContractError;
 pub use storage::{
-    clear_position_records, DataKey, MigrationSnapshot, ADAPTER, ADMIN, ADPT_SH,
+    clear_position_records, DataKey, MigrationSnapshot, PositionSummary, ADAPTER, ADMIN, ADPT_SH,
     DEPOSIT_VALUE_TOLERANCE_BPS, DEPOSIT_VALUE_TOLERANCE_STROOPS, LOCKED, MAX_ADMIN_SLIPPAGE_BPS,
     MIG_ACTIVE, MIG_SNAP, MIN_LEDGER_GAP, MUSDC, OFFSET, PAUSED, PEND_ADM, TOTAL_SH, TREASURY,
     USDC,
@@ -157,6 +157,29 @@ pub struct WithdrawPreview {
     pub treasury_shares: i128,
     /// USDC the caller receives, exactly what `withdraw` returns.
     pub assets_out: i128,
+}
+
+/// Snapshot of the vault's configuration and totals returned by
+/// [`MeridianVault::get_config`] in a single read.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VaultConfig {
+    /// Current admin address.
+    pub admin: Address,
+    /// Pending admin nominee from `transfer_admin`, if any.
+    pub pending_admin: Option<Address>,
+    /// Active yield adapter address.
+    pub adapter: Address,
+    /// Whether deposits are currently paused.
+    pub paused: bool,
+    /// Constructor-fixed performance-fee treasury address.
+    pub treasury: Address,
+    /// Immutable performance fee compiled into this vault, in basis points.
+    pub performance_fee_bps: i128,
+    /// Total mUSDC shares outstanding.
+    pub total_shares: i128,
+    /// Total USDC value managed by the vault as reported by the adapter.
+    pub total_assets: i128,
 }
 
 /// Read-only reconciliation state for the vault and its active adapter.
@@ -1064,6 +1087,33 @@ impl MeridianVault {
         env.storage().persistent().get(&key).unwrap_or(0)
     }
 
+    /// Returns an aggregate summary of an address's position (shares, principal,
+    /// entry time, and current asset value) at a consistent ledger snapshot.
+    ///
+    /// If the address holds no shares, returns zeroed values without trapping.
+    pub fn get_position_summary(env: Env, address: Address) -> PositionSummary {
+        let shares = Self::get_position(env.clone(), address.clone());
+        if shares <= 0 {
+            return PositionSummary {
+                shares: 0,
+                principal: 0,
+                entry_time: 0,
+                current_value: 0,
+            };
+        }
+
+        let principal = Self::get_principal(env.clone(), address.clone());
+        let entry_time = Self::get_entry_time(env.clone(), address.clone());
+        let current_value = Self::convert_to_assets(env, shares).unwrap_or(0);
+
+        PositionSummary {
+            shares,
+            principal,
+            entry_time,
+            current_value,
+        }
+    }
+
     /// Permissionless entry point that extends the TTL of instance storage
     /// and the position records for `address`. Anyone can call it, so
     /// off-chain keepers or the user themselves can keep a position alive
@@ -1155,6 +1205,31 @@ impl MeridianVault {
     /// Returns the fee compiled into this vault deployment, in basis points.
     pub fn get_performance_fee_bps(_env: Env) -> i128 {
         PERFORMANCE_FEE_BPS
+    }
+
+    /// Returns a consistent snapshot of the vault's configuration and totals
+    /// in a single read. Fails with `NotInitialized` if the vault has not been
+    /// initialized.
+    pub fn get_config(env: Env) -> Result<VaultConfig, ContractError> {
+        let admin = Self::get_admin(env.clone())?;
+        let pending_admin = Self::get_pending_admin(env.clone());
+        let adapter = Self::get_adapter(env.clone())?;
+        let paused = Self::is_paused(env.clone());
+        let treasury = Self::get_treasury(env.clone())?;
+        let performance_fee_bps = Self::get_performance_fee_bps(env.clone());
+        let total_shares = Self::get_total_shares(env.clone());
+        let total_assets = AdapterClient::new(&env, &adapter).total_assets();
+
+        Ok(VaultConfig {
+            admin,
+            pending_admin,
+            adapter,
+            paused,
+            treasury,
+            performance_fee_bps,
+            total_shares,
+            total_assets,
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -4705,6 +4780,78 @@ mod tests {
     }
 
     #[test]
+    fn get_config_fails_before_initialize() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let vault_id = register_uninitialized_vault(&env);
+        let vault = MeridianVaultClient::new(&env, &vault_id);
+        let result = vault.try_get_config();
+        assert_eq!(result, Err(Ok(ContractError::NotInitialized)));
+    }
+
+    #[test]
+    fn get_config_returns_fresh_vault_snapshot() {
+        let (_env, admin, user, _usdc, _musdc, adapter, vault) = setup();
+
+        let config = vault.get_config();
+        assert_eq!(
+            config,
+            VaultConfig {
+                admin: admin.clone(),
+                pending_admin: None,
+                adapter: adapter.clone(),
+                paused: false,
+                treasury: admin.clone(),
+                performance_fee_bps: PERFORMANCE_FEE_BPS,
+                total_shares: 0,
+                total_assets: 0,
+            }
+        );
+
+        let deposit_amount = 250_0000000_i128;
+        let shares = vault.deposit(&user, &deposit_amount, &0);
+        let after_deposit = vault.get_config();
+        assert_eq!(after_deposit.total_shares, shares);
+        assert_eq!(after_deposit.total_assets, deposit_amount);
+        assert_eq!(after_deposit.admin, admin);
+        assert_eq!(after_deposit.pending_admin, None);
+        assert_eq!(after_deposit.adapter, adapter);
+        assert!(!after_deposit.paused);
+        assert_eq!(after_deposit.treasury, admin);
+        assert_eq!(after_deposit.performance_fee_bps, PERFORMANCE_FEE_BPS);
+    }
+
+    #[test]
+    fn get_config_reflects_paused_state() {
+        let (_env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+
+        assert!(!vault.get_config().paused);
+        vault.set_paused(&true);
+        assert!(vault.get_config().paused);
+        vault.set_paused(&false);
+        assert!(!vault.get_config().paused);
+    }
+
+    #[test]
+    fn get_config_reflects_pending_admin() {
+        let (env, admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let nominee = Address::generate(&env);
+
+        assert_eq!(vault.get_config().admin, admin);
+        assert_eq!(vault.get_config().pending_admin, None);
+
+        vault.transfer_admin(&nominee);
+        let during_handover = vault.get_config();
+        assert_eq!(during_handover.admin, admin);
+        assert_eq!(during_handover.pending_admin, Some(nominee.clone()));
+
+        vault.accept_admin();
+        let after_handover = vault.get_config();
+        assert_eq!(after_handover.admin, nominee);
+        assert_eq!(after_handover.pending_admin, None);
+    }
+
+    #[test]
     fn set_paused_fails_before_initialize() {
         let env = Env::default();
         env.mock_all_auths();
@@ -7029,6 +7176,87 @@ mod tests {
             assert_every_reentry_rejected(&r, &r.usdc, "migrate/usdc", attack);
             assert_migrated(&r, &new_adapter);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Aggregate position summary tests (#1341)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn position_summary_on_empty_position_returns_zeroed_values() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let empty_user = Address::generate(&env);
+
+        let summary = vault.get_position_summary(&empty_user);
+        assert_eq!(
+            summary,
+            PositionSummary {
+                shares: 0,
+                principal: 0,
+                entry_time: 0,
+                current_value: 0,
+            }
+        );
+
+        // Verify existing getters remain unchanged
+        assert_eq!(vault.get_position(&empty_user), 0);
+        assert_eq!(vault.get_principal(&empty_user), 0);
+        assert_eq!(vault.get_entry_time(&empty_user), 0);
+    }
+
+    #[test]
+    fn position_summary_on_fresh_position() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        let amount = 100_0000000_i128; // 100 USDC
+
+        let expected_time = env.ledger().timestamp();
+        let shares = vault.deposit(&user, &amount, &0);
+
+        let summary = vault.get_position_summary(&user);
+        assert_eq!(summary.shares, shares);
+        assert_eq!(summary.principal, amount);
+        assert_eq!(summary.entry_time, expected_time);
+        assert_eq!(summary.current_value, amount);
+
+        // Existing single-field getters match
+        assert_eq!(vault.get_position(&user), summary.shares);
+        assert_eq!(vault.get_principal(&user), summary.principal);
+        assert_eq!(vault.get_entry_time(&user), summary.entry_time);
+    }
+
+    #[test]
+    fn position_summary_on_earning_position() {
+        let (env, _admin, user, usdc, _musdc, adapter, vault) = setup();
+        let amount = 100_0000000_i128; // 100 USDC
+
+        let shares = vault.deposit(&user, &amount, &0);
+        let fresh_summary = vault.get_position_summary(&user);
+        assert_eq!(fresh_summary.current_value, amount);
+
+        // Simulate 20 USDC yield arriving at adapter
+        let yield_amount = 20_0000000_i128;
+        StellarAssetClient::new(&env, &usdc).mint(&adapter, &yield_amount);
+
+        let earning_summary = vault.get_position_summary(&user);
+        assert_eq!(earning_summary.shares, shares);
+        assert_eq!(earning_summary.principal, amount);
+        assert_eq!(earning_summary.entry_time, fresh_summary.entry_time);
+        // Current value should reflect the yield
+        assert!(earning_summary.current_value > amount);
+        assert_eq!(earning_summary.current_value, amount + yield_amount);
+
+        // Full exit resets summary to zero
+        vault.withdraw(&user, &shares, &0);
+        let exited_summary = vault.get_position_summary(&user);
+        assert_eq!(
+            exited_summary,
+            PositionSummary {
+                shares: 0,
+                principal: 0,
+                entry_time: 0,
+                current_value: 0,
+            }
+        );
     }
 
     #[test]
