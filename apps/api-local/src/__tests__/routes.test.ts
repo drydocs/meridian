@@ -85,6 +85,7 @@ import {
   buildDepositTx,
   buildWithdrawTx,
   buildAddTrustlineTx,
+  quoteVaultAction,
   submitTx,
   fetchAllVaults,
   selectBestVault,
@@ -518,6 +519,64 @@ describe("POST /api/v1/tx/submit", () => {
     });
     expect(res.statusCode).toBe(500);
     expect(res.json()).toHaveProperty("error");
+  });
+});
+
+describe("POST /api/v1/tx/quote", () => {
+  const body = {
+    action: "deposit",
+    walletAddress: WALLET,
+    vaultId: "blend-usdc-fixed",
+    amount: "10",
+  };
+
+  it("returns 200 with the quote from the SDK", async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/tx/quote",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      action: "deposit",
+      recommendedMinimum: "9.9",
+    });
+  });
+
+  it("returns 400 when a deposit quote has no amount", async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/tx/quote",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...body, amount: undefined }),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toHaveProperty("error");
+  });
+
+  it("returns 500 and hides the cause when the quote simulation fails", async () => {
+    const app = buildApp();
+    vi.mocked(quoteVaultAction).mockRejectedValueOnce(new Error("rpc down"));
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/tx/quote",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toEqual({
+      error: "Failed to simulate transaction quote",
+    });
+  });
+
+  it("rejects GET with 405", async () => {
+    const app = buildApp();
+    const res = await app.inject({ method: "GET", url: "/api/v1/tx/quote" });
+    expect(res.statusCode).toBe(405);
+    expect(res.headers.allow).toBe("POST");
   });
 });
 
