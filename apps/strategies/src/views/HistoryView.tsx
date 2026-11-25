@@ -96,7 +96,7 @@ export function HistoryView({
                       {record.scenario.strategy.version}
                     </h3>
                     <p className="history-run__window">
-                      {record.scenario.window.start} –{" "}
+                      {record.scenario.window.start} to{" "}
                       {record.scenario.window.end}
                     </p>
                     <p className="history-run__time">

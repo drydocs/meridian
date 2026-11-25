@@ -45,7 +45,7 @@ export function ComparisonView({
             <article className="comparison-run" key={record.id}>
               <h3>{record.scenario.strategy.id}</h3>
               <p>
-                {record.scenario.window.start} – {record.scenario.window.end}
+                {record.scenario.window.start} to {record.scenario.window.end}
               </p>
               <dl>
                 <div>
