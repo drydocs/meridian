@@ -92,7 +92,7 @@ describe("handleGetPositionHistory", () => {
 
   it("returns bounded pages with a stable cursor", async () => {
     const hour = 60 * 60 * 1000;
-    vi.mocked(getPositionHistory).mockResolvedValueOnce([
+    vi.mocked(getPositionHistory).mockResolvedValue([
       { timestamp: hour, totalValue: 1, totalEarned: 0, vaults: [] },
       { timestamp: 2 * hour, totalValue: 2, totalEarned: 1, vaults: [] },
       { timestamp: 3 * hour, totalValue: 3, totalEarned: 2, vaults: [] },
@@ -130,11 +130,11 @@ describe("bucketPositionSnapshots", () => {
     const buckets = bucketPositionSnapshots(snapshots, "hour");
 
     expect(buckets).toHaveLength(1);
-    expect(buckets[0].totalValue).toBe(12);
+    expect(buckets[0]!.totalValue).toBe(12);
     expect(buckets[0]).not.toHaveProperty("first");
     expect(buckets[0]).not.toHaveProperty("last");
-    expect(buckets[0].min.totalValue).toBe(4);
-    expect(buckets[0].max.totalValue).toBe(12);
+    expect(buckets[0]!.min.totalValue).toBe(4);
+    expect(buckets[0]!.max.totalValue).toBe(12);
   });
 
   it("creates stable UTC day buckets", () => {
@@ -149,6 +149,6 @@ describe("bucketPositionSnapshots", () => {
     );
 
     expect(buckets).toHaveLength(2);
-    expect(buckets[0].timestamp).toBe(day);
+    expect(buckets[0]!.timestamp).toBe(day);
   });
 });
