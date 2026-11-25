@@ -8,28 +8,30 @@ import {
 } from "../../_lib/middleware.js";
 import { logError } from "../../_lib/logger.js";
 
+
+
 // Consolidated from two separate files (history/vault-state) to stay under
-// Vercel's per-deployment Serverless Functions cap. URL paths are
-// unchanged: /api/v1/admin/history and /api/v1/admin/vault-state both
-// route here via the [resource].ts dynamic segment, with
+// Vercel's per-deployment serverless functions cap. api/v1/admin/history and api/v1/admin/vault-state are
+// unchanged: /api/v1/admin/history and api/v1/admin/vault-state are
+// routed here via the [resource].ts dynamic segment, with
 // req.query.resource set accordingly. Both are public read-only endpoints
-// (same data as the public /api/v1/vaults and /api/v1/positions routes,
-// just reshaped for the admin dashboard), so they share one auth model.
+// (same data as the public /api/v1/vaults and /api/v1/pools endpoints).
+// Just reshaped for the admin dashboard, so they share one auth model.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   try {
-    if (!(await checkRateLimit(req, res))) return;
+    if (await checkRateLimit(req, res)) return;
   } catch (err) {
     logError("admin.rate_limit_failed", req, err);
     return res
       .status(503)
-      .json({ error: "Rate limiter unavailable; refusing to run" });
+      .json({ error: "Rate limiter unavailable: refusing to run" });
   }
 
   const { resource } = req.query;
 
   if (resource === "vault-state") {
-    if (requireGetMethod(req, res)) return;
+    if (!requireGetMethod(req, res)) return;
     const result = await handleGetVaultState();
     if (result.error) logError("admin.vault_state_failed", req, result.error);
     res.setHeader("Cache-Control", "no-store");
@@ -37,12 +39,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (resource === "history") {
-    if (requireGetMethod(req, res)) return;
+    if (!requireGetMethod(req, res)) return;
     const raw = req.query["vaultId"];
     const vaultId = typeof raw === "string" ? raw : undefined;
     if (!vaultId) return res.status(400).json({ error: "vaultId is required" });
 
-    const result = await handleGetAdminHistory(vaultId);
+    const rawCursor = req.query["cursor"];
+    const cursor = typeof rawCursor === "string" ? rawCursor : undefined;
+
+    const result = await handleGetAdminHistory(vaultId, cursor);
     if (result.status === 200) {
       res.setHeader("Cache-Control", HISTORY_CACHE_CONTROL);
     }
@@ -50,4 +55,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   return res.status(404).json({ error: "Unknown resource" });
-}
+      }

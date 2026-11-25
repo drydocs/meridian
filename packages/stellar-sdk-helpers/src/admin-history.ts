@@ -135,45 +135,70 @@ export function summarizeAction(
  * `set_adapter`, `migrate_adapter`, `transfer_admin`, and `accept_admin`
  * call made against the vault.
  */
-export interface GetAdminActionHistoryOptions {
+ export interface GetAdminActionHistoryOptions {
   limit?: number;
   maxPages?: number;
-  /**
-   * Timeout for a single Horizon page request. Defaults to 10 s.
-   *
-   * This bounds one page, not the whole scan: a scan of N pages can take up to
-   * N x pageTimeoutMs, with `maxPages` (default 20) as the outer bound. Named
-   * explicitly so it cannot be confused with a whole-scan budget.
-   */
   pageTimeoutMs?: number;
-  /**
-   * Wall-clock budget for the whole scan, shared by every page request.
-   * Horizon cannot filter by contract, so a scan that finds few matches would
-   * otherwise keep paging until `maxPages`. Unbounded when omitted.
-   */
   scanTimeoutMs?: number;
+  cursor?: string | null;
 }
 
-// Matches the other HTTP call sites in this package (keeper-state.ts,
-// position-snapshots.ts, rate-sources.ts): without a bound, one hung Horizon
-// request stalls the whole paged scan instead of failing fast.
+export type GetAdminActionHistoryResult = {
+  actions: AdminAction[];
+  nextCursor: string | null;
+};
+
 const DEFAULT_HORIZON_PAGE_TIMEOUT_MS = 10_000;
+
+/**
+ * Opaque cursor: base64 of { p: Horizon paging_token }.
+ * Horizon paging_token already encodes ledger + operation position,
+ * we just wrap it so clients can't pass raw Horizon tokens
+ * and malformed values can be rejected with 400.
+ */
+export function encodeAdminHistoryCursor(pagingToken: string): string {
+  return Buffer.from(JSON.stringify({ p: pagingToken }), "utf8").toString("base64");
+}
+
+export function decodeAdminHistoryCursor(cursor: string): string {
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8")) as unknown;
+    if (
+      typeof decoded !== "object" ||
+      decoded === null ||
+      typeof (decoded as { p?: unknown }).p !== "string" ||
+      (decoded as { p: string }).p.length === 0
+    ) {
+      throw new Error("Invalid cursor");
+    }
+    return (decoded as { p: string }).p;
+  } catch {
+    throw new Error("Invalid cursor");
+  }
+}
 
 export async function getAdminActionHistory(
   network: StellarNetwork,
   vaultContractId: string,
   options: GetAdminActionHistoryOptions = {}
-): Promise<AdminAction[]> {
-  const { limit = 50, maxPages = 20, pageTimeoutMs, scanTimeoutMs } = options;
+): Promise<GetAdminActionHistoryResult> {
+  const {
+    limit = 50,
+    maxPages = 20,
+    pageTimeoutMs,
+    scanTimeoutMs,
+    cursor: initialCursor,
+  } = options;
   const pageTimeout = pageTimeoutMs ?? DEFAULT_HORIZON_PAGE_TIMEOUT_MS;
-  const { baseUrl } = buildHorizonServer(network.network);
+  const baseUrl = buildHorizonServer(network.network).baseUrl;
   const scanSignal =
-    scanTimeoutMs === undefined
-      ? undefined
-      : AbortSignal.timeout(scanTimeoutMs);
+    scanTimeoutMs === undefined ? undefined : AbortSignal.timeout(scanTimeoutMs);
   const actions: AdminAction[] = [];
-  let cursor: string | undefined;
+  // Validate upfront: malformed cursor must fail fast, not scan Horizon.
+  let cursor: string | undefined =
+    initialCursor == null ? undefined : decodeAdminHistoryCursor(initialCursor);
   let pages = 0;
+  let lastPagingToken: string | undefined;
 
   while (actions.length < limit && pages < maxPages) {
     const url = new URL("/operations", baseUrl);
@@ -183,16 +208,9 @@ export async function getAdminActionHistory(
     if (cursor) url.searchParams.set("cursor", cursor);
 
     const pageSignal = AbortSignal.timeout(pageTimeout);
-    const signal = scanSignal
-      ? AbortSignal.any([scanSignal, pageSignal])
-      : pageSignal;
+    const signal = scanSignal ? AbortSignal.any([scanSignal, pageSignal]) : pageSignal;
     const response = await withRaceTimeout(
-      () =>
-        fetch(url.toString(), {
-          // Belt and braces with the race below: this also frees the socket
-          // rather than leaving a hung request running past the loop.
-          signal,
-        }),
+      () => fetch(url.toString(), { signal }),
       pageTimeout,
       "Horizon operations"
     );
@@ -217,20 +235,16 @@ export async function getAdminActionHistory(
     const records = data._embedded?.records ?? [];
     for (const record of records) {
       if (actions.length >= limit) break;
-
       const params = record.parameters ?? [];
       if (params.length < 2) continue;
-
       const contractParam = decodeScVal(params[0]!.value);
       const functionParam = decodeScVal(params[1]!.value);
-
       if (
         contractParam?.switchName === "scvAddress" &&
         functionParam?.switchName === "scvSymbol"
       ) {
         const contractId = contractParam.value as string;
         const functionName = functionParam.value as string;
-
         if (
           contractId.toLowerCase() === vaultContractId.toLowerCase() &&
           ADMIN_FUNCTIONS.has(functionName as AdminActionType)
@@ -239,35 +253,40 @@ export async function getAdminActionHistory(
             const decoded = decodeScVal(p.value);
             return { type: p.type, value: decoded?.value ?? p.value };
           });
-
           actions.push({
             id: record.id,
             type: functionName as AdminActionType,
             timestamp: record.created_at,
             transactionHash: record.transaction_hash,
             sourceAccount: record.source_account,
-            summary: summarizeAction(
-              functionName as AdminActionType,
-              decodedParams
-            ),
-            details: {
-              contractId,
-              functionName,
-              parameters: decodedParams,
-            },
+            summary: summarizeAction(functionName as AdminActionType, decodedParams),
+            details: { contractId, functionName, parameters: decodedParams },
           });
+          lastPagingToken = record.paging_token;
         }
       }
     }
 
     pages++;
     const nextLink = data._links?.next?.href;
-    if (!nextLink) break;
+    if (!nextLink) {
+      cursor = undefined;
+      break;
+    }
     const nextUrl = new URL(nextLink, baseUrl);
     cursor = nextUrl.searchParams.get("cursor") ?? undefined;
+    if (actions.length >= limit) break;
   }
 
-  return actions;
+    // Only return a cursor if there may be more pages.
+  const nextCursor =
+    actions.length >= limit && cursor
+      ? encodeAdminHistoryCursor(cursor)
+      : lastPagingToken && pages >= maxPages
+        ? encodeAdminHistoryCursor(lastPagingToken)
+        : null;
+
+  return { actions, nextCursor };
 }
 
 /* ───────────────────────────────────────────────────────────────────────────

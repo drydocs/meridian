@@ -1,19 +1,21 @@
 import type { RouteResult } from "./types";
 import { getAdminActionHistory } from "@meridian/stellar-sdk-helpers";
+import type { GetAdminActionHistoryResult } from "@meridian/stellar-sdk-helpers";
 import { APP_NETWORK } from "@meridian/shared";
 import { KNOWN_POOLS } from "@meridian/stellar-sdk-helpers";
 import { deadlineResult, withUpstreamDeadline } from "./deadline";
 
-// Horizon cannot filter invoke_host_function operations by contract, so every
-// page is network-wide (200 operations) and filtered only after download.
-// Keep the cold-path scan small and time-boxed so one request cannot fan out
-// into thousands of operations; the budget sits under the function's
-// maxDuration in vercel.json.
+// Meridian cannot filter onchain host function operations by contract, so every
+// page is read then deduplicated and filtered until the timeout or the max
+// number of pages is reached. If a vault has lots of admin history, this can
+// take a while, so keep the budget within the function's timeout.
+// Keep admin history reads well under Vercel's serverless timeout.
 const ADMIN_HISTORY_MAX_PAGES = 5;
 const ADMIN_HISTORY_TIMEOUT_MS = 8_000;
 
 export async function handleGetAdminHistory(
-  vaultId: string
+  vaultId: string,
+  cursor?: string,
 ): Promise<RouteResult> {
   try {
     const pools =
@@ -29,26 +31,35 @@ export async function handleGetAdminHistory(
       };
     }
 
-    const actions = await withUpstreamDeadline(
+    const result = (await withUpstreamDeadline(
       () =>
         getAdminActionHistory(APP_NETWORK, contractId, {
           limit: 50,
           maxPages: ADMIN_HISTORY_MAX_PAGES,
           scanTimeoutMs: ADMIN_HISTORY_TIMEOUT_MS,
+          cursor: cursor ?? null,
         }),
-      "admin history"
-    );
-
+      "admin history",
+    )) as GetAdminActionHistoryResult;
     return {
       status: 200,
       body: {
         vaultId,
         contractId,
-        actions,
+        actions: result.actions,
+        nextCursor: result.nextCursor ?? null,
         updatedAt: new Date().toISOString(),
       },
     };
   } catch (err) {
+    // Malformed opaque cursor is a client error, not a 500.
+    // The helper throws Error("Invalid cursor") before any Horizon call.
+    if (err instanceof Error && err.message === "Invalid cursor") {
+      return {
+        status: 400,
+        body: { error: "Invalid cursor", vaultId },
+      };
+    }
     return {
       ...deadlineResult(err, "Failed to fetch admin history"),
     };
