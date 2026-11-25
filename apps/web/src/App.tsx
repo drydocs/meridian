@@ -97,7 +97,7 @@ function Dashboard() {
           <span className="font-extrabold text-lg tracking-tight text-paper">
             {t("header.title")}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             <WalletConnect />
             <button
               onClick={toggleLanguage}
