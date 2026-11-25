@@ -52,24 +52,44 @@ describe("local Fastify security headers", () => {
     }
   });
 
-  it("answers a CORS preflight for the allowed origin like the deployed handlers", async () => {
-    const server = await build();
+  describe("CORS preflight for the allowed origin", () => {
+    async function preflight() {
+      const server = await build();
+      return server.inject({
+        method: "OPTIONS",
+        url: "/api/v1/vaults",
+        headers: {
+          origin: DEFAULT_ALLOWED_ORIGIN,
+          "access-control-request-method": "GET",
+        },
+      });
+    }
 
-    const res = await server.inject({
-      method: "OPTIONS",
-      url: "/api/v1/vaults",
-      headers: {
-        origin: DEFAULT_ALLOWED_ORIGIN,
-        "access-control-request-method": "GET",
-      },
+    it("answers with 204", async () => {
+      expect((await preflight()).statusCode).toBe(204);
     });
 
-    expect(res.statusCode).toBe(204);
-    expect(res.headers["access-control-allow-origin"]).toBe(
-      DEFAULT_ALLOWED_ORIGIN
-    );
-    expect(res.headers["access-control-allow-methods"]).toContain("POST");
-    expect(res.headers["vary"]).toContain("Origin");
-    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    it("echoes the allowed origin", async () => {
+      expect((await preflight()).headers["access-control-allow-origin"]).toBe(
+        DEFAULT_ALLOWED_ORIGIN
+      );
+    });
+
+    it("lists the allowed methods", async () => {
+      expect(
+        (await preflight()).headers["access-control-allow-methods"]
+      ).toContain("POST");
+    });
+
+    it("varies by origin", async () => {
+      expect((await preflight()).headers["vary"]).toContain("Origin");
+    });
+
+    it("still carries the security headers", async () => {
+      const res = await preflight();
+      for (const [name, value] of Object.entries(VERCEL_SECURITY_HEADERS)) {
+        expect(res.headers[name], name).toBe(value);
+      }
+    });
   });
 });
