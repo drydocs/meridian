@@ -14,7 +14,7 @@ import { WithdrawTab } from "./WithdrawTab";
 import { RiskDisclosureModal } from "../onboarding/RiskDisclosureModal";
 import { useTranslation } from "react-i18next";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
-import { formatApy, formatCompactUsd, parseMoneyInput } from "../../lib/format";
+import { formatApy, formatCompactUsd } from "../../lib/format";
 import { ActivityHistory } from "./ActivityHistory";
 import type { LocalActivity } from "../../store/activity";
 

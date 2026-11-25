@@ -106,8 +106,7 @@ describe("handleGetVaultState", () => {
 
       expect(result.status).toBe(200);
       expect(fetchCoordinatorState).toHaveBeenCalledWith(
-        expect.objectContaining({ contractId: "COTHER" }),
-        expect.anything()
+        expect.objectContaining({ contractId: "COTHER" })
       );
     } finally {
       Reflect.deleteProperty(pools, "temporary-meridian-eurc");
