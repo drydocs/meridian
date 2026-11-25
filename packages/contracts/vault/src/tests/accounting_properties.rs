@@ -79,6 +79,14 @@ fn check_accounting_invariants(
     }
 
     let total_shares = vault.get_total_shares();
+    // These modeled operations all go through the vault, so its diagnostic
+    // cache must also reconcile. Direct holder burns are covered separately.
+    let cached_shares = vault.get_health().total_shares;
+    if cached_shares != total_shares {
+        return Err(format!(
+            "mUSDC supply mismatch: cached {cached_shares}, live {total_shares}"
+        ));
+    }
     if summed_supply != total_shares {
         return Err(format!(
             "mUSDC supply mismatch: holder balances {summed_supply}, vault supply {total_shares}"
@@ -501,4 +509,6 @@ fn invariant_suite_detects_a_broken_supply_update() {
         check_accounting_invariants(&env, &vault, &users, &treasury, &usdc, &musdc, &adapter)
             .expect_err("the deliberately broken total-supply update must be detected");
     assert!(violation.contains("mUSDC supply mismatch"));
+    assert_eq!(vault.get_total_shares(), 100_0000000);
+    assert_eq!(vault.convert_to_assets(&100_0000000), 100_0000000);
 }

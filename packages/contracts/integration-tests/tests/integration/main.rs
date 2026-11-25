@@ -8,6 +8,7 @@
 
 mod common;
 
+mod burn;
 mod deposit_withdraw;
 mod fees;
 mod migration;

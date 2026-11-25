@@ -128,7 +128,18 @@ Returns a read-only reconciliation snapshot. `total_shares_mismatch` compares th
 
 ### `get_total_shares() -> i128`
 
-Returns total outstanding mUSDC shares.
+Returns the configured token's live `total_supply`, including direct `burn` and
+`burn_from` calls. Pricing, previews, and `get_config().total_shares` use this same
+source. A failed supply read aborts instead of falling back to `TOTAL_SH`.
+`get_health().total_shares` continues to expose that cached counter for diagnosis.
+
+### `sync_total_shares() -> i128`
+
+Admin-only, reentrancy-guarded reconciliation of `TOTAL_SH` to live token supply.
+Accepts no replacement value; returns the observed supply and emits
+`(admin, sync_sh, 1)` with `(previous, actual)` supply. Does not move funds or
+change holder records. See [mUSDC supply recovery](../operations/musdc-supply-recovery.md)
+for residual adapter assets and already-deployed immutable vaults.
 
 ### `get_adapter() -> Address`
 
@@ -330,7 +341,7 @@ USDC on Stellar uses 7 decimal places. 1 USDC = `10_000_000` stroops. All contra
 
 Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is deliberate, so a pause can never trap user funds.
 
-`deposit`, `withdraw`, `withdraw_assets`, `set_adapter`, `begin_migration`, `migrate_adapter` and `on_transfer` run under a reentrancy lock ([#1264](https://github.com/drydocs/meridian/issues/1264)). Each of them makes external calls (to the adapter, to USDC or mUSDC), or is reached from one, and so could be called back into while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or the migration state is not final. While the lock is held, a second guarded call returns `ReentrancyDetected` and changes nothing. The lock is released on both success and failure. This is defense in depth: the Soroban host already refuses to re-enter a contract that is on the call stack, and the lock keeps the vault safe if that ever changes. `deposit` also writes the caller's position records, and `TOTAL_SH` at the pre-deposit quote (the most the deposit can mint), before its external calls, then reconciles `TOTAL_SH` and `ADPT_SH` from the adapter's post-deposit reads before the mUSDC mint; `withdraw` and `migrate_adapter` cannot write ahead, because what they write depends on what those calls return.
+`deposit`, `withdraw`, `withdraw_assets`, `set_adapter`, `begin_migration`, `migrate_adapter`, `sync_total_shares` and `on_transfer` run under a reentrancy lock ([#1264](https://github.com/drydocs/meridian/issues/1264)). Each of them makes external calls (to the adapter, to USDC or mUSDC), or is reached from one, and so could be called back into while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or the migration state is not final. While the lock is held, a second guarded call returns `ReentrancyDetected` and changes nothing. The lock is released on both success and failure. This is defense in depth: the Soroban host already refuses to re-enter a contract that is on the call stack, and the lock keeps the vault safe if that ever changes. `deposit` also writes the caller's position records, and `TOTAL_SH` at the pre-deposit quote (the most the deposit can mint), before its external calls, then reconciles `TOTAL_SH` and `ADPT_SH` from the adapter's post-deposit reads before the mUSDC mint; `withdraw` and `migrate_adapter` cannot write ahead, because what they write depends on what those calls return.
 
 ## Error codes
 
@@ -386,7 +397,7 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `MUSDC`              | Instance     | mUSDC contract `Address`                                                                                                                                                         |
 | `ADAPTER`            | Instance     | Active adapter contract `Address`                                                                                                                                                |
 | `TREASURY`           | Instance     | Constructor-fixed performance-fee recipient `Address`; no admin setter                                                                                                           |
-| `TOTAL_SH`           | Instance     | Total mUSDC shares outstanding (`i128`)                                                                                                                                          |
+| `TOTAL_SH`           | Instance     | Diagnostic mUSDC supply cache (`i128`); pricing uses live token supply                                                                                                           |
 | `ADPT_SH`            | Instance     | Total adapter shares outstanding. Never reset by `set_adapter`, which requires it to already be `0`; set to the new adapter's reported share count on `migrate_adapter` (`i128`) |
 | `PAUSED`             | Instance     | Deposit pause flag (`bool`)                                                                                                                                                      |
 | `LOCKED`             | Instance     | Reentrancy lock (`bool`). Set only while a guarded entry point is executing and removed before it returns, so it is absent between calls                                         |

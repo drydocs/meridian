@@ -14,6 +14,12 @@ Use a custom SEP-41 token contract for mUSDC, not a Stellar Asset Contract
 (SAC). The token calls the vault's `on_transfer` hook after moving balances,
 allowing the vault to split principal and entry-time accounting pro rata.
 
+The token's `total_supply` is also the source of truth for vault share pricing
+and totals. Holder burns bypass vault withdrawals, so `TOTAL_SH` is retained as
+a diagnostic cache, not an authority. Admin resync reads the token instead of
+accepting a replacement value. See [supply recovery](../../operations/musdc-supply-recovery.md)
+for reconciliation and immutable-deployment cutover limits.
+
 ## Alternatives considered
 
 - Use a SAC for mUSDC. Rejected because its built-in transfer behavior cannot
