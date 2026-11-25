@@ -84,8 +84,12 @@ describe("useActivityStore", () => {
       .getState()
       .updateActivity(id, { status: "confirmed", transactionHash: "abc123" });
 
-    // Simulate a reload: drop the in-memory state, then rehydrate from storage.
+    // Simulate a reload: keep what was written to storage, drop the in-memory
+    // state (which also rewrites storage), restore the stored copy and rehydrate.
+    const stored = localStorage.getItem("meridian-local-activity");
+    expect(stored).not.toBeNull();
     useActivityStore.setState({ activities: [], latestReceipt: null });
+    localStorage.setItem("meridian-local-activity", stored!);
     expect(useActivityStore.getState().activities).toHaveLength(0);
     await useActivityStore.persist.rehydrate();
 
