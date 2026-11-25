@@ -113,6 +113,16 @@ Returns the stored position-value time series for a wallet, oldest first ([#973]
 
 **Query:** `days` (optional positive integer, default `30`, capped at the `90`-day retention window). Anything else returns `400`.
 
+Three optional parameters switch the endpoint to bucketed, paginated responses. A request that sends none of them gets the response shown below with every stored snapshot, oldest first.
+
+| Parameter    | Values                               | Meaning                                                                                                                               |
+| ------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolution` | `hour` (default) or `day`            | Bucket size in UTC. Each bucket reports the latest `totalValue`, `totalEarned` and `vaults`, plus the `min` and `max` of both totals. |
+| `limit`      | integer `1` to `1000`, default `720` | Maximum number of buckets in one page.                                                                                                |
+| `cursor`     | timestamp in milliseconds            | Return only buckets after this timestamp. Use the `nextCursor` from the previous page.                                                |
+
+A paginated response adds `resolution`, `nextCursor` (the timestamp of the last bucket in the page, or `null` when there is nothing more) and `truncated` (`true` when more buckets remain). An invalid `resolution`, `limit` or `cursor` returns `400`.
+
 **Response**
 
 ```json

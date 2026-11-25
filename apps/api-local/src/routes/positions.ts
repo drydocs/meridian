@@ -26,9 +26,20 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
 
   app.get("/:publicKey/history", async (req, reply) => {
     const { publicKey } = req.params as { publicKey: string };
-    const { days } = req.query as { days?: string };
+    const { days, resolution, limit, cursor } = req.query as {
+      days?: string;
+      resolution?: string;
+      limit?: string;
+      cursor?: string;
+    };
 
-    const result = await handleGetPositionHistory(publicKey, days);
+    const result = await handleGetPositionHistory(
+      publicKey,
+      days,
+      resolution,
+      limit,
+      cursor
+    );
     if (result.error) {
       app.log.error(result.error, "[positions] history read failed");
     }

@@ -17,12 +17,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .status(503)
       .json({ error: "Rate limiter unavailable; refusing to run" });
   }
-  const { publicKey, days } = req.query as {
+  const { publicKey, days, resolution, limit, cursor } = req.query as {
     publicKey: string;
     days?: string;
+    resolution?: string;
+    limit?: string;
+    cursor?: string;
   };
 
-  const result = await handleGetPositionHistory(publicKey, days);
+  const result = await handleGetPositionHistory(
+    publicKey,
+    days,
+    resolution,
+    limit,
+    cursor
+  );
   if (result.error) {
     logError("positions.history.failed", req, result.error);
   }
