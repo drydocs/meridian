@@ -58,6 +58,21 @@ describe("GET /api/v1/admin/vault-state", () => {
     expect(handleGetVaultState).toHaveBeenCalledTimes(1);
   });
 
+  it("passes the requested vault ID to the state reader", async () => {
+    const app = buildApp();
+    vi.mocked(handleGetVaultState).mockResolvedValue({
+      status: 200,
+      body: {},
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/vault-state?vaultId=meridian-eurc",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(handleGetVaultState).toHaveBeenCalledWith("meridian-eurc");
+  });
+
   it("returns 404 when no coordinator vault is configured", async () => {
     const app = buildApp();
     vi.mocked(handleGetVaultState).mockResolvedValue({

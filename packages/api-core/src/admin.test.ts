@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { APP_NETWORK } from "@meridian/shared";
 
 vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
   const actual =
@@ -83,6 +84,41 @@ describe("handleGetVaultState", () => {
       totalAssets: 1050,
       paused: false,
     });
+  });
+
+  it("reads the requested coordinator vault instead of the default vault", async () => {
+    const pools =
+      APP_NETWORK.network === "testnet"
+        ? KNOWN_POOLS.testnet
+        : KNOWN_POOLS.mainnet;
+    const entry = Object.values(pools).find(
+      (pool) => pool.id === "meridian-usdc"
+    );
+    if (!entry) throw new Error("expected a configured Meridian vault");
+    Reflect.set(pools, "temporary-meridian-eurc", {
+      ...entry,
+      id: "meridian-eurc",
+      contractId: "COTHER",
+    });
+
+    try {
+      const result = await handleGetVaultState("meridian-eurc");
+
+      expect(result.status).toBe(200);
+      expect(fetchCoordinatorState).toHaveBeenCalledWith(
+        expect.objectContaining({ contractId: "COTHER" }),
+        expect.anything()
+      );
+    } finally {
+      Reflect.deleteProperty(pools, "temporary-meridian-eurc");
+    }
+  });
+
+  it("returns 404 for a requested non-coordinator vault", async () => {
+    const result = await handleGetVaultState("blend-usdc-fixed");
+
+    expect(result.status).toBe(404);
+    expect(fetchCoordinatorState).not.toHaveBeenCalled();
   });
 
   it("returns 503 when the on-chain read fails", async () => {

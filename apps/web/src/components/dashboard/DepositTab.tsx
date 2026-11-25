@@ -75,6 +75,16 @@ export function DepositTab({
 
   return (
     <div className="space-y-4">
+      {bestVault && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-900/70 bg-emerald-950/20 px-3 py-2">
+          <span className="text-xs font-medium text-emerald-200">
+            {t("vaultPanel.depositTo", { vault: bestVault.label })}
+          </span>
+          <span className="rounded-full bg-emerald-900/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+            {t("vaultPanel.recommended")}
+          </span>
+        </div>
+      )}
       <div>
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-gray-400">

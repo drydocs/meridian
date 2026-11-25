@@ -182,7 +182,10 @@ export const api = {
     apiFetch<{ keepers: KeeperHealthEntry[]; checkedAt: string }>(
       "/api/v1/keepers/health"
     ),
-  getVaultState: () => apiFetch<VaultState>("/api/v1/admin/vault-state"),
+  getVaultState: (vaultId?: string) =>
+    apiFetch<VaultState>(
+      `/api/v1/admin/vault-state${vaultId ? `?vaultId=${encodeURIComponent(vaultId)}` : ""}`
+    ),
   getAdminHistory: (vaultId: string) =>
     apiFetch<{
       vaultId: string;

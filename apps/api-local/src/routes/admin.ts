@@ -6,8 +6,13 @@ import {
 } from "@meridian/api-core";
 
 export const adminRoute: FastifyPluginAsync = async (app) => {
-  app.get("/vault-state", async (_req, reply) => {
-    const result = await handleGetVaultState();
+  app.get("/vault-state", async (req, reply) => {
+    const rawVaultId = (req.query as Record<string, unknown>).vaultId;
+    if (rawVaultId !== undefined && typeof rawVaultId !== "string") {
+      return reply.code(400).send({ error: "vaultId must be a string" });
+    }
+    const vaultId = rawVaultId;
+    const result = await handleGetVaultState(vaultId);
     if (result.error) {
       app.log.error(result.error, "[admin] failed to read vault state");
     }

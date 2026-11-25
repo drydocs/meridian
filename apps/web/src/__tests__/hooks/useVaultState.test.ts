@@ -26,14 +26,17 @@ const STATE = {
   paused: false,
 };
 
-function setup() {
+function setup(vaultId?: string) {
   const client = new QueryClient({
     // The hook sets retry: 1; a zero delay keeps the error case fast.
     defaultOptions: { queries: { retryDelay: 0 } },
   });
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
-  return { client, ...renderHook(() => useVaultState(), { wrapper }) };
+  return {
+    client,
+    ...renderHook(() => useVaultState(vaultId), { wrapper }),
+  };
 }
 
 describe("computeMinSharesOut / computeMinUsdcOut", () => {
@@ -165,5 +168,17 @@ describe("useVaultState", () => {
     const query = client.getQueryCache().find({ queryKey: ["vault-state"] });
     expect(query?.isStale()).toBe(false);
     expect(query?.observers[0]?.options.staleTime).toBe(30_000);
+  });
+
+  it("uses a separate cache entry for a requested vault", async () => {
+    getVaultState.mockResolvedValue(STATE);
+    const { result, client } = setup("meridian-eurc");
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(getVaultState).toHaveBeenCalledWith("meridian-eurc");
+    expect(client.getQueryData(["vault-state", "meridian-eurc"])).toEqual(
+      STATE
+    );
   });
 });

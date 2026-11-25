@@ -29,22 +29,19 @@ const POSITION = {
   entryTime: 1_700_000_000,
 };
 
-const onAmountChange = vi.fn();
 const onAmountKeyDown = vi.fn();
-const onSubmit = vi.fn();
+const onSubmit = vi.fn(async () => true);
 
 function renderWithdrawTab(
   overrides: Partial<Parameters<typeof WithdrawTab>[0]> = {}
 ) {
   return render(
     <WithdrawTab
-      amount=""
-      onAmountChange={onAmountChange}
-      onAmountKeyDown={onAmountKeyDown}
-      bestVault={VAULT}
       position={POSITION}
-      hasPosition={true}
+      vault={VAULT}
+      onAmountKeyDown={onAmountKeyDown}
       isWithdrawing={false}
+      isSigning={false}
       onSubmit={onSubmit}
       {...overrides}
     />
@@ -56,75 +53,69 @@ beforeEach(() => {
 });
 
 describe("WithdrawTab", () => {
-  it("shows the no-position message when hasPosition is false", () => {
-    renderWithdrawTab({ hasPosition: false, position: undefined });
-
-    expect(screen.getByText("vaultPanel.position")).toBeDefined();
-    expect(screen.queryByTestId("vault-withdraw-submit")).toBeNull();
-  });
-
-  it("calls onAmountChange with the max shares when the Max button is clicked", () => {
+  it("fills this position's available shares when Max is clicked", () => {
     renderWithdrawTab();
 
-    fireEvent.click(screen.getByTestId("vault-withdraw-max"));
+    fireEvent.click(screen.getByTestId("vault-withdraw-max-meridian-usdc"));
 
-    expect(onAmountChange).toHaveBeenCalledWith("50.0000000");
+    expect(screen.getByPlaceholderText("0.00")).toHaveProperty(
+      "value",
+      "50.0000000"
+    );
   });
 
   it("renders the Max label through the translation key", () => {
     renderWithdrawTab();
 
-    expect(screen.getByTestId("vault-withdraw-max").textContent).toBe(
-      "vaultPanel.max: 50.00"
-    );
+    expect(
+      screen.getByTestId("vault-withdraw-max-meridian-usdc").textContent
+    ).toBe("vaultPanel.max: 50.00");
   });
 
-  it("calls onSubmit when the withdraw button is clicked", () => {
-    renderWithdrawTab({ amount: "10" });
+  it("submits the entered shares for this position", () => {
+    renderWithdrawTab();
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
 
-    fireEvent.click(screen.getByTestId("vault-withdraw-submit"));
+    fireEvent.click(screen.getByTestId("vault-withdraw-submit-meridian-usdc"));
 
-    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith("10");
   });
 
-  it("disables the submit button when amount is zero", () => {
-    renderWithdrawTab({ amount: "0" });
-    expect(screen.getByTestId("vault-withdraw-submit")).toHaveProperty(
-      "disabled",
-      true
-    );
-  });
+  it.each(["0", "-1", "999"])(
+    "disables submit for an invalid amount (%s)",
+    (amount) => {
+      renderWithdrawTab();
+      fireEvent.change(screen.getByPlaceholderText("0.00"), {
+        target: { value: amount },
+      });
 
-  it("disables the submit button when amount is negative", () => {
-    renderWithdrawTab({ amount: "-1" });
-    expect(screen.getByTestId("vault-withdraw-submit")).toHaveProperty(
-      "disabled",
-      true
-    );
-  });
+      expect(
+        screen.getByTestId("vault-withdraw-submit-meridian-usdc")
+      ).toHaveProperty("disabled", true);
+    }
+  );
 
-  it("disables the submit button when amount exceeds available shares", () => {
-    renderWithdrawTab({ amount: "999" });
+  it("disables submit while another withdrawal is in progress", () => {
+    renderWithdrawTab({ isWithdrawing: true });
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
 
-    const button = screen.getByTestId("vault-withdraw-submit");
-    expect(button).toHaveProperty("disabled", true);
-  });
-
-  it("disables the submit button when isWithdrawing is true", () => {
-    renderWithdrawTab({ amount: "10", isWithdrawing: true });
-
-    const button = screen.getByTestId("vault-withdraw-submit");
+    const button = screen.getByTestId("vault-withdraw-submit-meridian-usdc");
     expect(button).toHaveProperty("disabled", true);
     expect(screen.getByText("vaultPanel.waiting")).toBeDefined();
   });
 
-  it("calls onAmountChange when the input value changes", () => {
-    renderWithdrawTab();
-
+  it("disables withdraw when vault metadata is unavailable", () => {
+    renderWithdrawTab({ vault: undefined });
     fireEvent.change(screen.getByPlaceholderText("0.00"), {
-      target: { value: "15" },
+      target: { value: "10" },
     });
 
-    expect(onAmountChange).toHaveBeenCalledWith("15");
+    expect(
+      screen.getByTestId("vault-withdraw-submit-meridian-usdc")
+    ).toHaveProperty("disabled", true);
   });
 });

@@ -1573,6 +1573,7 @@ describe("GET /api/v1/admin/vault-state", () => {
     );
 
     expect(res.statusCode).toBe(200);
+    expect(fetchCoordinatorState).toHaveBeenCalled();
     expect(res.body).toEqual({
       protocol: "blend",
       adapterId: "CADAPTER",
@@ -1580,6 +1581,32 @@ describe("GET /api/v1/admin/vault-state", () => {
       totalAssets: 1050,
       paused: false,
     });
+  });
+
+  it("reads the requested vault state and rejects a non-string vault ID", async () => {
+    const requested = makeRes();
+    await adminHandler(
+      fakeReq({
+        query: { resource: "vault-state", vaultId: "meridian-usdc" },
+        method: "GET",
+        headers: {},
+      }),
+      requested
+    );
+    expect(requested.statusCode).toBe(200);
+    expect(fetchCoordinatorState).toHaveBeenCalled();
+
+    const malformed = makeRes();
+    await adminHandler(
+      fakeReq({
+        query: { resource: "vault-state", vaultId: ["meridian-usdc"] },
+        method: "GET",
+        headers: {},
+      }),
+      malformed
+    );
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.body).toEqual({ error: "vaultId must be a string" });
   });
 
   it("returns 503 when the on-chain read fails", async () => {

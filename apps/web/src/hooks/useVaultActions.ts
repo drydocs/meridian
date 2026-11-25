@@ -20,22 +20,28 @@ import { mapError } from "../lib/errorMapper";
 import { WalletCancelledError } from "../lib/wallet";
 
 /**
- * Live vault totals for pricing a slippage floor, falling back to the cached
+ * Live vault totals for pricing a slippage floor, falling back to that vault's cached
  * read when the fresh one fails. Returns undefined when neither is available,
  * which callers must treat as "no floor can be priced" rather than submitting
  * an unprotected transaction.
  */
 async function resolveVaultState(
-  queryClient: QueryClient
+  queryClient: QueryClient,
+  vaultId?: string
 ): Promise<VaultState | undefined> {
   try {
-    const fresh = await fetchFreshVaultState();
-    queryClient.setQueryData(["vault-state"], fresh);
+    const fresh = await fetchFreshVaultState(vaultId);
+    queryClient.setQueryData(
+      vaultId ? ["vault-state", vaultId] : ["vault-state"],
+      fresh
+    );
     return fresh;
   } catch (err) {
     console.warn("[vault-actions] fresh vault state read failed", err);
   }
-  return queryClient.getQueryData<VaultState>(["vault-state"]);
+  return queryClient.getQueryData<VaultState>(
+    vaultId ? ["vault-state", vaultId] : ["vault-state"]
+  );
 }
 
 /**
@@ -103,7 +109,7 @@ export function useVaultActions() {
       // lags yield accrual and understates the floor.
       let resolvedMinSharesOut = minSharesOut;
       if (resolvedMinSharesOut === undefined) {
-        const state = await resolveVaultState(queryClient);
+        const state = await resolveVaultState(queryClient, vaultId);
         if (!state) {
           push("error", t("vaultActions.vaultStateUnavailable"));
           return false;
@@ -245,7 +251,7 @@ export function useVaultActions() {
       // ratio shift is the whole point of the floor.
       let resolvedMinUsdcOut = minUsdcOut;
       if (resolvedMinUsdcOut === undefined) {
-        const state = await resolveVaultState(queryClient);
+        const state = await resolveVaultState(queryClient, vaultId);
         if (!state) {
           push("error", t("vaultActions.vaultStateUnavailable"));
           return false;

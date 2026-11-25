@@ -61,6 +61,7 @@ export interface PositionPnlCardProps {
   isError?: boolean;
   onRetry?: () => void;
   performanceFeeBps?: number;
+  showCurrentValue?: boolean;
 }
 
 export function PositionPnlCard({
@@ -68,6 +69,7 @@ export function PositionPnlCard({
   isError = false,
   onRetry,
   performanceFeeBps = VAULT_PERFORMANCE_FEE_BPS,
+  showCurrentValue = true,
 }: PositionPnlCardProps) {
   const { t, i18n } = useTranslation();
 
@@ -154,17 +156,19 @@ export function PositionPnlCard({
           </dd>
         </div>
 
-        <div className="flex items-center justify-between border-t border-gray-800 pt-2 mt-2">
-          <dt className="font-medium text-gray-300">
-            {t("positionPnl.currentValue")}
-          </dt>
-          <dd
-            data-testid="pnl-current-value"
-            className="font-bold text-paper tabular-nums"
-          >
-            {formatUsd(breakdown.currentValue, i18n.language)}
-          </dd>
-        </div>
+        {showCurrentValue && (
+          <div className="flex items-center justify-between border-t border-gray-800 pt-2 mt-2">
+            <dt className="font-medium text-gray-300">
+              {t("positionPnl.currentValue")}
+            </dt>
+            <dd
+              data-testid="pnl-current-value"
+              className="font-bold text-paper tabular-nums"
+            >
+              {formatUsd(breakdown.currentValue, i18n.language)}
+            </dd>
+          </div>
+        )}
       </dl>
     </div>
   );
