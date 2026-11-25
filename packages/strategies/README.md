@@ -98,6 +98,19 @@ To regenerate it after an intentional change, run
 before committing. The suite refuses to regenerate under `CI`, so a stale
 fixture can never be blessed by a pipeline run.
 
+## Running the example
+
+A minimal simulation-only strategy and matching scenario live in [`examples/`](./examples):
+
+- [`examples/target-weight-strategy.ts`](./examples/target-weight-strategy.ts): implements `Strategy<TargetWeightConfig>` and a matching `StrategyDefinition`.
+- [`examples/target-weight.scenario.json`](./examples/target-weight.scenario.json): deterministic synthetic scenario.
+- [`scripts/run-example.ts`](./scripts/run-example.ts): parses the scenario, resolves the strategy, runs the backtest, and prints a deterministic JSON summary.
+
+```bash
+pnpm --filter @meridian/strategies build
+pnpm --filter @meridian/strategies example
+```
+
 ## Installation
 
 ```bash
