@@ -184,12 +184,64 @@ describe("scenario-sources resolver (#1025)", () => {
       strategy,
       strategyConfig: config,
       initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
+      execution: resolved.execution,
       ...(resolved.accrual ? { accrual: resolved.accrual } : {}),
     });
 
     expect(result.strategyName).toBe("delta-neutral");
     expect(result.snapshots.length).toBeGreaterThan(0);
     expect(result.finalValue).toBeInstanceOf(FixedPointDecimal);
+  });
+
+  it("applies the scenario cost schedule to backtest fills", async () => {
+    const scenario = parseScenario({
+      ...BASE_SCENARIO_INPUT,
+      assets: ["USDC"],
+      costs: { swapFeeRate: "0.01", networkFee: "0.1" },
+    });
+    const zeroCostScenario = parseScenario({
+      ...scenario,
+      costs: { swapFeeRate: "0", networkFee: "0" },
+    });
+    const resolved = await resolveScenarioSources(scenario, {
+      historicalData: makeHistoricalRows(),
+    });
+    const zeroCostResolved = await resolveScenarioSources(zeroCostScenario, {
+      historicalData: makeHistoricalRows(),
+    });
+    const strategy = new DeltaNeutralStrategy();
+    const config = scenarioDeltaNeutralConfig(scenario, resolved.prices);
+    const zeroCostResult = runBacktest({
+      clock: scenarioClock(zeroCostScenario),
+      assets: ["USDC"] as AssetSymbol[],
+      prices: zeroCostResolved.prices,
+      strategy: new DeltaNeutralStrategy(),
+      strategyConfig: scenarioDeltaNeutralConfig(
+        zeroCostScenario,
+        zeroCostResolved.prices
+      ),
+      initialCash: FixedPointDecimal.fromString(
+        zeroCostScenario.startingCapital
+      ),
+      execution: zeroCostResolved.execution,
+    });
+    const result = runBacktest({
+      clock: scenarioClock(scenario),
+      assets: ["USDC"] as AssetSymbol[],
+      prices: resolved.prices,
+      strategy,
+      strategyConfig: config,
+      initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
+      execution: resolved.execution,
+    });
+
+    expect(resolved.execution.costSchedule?.swapFeeRate.toString()).toBe(
+      "0.01"
+    );
+    expect(result.totalFees.toStroops()).toBeGreaterThan(0n);
+    expect(result.finalValue.toStroops()).toBeLessThan(
+      zeroCostResult.finalValue.toStroops()
+    );
   });
 
   it("guarantees deterministic resolution and backtest replay over a fixed window", async () => {
