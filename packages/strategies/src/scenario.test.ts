@@ -82,7 +82,8 @@ describe("ScenarioSchema", () => {
   it("defaults missing costs to zero and accepts version 1 scenarios", () => {
     // VALID_INPUT declares explicit zero costs, so drop the field to prove the
     // default applies to a scenario that omits it.
-    const { costs: _declaredCosts, ...withoutCosts } = VALID_INPUT;
+    const withoutCosts: Record<string, unknown> = { ...VALID_INPUT };
+    delete withoutCosts.costs;
     const omitted = parseScenario(withoutCosts);
     expect(omitted.costs).toEqual({ swapFeeRate: "0", networkFee: "0" });
     expect(scenarioCostSchedule(omitted)).toEqual(ZERO_COSTS);
