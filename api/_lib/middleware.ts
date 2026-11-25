@@ -42,9 +42,9 @@ const redis = UPSTASH_CONFIGURED
   ? new Redis({ url: UPSTASH_URL!, token: UPSTASH_TOKEN! })
   : null;
 
-// The Upstash REST client exposes the same INCR/PEXPIRE/PTTL commands as
-// ioredis, so both deployments run the one fixed-window store in api-core
-// instead of Upstash's separate sliding-window implementation.
+// The Upstash REST client satisfies the counter store's eval signature as is,
+// so both deployments run the one fixed-window store in api-core instead of
+// Upstash's separate sliding-window implementation.
 const distributedStore: RateLimitStore | null = redis
   ? new RedisRateLimitStore(redis)
   : null;

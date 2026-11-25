@@ -105,6 +105,9 @@ export function rateLimitRouteForPath(path: string): RateLimitRoute {
   const pathname = path.split("?")[0] ?? path;
   if (pathname.startsWith("/api/v1/tx/submit")) return "tx-submit";
   if (pathname.startsWith("/api/v1/tx/")) return "tx-build";
+  // Keeper health is a public read served by the same handler as the cron
+  // actions, and that handler charges it to the read policy.
+  if (pathname.startsWith("/api/v1/keepers/health")) return "read";
   if (pathname.startsWith("/api/v1/keepers/")) return "keeper";
   if (pathname.startsWith("/api/v1/admin/")) return "admin";
   return "read";
@@ -173,11 +176,33 @@ export class InMemoryRateLimitStore implements RateLimitStore {
   }
 }
 
-/** The subset of ioredis used by the counter store, kept small for testing. */
+/**
+ * Increments the bucket and returns `[count, ttlMs]` in one round trip.
+ * Separate INCR/PEXPIRE/PTTL commands cost three REST requests per bucket on
+ * Upstash, and a wallet-scoped submit spends two buckets.
+ */
+const HIT_SCRIPT = `
+local count = redis.call("INCR", KEYS[1])
+local ttl = redis.call("PTTL", KEYS[1])
+if ttl < 0 then
+  -- A key without a TTL (for example after a crash between INCR and PEXPIRE)
+  -- would otherwise stay blocked forever.
+  redis.call("PEXPIRE", KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
+end
+return {count, ttl}
+`;
+
+/**
+ * The one command the counter store needs. Upstash takes this shape as is;
+ * ioredis takes `eval(script, numKeys, ...keysAndArgs)`, so its callers adapt.
+ */
 export interface RedisRateLimitClient {
-  incr(key: string): Promise<number>;
-  pexpire(key: string, milliseconds: number): Promise<unknown>;
-  pttl(key: string): Promise<number>;
+  eval(
+    script: string,
+    keys: string[],
+    args: (string | number)[]
+  ): Promise<unknown>;
 }
 
 export class RedisRateLimitStore implements RateLimitStore {
@@ -191,18 +216,11 @@ export class RedisRateLimitStore implements RateLimitStore {
     limit: number,
     windowMs: number
   ): Promise<RateLimitBucket> {
-    const count = await this.redis.incr(key);
-    if (count === 1) {
-      await this.redis.pexpire(key, windowMs);
-    }
-
-    let ttl = await this.redis.pttl(key);
-    if (ttl < 0) {
-      // A key without a TTL (for example after a crash between INCR and
-      // PEXPIRE) would otherwise stay blocked forever.
-      await this.redis.pexpire(key, windowMs);
-      ttl = windowMs;
-    }
+    const [count, ttl] = (await this.redis.eval(
+      HIT_SCRIPT,
+      [key],
+      [windowMs]
+    )) as [number, number];
 
     return {
       key,

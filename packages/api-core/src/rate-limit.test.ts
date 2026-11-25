@@ -90,6 +90,8 @@ describe("rateLimitRouteForPath", () => {
     ["/api/v1/tx/deposit", "tx-build"],
     ["/api/v1/tx/withdraw", "tx-build"],
     ["/api/v1/keepers/accrue", "keeper"],
+    ["/api/v1/keepers/health", "read"],
+    ["/api/v1/keepers/health?verbose=1", "read"],
     ["/api/v1/admin/history", "admin"],
     ["/api/v1/vaults", "read"],
     ["/api/v1/positions/abc", "read"],
@@ -139,20 +141,25 @@ describe("InMemoryRateLimitStore", () => {
 class FakeRedis implements RedisRateLimitClient {
   readonly counts = new Map<string, number>();
   readonly ttls = new Map<string, number>();
+  calls = 0;
 
-  async incr(key: string): Promise<number> {
-    const next = (this.counts.get(key) ?? 0) + 1;
-    this.counts.set(key, next);
-    return next;
-  }
+  /** Mirrors HIT_SCRIPT: INCR, then set the TTL when the key has none. */
+  async eval(
+    _script: string,
+    keys: string[],
+    args: (string | number)[]
+  ): Promise<[number, number]> {
+    this.calls += 1;
+    const key = keys[0]!;
+    const count = (this.counts.get(key) ?? 0) + 1;
+    this.counts.set(key, count);
 
-  async pexpire(key: string, milliseconds: number): Promise<number> {
-    this.ttls.set(key, milliseconds);
-    return 1;
-  }
-
-  async pttl(key: string): Promise<number> {
-    return this.ttls.get(key) ?? -1;
+    let ttl = this.ttls.get(key) ?? -1;
+    if (ttl < 0) {
+      ttl = Number(args[0]);
+      this.ttls.set(key, ttl);
+    }
+    return [count, ttl];
   }
 }
 
@@ -173,6 +180,16 @@ describe("RedisRateLimitStore", () => {
     });
     expect(second.allowed).toBe(true);
     expect(third).toMatchObject({ allowed: false, remaining: 0 });
+  });
+
+  it("spends one round trip per bucket", async () => {
+    const redis = new FakeRedis();
+    const store = new RedisRateLimitStore(redis, () => 0);
+
+    await store.hit("k", 2, 30_000);
+    await store.hit("k", 2, 30_000);
+
+    expect(redis.calls).toBe(2);
   });
 
   it("repairs a key that lost its TTL", async () => {

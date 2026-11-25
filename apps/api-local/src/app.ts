@@ -5,6 +5,7 @@ import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
 import {
   InMemoryRateLimitStore,
   RedisRateLimitStore,
+  type RedisRateLimitClient,
 } from "@meridian/api-core";
 import { writeLog } from "@meridian/shared/logger";
 import { registerRateLimit } from "./rate-limit.js";
@@ -20,6 +21,15 @@ export interface BuildAppOptions {
   redisClient?: Redis | undefined;
   enableRateLimit?: boolean | undefined;
   allowedOrigin?: string | undefined;
+}
+
+// ioredis takes eval(script, numKeys, ...keysAndArgs); the store speaks the
+// Upstash shape eval(script, keys, args), so both clients run the same script.
+function rateLimitClient(redis: Redis): RedisRateLimitClient {
+  return {
+    eval: (script, keys, args) =>
+      redis.eval(script, keys.length, ...keys, ...args),
+  };
 }
 
 export async function buildApp(
@@ -52,7 +62,7 @@ export async function buildApp(
     registerRateLimit(
       app,
       options.redisClient
-        ? new RedisRateLimitStore(options.redisClient)
+        ? new RedisRateLimitStore(rateLimitClient(options.redisClient))
         : new InMemoryRateLimitStore()
     );
   }
