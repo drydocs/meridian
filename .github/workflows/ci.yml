@@ -158,6 +158,10 @@ jobs:
         run: pnpm check:links
       - name: Check external links
         continue-on-error: ${{ github.event_name == 'pull_request' }}
+        # An authenticated request keeps github.com links from being rejected
+        # with 503 once the runner is rate limited.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm check:links:external
 
   test:

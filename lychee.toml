@@ -11,7 +11,8 @@ include_fragments = "anchor-only"
 # Root-relative links in `apps/docs` resolve against the docs source root.
 root_dir = "apps/docs"
 
-max_retries = 2
+max_retries = 4
+retry_wait_time = 5
 timeout = 20
 accept = ["200..=299", "429"]
 
