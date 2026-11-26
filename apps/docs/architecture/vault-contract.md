@@ -144,6 +144,10 @@ The target is also validated before it is accepted ([#1270](https://github.com/d
 
 Phase 1 of a two-phase migration ([#567](https://github.com/drydocs/meridian/issues/567)). Snapshots `new_adapter`'s `total_assets()` and the current ledger sequence into instance storage (`MIG_SNAP`, `MIG_ACTIVE`). `migrate_adapter` refuses to run against `new_adapter` until at least `MIN_LEDGER_GAP` ledgers (17,280, ~1 day as of [#557](https://github.com/drydocs/meridian/issues/557); previously 12, ~1 minute) have elapsed since this call, so a transiently-manipulated valuation at submission time can't slip through: an observer would have to sustain the manipulation across the whole cooldown instead of only at the moment `migrate_adapter` executes. The longer gap also makes this a timelock as well as a valuation-stability check. It gives observers or automated monitoring a real window to notice and react to a `begin_migration` call before `migrate_adapter` can move funds. Fails with `SameAdapter` if `new_adapter` is the vault's current adapter, or `MigrationSnapshotAssetsInvalid` if `new_adapter.total_assets()` is negative. A negative snapshot would make `migrate_adapter`'s stability check's tolerance-scaled floor negative too, so it would pass regardless of how much the target is drained during the cooldown. Can be called repeatedly, for the same or a different adapter; each call overwrites the previous snapshot. The target is validated first ([#1270](https://github.com/drydocs/meridian/issues/1270)): `begin_migration` fails with `AdapterUsdcMismatch` or `AdapterVaultMismatch` under the same rules as `set_adapter`, and a rejected target writes no snapshot. It deliberately does not reject a target that holds a position, so a funded target can be re-snapshotted after a partial attempt.
 
+### `cancel_migration()` (admin only)
+
+Cancels a pending migration during its cooldown. It clears the snapshot recorded by `begin_migration` (`MIG_SNAP`, `MIG_ACTIVE`), so `migrate_adapter` rejects the cancelled target with `MigrationNotInitialized` until a new `begin_migration` is made. The cooldown for a later migration is unchanged. Fails with `NoPendingMigration` when no migration is pending, including after it was already cancelled or executed. Publishes an admin `mig_canc` event carrying the cancelled target adapter.
+
 ### `get_migration_snapshot() -> Result<MigrationSnapshot, ContractError>`
 
 Returns the snapshot recorded by `begin_migration` (`{ adapter, total_assets, ledger_seq }`), or fails with `MigrationNotInitialized` if none is active. Off-chain callers (the migration keeper) use this to tell whether a cooldown is already in progress for a given candidate before deciding whether to call `begin_migration` or `migrate_adapter`.
@@ -231,6 +235,7 @@ All topic segments are `Symbol` values unless shown as `u32(1)`. Soroban encodes
 | `accept`    | `(admin, accept, u32(1))`    | `new_admin: Address`                                                                  |
 | `adapter`   | `(admin, adapter, u32(1))`   | `new_adapter: Address`                                                                |
 | `mig_begin` | `(admin, mig_begin, u32(1))` | `(new_adapter: Address, earliest_ledger: u32)`                                        |
+| `mig_canc`  | `(admin, mig_canc, u32(1))`  | `cancelled_adapter: Address`                                                          |
 | `migrate`   | `(admin, migrate, u32(1))`   | `(old_adapter: Address, new_adapter: Address)`                                        |
 | `cap`       | `(admin, cap, u32(1))`       | `cap: i128`                                                                           |
 | `rescue`    | `(admin, rescue, u32(1))`    | `(token: Address, to: Address, amount: i128)`                                         |
@@ -395,6 +400,7 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `InsufficientBalance`            | 39   | `rescue_token` was asked for more of the token than the vault holds.                                                                                                                              |
 | `DepositCapExceeded`             | 40   | `deposit` would take the vault's total assets above the cap set with `set_total_deposit_cap`.                                                                                                     |
 | `AdapterLiquidityInsufficient`   | 41   | The active adapter's available USDC liquidity is below the gross USDC needed for the requested withdrawal. Distinct from `WithdrawalTooSmall`.                                                    |
+| `NoPendingMigration`             | 42   | `cancel_migration` was called while no migration is pending.                                                                                                                                      |
 
 ## Contract storage
 

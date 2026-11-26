@@ -168,4 +168,8 @@ pub enum ContractError {
     /// `(available, requested)` via `preview_withdraw` (`available_liquidity`
     /// and `gross_assets`) or `available_liquidity()`.
     AdapterLiquidityInsufficient = 41,
+    /// `cancel_migration` was called while no migration is pending: no
+    /// `begin_migration` snapshot is live, or it was already cancelled or
+    /// executed.
+    NoPendingMigration = 42,
 }
