@@ -32,16 +32,21 @@ export function RiskDisclosureModal({
     onCancelRef.current = onCancel;
   });
 
-  // Focus management: move focus into the dialog on open and hand it back to
-  // the element that opened it on close. The modal is mounted only while open,
-  // so mount/unmount are the open/close moments.
+  // Focus management and scroll lock: lock body scroll while modal is open,
+  // move focus into the dialog on open and hand it back to the element that
+  // opened it on close. The modal is mounted only while open, so mount/unmount
+  // are the open/close moments.
   useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
     const opener = document.activeElement as HTMLElement | null;
     const dialog = dialogRef.current;
     const first = dialog?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
     (first ?? dialog)?.focus();
 
     return () => {
+      document.body.style.overflow = originalOverflow;
       if (opener && opener.isConnected && typeof opener.focus === "function") {
         opener.focus();
       }
@@ -91,6 +96,7 @@ export function RiskDisclosureModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="risk-disclosure-title"
+      aria-describedby="risk-disclosure-desc"
     >
       <section
         data-testid="risk-disclosure"
@@ -102,7 +108,7 @@ export function RiskDisclosureModal({
           onClick={onCancel}
           aria-label={t("riskDisclosure.cancel")}
           title={t("riskDisclosure.cancel")}
-          className="absolute right-4 top-4 text-gray-500 hover:text-paper transition-colors duration-150"
+          className="absolute right-4 top-4 text-gray-400 hover:text-paper rounded-lg p-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
         >
           <X size={18} />
         </button>
@@ -112,7 +118,10 @@ export function RiskDisclosureModal({
         >
           {t("riskDisclosure.title")}
         </h3>
-        <p className="text-sm leading-relaxed text-gray-300">
+        <p
+          id="risk-disclosure-desc"
+          className="text-sm leading-relaxed text-gray-300"
+        >
           {t("riskDisclosure.description")}
         </p>
         <ul className="space-y-2 text-sm leading-relaxed text-gray-400 list-disc list-inside">
@@ -125,7 +134,7 @@ export function RiskDisclosureModal({
             data-testid="risk-disclosure-acknowledgement"
             checked={riskChecked}
             onChange={(event) => setRiskChecked(event.currentTarget.checked)}
-            className="mt-0.5"
+            className="mt-0.5 rounded border border-gray-700 bg-night text-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
           />
           <span>{t("riskDisclosure.acknowledgement")}</span>
         </label>
@@ -134,7 +143,7 @@ export function RiskDisclosureModal({
           data-testid="risk-disclosure-accept"
           disabled={!riskChecked}
           onClick={onAccept}
-          className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed"
+          className="w-full rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-500 text-white text-sm font-semibold py-3 transition-all duration-150 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
         >
           {t("riskDisclosure.continue")}
         </button>

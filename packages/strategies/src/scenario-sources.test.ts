@@ -184,12 +184,64 @@ describe("scenario-sources resolver (#1025)", () => {
       strategy,
       strategyConfig: config,
       initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
+      execution: resolved.execution,
       ...(resolved.accrual ? { accrual: resolved.accrual } : {}),
     });
 
     expect(result.strategyName).toBe("delta-neutral");
     expect(result.snapshots.length).toBeGreaterThan(0);
     expect(result.finalValue).toBeInstanceOf(FixedPointDecimal);
+  });
+
+  it("applies the scenario cost schedule to backtest fills", async () => {
+    const scenario = parseScenario({
+      ...BASE_SCENARIO_INPUT,
+      assets: ["USDC"],
+      costs: { swapFeeRate: "0.01", networkFee: "0.1" },
+    });
+    const zeroCostScenario = parseScenario({
+      ...scenario,
+      costs: { swapFeeRate: "0", networkFee: "0" },
+    });
+    const resolved = await resolveScenarioSources(scenario, {
+      historicalData: makeHistoricalRows(),
+    });
+    const zeroCostResolved = await resolveScenarioSources(zeroCostScenario, {
+      historicalData: makeHistoricalRows(),
+    });
+    const strategy = new DeltaNeutralStrategy();
+    const config = scenarioDeltaNeutralConfig(scenario, resolved.prices);
+    const zeroCostResult = runBacktest({
+      clock: scenarioClock(zeroCostScenario),
+      assets: ["USDC"] as AssetSymbol[],
+      prices: zeroCostResolved.prices,
+      strategy: new DeltaNeutralStrategy(),
+      strategyConfig: scenarioDeltaNeutralConfig(
+        zeroCostScenario,
+        zeroCostResolved.prices
+      ),
+      initialCash: FixedPointDecimal.fromString(
+        zeroCostScenario.startingCapital
+      ),
+      execution: zeroCostResolved.execution,
+    });
+    const result = runBacktest({
+      clock: scenarioClock(scenario),
+      assets: ["USDC"] as AssetSymbol[],
+      prices: resolved.prices,
+      strategy,
+      strategyConfig: config,
+      initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
+      execution: resolved.execution,
+    });
+
+    expect(resolved.execution.costSchedule?.swapFeeRate.toString()).toBe(
+      "0.01"
+    );
+    expect(result.totalFees.toStroops()).toBeGreaterThan(0n);
+    expect(result.finalValue.toStroops()).toBeLessThan(
+      zeroCostResult.finalValue.toStroops()
+    );
   });
 
   it("guarantees deterministic resolution and backtest replay over a fixed window", async () => {
@@ -495,5 +547,199 @@ describe("scenario-sources resolver (#1025)", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe("scenario-sources hedge stream resolution", () => {
+  const TIMESTAMPS = [
+    Date.parse("2024-01-01T00:00:00Z"),
+    Date.parse("2024-01-01T01:00:00Z"),
+    Date.parse("2024-01-01T02:00:00Z"),
+    Date.parse("2024-01-01T03:00:00Z"),
+    Date.parse("2024-01-01T04:00:00Z"),
+  ];
+
+  function makeSpotAndHedgeRows(
+    spotPrices: readonly string[],
+    hedgePrices?: readonly string[]
+  ): HistoricalRow[] {
+    const rows: HistoricalRow[] = [];
+    TIMESTAMPS.forEach((timestamp, index) => {
+      rows.push({
+        asset: "USDC",
+        timestamp,
+        price: spotPrices[index]!,
+        kind: "price",
+      });
+      if (hedgePrices && hedgePrices[index] !== undefined) {
+        rows.push({
+          asset: "hedge:USDC",
+          timestamp,
+          price: hedgePrices[index]!,
+          kind: "price",
+        });
+      }
+      rows.push({
+        asset: "blend",
+        timestamp,
+        rate: "0.0525000",
+        kind: "rate",
+      });
+    });
+    return rows;
+  }
+
+  it("omits hedgePrices and realizes zero basis by default when source.hedge is not declared", async () => {
+    const scenario = parseScenario({
+      ...BASE_SCENARIO_INPUT,
+      assets: ["USDC"],
+      source: { price: "horizon", rate: "blend" },
+    });
+    const rows = makeSpotAndHedgeRows([
+      "1.0000000",
+      "1.0000000",
+      "1.0000000",
+      "1.0000000",
+      "1.0000000",
+    ]);
+
+    const resolved = await resolveScenarioSources(scenario, {
+      historicalData: rows,
+    });
+    expect(resolved.hedgePrices).toBeUndefined();
+
+    const strategy = new DeltaNeutralStrategy();
+    const config = scenarioDeltaNeutralConfig(
+      scenario,
+      resolved.prices,
+      resolved.hedgePrices
+    );
+    expect(config.hedgeFeed).toBeUndefined();
+
+    runBacktest({
+      clock: scenarioClock(scenario),
+      assets: ["USDC"] as AssetSymbol[],
+      prices: resolved.prices,
+      strategy,
+      strategyConfig: config,
+      initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
+      ...(resolved.accrual ? { accrual: resolved.accrual } : {}),
+    });
+
+    expect(strategy.basisPnl.toStroops()).toBe(0n);
+  });
+
+  it("resolves a distinct hedge feed and realizes positive basis PnL when hedge converges toward spot", async () => {
+    const scenario = parseScenario({
+      ...BASE_SCENARIO_INPUT,
+      assets: ["USDC"],
+      source: { price: "horizon", hedge: "defillama", rate: "blend" },
+    });
+    // Spot flat at 1.00; hedge enters at 1.02 (basis = -0.02) and closes at 1.00 (basis = 0.00) -> positive basis PnL
+    const rows = makeSpotAndHedgeRows(
+      ["1.0000000", "1.0000000", "1.0000000", "1.0000000", "1.0000000"],
+      ["1.0200000", "1.0150000", "1.0100000", "1.0050000", "1.0000000"]
+    );
+
+    const resolved = await resolveScenarioSources(scenario, {
+      historicalData: rows,
+    });
+    expect(resolved.hedgePrices).toBeDefined();
+    expect(resolved.hedgePrices).not.toBe(resolved.prices);
+    expect(
+      resolved.hedgePrices!.getSpotPrice("USDC", TIMESTAMPS[0]!).toString()
+    ).toBe("1.02");
+
+    const strategy = new DeltaNeutralStrategy();
+    const config = scenarioDeltaNeutralConfig(
+      scenario,
+      resolved.prices,
+      resolved.hedgePrices
+    );
+    expect(config.hedgeFeed).toBe(resolved.hedgePrices);
+
+    runBacktest({
+      clock: scenarioClock(scenario),
+      assets: ["USDC"] as AssetSymbol[],
+      prices: resolved.prices,
+      strategy,
+      strategyConfig: config,
+      initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
+      ...(resolved.accrual ? { accrual: resolved.accrual } : {}),
+    });
+
+    expect(strategy.basisPnl.toStroops()).toBeGreaterThan(0n);
+  });
+
+  it("realizes negative basis PnL when hedge diverges above spot", async () => {
+    const scenario = parseScenario({
+      ...BASE_SCENARIO_INPUT,
+      assets: ["USDC"],
+      source: { price: "horizon", hedge: "defillama", rate: "blend" },
+    });
+    // Spot flat at 1.00; hedge enters at 1.00 (basis = 0.00) and closes at 1.02 (basis = -0.02) -> negative basis PnL
+    const rows = makeSpotAndHedgeRows(
+      ["1.0000000", "1.0000000", "1.0000000", "1.0000000", "1.0000000"],
+      ["1.0000000", "1.0050000", "1.0100000", "1.0150000", "1.0200000"]
+    );
+
+    const resolved = await resolveScenarioSources(scenario, {
+      historicalData: rows,
+    });
+
+    const strategy = new DeltaNeutralStrategy();
+    const config = scenarioDeltaNeutralConfig(
+      scenario,
+      resolved.prices,
+      resolved.hedgePrices
+    );
+
+    runBacktest({
+      clock: scenarioClock(scenario),
+      assets: ["USDC"] as AssetSymbol[],
+      prices: resolved.prices,
+      strategy,
+      strategyConfig: config,
+      initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
+      ...(resolved.accrual ? { accrual: resolved.accrual } : {}),
+    });
+
+    expect(strategy.basisPnl.toStroops()).toBeLessThan(0n);
+  });
+
+  it("fails before the run with MissingSourceDataError when declared hedge source has missing data", async () => {
+    const scenario = parseScenario({
+      ...BASE_SCENARIO_INPUT,
+      assets: ["USDC"],
+      source: { price: "horizon", hedge: "defillama", rate: "blend" },
+    });
+    const rowsWithoutHedge = makeSpotAndHedgeRows([
+      "1.0000000",
+      "1.0000000",
+      "1.0000000",
+      "1.0000000",
+      "1.0000000",
+    ]);
+
+    await expect(
+      resolveScenarioSources(scenario, { historicalData: rowsWithoutHedge })
+    ).rejects.toThrow(MissingSourceDataError);
+  });
+
+  it("fails before the run with MissingSourceDataError when hedge data does not span the scenario window", async () => {
+    const scenario = parseScenario({
+      ...BASE_SCENARIO_INPUT,
+      assets: ["USDC"],
+      source: { price: "horizon", hedge: "defillama", rate: "blend" },
+    });
+    // Hedge stream ends early (missing final timestamp)
+    const rows = makeSpotAndHedgeRows(
+      ["1.0000000", "1.0000000", "1.0000000", "1.0000000", "1.0000000"],
+      ["1.0200000", "1.0150000", "1.0100000"]
+    );
+
+    await expect(
+      resolveScenarioSources(scenario, { historicalData: rows })
+    ).rejects.toThrow(MissingSourceDataError);
   });
 });

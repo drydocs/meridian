@@ -17,6 +17,7 @@
     "@upstash/redis": "^1.39.0"
   },
   "devDependencies": {
+    "@meridian/api-local": "workspace:*",
     "@vercel/node": "^27.0.2",
     "vitest": "^5.1.0"
   }

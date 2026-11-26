@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import { Decimal } from "./decimal";
 import {
   annualizeSharpe,
+  calmarRatio,
   computeRiskMetrics,
+  conditionalValueAtRisk,
+  downsideDeviation,
   maxDrawdown,
   sharpeRatio,
+  sortinoRatio,
   valueAtRisk,
 } from "./risk-metrics";
 
@@ -180,7 +184,7 @@ describe("computeRiskMetrics", () => {
   const drawdown = series("0", "-0.02", "-0.05", "-0.01");
   const returns = series("-0.05", "0.05", "-0.05", "0.05");
 
-  it("computes all three metrics from the collector's series", () => {
+  it("computes the original three metrics from the collector's series", () => {
     const metrics = computeRiskMetrics(drawdown, returns, {
       riskFreePerPeriod: Decimal.fromString("0.01", SCALE),
       confidenceLevel: 0.95,
@@ -196,5 +200,242 @@ describe("computeRiskMetrics", () => {
 
     expect(metrics.sharpeRatio.toString()).toBe("0.000000000000000000");
     expect(metrics.valueAtRisk.toString()).toBe("0.050000000000000000");
+  });
+});
+
+describe("conditionalValueAtRisk", () => {
+  // Ascending: -0.07, -0.05, -0.01, 0.02, 0.03.
+  const returns = series("-0.01", "0.03", "-0.07", "0.02", "-0.05");
+
+  it("averages the returns at or below the VaR threshold", () => {
+    // k = ceil(0.6 * 5) = 3: tail -0.07, -0.05, -0.01, mean -0.043333...
+    expect(conditionalValueAtRisk(returns, 0.4).toString()).toBe(
+      "0.043333333333333333"
+    );
+    // k = ceil(0.4 * 5) = 2: tail -0.07, -0.05, mean -0.06.
+    expect(conditionalValueAtRisk(returns, 0.6).toString()).toBe(
+      "0.060000000000000000"
+    );
+  });
+
+  it("equals VaR when the tail is a single return", () => {
+    expect(conditionalValueAtRisk(returns, 0.95).toString()).toBe(
+      "0.070000000000000000"
+    );
+  });
+
+  it("is never a smaller loss than VaR", () => {
+    for (const confidence of [0.1, 0.25, 0.5, 0.75, 0.9, 0.99]) {
+      expect(
+        conditionalValueAtRisk(returns, confidence).gte(
+          valueAtRisk(returns, confidence)
+        )
+      ).toBe(true);
+    }
+  });
+
+  it("includes every return tied with the threshold", () => {
+    // k = 1 picks -0.04; the tie at -0.04 joins the tail, and -0.02 stays out.
+    const tied = series("-0.04", "-0.04", "-0.02", "0.06");
+
+    expect(conditionalValueAtRisk(tied, 0.75).toString()).toBe(
+      "0.040000000000000000"
+    );
+  });
+
+  it("is negative when even the tail was a gain", () => {
+    const allPositive = series("0.01", "0.02", "0.03", "0.04");
+
+    // k = ceil(0.5 * 4) = 2: tail 0.01, 0.02, mean 0.015.
+    expect(conditionalValueAtRisk(allPositive, 0.5).toString()).toBe(
+      "-0.015000000000000000"
+    );
+  });
+
+  it("works on stroop-scale inputs", () => {
+    const stroops = [
+      Decimal.fromStroops(-700000n),
+      Decimal.fromStroops(-500000n),
+      Decimal.fromStroops(200000n),
+    ];
+
+    expect(conditionalValueAtRisk(stroops, 0.5).toFixed(7)).toBe("0.0600000");
+  });
+
+  it("throws for an empty series or an invalid confidence", () => {
+    expect(() => conditionalValueAtRisk([], 0.95)).toThrow(RangeError);
+    expect(() => conditionalValueAtRisk(returns, 0)).toThrow(RangeError);
+    expect(() => conditionalValueAtRisk(returns, 1)).toThrow(RangeError);
+  });
+});
+
+describe("downsideDeviation", () => {
+  it("averages squared shortfalls over every return", () => {
+    // Shortfalls -0.02 and -0.02: sum 0.0008 over n = 4, sqrt(0.0002).
+    const deviation = downsideDeviation(
+      series("-0.02", "0.04", "-0.02", "0.06")
+    );
+
+    expect(deviation.toFixed(9)).toBe("0.014142136");
+  });
+
+  it("matches a hand-worked series exactly", () => {
+    // Only -0.02 is below 0: 0.0004 / 4 = 0.0001, sqrt 0.01.
+    const deviation = downsideDeviation(
+      series("-0.02", "0.005", "0.015", "0.04")
+    );
+
+    expect(deviation.toString()).toBe("0.010000000000000000");
+  });
+
+  it("measures shortfalls against a minimum acceptable return", () => {
+    // MAR 0.015: only 0.01 falls short, by 0.005. 0.000025 / 2, sqrt.
+    const deviation = downsideDeviation(
+      series("0.01", "0.03"),
+      Decimal.fromString("0.015", SCALE)
+    );
+
+    expect(deviation.toFixed(9)).toBe("0.003535534");
+  });
+
+  it("is zero for all-positive returns", () => {
+    expect(downsideDeviation(series("0.01", "0.02", "0.03")).isZero()).toBe(
+      true
+    );
+  });
+
+  it("throws for an empty series", () => {
+    expect(() => downsideDeviation([])).toThrow(RangeError);
+  });
+});
+
+describe("sortinoRatio", () => {
+  it("divides the excess mean by the downside deviation", () => {
+    // mean 0.01, downside deviation 0.01.
+    const ratio = sortinoRatio(series("-0.02", "0.005", "0.015", "0.04"));
+
+    expect(ratio.toString()).toBe("1.000000000000000000");
+  });
+
+  it("uses the minimum acceptable return for both terms", () => {
+    // (0.02 - 0.015) / sqrt(0.0000125) = sqrt(2).
+    const ratio = sortinoRatio(
+      series("0.01", "0.03"),
+      Decimal.fromString("0.015", SCALE)
+    );
+
+    expect(ratio.toFixed(6)).toBe("1.414214");
+  });
+
+  it("is negative when the mean is below the minimum acceptable return", () => {
+    // mean -0.01, shortfalls 0.03 and 0.01: sqrt(0.001 / 3).
+    const ratio = sortinoRatio(series("-0.03", "-0.01", "0.01"));
+
+    expect(ratio.toFixed(6)).toBe("-0.547723");
+  });
+
+  it("annualizes like Sharpe", () => {
+    const ratio = sortinoRatio(series("-0.02", "0.005", "0.015", "0.04"));
+
+    expect(annualizeSharpe(ratio, 4).toString()).toBe("2.000000000000000000");
+  });
+
+  it("throws for a zero downside deviation", () => {
+    expect(() => sortinoRatio(series("0.01", "0.02"))).toThrow(RangeError);
+  });
+
+  it("throws for an empty series", () => {
+    expect(() => sortinoRatio([])).toThrow(RangeError);
+  });
+});
+
+describe("calmarRatio", () => {
+  const returns = series("-0.02", "0.005", "0.015", "0.04");
+  const drawdown = series("-0.02", "-0.0151", "-0.0003265", "0");
+
+  it("divides the mean return by the maximum drawdown per period", () => {
+    // 0.01 / 0.02.
+    expect(calmarRatio(returns, drawdown).toString()).toBe(
+      "0.500000000000000000"
+    );
+  });
+
+  it("annualizes the mean return arithmetically", () => {
+    // 0.01 * 365 / 0.02.
+    expect(calmarRatio(returns, drawdown, 365).toString()).toBe(
+      "182.500000000000000000"
+    );
+  });
+
+  it("keeps the sign of the mean return", () => {
+    const losing = series("-0.03", "0.01");
+
+    // mean -0.01 / 0.03.
+    expect(calmarRatio(losing, series("-0.03", "-0.0203")).toFixed(6)).toBe(
+      "-0.333333"
+    );
+  });
+
+  it("throws for a zero maximum drawdown", () => {
+    expect(() => calmarRatio(series("0.01", "0.02"), series("0", "0"))).toThrow(
+      RangeError
+    );
+    expect(() => calmarRatio(series("0.01"), [])).toThrow(RangeError);
+  });
+
+  it("throws for an empty return series or a non-positive period count", () => {
+    expect(() => calmarRatio([], drawdown)).toThrow(RangeError);
+    expect(() => calmarRatio(returns, drawdown, 0)).toThrow(RangeError);
+  });
+});
+
+describe("computeRiskMetrics downside fields", () => {
+  const returns = series("-0.02", "0.005", "0.015", "0.04");
+  const drawdown = series("-0.02", "-0.0151", "-0.0003265", "0");
+
+  it("reports CVaR, downside deviation, Sortino and Calmar", () => {
+    const metrics = computeRiskMetrics(drawdown, returns, {
+      periodsPerYear: 365,
+    });
+
+    expect(metrics.conditionalValueAtRisk.toString()).toBe(
+      "0.020000000000000000"
+    );
+    expect(metrics.downsideDeviation.toString()).toBe("0.010000000000000000");
+    expect(metrics.sortinoRatio?.toString()).toBe("1.000000000000000000");
+    expect(metrics.calmarRatio?.toString()).toBe("182.500000000000000000");
+  });
+
+  it("passes the confidence and minimum acceptable return through", () => {
+    const metrics = computeRiskMetrics(drawdown, returns, {
+      confidenceLevel: 0.5,
+      minimumAcceptableReturn: Decimal.fromString("0.01", SCALE),
+    });
+
+    // k = 2: tail -0.02, 0.005, mean -0.0075.
+    expect(metrics.conditionalValueAtRisk.toString()).toBe(
+      "0.007500000000000000"
+    );
+    // Shortfalls 0.03 and 0.005 below 0.01: sqrt(0.000925 / 4).
+    expect(metrics.downsideDeviation.toFixed(9)).toBe("0.015206906");
+    expect(metrics.sortinoRatio?.toString()).toBe("0.000000000000000000");
+  });
+
+  it("returns null ratios for all-positive returns with no drawdown", () => {
+    const metrics = computeRiskMetrics(
+      series("0", "0", "0"),
+      series("0.01", "0.02")
+    );
+
+    expect(metrics.downsideDeviation.isZero()).toBe(true);
+    expect(metrics.sortinoRatio).toBeNull();
+    expect(metrics.calmarRatio).toBeNull();
+    expect(metrics.conditionalValueAtRisk.toString()).toBe(
+      "-0.010000000000000000"
+    );
+  });
+
+  it("still throws for empty input", () => {
+    expect(() => computeRiskMetrics([], [])).toThrow(RangeError);
   });
 });

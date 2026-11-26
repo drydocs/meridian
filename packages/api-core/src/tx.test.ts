@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
   ContractSimulationError: (
@@ -7,11 +7,25 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => ({
   MissingTrustlineError: (
     await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
   ).MissingTrustlineError,
+  TransactionOutcomeUnknownError: (
+    await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>()
+  ).TransactionOutcomeUnknownError,
   buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
   buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
   buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
   submitTx: vi.fn(async () => ({ hash: "HASH" })),
   assertRequiredTrustlines: vi.fn(async () => undefined),
+  quoteVaultAction: vi.fn(
+    async ({ action }: { action: "deposit" | "withdraw" }) => ({
+      action,
+      expectedShares: action === "deposit" ? "9.5" : undefined,
+      expectedAssets: action === "withdraw" ? "4.75" : undefined,
+      fee: "100",
+      ledger: 123,
+      recommendedMinimum: action === "deposit" ? "9.4525" : "4.72625",
+      slippageBps: 50,
+    })
+  ),
 }));
 
 vi.mock("./position-tracking", () => ({
@@ -23,6 +37,7 @@ import {
   handleWithdrawRequest,
   handleAddTrustlineRequest,
   handleSubmitRequest,
+  handleQuoteRequest,
 } from "./tx";
 import {
   buildDepositTx,
@@ -32,6 +47,8 @@ import {
   ContractSimulationError,
   assertRequiredTrustlines,
   MissingTrustlineError,
+  quoteVaultAction,
+  TransactionOutcomeUnknownError,
 } from "@meridian/stellar-sdk-helpers";
 import { trackPositionHistoryUser } from "./position-tracking";
 
@@ -52,6 +69,7 @@ const FALLBACK_MESSAGES = {
 } as const;
 
 beforeEach(() => vi.clearAllMocks());
+afterEach(() => vi.useRealTimers());
 
 describe.each([
   ["deposit", handleDepositRequest, buildDepositTx],
@@ -135,6 +153,32 @@ describe.each([
 });
 
 describe("handleDepositRequest", () => {
+  it("uses one deadline for trustline checks and simulation together", async () => {
+    vi.useFakeTimers();
+    vi.mocked(assertRequiredTrustlines).mockImplementationOnce(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 5_000))
+    );
+    vi.mocked(buildDepositTx).mockImplementationOnce(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ xdr: "DEPOSIT_XDR", fee: "100" }), 5_000)
+        )
+    );
+
+    const resultPromise = handleDepositRequest({
+      walletAddress: PUBKEY,
+      vaultId: "blend-usdc-fixed",
+      amount: "10",
+      riskAcknowledged: true,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(buildDepositTx).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(3_000);
+    await expect(resultPromise).resolves.toMatchObject({ status: 503 });
+    await vi.advanceTimersByTimeAsync(2_000);
+    vi.useRealTimers();
+  });
+
   it("returns 400 listing the missing fields", async () => {
     const result = await handleDepositRequest({ walletAddress: PUBKEY });
     expect(result.status).toBe(400);
@@ -169,7 +213,7 @@ describe("handleDepositRequest", () => {
       PUBKEY,
       "10",
       expect.anything(),
-      "0"
+      "9.4525"
     );
     expect(trackPositionHistoryUser).toHaveBeenCalledWith(PUBKEY);
   });
@@ -190,6 +234,7 @@ describe("handleDepositRequest", () => {
       expect.anything(),
       "9.5"
     );
+    expect(quoteVaultAction).not.toHaveBeenCalled();
   });
 
   it("returns an allowlisted builder error while retaining it for logging", async () => {
@@ -220,7 +265,7 @@ describe("handleWithdrawRequest", () => {
     });
   });
 
-  it("builds the withdraw transaction, defaulting min_usdc_out to 0", async () => {
+  it("builds the withdraw transaction, defaulting min_usdc_out to the quote minimum", async () => {
     const result = await handleWithdrawRequest({
       walletAddress: PUBKEY,
       vaultId: "blend-usdc-fixed",
@@ -232,7 +277,7 @@ describe("handleWithdrawRequest", () => {
       PUBKEY,
       "5",
       expect.anything(),
-      "0"
+      "4.72625"
     );
     expect(trackPositionHistoryUser).toHaveBeenCalledWith(PUBKEY);
   });
@@ -251,6 +296,7 @@ describe("handleWithdrawRequest", () => {
       expect.anything(),
       "4.9"
     );
+    expect(quoteVaultAction).not.toHaveBeenCalled();
   });
 
   it("hides internal builder errors from the caller while retaining them for logging", async () => {
@@ -354,6 +400,61 @@ describe("handleSubmitRequest", () => {
     expect(result.body).toEqual({ hash: "HASH" });
   });
 
+  it("returns a distinct outcome-unknown response with the accepted hash", async () => {
+    vi.mocked(submitTx).mockResolvedValueOnce({
+      hash: "HASH",
+      status: "PENDING",
+    } as Awaited<ReturnType<typeof submitTx>>);
+    const result = await handleSubmitRequest({ xdr: "SIGNED" });
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual({
+      hash: "HASH",
+      status: "PENDING",
+    });
+    expect(submitTx).toHaveBeenCalledWith("SIGNED", expect.anything(), {
+      timeoutMs: expect.any(Number),
+    });
+  });
+
+  it("does not race signed submission against the upstream request deadline", async () => {
+    vi.useFakeTimers();
+    let resolveSubmission!: (
+      result: Awaited<ReturnType<typeof submitTx>>
+    ) => void;
+    vi.mocked(submitTx).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSubmission = resolve;
+        })
+    );
+
+    const response = handleSubmitRequest({ xdr: "SIGNED" });
+    await vi.advanceTimersByTimeAsync(8_001);
+    expect(submitTx).toHaveBeenCalledOnce();
+
+    resolveSubmission({
+      hash: "HASH",
+      status: "PENDING",
+    } as Awaited<ReturnType<typeof submitTx>>);
+    await expect(response).resolves.toMatchObject({
+      status: 202,
+      body: { hash: "HASH", status: "PENDING" },
+    });
+  });
+
+  it("includes the hash when the RPC submission times out ambiguously", async () => {
+    vi.mocked(submitTx).mockRejectedValueOnce(
+      new TransactionOutcomeUnknownError("HASH")
+    );
+    const result = await handleSubmitRequest({ xdr: "SIGNED" });
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual({
+      hash: "HASH",
+      status: "OUTCOME_UNKNOWN",
+      code: "TRANSACTION_OUTCOME_UNKNOWN",
+    });
+  });
+
   it("hides submit errors from the caller while retaining them for logging", async () => {
     const err = new Error("submit failed");
     vi.mocked(submitTx).mockRejectedValueOnce(err);
@@ -372,5 +473,92 @@ describe("handleSubmitRequest", () => {
     const result = await handleSubmitRequest({ xdr: "SIGNED" });
     expect(result.status).toBe(400);
     expect(result.body).toEqual({ error: USER_FIXABLE_MESSAGES[18] });
+  });
+});
+
+describe("handleQuoteRequest", () => {
+  it("quotes a deposit with the default slippage minimum", async () => {
+    const result = await handleQuoteRequest({
+      action: "deposit",
+      walletAddress: PUBKEY,
+      vaultId: "blend-usdc-fixed",
+      amount: "10",
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      action: "deposit",
+      expectedShares: "9.5",
+      recommendedMinimum: "9.4525",
+      slippageBps: 50,
+    });
+  });
+
+  it("quotes a withdrawal and returns expected assets", async () => {
+    const result = await handleQuoteRequest({
+      action: "withdraw",
+      walletAddress: PUBKEY,
+      vaultId: "blend-usdc-fixed",
+      shares: "5",
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      action: "withdraw",
+      expectedAssets: "4.75",
+      recommendedMinimum: "4.72625",
+      slippageBps: 50,
+    });
+  });
+
+  it("rejects missing deposit or withdrawal amounts", async () => {
+    expect(
+      (
+        await handleQuoteRequest({
+          action: "deposit",
+          walletAddress: PUBKEY,
+          vaultId: "v",
+        })
+      ).status
+    ).toBe(400);
+    expect(
+      (
+        await handleQuoteRequest({
+          action: "withdraw",
+          walletAddress: PUBKEY,
+          vaultId: "v",
+        })
+      ).status
+    ).toBe(400);
+  });
+
+  it("maps paused and simulation failures clearly", async () => {
+    vi.mocked(quoteVaultAction).mockRejectedValueOnce(
+      new Error("Deposits are currently paused")
+    );
+    expect(
+      (
+        await handleQuoteRequest({
+          action: "deposit",
+          walletAddress: PUBKEY,
+          vaultId: "v",
+          amount: "10",
+        })
+      ).body
+    ).toEqual({ error: "Deposits are currently paused" });
+
+    vi.mocked(quoteVaultAction).mockRejectedValueOnce(
+      new Error("simulation failed")
+    );
+    expect(
+      (
+        await handleQuoteRequest({
+          action: "withdraw",
+          walletAddress: PUBKEY,
+          vaultId: "v",
+          shares: "5",
+        })
+      ).status
+    ).toBe(500);
   });
 });

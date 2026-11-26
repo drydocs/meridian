@@ -10,6 +10,7 @@
  */
 
 import type { TFunction } from "i18next";
+import { WalletTimeoutError, WalletCancelledError } from "./wallet";
 
 /**
  * Stable, locale-independent code thrown by the disconnected guard in
@@ -18,6 +19,16 @@ import type { TFunction } from "i18next";
  * per locale and so could never match the table in non-English builds.
  */
 export const WALLET_DISCONNECTED_ERROR = "WALLET_DISCONNECTED";
+
+export class TransactionNotConfirmedError extends Error {
+  constructor(
+    readonly status: "PENDING" | "OUTCOME_UNKNOWN",
+    readonly hash: string
+  ) {
+    super(status);
+    this.name = "TransactionNotConfirmedError";
+  }
+}
 
 /**
  * Map from the exact server-sent error strings defined in
@@ -151,8 +162,28 @@ export function mapError(
   t: TFunction,
   fallbackKey?: string
 ): MappedError {
+  if (err instanceof TransactionNotConfirmedError) {
+    return {
+      message: t(
+        err.status === "PENDING"
+          ? "errors.transactionPending"
+          : "errors.transactionOutcomeUnknown",
+        { hash: err.hash }
+      ),
+    };
+  }
+
   if (!(err instanceof Error)) {
     return { message: fallbackKey ? t(fallbackKey) : t("errors.unknown") };
+  }
+
+  // Typed wallet errors carry no user-readable text worth showing; map them
+  // to stable messages rather than falling through to the unknown-error path.
+  if (err instanceof WalletTimeoutError) {
+    return { message: t("errors.walletTimeout") };
+  }
+  if (err instanceof WalletCancelledError) {
+    return { message: t("errors.walletCancelled") };
   }
 
   const raw = err.message;

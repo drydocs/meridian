@@ -10,6 +10,7 @@ pub const TREASURY: Symbol = symbol_short!("TREASURY");
 pub const TOTAL_SH: Symbol = symbol_short!("TOTAL_SH");
 pub const ADPT_SH: Symbol = symbol_short!("ADPT_SH");
 pub const PAUSED: Symbol = symbol_short!("PAUSED");
+pub const DEP_CAP: Symbol = symbol_short!("DEP_CAP");
 pub const MIG_SNAP: Symbol = symbol_short!("MIG_SNAP");
 pub const MIG_ACTIVE: Symbol = symbol_short!("MIG_ACT");
 // Reentrancy lock. Present (true) only while a guarded entry point is
@@ -85,6 +86,16 @@ pub struct MigrationSnapshot {
     pub adapter: Address,
     pub total_assets: i128,
     pub ledger_seq: u32,
+}
+
+/// An aggregate view of a user's position in the vault at a single ledger snapshot.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct PositionSummary {
+    pub shares: i128,
+    pub principal: i128,
+    pub entry_time: u64,
+    pub current_value: i128,
 }
 
 #[contracttype]

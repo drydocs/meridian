@@ -71,7 +71,7 @@ Before cloning, confirm you have the required tools installed:
 
 | Tool           | Required version | Check               |
 | -------------- | ---------------- | ------------------- |
-| Node.js        | `>=20`           | `node --version`    |
+| Node.js        | `20.x`           | `node --version`    |
 | pnpm           | `9.x`            | `pnpm --version`    |
 | Rust toolchain | stable (latest)  | `rustc --version`   |
 | Stellar CLI    | latest           | `stellar --version` |
@@ -83,6 +83,25 @@ To install pnpm at the correct version:
 ```bash
 npm install -g pnpm@9
 ```
+
+### Toolchain Version Pinning
+
+Meridian pins its supported Node.js and pnpm versions to ensure consistent local development and CI environments:
+
+- **Node.js**: The supported Node.js major version is pinned in `.node-version` and `.nvmrc` (`20`). CI workflows (`.github/workflows/ci.yml` and `.github/workflows/verify-contract-addresses.yml`) read `.node-version` via `actions/setup-node`'s `node-version-file` input.
+- **pnpm**: The package manager is declared in `package.json` under `"packageManager"` (`pnpm@9.0.0`) and enforced in `"engines"`.
+- **Preinstall Enforcement**: A preinstall check (`scripts/check-version.js`) runs before `pnpm install` to verify that the active Node.js and package manager versions match the repository pins. If an unsupported version is detected, it fails with a clear error message.
+
+#### Updating the Version Pins
+
+When upgrading the repository toolchain (e.g. migrating to a newer Node.js LTS or pnpm major version):
+
+1. **Update `.node-version` and `.nvmrc`**: Update the major version number (e.g., `22`) in both `.node-version` and `.nvmrc`.
+2. **Update `package.json`**:
+   - Update `"packageManager"` with the new target version (e.g., `"pnpm@10.0.0"`).
+   - Update the `"engines"` field (`"node"` and `"pnpm"`) to reflect the supported ranges.
+3. **Update Documentation**: Update the versions listed in the Prerequisites table in this file.
+4. **Verify**: Run `pnpm install`, `pnpm lint`, and `pnpm typecheck` to confirm the new versions pass all checks.
 
 ---
 
@@ -291,6 +310,15 @@ Commits that do not match the `^(feat|fix|docs|chore|refactor|test|style|ci|perf
 
 ## Code Standards
 
+### Architecture Decision Records
+
+When a change alters an accepted architectural decision, update the relevant
+ADR or add a new one in [`apps/docs/architecture/adr/`](apps/docs/architecture/adr/).
+Use the [ADR template](apps/docs/architecture/adr/template.md), update the
+[index](apps/docs/architecture/adr/index.md), and link the record from the
+affected architecture documentation. Routine changes that do not alter an
+architectural decision do not need an ADR.
+
 ### TypeScript (`apps/web`, `apps/api-local`, `packages/*`)
 
 - **Formatting:** Run `pnpm format` before committing. Prettier with default settings.
@@ -314,6 +342,7 @@ Commits that do not match the `^(feat|fix|docs|chore|refactor|test|style|ci|perf
   - `PascalCase` for types and traits
   - `UPPER_SNAKE_CASE` for constants
 - **Error handling:** Use `Result<T, E>` everywhere. No `.unwrap()` in contract code except on values that are provably infallible; explain why in an inline comment.
+- **Adding a `ContractError` variant:** When adding a new variant to `ContractError` in any contract crate (`vault`, `blend-adapter`, `defindex-adapter`, or `musdc-token`), assign the next unused `u32` discriminant (never reuse or renumber existing codes), add a `///` doc comment explaining when it is raised, and document the variant with its cause and recommended client/operator response in `apps/docs/architecture/contract-errors.md`. Run `pnpm --filter @meridian/docs test` (included in `pnpm test`) to verify every variant is cataloged.
 - **Documentation:** All public functions must have doc comments (`///`). Include a one-line summary and a note on any panics or preconditions.
 - **Security:** Validate all inputs. Assume callers are adversarial. Never read from storage without checking the key exists first.
 

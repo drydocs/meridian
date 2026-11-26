@@ -1,4 +1,9 @@
 import type { ApiVault, PositionInfo } from "@meridian/stellar-sdk-helpers";
+import {
+  reportError,
+  scrubSensitiveText,
+  type ApiErrorContext,
+} from "./errorReporter";
 
 export type { ApiVault };
 export type ApiPosition = PositionInfo;
@@ -35,12 +40,63 @@ export interface VaultState {
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly context: ApiErrorContext
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
+function apiPath(path: string): string {
+  try {
+    return scrubSensitiveText(
+      new URL(path, API_BASE || window.location.origin).pathname
+    );
+  } catch {
+    return scrubSensitiveText(path.split("?")[0]);
+  }
+}
+
+function httpErrorCategory(status: number): ApiErrorContext["category"] {
+  if (status >= 400 && status < 500) {
+    return "http_client_error";
+  }
+  if (status >= 500) {
+    return "http_server_error";
+  }
+  return "http_error";
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    signal: AbortSignal.timeout(15_000),
-    headers: { "Content-Type": "application/json" },
-    ...init,
-  });
+  const method = (init?.method ?? "GET").toUpperCase();
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      signal: AbortSignal.timeout(15_000),
+      headers: { "Content-Type": "application/json" },
+      ...init,
+    });
+  } catch (error) {
+    const category =
+      error instanceof Error && error.name === "TimeoutError"
+        ? "timeout"
+        : "network_error";
+    const apiError = new ApiRequestError(
+      error instanceof Error ? error.message : "API request failed",
+      {
+        method,
+        path: apiPath(path),
+        status: null,
+        category,
+      }
+    );
+    reportError(apiError, { category: "api", api: apiError.context });
+    throw apiError;
+  }
+
   if (!res.ok) {
     const body: unknown = await res.json().catch(() => null);
     let msg = res.statusText;
@@ -58,7 +114,14 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       }
     }
     msg = msg || `Request failed (${res.status})`;
-    throw new Error(msg);
+    const apiError = new ApiRequestError(msg, {
+      method,
+      path: apiPath(path),
+      status: res.status,
+      category: httpErrorCategory(res.status),
+    });
+    reportError(apiError, { category: "api", api: apiError.context });
+    throw apiError;
   }
   return res.json() as Promise<T>;
 }
@@ -106,7 +169,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
   submitTx: (body: { xdr: string }) =>
-    apiFetch<{ hash: string }>("/api/v1/tx/submit", {
+    apiFetch<{
+      hash: string;
+      status?: "SUCCESS" | "PENDING" | "OUTCOME_UNKNOWN";
+      code?: "TRANSACTION_OUTCOME_UNKNOWN";
+      ledger?: number;
+    }>("/api/v1/tx/submit", {
       method: "POST",
       body: JSON.stringify(body),
     }),

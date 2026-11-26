@@ -8,6 +8,7 @@ meridian/
 │   ├── _lib/
 │   │   └── middleware.ts         # CORS + rate-limit helpers shared by handlers
 │   └── v1/
+│       ├── config.ts             # GET /api/v1/config
 │       ├── admin/                # GET /api/v1/admin/vault-state, GET /api/v1/admin/history
 │       │   └── [resource].ts
 │       ├── keepers/              # /api/v1/keepers/* (accrue, health, rebalance, alert)

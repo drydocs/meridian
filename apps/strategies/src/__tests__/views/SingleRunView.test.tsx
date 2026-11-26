@@ -197,6 +197,29 @@ describe("SingleRunView", () => {
 });
 
 describe("App", () => {
+  it("persists completed runs for history, comparison, and reopening", async () => {
+    localStorage.clear();
+    const firstRender = render(<App />);
+
+    submit();
+    await screen.findByTestId("run-summary");
+    fireEvent.click(screen.getByTestId("nav-history"));
+    expect(screen.getAllByTestId("history-run")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByTestId("nav-comparison"));
+    expect(screen.getByTestId("comparison-runs")).toBeTruthy();
+
+    firstRender.unmount();
+    render(<App />);
+    fireEvent.click(screen.getByTestId("nav-history"));
+    expect(screen.getAllByTestId("history-run")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open run" }));
+    expect(screen.getByTestId("run-summary")).toBeTruthy();
+    localStorage.clear();
+  });
+
   it("keeps the latest run across view switches without a reload", async () => {
     render(<App />);
 
