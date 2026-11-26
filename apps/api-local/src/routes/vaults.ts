@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { KNOWN_POOLS } from "@meridian/stellar-sdk-helpers";
 import {
+  handleGetPublicVaultState,
   handleGetVaults,
   handleGetVaultById,
   vaultReadCacheControl,
@@ -15,12 +16,21 @@ const KNOWN_VAULT_IDS = new Set(
 
 export const vaultsRoute: FastifyPluginAsync = async (app) => {
   app.get("/", async (req, reply) => {
-    const result = await handleGetVaults();
+    const query = req.query as { view?: string };
+    const result =
+      query.view === "state"
+        ? await handleGetPublicVaultState()
+        : await handleGetVaults();
     if (result.error) {
       req.log.error(result.error, "[vaults] failed to fetch vaults");
     }
     if (result.status === 200) {
-      reply.header("Cache-Control", vaultReadCacheControl());
+      reply.header(
+        "Cache-Control",
+        query.view === "state"
+          ? "public, s-maxage=10, stale-while-revalidate=30"
+          : vaultReadCacheControl()
+      );
     }
     return reply.code(result.status).send(result.body);
   });

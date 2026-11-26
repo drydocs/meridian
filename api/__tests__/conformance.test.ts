@@ -679,13 +679,13 @@ describe("Cross-Implementation API Conformance Suite (#1298)", () => {
     });
 
     describe("10. /api/v1/admin/vault-state", () => {
-      it("success: returns coordinator vault state with no-store header", async () => {
+      it("rejects unauthenticated access with no-store header", async () => {
         const { vercel, fastify } = await assertConformance(
           { method: "GET", url: "/api/v1/admin/vault-state" },
           { checkCacheControl: true }
         );
-        expect(vercel.status).toBe(200);
-        expect(fastify.status).toBe(200);
+        expect(vercel.status).toBe(401);
+        expect(fastify.status).toBe(401);
         expect(vercel.headers["cache-control"]).toBe("no-store");
       });
 
@@ -700,7 +700,7 @@ describe("Cross-Implementation API Conformance Suite (#1298)", () => {
     });
 
     describe("11. /api/v1/admin/history", () => {
-      it("success: returns admin action history with 30s CDN cache header", async () => {
+      it("rejects unauthenticated access with no-store header", async () => {
         const { vercel, fastify } = await assertConformance(
           {
             method: "GET",
@@ -708,11 +708,9 @@ describe("Cross-Implementation API Conformance Suite (#1298)", () => {
           },
           { checkCacheControl: true }
         );
-        expect(vercel.status).toBe(200);
-        expect(fastify.status).toBe(200);
-        expect(vercel.headers["cache-control"]).toBe(
-          "public, s-maxage=30, stale-while-revalidate=120"
-        );
+        expect(vercel.status).toBe(401);
+        expect(fastify.status).toBe(401);
+        expect(vercel.headers["cache-control"]).toBe("no-store");
       });
 
       it("error: returns 400 when vaultId query parameter is omitted", async () => {

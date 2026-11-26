@@ -3,15 +3,13 @@ import Fastify from "fastify";
 import { adminRoute } from "../routes/admin.js";
 import { keepersRoute } from "../routes/keepers.js";
 
-vi.mock("@meridian/api-core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@meridian/api-core")>();
-  return {
-    ...actual,
-    handleGetAdminHistory: vi.fn(),
-    handleGetVaultState: vi.fn(),
-    handleGetKeeperHealth: vi.fn(),
-  };
-});
+vi.mock("@meridian/api-core", () => ({
+  handleGetAdminHistory: vi.fn(),
+  handleGetVaultState: vi.fn(),
+  handleGetKeeperHealth: vi.fn(),
+  createAdminChallenge: vi.fn(),
+  verifyAdminChallenge: vi.fn(),
+}));
 
 import {
   createAdminChallenge,
@@ -273,7 +271,12 @@ describe("GET /api/v1/admin/history", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ vaultId: "meridian-usdc", actions });
-    expect(handleGetAdminHistory).toHaveBeenCalledWith("meridian-usdc");
+    // The handler is called with the vaultId and the authorization header
+    // (undefined when no Authorization header is present in the request).
+    expect(handleGetAdminHistory).toHaveBeenCalledWith(
+      "meridian-usdc",
+      undefined
+    );
   });
 
   it("returns 400 without calling the handler when vaultId is missing", async () => {

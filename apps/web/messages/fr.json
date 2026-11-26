@@ -128,6 +128,9 @@
     "switchWallet": "Changer de portefeuille",
     "connected": "Connecté",
     "readError": "Échec de la vérification du statut administrateur.",
+    "signIn": "Se connecter comme administrateur",
+    "signing": "En attente de la signature du portefeuille...",
+    "walletCannotSign": "Ce portefeuille ne peut pas signer la connexion admin. Utilisez Freighter.",
     "loading": "Chargement...",
     "keeperHealth": {
       "title": "État des keepers",

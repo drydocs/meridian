@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { Keypair } from "@stellar/stellar-sdk";
 
 // ---------------------------------------------------------------------------
@@ -45,6 +45,13 @@ function signChallenge(message: string): string {
   return Buffer.from(ADMIN_KEYPAIR.sign(Buffer.from(message, "utf8"))).toString(
     "base64"
   );
+}
+
+function signSep53Challenge(message: string): string {
+  const digest = createHash("sha256")
+    .update(`Stellar Signed Message:\n${message}`)
+    .digest();
+  return Buffer.from(ADMIN_KEYPAIR.sign(digest)).toString("base64");
 }
 
 // Build a valid session token by running through the full challenge/verify
@@ -213,6 +220,17 @@ describe("verifyAdminChallenge", () => {
     expect(body.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
   });
 
+  it("accepts a SEP-53 wallet signature", async () => {
+    const challengeResult = await createAdminChallenge(ADMIN_ADDRESS);
+    const { challenge } = challengeResult.body as { challenge: string };
+    const result = await verifyAdminChallenge({
+      address: ADMIN_ADDRESS,
+      challenge,
+      signature: signSep53Challenge(challenge),
+    });
+    expect(result.status).toBe(200);
+  });
+
   it("returns 401 for a wrong signature", async () => {
     const challengeResult = await createAdminChallenge(ADMIN_ADDRESS);
     const { challenge } = challengeResult.body as { challenge: string };
@@ -291,7 +309,7 @@ describe("verifyAdminChallenge", () => {
     expect(result.status).toBe(401);
   });
 
-  it("returns 401 when the admin lookup fails during verification", async () => {
+  it("returns 503 when the admin lookup fails during verification", async () => {
     const challengeResult = await createAdminChallenge(ADMIN_ADDRESS);
     const { challenge } = challengeResult.body as { challenge: string };
     const error = new Error("RPC unavailable");
@@ -301,7 +319,7 @@ describe("verifyAdminChallenge", () => {
       challenge,
       signature: signChallenge(challenge),
     });
-    expect(result.status).toBe(401);
+    expect(result.status).toBe(503);
     expect(result.error).toBe(error);
   });
 

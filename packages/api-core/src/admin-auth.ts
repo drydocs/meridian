@@ -1,4 +1,9 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import { Keypair } from "@stellar/stellar-sdk";
 import {
   fetchVaultAdmin,
@@ -6,6 +11,7 @@ import {
 } from "@meridian/stellar-sdk-helpers";
 import { APP_NETWORK } from "@meridian/shared";
 import type { RouteResult } from "./types";
+import { resolveCoordinatorVault } from "./coordinator-vault";
 
 // Challenges expire in 5 minutes; sessions in 15 minutes. Both are
 // deliberately short: challenges exist only so the wallet can sign them
@@ -175,7 +181,7 @@ async function fetchVaultAdminWithTimeout(contractId: string): Promise<string> {
  * Issues a one-time challenge string for `address` to sign with its wallet.
  * The challenge is stored (Redis on deployed environments, in-process map
  * on local dev) and expires in CHALLENGE_TTL_SECONDS. The wallet signs the
- * raw UTF-8 challenge bytes; the resulting base64-encoded signature is passed
+ * SEP-53 wallets sign the domain-separated SHA-256 digest; the resulting base64-encoded signature is passed
  * to verifyAdminChallenge together with this challenge string.
  */
 export async function createAdminChallenge(
@@ -244,10 +250,17 @@ export async function verifyAdminChallenge(input: {
     if (signature.length !== 64) {
       return { status: 401, body: { error: "Invalid admin proof" } };
     }
-    const verified = Keypair.fromPublicKey(input.address).verify(
-      Buffer.from(input.challenge, "utf8"),
-      signature
+    const sep53Message = Buffer.from(
+      `Stellar Signed Message:\n${input.challenge}`,
+      "utf8"
     );
+    const sep53Digest = createHash("sha256").update(sep53Message).digest();
+    const keypair = Keypair.fromPublicKey(input.address);
+    // Keep raw-message verification for existing integrations and tests, while
+    // accepting the SEP-53 format used by Freighter and current Stellar wallets.
+    const verified =
+      keypair.verify(sep53Digest, signature) ||
+      keypair.verify(Buffer.from(input.challenge, "utf8"), signature);
     if (!verified) {
       return { status: 401, body: { error: "Invalid admin proof" } };
     }
@@ -255,9 +268,23 @@ export async function verifyAdminChallenge(input: {
     // Re-check live admin at verify time as well, so a rotation that happens
     // between challenge and verify is caught here rather than only on the
     // first protected request.
-    const admin = await fetchVaultAdminWithTimeout(
-      process.env.MERIDIAN_VAULT_CONTRACT_ID ?? ""
-    );
+    const vault = resolveCoordinatorVault();
+    if (!vault) {
+      return {
+        status: 503,
+        body: { error: "Admin authentication unavailable" },
+      };
+    }
+    let admin: string;
+    try {
+      admin = await fetchVaultAdminWithTimeout(vault.contractId);
+    } catch (err) {
+      return {
+        status: 503,
+        body: { error: "Admin authentication unavailable" },
+        error: err,
+      };
+    }
     if (input.address !== admin) {
       return { status: 403, body: { error: "Admin access required" } };
     }

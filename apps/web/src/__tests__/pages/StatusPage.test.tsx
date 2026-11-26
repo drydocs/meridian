@@ -10,9 +10,6 @@ vi.mock("../../hooks/useVaultState", () => ({
 vi.mock("../../components/admin/VaultStatePanel", () => ({
   VaultStatePanel: () => <div data-testid="vault-state-panel" />,
 }));
-vi.mock("../../components/dashboard/AdminActionHistory", () => ({
-  AdminActionHistory: () => <div data-testid="admin-action-history" />,
-}));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) =>
@@ -76,12 +73,12 @@ describe("StatusPage", () => {
     ).toBeDefined();
   });
 
-  it("renders the vault state panel and admin action history", () => {
+  it("renders the public vault state panel without admin-only history", () => {
     mockVaultState(undefined);
     render(<StatusPage />);
 
     expect(screen.getByTestId("vault-state-panel")).toBeDefined();
-    expect(screen.getByTestId("admin-action-history")).toBeDefined();
+    expect(screen.queryByTestId("admin-action-history")).toBeNull();
   });
 
   it("shows the migration cooldown as a fixed protocol parameter", () => {

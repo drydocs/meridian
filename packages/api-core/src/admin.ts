@@ -9,6 +9,8 @@ import {
   loadKeeperHeartbeatStore,
 } from "@meridian/stellar-sdk-helpers";
 import { verifyAdmin } from "./admin-auth";
+import { resolveCoordinatorVault } from "./coordinator-vault";
+export { resolveCoordinatorVault } from "./coordinator-vault";
 import type { RouteResult } from "./types";
 import { deadlineResult, withUpstreamDeadline } from "./deadline";
 
@@ -57,6 +59,31 @@ export async function handleGetKeeperHealth(): Promise<RouteResult> {
       body: { error: "Failed to read keeper health" },
       error: err,
     };
+  }
+}
+
+export async function handleGetPublicVaultState(): Promise<RouteResult> {
+  const vault = resolveCoordinatorVault();
+  if (!vault) {
+    return {
+      status: 404,
+      body: {
+        error: "No Meridian coordinator vault configured for this network",
+      },
+    };
+  }
+  try {
+    const state = await withUpstreamDeadline(
+      () =>
+        fetchCoordinatorState({
+          contractId: vault.contractId,
+          network: APP_NETWORK,
+        }),
+      "vault state"
+    );
+    return { status: 200, body: state };
+  } catch (err) {
+    return { ...deadlineResult(err, "Failed to read vault state", 503) };
   }
 }
 
