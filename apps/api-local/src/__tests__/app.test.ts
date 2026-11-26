@@ -96,8 +96,12 @@ describe("buildApp", () => {
     expect(first.statusCode).toBe(200);
     expect(second.statusCode).toBe(429);
     expect(second.json()).toMatchObject({
-      error: "Too many requests. Try again in a minute.",
+      error: {
+        message: "Too many requests. Try again in a minute.",
+        requestId: expect.any(String),
+      },
     });
+    expect(second.headers["x-request-id"]).toBeDefined();
   });
 
   it("applies the default budget when none is configured", async () => {

@@ -3,6 +3,9 @@ import { isIP } from "node:net";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
 import {
+  createRequestId,
+  responseBody,
+  REQUEST_ID_HEADER,
   CONFIG_CACHE_CONTROL,
   MAINNET_VAULT_CACHE_CONTROL,
   TESTNET_VAULT_CACHE_CONTROL,
@@ -17,6 +20,7 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN;
 const LIMIT = 100;
 const WINDOW = "60 s";
 const WINDOW_MS = 60_000;
+const REQUEST_ID_PROPERTY = "__meridianRequestId";
 
 // Vercel's Upstash integration provisions credentials under either store-prefixed or standard names
 const UPSTASH_URL =
@@ -66,6 +70,30 @@ function applySecurityHeaders(res: VercelResponse): void {
   res.setHeader("Content-Security-Policy", "default-src 'none'");
 }
 
+function incomingRequestId(req: VercelRequest): unknown {
+  const value = req.headers[REQUEST_ID_HEADER.toLowerCase()];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export function getRequestId(req: VercelRequest): string {
+  const request = req as VercelRequest & { [REQUEST_ID_PROPERTY]?: string };
+  if (request[REQUEST_ID_PROPERTY]) return request[REQUEST_ID_PROPERTY];
+  const requestId = createRequestId(incomingRequestId(req));
+  request[REQUEST_ID_PROPERTY] = requestId;
+  return requestId;
+}
+
+export function sendResponse(
+  req: VercelRequest,
+  res: VercelResponse,
+  status: number,
+  body: unknown
+): VercelResponse {
+  const requestId = getRequestId(req);
+  res.setHeader(REQUEST_ID_HEADER, requestId);
+  return res.status(status).json(responseBody(status, body, requestId));
+}
+
 /**
  * Set CORS and baseline security headers, and handle preflight. Returns true
  * when the request was a preflight OPTIONS and has been fully handled — the
@@ -73,9 +101,10 @@ function applySecurityHeaders(res: VercelResponse): void {
  */
 export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
   applySecurityHeaders(res);
+  res.setHeader(REQUEST_ID_HEADER, getRequestId(req));
   res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Request-ID");
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return true;
@@ -94,7 +123,7 @@ export function requireGetMethod(
 ): boolean {
   if (req.method === "GET") return false;
   res.setHeader("Allow", "GET");
-  res.status(405).json({ error: "Method not allowed" });
+  sendResponse(req, res, 405, { error: "Method not allowed" });
   return true;
 }
 
@@ -132,11 +161,14 @@ function clientIp(req: VercelRequest): string {
  * in-memory limiter: preview deployments have their own public URL, so they
  * serve real traffic to these routes just like production.
  */
-export function enforceStrictRateLimit(res: VercelResponse): boolean {
+export function enforceStrictRateLimit(
+  req: VercelRequest,
+  res: VercelResponse
+): boolean {
   const isLocalDev = process.env.VERCEL_ENV === undefined;
 
   if (!isLocalDev && !isDistributedRateLimitingConfigured()) {
-    res.status(503).json({
+    sendResponse(req, res, 503, {
       error:
         "Service Unavailable: Distributed rate limiting is required on deployed environments for this route.",
       code: "RATE_LIMIT_BACKEND_UNAVAILABLE",
@@ -171,7 +203,7 @@ export async function checkRateLimit(
 ): Promise<boolean> {
   const { strict = false, bucket } = options;
 
-  if (strict && !enforceStrictRateLimit(res)) {
+  if (strict && !enforceStrictRateLimit(req, res)) {
     return false;
   }
 
@@ -188,9 +220,9 @@ export async function checkRateLimit(
     );
     if (!success) {
       res.setHeader("retry-after", "60");
-      res
-        .status(429)
-        .json({ error: "Too many requests. Try again in a minute." });
+      sendResponse(req, res, 429, {
+        error: "Too many requests. Try again in a minute.",
+      });
       return false;
     }
     return true;
@@ -214,9 +246,9 @@ export async function checkRateLimit(
       String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000)))
     );
     res.setHeader("retry-after", "60");
-    res
-      .status(429)
-      .json({ error: "Too many requests. Try again in a minute." });
+    sendResponse(req, res, 429, {
+      error: "Too many requests. Try again in a minute.",
+    });
     return false;
   }
   entry.n++;

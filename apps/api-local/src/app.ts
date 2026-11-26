@@ -3,6 +3,11 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import type Redis from "ioredis";
 import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import {
+  createRequestId,
+  REQUEST_ID_HEADER,
+  responseBody,
+} from "@meridian/api-core";
 import { writeLog } from "@meridian/shared/logger";
 import { vaultsRoute } from "./routes/vaults.js";
 import { positionsRoute } from "./routes/positions.js";
@@ -26,6 +31,9 @@ export async function buildApp(
   const app = Fastify({
     logger: options.logger ?? false,
     bodyLimit: 10 * 1024,
+    requestIdHeader: REQUEST_ID_HEADER,
+    genReqId: (req) =>
+      createRequestId(req.headers[REQUEST_ID_HEADER.toLowerCase()]),
   });
 
   if (options.logger) {
@@ -44,6 +52,7 @@ export async function buildApp(
       process.env.ALLOWED_ORIGIN ??
       DEFAULT_ALLOWED_ORIGIN,
     methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", REQUEST_ID_HEADER],
   });
 
   if (options.enableRateLimit !== false) {
@@ -57,6 +66,26 @@ export async function buildApp(
       }),
     });
   }
+
+  // Every response carries the request ID, and error bodies use the shared
+  // `{ error: { code, message, requestId } }` envelope like the deployed handlers.
+  app.addHook("onSend", (req, reply, payload, done) => {
+    reply.header(REQUEST_ID_HEADER, req.id);
+    if (reply.statusCode < 400 || typeof payload !== "string") {
+      done(null, payload);
+      return;
+    }
+    try {
+      done(
+        null,
+        JSON.stringify(
+          responseBody(reply.statusCode, JSON.parse(payload), req.id)
+        )
+      );
+    } catch {
+      done(null, payload);
+    }
+  });
 
   app.addHook("onSend", (_req, reply, _payload, done) => {
     reply.header("X-Content-Type-Options", "nosniff");

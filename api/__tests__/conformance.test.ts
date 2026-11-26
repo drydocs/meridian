@@ -181,7 +181,10 @@ function normalizeBody(body: unknown): unknown {
     if (key === "statusCode" && (body as Record<string, unknown>)["error"]) {
       continue;
     }
-    if (
+    // Each request gets its own ID, so only its presence is compared.
+    if (key === "requestId" && typeof value === "string") {
+      normalized[key] = "[REQUEST_ID]";
+    } else if (
       (key === "updatedAt" || key === "checkedAt") &&
       typeof value === "string" &&
       !isNaN(Date.parse(value))
@@ -751,8 +754,12 @@ describe("Cross-Implementation API Conformance Suite (#1298)", () => {
       const first = await assertConformance(req);
       const second = await assertConformance(req);
 
-      expect(first.vercel.body).toEqual(second.vercel.body);
-      expect(first.fastify.body).toEqual(second.fastify.body);
+      expect(normalizeBody(first.vercel.body)).toEqual(
+        normalizeBody(second.vercel.body)
+      );
+      expect(normalizeBody(first.fastify.body)).toEqual(
+        normalizeBody(second.fastify.body)
+      );
     });
   });
 
@@ -794,12 +801,15 @@ describe("Cross-Implementation API Conformance Suite (#1298)", () => {
 
       expect(vercel.status).toBe(429);
       expect(fastify.status).toBe(429);
-      expect(normalizeBody(vercel.body)).toEqual({
-        error: "Too many requests. Try again in a minute.",
-      });
-      expect(normalizeBody(fastify.body)).toEqual({
-        error: "Too many requests. Try again in a minute.",
-      });
+      const rateLimited = {
+        error: {
+          code: "RATE_LIMITED",
+          message: "Too many requests. Try again in a minute.",
+          requestId: "[REQUEST_ID]",
+        },
+      };
+      expect(normalizeBody(vercel.body)).toEqual(rateLimited);
+      expect(normalizeBody(fastify.body)).toEqual(rateLimited);
       expect(vercel.headers["retry-after"]).toBe("60");
       expect(fastify.headers["retry-after"]).toBe("60");
     });
