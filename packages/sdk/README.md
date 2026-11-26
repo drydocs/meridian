@@ -119,6 +119,42 @@ on `retryable` errors; methods that build a transaction (`deposit`,
 retry when you also set `retryTxBuilders: true`. The SDK never signs or submits
 anything. Use `withRetry(fn, policy)` to retry your own steps explicitly.
 
+## Keeper transaction submission
+
+`KeeperTransactionClient` is exported for keepers that need to build, sign,
+and submit Stellar transactions. Its transaction builder runs again on each
+retry, so it can fetch the latest account sequence and apply the escalated fee.
+An ambiguous send is tracked by hash and checked again rather than rebuilt.
+
+```ts
+import { Contract, Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
+import { KeeperTransactionClient } from "@meridian/sdk";
+
+const signer = Keypair.fromSecret(secretKey);
+const client = new KeeperTransactionClient({
+  signer,
+  server,
+  rpcTimeoutMs: 12_000,
+  confirmationTimeoutMs: 20_000,
+  retryPolicy: { maxAttempts: 3, baseDelayMs: 1_000 },
+  feeEscalation: { baseFee: 10_000, maxFee: 1_000_000, multiplier: 2 },
+  deadlineAt: Date.now() + 50_000,
+});
+
+const result = await client.submit(async (fee) => {
+  const source = await server.getAccount(signer.publicKey());
+  return new TransactionBuilder(source, { fee: String(fee), networkPassphrase })
+    .addOperation(new Contract(contractId).call("accrue"))
+    .setTimeout(300)
+    .build();
+});
+```
+
+The result is a discriminated union: `landed` or `duplicate` includes the
+confirmed transaction hash and ledger; `retryable` and `terminal` include the
+failure and attempt count. The client caps every escalated fee at `maxFee` and
+stops retrying at `deadlineAt`.
+
 ## Instrumentation hooks
 
 ```ts
