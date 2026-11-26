@@ -223,6 +223,8 @@ export const deltaNeutralDefinition = defineStrategy<DeltaNeutralConfig>({
       "targetLeverage",
       "rebalanceBandBps",
       "fundingRatePerSecond",
+      "supplyRate",
+      "borrowRate",
     ]);
     const asset = readAsset(DELTA_NEUTRAL_ID, params, "asset");
     const targetLeverage = readDecimal(
@@ -247,6 +249,28 @@ export const deltaNeutralDefinition = defineStrategy<DeltaNeutralConfig>({
       params,
       "fundingRatePerSecond"
     );
+    let supplyRate: FixedPointDecimal | undefined;
+    if (Object.prototype.hasOwnProperty.call(params, "supplyRate")) {
+      supplyRate = readDecimal(DELTA_NEUTRAL_ID, params, "supplyRate");
+      if (supplyRate.toStroops() < 0n) {
+        throw new StrategyParamsError(
+          DELTA_NEUTRAL_ID,
+          "supplyRate",
+          "must be non-negative"
+        );
+      }
+    }
+    let borrowRate: FixedPointDecimal | undefined;
+    if (Object.prototype.hasOwnProperty.call(params, "borrowRate")) {
+      borrowRate = readDecimal(DELTA_NEUTRAL_ID, params, "borrowRate");
+      if (borrowRate.toStroops() < 0n) {
+        throw new StrategyParamsError(
+          DELTA_NEUTRAL_ID,
+          "borrowRate",
+          "must be non-negative"
+        );
+      }
+    }
     if (!dependencies.priceFeed) {
       throw new StrategyParamsError(
         DELTA_NEUTRAL_ID,
@@ -259,6 +283,8 @@ export const deltaNeutralDefinition = defineStrategy<DeltaNeutralConfig>({
       targetLeverage,
       rebalanceBandBps,
       fundingRate: { ratePerSecond },
+      ...(supplyRate !== undefined ? { supplyRate } : {}),
+      ...(borrowRate !== undefined ? { borrowRate } : {}),
       priceFeed: dependencies.priceFeed,
       ...(dependencies.hedgeFeed ? { hedgeFeed: dependencies.hedgeFeed } : {}),
     };
