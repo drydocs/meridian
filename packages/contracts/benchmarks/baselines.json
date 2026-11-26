@@ -10,9 +10,9 @@
       "memory_bytes": 110962
     },
     "vault.withdraw": {
-      "cpu_instructions": 567845,
-      "fee_stroops": 2141719,
-      "memory_bytes": 99010
+      "cpu_instructions": 732596,
+      "fee_stroops": 2154538,
+      "memory_bytes": 126974
     },
     "vault.transfer": {
       "cpu_instructions": 257903,

@@ -182,6 +182,7 @@
     "depositsPaused": "Les dépôts sont suspendus. Veuillez réessayer plus tard.",
     "insufficientShares": "Vous n'avez pas assez de parts pour ce retrait.",
     "withdrawalSlippage": "Le retrait a renvoyé moins que votre minimum. Ajustez la tolérance de glissement et réessayez.",
+    "adapterLiquidityInsufficient": "Le protocole de rendement sous-jacent ne dispose pas d'assez de liquidités disponibles pour ce retrait actuellement. Essayez un montant plus petit ou réessayez plus tard.",
     "slippageExceeded": "Tolérance de glissement dépassée. Ajustez la tolérance et réessayez.",
     "missingUsdcTrustline": "Votre portefeuille ne dispose pas de la ligne de confiance USDC. Ajoutez-la et réessayez.",
     "missingTrustline": "Votre portefeuille n'a pas une ou plusieurs lignes de confiance requises. Ajoutez-les et réessayez.",
@@ -203,7 +204,9 @@
 
   "errorBoundary": {
     "title": "Une erreur s'est produite. Veuillez recharger la page.",
-    "reload": "Recharger"
+    "reload": "Recharger",
+    "retry": "Réessayer",
+    "home": "Accueil"
   },
 
   "status": {

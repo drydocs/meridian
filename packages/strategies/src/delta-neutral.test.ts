@@ -557,3 +557,114 @@ describe("ModeledHedgeVenue", () => {
     ).toThrow(RangeError);
   });
 });
+
+describe("DeltaNeutralStrategy supply and borrow carry", () => {
+  const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+  const flatFeed = StaticPriceFeed.create({ USDC: "1", EURC: "1" });
+  const zeroFunding: FundingRate = {
+    ratePerSecond: FixedPointDecimal.fromStroops(0n),
+  };
+
+  function runCarry(
+    overrides: Partial<DeltaNeutralConfig>,
+    elapsedMs: number
+  ): DeltaNeutralStrategy {
+    const strategy = configured({
+      priceFeed: flatFeed,
+      fundingRate: zeroFunding,
+      ...overrides,
+    });
+    const entryCtx = marketTick(flatFeed, T0);
+    strategy.step(entryCtx);
+    strategy.rebalance(entryCtx);
+
+    const stepCtx = marketTick(flatFeed, T0 + elapsedMs);
+    strategy.step(stepCtx);
+    strategy.rebalance(stepCtx);
+    return strategy;
+  }
+
+  it("accrues positive carry when supplyRate exceeds borrowRate", () => {
+    // At 2x leverage with 10,000 capital: longNotional = 20,000,
+    // longBorrowed = 10,000, shortBorrowed = 10,000 => borrowNotional = 20,000.
+    // Over 1 year: 20,000 * (0.08 - 0.03) = +1,000.
+    const strategy = runCarry(
+      {
+        supplyRate: FixedPointDecimal.fromString("0.08"),
+        borrowRate: FixedPointDecimal.fromString("0.03"),
+      },
+      YEAR_MS
+    );
+
+    expect(strategy.carryPnl.toString()).toBe("1000");
+    expect(strategy.totalPnl.toString()).toBe("1000");
+    expect(strategy.equity.toString()).toBe("21000");
+    expect(strategy.snapshot().carryPnl.toString()).toBe("1000");
+    expect(strategy.snapshot().totalPnl.toString()).toBe("1000");
+    expect(strategy.snapshot().equity.toString()).toBe("21000");
+  });
+
+  it("accrues negative carry when borrowRate exceeds supplyRate", () => {
+    // Over 1 year: 20,000 * (0.02 - 0.07) = -1,000.
+    const strategy = runCarry(
+      {
+        supplyRate: FixedPointDecimal.fromString("0.02"),
+        borrowRate: FixedPointDecimal.fromString("0.07"),
+      },
+      YEAR_MS
+    );
+
+    expect(strategy.carryPnl.toString()).toBe("-1000");
+    expect(strategy.totalPnl.toString()).toBe("-1000");
+    expect(strategy.equity.toString()).toBe("19000");
+    expect(strategy.snapshot().carryPnl.toString()).toBe("-1000");
+  });
+
+  it("accrues zero carry when spread is zero or rates are omitted", () => {
+    const equalRates = runCarry(
+      {
+        supplyRate: FixedPointDecimal.fromString("0.05"),
+        borrowRate: FixedPointDecimal.fromString("0.05"),
+      },
+      YEAR_MS
+    );
+    expect(equalRates.carryPnl.toStroops()).toBe(0n);
+    expect(equalRates.totalPnl.toStroops()).toBe(0n);
+
+    const zeroRates = runCarry(
+      {
+        supplyRate: FixedPointDecimal.fromStroops(0n),
+        borrowRate: FixedPointDecimal.fromStroops(0n),
+      },
+      YEAR_MS
+    );
+    const omittedRates = runCarry({}, YEAR_MS);
+    expect(zeroRates.snapshot()).toEqual(omittedRates.snapshot());
+    expect(zeroRates.carryPnl.toStroops()).toBe(0n);
+  });
+
+  it("charges no borrow interest at 1x leverage", () => {
+    // At 1x leverage with 10,000 capital: longNotional = 10,000, borrowed = 0.
+    // Over 1 year at 6% supply and 10% borrow: 10,000 * 0.06 = +600.
+    const strategy = runCarry(
+      {
+        targetLeverage: FixedPointDecimal.fromString("1"),
+        supplyRate: FixedPointDecimal.fromString("0.06"),
+        borrowRate: FixedPointDecimal.fromString("0.10"),
+      },
+      YEAR_MS
+    );
+
+    expect(strategy.carryPnl.toString()).toBe("600");
+    expect(strategy.equity.toString()).toBe("20600");
+  });
+
+  it("rejects negative supplyRate or borrowRate", () => {
+    expect(() =>
+      configured({ supplyRate: FixedPointDecimal.fromString("-0.01") })
+    ).toThrow(DeltaNeutralConfigError);
+    expect(() =>
+      configured({ borrowRate: FixedPointDecimal.fromString("-0.01") })
+    ).toThrow(DeltaNeutralConfigError);
+  });
+});

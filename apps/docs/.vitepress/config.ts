@@ -68,6 +68,7 @@ export default defineConfig({
           { text: "Monorepo Structure", link: "/architecture/monorepo" },
           { text: "Frontend", link: "/architecture/frontend" },
           { text: "API Layer", link: "/architecture/api" },
+          { text: "API Error Reference", link: "/architecture/api-errors" },
           { text: "Vault Contract", link: "/architecture/vault-contract" },
           {
             text: "Contract Storage and TTL",

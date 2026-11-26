@@ -182,3 +182,71 @@ fn withdraw_assets_exceeding_max_shares_is_rejected() {
         Err(Ok(meridian_vault::ContractError::MaxSharesExceeded))
     );
 }
+
+#[test]
+fn adapter_liquidity_preflight_blocks_illiquid_withdrawals_end_to_end() {
+    let f = Fixture::new();
+    let alice = Address::generate(&f.env);
+    let borrower = Address::generate(&f.env);
+    f.fund(&alice, usdc(100));
+    f.deposit(&alice, usdc(100));
+
+    // Simulate borrowers drawing 70 USDC from the Blend pool (30 USDC left liquid).
+    f.env.mock_all_auths();
+    soroban_sdk::token::TokenClient::new(&f.env, &f.usdc).transfer(
+        &f.venue.pool.address,
+        &borrower,
+        &usdc(70),
+    );
+    f.env.set_auths(&[]);
+
+    // Preview reports the exact remaining pool liquidity.
+    let preview = f.vault.preview_withdraw(&alice, &usdc(100));
+    assert_eq!(preview.gross_assets, usdc(100));
+    assert_eq!(preview.available_liquidity, usdc(30));
+    assert_eq!(f.vault.available_liquidity(), usdc(30));
+
+    // Withdrawing 50 USDC (> 30 available) fails with AdapterLiquidityInsufficient.
+    f.authorize(
+        &alice,
+        &f.vault.address,
+        "withdraw",
+        (alice.clone(), usdc(50), 0_i128),
+        &[],
+    );
+    assert_eq!(
+        f.vault.try_withdraw(&alice, &usdc(50), &0_i128),
+        Err(Ok(
+            meridian_vault::ContractError::AdapterLiquidityInsufficient
+        ))
+    );
+
+    // Withdrawing 25 USDC (<= 30 available) succeeds normally.
+    let received = f.withdraw(&alice, usdc(25));
+    assert_eq!(received, usdc(25));
+    assert_eq!(f.vault.available_liquidity(), usdc(5));
+
+    // Drain the remaining 5 USDC so pool liquidity hits zero.
+    f.env.mock_all_auths();
+    soroban_sdk::token::TokenClient::new(&f.env, &f.usdc).transfer(
+        &f.venue.pool.address,
+        &borrower,
+        &usdc(5),
+    );
+    f.env.set_auths(&[]);
+
+    assert_eq!(f.vault.available_liquidity(), 0);
+    f.authorize(
+        &alice,
+        &f.vault.address,
+        "withdraw",
+        (alice.clone(), usdc(10), 0_i128),
+        &[],
+    );
+    assert_eq!(
+        f.vault.try_withdraw(&alice, &usdc(10), &0_i128),
+        Err(Ok(
+            meridian_vault::ContractError::AdapterLiquidityInsufficient
+        ))
+    );
+}

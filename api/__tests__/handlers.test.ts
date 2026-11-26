@@ -235,6 +235,7 @@ import {
   fetchVaultsWithCache,
 } from "@meridian/stellar-sdk-helpers";
 import { resetPositionReadCacheForTesting } from "@meridian/api-core";
+import { MAX_BODY_BYTES } from "@meridian/shared";
 
 // A 56-char Stellar public key shape (only the length is validated).
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -248,6 +249,7 @@ interface FakeRes {
   headers: Record<string, string>;
   status(code: number): FakeRes;
   json(payload: unknown): FakeRes;
+  send(payload: string): FakeRes;
   end(): FakeRes;
   setHeader(key: string, value: string): void;
 }
@@ -265,6 +267,10 @@ function makeRes(): FakeRes & VercelResponse {
       r.body = payload;
       return r;
     },
+    send(payload: string) {
+      r.body = JSON.parse(payload);
+      return r;
+    },
     end() {
       return r;
     },
@@ -273,6 +279,23 @@ function makeRes(): FakeRes & VercelResponse {
     },
   };
   return r as unknown as FakeRes & VercelResponse;
+}
+
+function expectErrorResponse(
+  res: FakeRes,
+  message: string | ReturnType<typeof expect.stringContaining>,
+  code?: string
+) {
+  expect(res.body).toMatchObject({
+    error: {
+      ...(code ? { code } : {}),
+      message,
+      requestId: expect.any(String),
+    },
+  });
+  expect(res.headers["X-Request-ID"]).toBe(
+    (res.body as { error: { requestId: string } }).error.requestId
+  );
 }
 
 beforeEach(() => {
@@ -324,9 +347,7 @@ describe("POST /api/v1/tx/deposit", () => {
     );
 
     expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual({
-      error: "Rate limiter unavailable; refusing to run",
-    });
+    expectErrorResponse(res, "Rate limiter unavailable; refusing to run");
   });
 
   it("rejects non-POST methods with 405", async () => {
@@ -342,6 +363,27 @@ describe("POST /api/v1/tx/deposit", () => {
     expect(res.statusCode).toBe(405);
   });
 
+  it("rejects an oversized Content-Length with 413 before building", async () => {
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "deposit" },
+        method: "POST",
+        headers: { "content-length": String(MAX_BODY_BYTES + 1) },
+        body: {},
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(413);
+    expect(res.body).toMatchObject({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Payload too large",
+      },
+    });
+    expect(buildDepositTx).not.toHaveBeenCalled();
+  });
+
   it("returns 400 listing the missing fields", async () => {
     const res = makeRes();
     await txHandler(
@@ -353,10 +395,10 @@ describe("POST /api/v1/tx/deposit", () => {
       res
     );
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({
-      error:
-        "vaultId: Invalid input: expected string, received undefined; amount: Invalid input: expected string, received undefined; riskAcknowledged: Invalid input: expected true",
-    });
+    expectErrorResponse(
+      res,
+      "vaultId: Invalid input: expected string, received undefined; amount: Invalid input: expected string, received undefined; riskAcknowledged: Invalid input: expected true"
+    );
   });
 
   it("rejects a deposit request missing risk acknowledgement", async () => {
@@ -442,7 +484,7 @@ describe("POST /api/v1/tx/deposit", () => {
       res
     );
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: "USDC trustline missing" });
+    expectErrorResponse(res, "USDC trustline missing");
   });
 
   it("returns 400 when the pre-flight trustline check reports a missing USDC trustline", async () => {
@@ -464,9 +506,7 @@ describe("POST /api/v1/tx/deposit", () => {
       res
     );
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({
-      error: expect.stringContaining("Missing USDC trustline"),
-    });
+    expectErrorResponse(res, expect.stringContaining("Missing USDC trustline"));
     // The check short-circuits, so nothing is simulated for a wallet that
     // cannot hold the asset and no builder error is ever reached.
     expect(buildDepositTx).not.toHaveBeenCalled();
@@ -513,9 +553,10 @@ describe("POST /api/v1/tx/withdraw", () => {
       res
     );
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({
-      error: "shares: Invalid input: expected string, received undefined",
-    });
+    expectErrorResponse(
+      res,
+      "shares: Invalid input: expected string, received undefined"
+    );
   });
 
   it("builds the withdraw transaction", async () => {
@@ -578,11 +619,10 @@ describe("POST /api/v1/tx/withdraw", () => {
       res
     );
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({
-      error: expect.stringContaining(
-        "Missing required trustlines: USDC, MUSDC"
-      ),
-    });
+    expectErrorResponse(
+      res,
+      expect.stringContaining("Missing required trustlines: USDC, MUSDC")
+    );
     expect(buildWithdrawTx).not.toHaveBeenCalled();
   });
 });
@@ -655,7 +695,7 @@ describe("POST /api/v1/tx/[action] action validation", () => {
       res
     );
     expect(res.statusCode).toBe(404);
-    expect(res.body).toEqual({ error: "Unknown action" });
+    expectErrorResponse(res, "Unknown action");
   });
 
   it("rejects prototype property names like toString with 404", async () => {
@@ -669,7 +709,7 @@ describe("POST /api/v1/tx/[action] action validation", () => {
       res
     );
     expect(res.statusCode).toBe(404);
-    expect(res.body).toEqual({ error: "Unknown action" });
+    expectErrorResponse(res, "Unknown action");
   });
 
   it("rejects unknown action names with 404", async () => {
@@ -683,7 +723,7 @@ describe("POST /api/v1/tx/[action] action validation", () => {
       res
     );
     expect(res.statusCode).toBe(404);
-    expect(res.body).toEqual({ error: "Unknown action" });
+    expectErrorResponse(res, "Unknown action");
   });
 });
 
@@ -900,7 +940,7 @@ describe("GET /api/v1/positions/:publicKey", () => {
       res
     );
     expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual({ error: "Failed to read positions" });
+    expectErrorResponse(res, "Failed to read positions");
   });
 });
 
@@ -973,7 +1013,7 @@ describe("GET /api/v1/positions/:publicKey/history", () => {
       res
     );
     expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual({ error: "Failed to read position history" });
+    expectErrorResponse(res, "Failed to read position history");
   });
 });
 
@@ -1141,7 +1181,7 @@ describe("GET /api/v1/keepers/accrue", () => {
     );
 
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: "Keeper operation failed" });
+    expectErrorResponse(res, "Keeper operation failed");
   });
 
   describe("without CRON_SECRET configured", () => {
@@ -1319,7 +1359,7 @@ describe("GET /api/v1/keepers/alert", () => {
     );
 
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: "Keeper operation failed" });
+    expectErrorResponse(res, "Keeper operation failed");
   });
 });
 
@@ -1457,7 +1497,7 @@ describe("GET /api/v1/keepers/rebalance", () => {
     );
 
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: "Keeper operation failed" });
+    expectErrorResponse(res, "Keeper operation failed");
   });
 });
 
@@ -1520,9 +1560,7 @@ describe("GET /api/v1/keepers/health", () => {
     );
 
     expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual({
-      error: "Rate limiter unavailable; refusing to run",
-    });
+    expectErrorResponse(res, "Rate limiter unavailable; refusing to run");
   });
 });
 
@@ -1543,9 +1581,7 @@ describe("GET /api/v1/admin/vault-state", () => {
     );
 
     expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual({
-      error: "Rate limiter unavailable; refusing to run",
-    });
+    expectErrorResponse(res, "Rate limiter unavailable; refusing to run");
   });
 
   it("is public — no cron bearer token required", async () => {

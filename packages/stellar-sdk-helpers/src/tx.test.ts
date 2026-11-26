@@ -153,6 +153,7 @@ const VAULT_CONTRACT_ERRORS: ReadonlyArray<readonly [string, number]> = [
   ["AdapterCreditedNothing", 23],
   ["DivisionByZero", 24],
   ["DepositValueMismatch", 30],
+  ["AdapterLiquidityInsufficient", 41],
 ];
 
 // The shape of `sim.error` for a contract error: the HostError line, then the
@@ -177,6 +178,7 @@ describe("simErrorMessage snapshots", () => {
     expect(surfaced).toMatchInlineSnapshot(`
       {
         "AdapterCreditedNothing": "The adapter did not credit any shares for this deposit.",
+        "AdapterLiquidityInsufficient": "Insufficient liquidity in the underlying yield protocol for this withdrawal. Try a smaller amount or retry later.",
         "AdapterReportedNoAssets": "The adapter reported no assets while shares are still outstanding.",
         "AdapterSwapUnsafe": "HostError: Error(Contract, #10)",
         "AlreadyInitialized": "This contract is already initialized.",
