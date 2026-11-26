@@ -63,7 +63,7 @@ export function AdminLogin() {
         <button
           onClick={() => void handleConnect()}
           disabled={connectStatus === "connecting"}
-          className="mt-6 w-full rounded-lg bg-settled px-6 py-3 font-semibold text-white disabled:opacity-50"
+          className="mt-6 w-full rounded-lg bg-emerald-700 px-6 py-3 font-semibold text-white disabled:opacity-50"
         >
           {t("common.connectWallet")}
         </button>
@@ -101,7 +101,7 @@ export function AdminLogin() {
       <button
         onClick={() => void signIn()}
         disabled={state === "signing" || !adapter.signMessage}
-        className="mt-6 w-full rounded-lg bg-settled px-6 py-3 font-semibold text-white disabled:opacity-50"
+        className="mt-6 w-full rounded-lg bg-emerald-700 px-6 py-3 font-semibold text-white disabled:opacity-50"
       >
         {state === "signing" ? t("admin.signing") : t("admin.signIn")}
       </button>

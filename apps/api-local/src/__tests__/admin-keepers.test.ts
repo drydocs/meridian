@@ -207,6 +207,24 @@ describe("POST /api/v1/admin/verify", () => {
     expect(verifyAdminChallenge).not.toHaveBeenCalled();
   });
 
+  it("rejects a non-string wallet address even when the other proof fields exist", async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/verify",
+      payload: {
+        address: 123,
+        challenge: "challenge",
+        signature: "signature",
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({
+      error: "address, challenge and signature are required",
+    });
+    expect(verifyAdminChallenge).not.toHaveBeenCalled();
+  });
+
   it("returns the verification result and logs failures", async () => {
     const app = buildApp();
     const logError = vi.spyOn(app.log, "error");
