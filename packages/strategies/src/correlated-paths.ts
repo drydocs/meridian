@@ -1,5 +1,7 @@
+import { Decimal } from "./decimal";
 import { FixedPointDecimal, STROOPS_PER_UNIT } from "./types";
 import type { AssetSymbol } from "./types";
+import { XorShift64, derivePathSeed } from "./rng";
 
 export class NotPositiveDefiniteError extends Error {
   constructor(message: string) {
@@ -18,33 +20,12 @@ export class InvalidPathConfigError extends Error {
 /** Uniform [0, 1) source. Inject one to share an existing generator's RNG. */
 export type RandomSource = () => number;
 
-/** Small deterministic PRNG (mulberry32), used when no `rng` is injected. */
-export function seededRandom(seed: number): RandomSource {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** Standard normal draws via Box-Muller, one pair per two calls. */
+/** Standard normal draws via Box-Muller on the shared XorShift64 stream. */
 function normalSource(rng: RandomSource): () => number {
-  let spare: number | null = null;
   return () => {
-    if (spare !== null) {
-      const z = spare;
-      spare = null;
-      return z;
-    }
-    let u = rng();
-    while (u <= 0) u = rng();
-    const v = rng();
-    const r = Math.sqrt(-2 * Math.log(u));
-    spare = r * Math.sin(2 * Math.PI * v);
-    return r * Math.cos(2 * Math.PI * v);
+    const u1 = 1 - rng();
+    const u2 = rng();
+    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
   };
 }
 
@@ -110,21 +91,35 @@ export interface CorrelatedPathConfig {
   steps: number;
   /** Step length in years, e.g. "0.0027397" for one day. Must be > 0. */
   dt: FixedPointDecimal;
-  seed: number;
+  /** Seed for the shared XorShift64 stream. A number is read as an unsigned 32 bit seed. */
+  seed: bigint | number;
   /** Optional shared RNG (uniform [0,1)); overrides `seed`. */
   rng?: RandomSource;
+  /** Optional path index; when set, the stream is `derivePathSeed(seed, pathIndex)`. */
+  pathIndex?: number;
 }
 
 export type CorrelatedPaths = Map<AssetSymbol, FixedPointDecimal[]>;
+
+const toDecimal = (d: FixedPointDecimal): Decimal =>
+  Decimal.fromStroops(d.toStroops());
+
+const WORKING_SCALE = 18;
+const MAX_EXPONENT = 700;
+
+const decimalFromNumber = (value: number): Decimal =>
+  Decimal.fromString(value.toFixed(WORKING_SCALE), WORKING_SCALE);
 
 const toNumber = (d: FixedPointDecimal): number =>
   Number(d.toStroops()) / Number(STROOPS_PER_UNIT);
 
 /**
  * Generate correlated geometric Brownian motion paths for several assets.
- * Inputs are fixed-point decimals; the same seed reproduces identical path
- * sets. Driving noise is correlated as z = L * eps with L the Cholesky
- * factor of the correlation matrix. Output prices are rounded to 7 places.
+ * Driving noise comes from the shared `XorShift64` stream (seeded via
+ * `derivePathSeed` when `pathIndex` is given), so the same seed reproduces
+ * identical paths. Correlated shocks are z = L * eps with L the Cholesky
+ * factor of the correlation matrix. Prices use fixed-point arithmetic and
+ * are stored at stroop precision.
  */
 export function generateCorrelatedPaths(
   config: CorrelatedPathConfig
@@ -172,35 +167,49 @@ export function generateCorrelatedPaths(
     }
   }
 
-  const dt = toNumber(config.dt);
-  const sqrtDt = Math.sqrt(dt);
-  const normal = normalSource(config.rng ?? seededRandom(config.seed));
-  const mu = assets.map((a) => toNumber(a.drift));
-  const sigma = assets.map((a) => toNumber(a.volatility));
-  const price = assets.map((a) => toNumber(a.initialPrice));
+  const baseSeed =
+    typeof config.seed === "bigint" ? config.seed : BigInt(config.seed >>> 0);
+  const seed =
+    config.pathIndex === undefined
+      ? baseSeed
+      : derivePathSeed(baseSeed, config.pathIndex);
+  const generator = new XorShift64(seed);
+  const draw = normalSource(config.rng ?? (() => generator.nextFloat()));
+
+  const dt = toDecimal(config.dt).rescale(WORKING_SCALE);
+  const sqrtDt = decimalFromNumber(Math.sqrt(toNumber(config.dt)));
+  const mu = assets.map((a) => toDecimal(a.drift).rescale(WORKING_SCALE));
+  const sigma = assets.map((a) =>
+    toDecimal(a.volatility).rescale(WORKING_SCALE)
+  );
+  const price = assets.map((a) =>
+    toDecimal(a.initialPrice).rescale(WORKING_SCALE)
+  );
   const paths = assets.map((a) => [a.initialPrice]);
 
+  const half = Decimal.fromString("0.5", WORKING_SCALE);
   const eps = new Array<number>(n).fill(0);
   for (let t = 0; t < steps; t++) {
-    for (let i = 0; i < n; i++) eps[i] = normal();
+    for (let i = 0; i < n; i++) eps[i] = draw();
     for (let i = 0; i < n; i++) {
       let z = 0;
       const Li = L[i] as number[];
       for (let k = 0; k <= i; k++) z += (Li[k] as number) * (eps[k] as number);
-      const s = sigma[i] as number;
-      const growth = ((mu[i] as number) - 0.5 * s * s) * dt + s * sqrtDt * z;
-      price[i] = (price[i] as number) * Math.exp(growth);
-      const stroops = Math.round(
-        (price[i] as number) * Number(STROOPS_PER_UNIT)
-      );
-      if (!Number.isFinite(stroops) || !Number.isSafeInteger(stroops)) {
+      const zDec = decimalFromNumber(z);
+      const s = sigma[i] as Decimal;
+      const variance = s.mul(s).mul(half).mul(dt);
+      const growth = mu[i]!.mul(dt).sub(variance).add(s.mul(sqrtDt).mul(zDec));
+      const exponent = Number(growth.toString());
+      if (!Number.isFinite(exponent) || Math.abs(exponent) > MAX_EXPONENT) {
         throw new InvalidPathConfigError(
           `${assets[i]?.asset}: simulated price left the representable range`
         );
       }
-      (paths[i] as FixedPointDecimal[]).push(
-        FixedPointDecimal.fromStroops(BigInt(stroops))
+      price[i] = price[i]!.mul(decimalFromNumber(Math.exp(exponent)));
+      const stroopPrice = FixedPointDecimal.fromStroops(
+        price[i]!.rescale(7).toStroops()
       );
+      (paths[i] as FixedPointDecimal[]).push(stroopPrice);
     }
   }
 
