@@ -341,6 +341,27 @@ impl MeridianDefindexAdapter {
         DefindexVaultClient::new(&env, &dfx).balance(&adapter)
     }
 
+    /// Returns the maximum USDC amount currently withdrawable from the
+    /// DeFindex vault for this adapter: the minimum of the adapter's live
+    /// redeemable position value and the DeFindex vault's liquid USDC balance.
+    pub fn available_liquidity(env: Env) -> i128 {
+        let dfx: Address = adapter_common::get_or_not_initialized::<_, ContractError>(
+            &env,
+            env.storage().instance().get(&DFX_VAULT),
+        );
+        let usdc = get_usdc(&env);
+        let position_usdc = Self::total_assets(env.clone());
+        if position_usdc <= 0 {
+            return 0;
+        }
+
+        let vault_balance = TokenClient::new(&env, &usdc).balance(&dfx);
+        if vault_balance <= 0 {
+            return 0;
+        }
+        position_usdc.min(vault_balance)
+    }
+
     /// No-op: DeFindex's total_assets() already prices live on every call
     /// via the vault's exchange rate, so there is no cache to refresh.
     pub fn refresh(_env: Env) {}
@@ -1151,5 +1172,29 @@ mod tests {
         let recipient = Address::generate(&env);
         adapter.withdraw(&amount, &recipient);
         report_benchmark(&env, "defindex_adapter.withdraw");
+    }
+
+    #[test]
+    fn available_liquidity_handles_full_partial_and_zero_vault_liquidity() {
+        let (env, vault, usdc_id, adapter, dfx) = setup();
+        let amount = 100_0000000_i128;
+
+        // Empty adapter reports 0 available liquidity.
+        assert_eq!(adapter.available_liquidity(), 0);
+
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        adapter.deposit(&amount);
+
+        // Fully liquid: DeFindex vault holds the full deposited USDC.
+        assert_eq!(adapter.available_liquidity(), amount);
+
+        // Partially liquid: 60 USDC deployed/unavailable in underlying strategies.
+        let strategy = Address::generate(&env);
+        TokenClient::new(&env, &usdc_id).transfer(&dfx.address, &strategy, &60_0000000_i128);
+        assert_eq!(adapter.available_liquidity(), 40_0000000_i128);
+
+        // Zero liquidity: remaining 40 USDC unavailable.
+        TokenClient::new(&env, &usdc_id).transfer(&dfx.address, &strategy, &40_0000000_i128);
+        assert_eq!(adapter.available_liquidity(), 0);
     }
 }

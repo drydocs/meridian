@@ -394,6 +394,7 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `ProtectedToken`                 | 38   | `rescue_token` was called for the vault's USDC, the mUSDC share token or the active adapter.                                                                                                      |
 | `InsufficientBalance`            | 39   | `rescue_token` was asked for more of the token than the vault holds.                                                                                                                              |
 | `DepositCapExceeded`             | 40   | `deposit` would take the vault's total assets above the cap set with `set_total_deposit_cap`.                                                                                                     |
+| `AdapterLiquidityInsufficient`   | 41   | The active adapter's available USDC liquidity is below the gross USDC needed for the requested withdrawal. Distinct from `WithdrawalTooSmall`.                                                    |
 
 ## Contract storage
 
