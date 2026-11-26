@@ -9,6 +9,7 @@ import {
   vaultReadCacheControl,
 } from "../../_lib/middleware.js";
 import { logError } from "../../_lib/logger.js";
+import { createStrongETag, ifNoneMatchMatches } from "../../_lib/etag.js";
 
 const KNOWN_VAULT_IDS = new Set(
   [
@@ -40,7 +41,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     logError("vault.failed", req, result.error);
   }
   if (result.status === 200) {
+    const body = JSON.stringify(result.body);
+    if (body === undefined) {
+      throw new TypeError("Vault detail response is not JSON serializable");
+    }
+    const etag = createStrongETag(body);
     res.setHeader("Cache-Control", vaultReadCacheControl());
+    res.setHeader("ETag", etag);
+    if (ifNoneMatchMatches(req.headers["if-none-match"], etag)) {
+      return res.status(304).end();
+    }
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    return res.status(200).send(body);
   }
   return sendResponse(req, res, result.status, result.body);
 }

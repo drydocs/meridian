@@ -248,6 +248,7 @@ interface FakeRes {
   headers: Record<string, string>;
   status(code: number): FakeRes;
   json(payload: unknown): FakeRes;
+  send(payload: string): FakeRes;
   end(): FakeRes;
   setHeader(key: string, value: string): void;
 }
@@ -263,6 +264,10 @@ function makeRes(): FakeRes & VercelResponse {
     },
     json(payload: unknown) {
       r.body = payload;
+      return r;
+    },
+    send(payload: string) {
+      r.body = JSON.parse(payload);
       return r;
     },
     end() {
