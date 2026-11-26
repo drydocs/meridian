@@ -203,7 +203,9 @@
 
   "errorBoundary": {
     "title": "Une erreur s'est produite. Veuillez recharger la page.",
-    "reload": "Recharger"
+    "reload": "Recharger",
+    "retry": "Réessayer",
+    "home": "Accueil"
   },
 
   "status": {

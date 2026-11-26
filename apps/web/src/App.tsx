@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setQueryClient } from "./lib/queryClient";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
@@ -53,6 +53,7 @@ function isDashboardRoute(): boolean {
 
 function Dashboard() {
   const { t, i18n } = useTranslation();
+  const [resetKey, setResetKey] = useState(0);
   const toggleLanguage = useCallback(() => {
     const newLang = i18n.language === "en" ? "fr" : "en";
     i18n.changeLanguage(newLang);
@@ -111,8 +112,10 @@ function Dashboard() {
         tabIndex={-1}
         className="relative z-10 max-w-xl mx-auto px-6 py-10 outline-none"
       >
-        <ErrorBoundary>
-          <VaultPanel />
+        <ErrorBoundary showHome onReset={() => setResetKey((k) => k + 1)}>
+          <div key={resetKey}>
+            <VaultPanel />
+          </div>
         </ErrorBoundary>
       </main>
     </div>
@@ -133,7 +136,9 @@ export default function App() {
     return () => window.removeEventListener("focus", revalidate);
   }, []);
 
-  const page = isAdminRoute() ? (
+  const [pageResetKey, setPageResetKey] = useState(0);
+
+  const rawPage = isAdminRoute() ? (
     <Suspense
       fallback={
         <div className="min-h-screen bg-night text-paper flex items-center justify-center">
@@ -157,6 +162,12 @@ export default function App() {
     <Dashboard />
   ) : (
     <NotFound />
+  );
+
+  const page = (
+    <ErrorBoundary showHome onReset={() => setPageResetKey((k) => k + 1)}>
+      <div key={pageResetKey}>{rawPage}</div>
+    </ErrorBoundary>
   );
 
   return (
