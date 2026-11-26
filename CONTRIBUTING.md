@@ -450,10 +450,7 @@ When introducing a new error code or status mapping in `packages/api-core`:
 1. Define the error code string and handler response shape in `packages/api-core`.
 2. Add the code, status, trigger condition, retry guidance, and recommended client action to the catalog in [`apps/docs/architecture/api-errors.md`](apps/docs/architecture/api-errors.md).
 3. If introducing a new user-fixable Soroban contract error mapping, add it to `USER_FIXABLE_CONTRACT_ERRORS` in `packages/api-core/src/tx.ts` and document it in the Contract Simulation Errors table.
-4. Run the API error catalog check to verify completeness:
-   ```bash
-   pnpm --filter @meridian/docs test
-   ```
+4. Run `pnpm --filter @meridian/docs test` to verify the catalog is complete.
 
 ### Docs checks
 
