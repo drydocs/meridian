@@ -182,6 +182,7 @@
     "depositsPaused": "Deposits are paused. Please try again later.",
     "insufficientShares": "You don't have enough shares for this withdrawal.",
     "withdrawalSlippage": "Withdrawal returned less than your minimum. Adjust slippage tolerance and retry.",
+    "adapterLiquidityInsufficient": "The underlying yield protocol doesn't have enough available liquidity for this withdrawal right now. Try a smaller amount or check back shortly.",
     "slippageExceeded": "Slippage tolerance exceeded. Adjust slippage tolerance and retry.",
     "missingUsdcTrustline": "Your wallet is missing the USDC trustline. Add it and try again.",
     "missingTrustline": "Your wallet is missing one or more required trustlines. Add them and try again.",

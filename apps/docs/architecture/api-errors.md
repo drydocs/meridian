@@ -63,12 +63,13 @@ Other `4xx` statuses use `HTTP_ERROR`.
 
 When a build route simulates a transaction and the vault rejects it for a reason the caller can fix, the API answers `400` with a readable message in `error.message`:
 
-| Contract Error Code          | Error Message                                                                 | Root Cause                                                  | Retryable           | Recommended Client Action                          |
-| ---------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------- | -------------------------------------------------- |
-| `3` (`DepositsPaused`)       | `Deposits are currently paused. Try again later.`                             | The vault admin paused deposits.                            | Yes (after unpause) | Tell the user deposits are paused and retry later. |
-| `7` (`InsufficientShares`)   | `Insufficient shares for this withdrawal.`                                    | The wallet holds fewer shares than the withdrawal asks for. | No                  | Refresh the position and request a smaller amount. |
-| `15` (`MinimumAssetsNotMet`) | `Withdrawal returned less USDC than your minimum. Adjust slippage and retry.` | The payout fell below `min_usdc_out`.                       | Yes                 | Refresh the quote, widen the tolerance and retry.  |
-| `18` (`SlippageExceeded`)    | `Slippage tolerance exceeded. Adjust slippage and retry.`                     | The minted shares fell below `min_shares_out`.              | Yes                 | Refresh the quote, widen the tolerance and retry.  |
+| Contract Error Code                   | Error Message                                                                                                       | Root Cause                                                      | Retryable           | Recommended Client Action                          |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------- | -------------------------------------------------- |
+| `3` (`DepositsPaused`)                | `Deposits are currently paused. Try again later.`                                                                   | The vault admin paused deposits.                                | Yes (after unpause) | Tell the user deposits are paused and retry later. |
+| `7` (`InsufficientShares`)            | `Insufficient shares for this withdrawal.`                                                                          | The wallet holds fewer shares than the withdrawal asks for.     | No                  | Refresh the position and request a smaller amount. |
+| `15` (`MinimumAssetsNotMet`)          | `Withdrawal returned less USDC than your minimum. Adjust slippage and retry.`                                       | The payout fell below `min_usdc_out`.                           | Yes                 | Refresh the quote, widen the tolerance and retry.  |
+| `18` (`SlippageExceeded`)             | `Slippage tolerance exceeded. Adjust slippage and retry.`                                                           | The minted shares fell below `min_shares_out`.                  | Yes                 | Refresh the quote, widen the tolerance and retry.  |
+| `41` (`AdapterLiquidityInsufficient`) | `Insufficient liquidity in the underlying yield protocol for this withdrawal. Try a smaller amount or retry later.` | The yield protocol cannot currently pay out the requested USDC. | Yes                 | Offer a smaller withdrawal or retry later.         |
 
 Every other contract error is treated as a server failure and answers `500` without the contract detail.
 
