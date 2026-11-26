@@ -5,7 +5,7 @@ extern crate std;
 
 mod errors;
 pub mod pricing;
-mod storage;
+pub mod storage;
 
 pub use errors::ContractError;
 pub use storage::{

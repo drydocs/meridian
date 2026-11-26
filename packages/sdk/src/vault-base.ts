@@ -141,6 +141,24 @@ export function convertSharesToAssets(
   return (shares * totalAssets) / totalSupply;
 }
 
+/**
+ * Performance fee on a withdrawal, matching the contract's `performance_fee`.
+ * Only a positive gain over the retired principal is fee-bearing, so a
+ * withdrawal at a loss has a gain and a fee of zero. The fee rounds down.
+ *
+ *   gain = max(usdcOut - principalOut, 0)
+ *   fee  = gain * feeBps / bpsDenominator
+ */
+export function calculatePerformanceFee(
+  usdcOut: bigint,
+  principalOut: bigint,
+  feeBps: bigint,
+  bpsDenominator: bigint
+): { gain: bigint; fee: bigint } {
+  const gain = usdcOut > principalOut ? usdcOut - principalOut : 0n;
+  return { gain, fee: (gain * feeBps) / bpsDenominator };
+}
+
 // ---------------------------------------------------------------------------
 // VaultBase abstract class
 // ---------------------------------------------------------------------------
