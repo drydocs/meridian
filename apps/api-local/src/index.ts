@@ -5,54 +5,23 @@ import { resolve } from "node:path";
 config({ path: resolve(process.cwd(), "../../.env.local") });
 config({ path: resolve(process.cwd(), "../../.env") });
 
-import Fastify from "fastify";
-import cors from "@fastify/cors";
-import rateLimit from "@fastify/rate-limit";
 import Redis from "ioredis";
-import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
-import { vaultsRoute } from "./routes/vaults";
-import { positionsRoute } from "./routes/positions";
-import { txRoute } from "./routes/tx";
-import { keepersRoute } from "./routes/keepers";
-import { adminRoute } from "./routes/admin";
-
-// Rate limits: one shared 100 req/min limiter across all routes, matching the
-// deployed handlers' shared Upstash sliding window (api/_lib/middleware.ts).
-// Body limit: 10 KB on all routes to block oversized payload attacks.
-// Security headers: X-Content-Type-Options and X-Frame-Options on every response.
-const app = Fastify({ logger: true, bodyLimit: 10 * 1024 });
+import { writeLog } from "@meridian/shared/logger";
+import { buildApp } from "./app.js";
 
 const redisClient = process.env.REDIS_URL
   ? new Redis(process.env.REDIS_URL)
   : undefined;
 
-await app.register(cors, {
-  origin: process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN,
-  methods: ["GET", "POST", "OPTIONS"],
+const app = await buildApp({
+  logger: true,
+  redisClient,
 });
-await app.register(rateLimit, {
-  max: 100,
-  timeWindow: "1 minute",
-  ...(redisClient ? { redis: redisClient } : {}),
-});
-
-app.addHook("onSend", (_req, reply, _payload, done) => {
-  reply.header("X-Content-Type-Options", "nosniff");
-  reply.header("X-Frame-Options", "DENY");
-  done();
-});
-
-app.register(vaultsRoute, { prefix: "/api/v1/vaults" });
-app.register(positionsRoute, { prefix: "/api/v1/positions" });
-app.register(txRoute, { prefix: "/api/v1/tx" });
-app.register(keepersRoute, { prefix: "/api/v1/keepers" });
-app.register(adminRoute, { prefix: "/api/v1/admin" });
-
-app.get("/health", async () => ({ status: "ok" }));
 
 try {
   await app.listen({ port: Number(process.env.PORT ?? 3001), host: "0.0.0.0" });
 } catch (err) {
+  writeLog("error", "http.server_start_failed", { error: err });
   app.log.error(err);
   process.exit(1);
 }

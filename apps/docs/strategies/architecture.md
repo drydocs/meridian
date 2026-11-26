@@ -181,13 +181,26 @@ the window, and the source. The resolver never fills a gap with a default.
 
 `regime-scenarios.ts` builds scenarios that need no recorded data.
 `buildRegimeScenario(regime, options)` returns a validated scenario for one of
-three market regimes: `trending`, `ranging`, or `high-funding`. The market
-parameters of the price path (start price, drift, volatility, funding rate)
-ride in `strategy.params` under `market.*` keys, next to the delta-neutral
-settings. The schema has no synthetic source option, so `source.price` is
-recorded as `horizon`, but nothing is read from it.
+three market regimes: `trending`, `ranging`, or `high-funding`.
 
-The helpers then read the scenario back:
+Each regime scenario has `strategy.id: "delta-neutral"` and
+`strategy.version: STRATEGY_VERSION_1` (`"1.0.0"`), and carries both the
+standard delta-neutral parameters (`asset`, `targetLeverage`,
+`rebalanceBandBps`, `fundingRatePerSecond`) and the `market.*` regime
+parameters (`market.regime`, `market.startPrice`, `market.drift`,
+`market.volatility`, `market.fundingRatePerSecond`,
+`market.neutralityBandBps`, `market.targetLeverage`) in `strategy.params`. The
+schema has no synthetic source option, so `source.price` is recorded as
+`horizon`, and `resolveScenarioSources` detects the regime parameters when no
+`historicalData` is supplied and builds the price feed from
+`scenarioPriceFeed`.
+
+Regime scenarios resolve and run through the standard registry path:
+`parseScenario` -> `resolveScenarioSources` -> `resolveStrategy` ->
+`runBacktest`. Saved scenarios carrying legacy version `"1"` fail with an
+`UnknownStrategyError` migration message directing callers to `"1.0.0"`.
+
+The helpers also expose the individual pieces:
 
 - `scenarioClock(scenario)` builds the `SimulationClock` for the window and
   step. It works for any scenario, not only a regime.
@@ -195,8 +208,7 @@ The helpers then read the scenario back:
   `generateGbmPath` (`gbm.ts`), seeded from `scenario.seed`, one price per
   clock tick.
 - `scenarioFundingRate` and `scenarioDeltaNeutralConfig` build the
-  delta-neutral config straight from the scenario. This path does not go
-  through the registry.
+  delta-neutral config directly from the scenario.
 
 The same scenario always yields the same path, so a regime run is reproducible
 from the scenario alone.
@@ -342,15 +354,15 @@ Source:
 `runBacktest` returns a `BacktestResult`. A `RunReport` is the separate,
 versioned record a caller keeps for a run:
 
-| Field           | Meaning                                                              |
-| --------------- | -------------------------------------------------------------------- |
-| `version`       | Report format version, `REPORT_FORMAT_VERSION` (`2`)                 |
-| `scenario`      | The validated scenario the run was produced from                     |
-| `engineVersion` | The engine that produced the run                                     |
-| `riskMetrics`   | `maxDrawdown`, `sharpeProxy`, `volatility`                           |
-| `eventCounts`   | `rebalances`, `deposits`, `withdrawals`, `priceFeedMisses`           |
-| `finalState`    | Timestamp, holdings per asset, and total value at the end of the run |
-| `generators`    | The state of each seeded random stream at the start and the end      |
+| Field           | Meaning                                                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`       | Report format version, `REPORT_FORMAT_VERSION` (`3`)                                                                                    |
+| `scenario`      | The validated scenario the run was produced from                                                                                        |
+| `engineVersion` | The engine that produced the run                                                                                                        |
+| `riskMetrics`   | `maxDrawdown`, `sharpeProxy`, `volatility`, `valueAtRisk`, `conditionalValueAtRisk`, `downsideDeviation`, `sortinoRatio`, `calmarRatio` |
+| `eventCounts`   | `rebalances`, `deposits`, `withdrawals`, `priceFeedMisses`                                                                              |
+| `finalState`    | Timestamp, holdings per asset, and total value at the end of the run                                                                    |
+| `generators`    | The state of each seeded random stream at the start and the end                                                                         |
 
 `serializeReport` and `reportToJSON` write a lossless wire format: every
 fixed-point value becomes its stroop count as a decimal string, and generator
@@ -393,6 +405,12 @@ deployed contract address, or the `CONTRACT_ADDRESSES` table appears in them.
 
 ## Related
 
+- [Example strategy and CLI](https://github.com/drydocs/meridian/tree/main/packages/strategies/examples):
+  a minimal simulation-only `Strategy<TConfig>` implementation
+  ([`target-weight-strategy.ts`](https://github.com/drydocs/meridian/blob/main/packages/strategies/examples/target-weight-strategy.ts)),
+  matching scenario
+  ([`target-weight.scenario.json`](https://github.com/drydocs/meridian/blob/main/packages/strategies/examples/target-weight.scenario.json)),
+  and runnable CLI (`pnpm --filter @meridian/strategies example`).
 - [Delta-neutral strategy](./delta-neutral.md): the hedged carry strategy and
   its modeled hedge venue.
 - [Self-repaying loan strategy](./self-repaying-loan.md): the loan model and

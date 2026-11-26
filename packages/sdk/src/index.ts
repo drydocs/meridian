@@ -1,7 +1,6 @@
 /**
  * @meridian/sdk: TypeScript client for Meridian vaults, keepers and the
- * Blend adapter. The keeper and adapter modules land in follow-up issues;
- * this entry point is where they will be re-exported.
+ * Blend adapter.
  */
 
 /** Semver version of this package. Kept in sync with package.json by a test. */
@@ -23,6 +22,7 @@ export {
   DEFAULT_RPC_TIMEOUT_MS,
   convertAssetsToShares,
   convertSharesToAssets,
+  calculatePerformanceFee,
 } from "./vault-base.js";
 export {
   ErrorCode,
@@ -33,12 +33,21 @@ export {
   NetworkError,
   TimeoutError,
   UnsupportedError,
+  MalformedPoolResponseError,
   classifyError,
   isMeridianError,
 } from "./errors.js";
 export type { ErrorCodeValue, MeridianErrorOptions } from "./errors.js";
 export { withRetry, retryDelayMs } from "./retry.js";
 export type { RetryPolicy } from "./retry.js";
+export { BlendAdapterClient } from "./blend-adapter.js";
+export type {
+  BlendAdapterConfig,
+  BlendAdapterDeps,
+  BlendAdapterInfo,
+  BlendReserveInfo,
+  BlendPosition,
+} from "./blend-adapter.js";
 export { redact, redactString, REDACTED } from "./instrumentation.js";
 export type {
   InstrumentationHooks,

@@ -30,6 +30,7 @@ import type {
 const STROOPS_PER_UNIT = 10_000_000n;
 const BPS_DENOMINATOR = 10_000n;
 const MILLIS_PER_SECOND = 1000;
+const YEAR_MILLISECONDS = 365n * 24n * 60n * 60n * 1000n;
 
 const ZERO = FixedPointDecimal.fromStroops(0n);
 const ONE = FixedPointDecimal.fromStroops(STROOPS_PER_UNIT);
@@ -221,6 +222,17 @@ export interface DeltaNeutralConfig {
   readonly rebalanceBandBps: number;
   /** Per-second funding rate applied to the short hedge (#927). */
   readonly fundingRate: FundingRate;
+  /**
+   * Annualized supply interest rate earned on the long spot leg (e.g. `0.05`
+   * for 5% APR on a 365-day year). Non-negative; defaults to `0`.
+   */
+  readonly supplyRate?: FixedPointDecimal;
+  /**
+   * Annualized borrow interest rate paid on borrowed capital across leveraged
+   * legs (e.g. `0.03` for 3% APR on a 365-day year). Non-negative; defaults to
+   * `0`.
+   */
+  readonly borrowRate?: FixedPointDecimal;
   /** Spot marks for the long leg and for the hedge venue. */
   readonly priceFeed: PriceFeed;
   /**
@@ -256,6 +268,7 @@ export interface DeltaNeutralSnapshot {
   readonly pricePnl: FixedPointDecimal;
   readonly fundingPnl: FixedPointDecimal;
   readonly basisPnl: FixedPointDecimal;
+  readonly carryPnl: FixedPointDecimal;
   readonly totalPnl: FixedPointDecimal;
   readonly equity: FixedPointDecimal;
   readonly rebalanceCount: number;
@@ -281,8 +294,9 @@ export interface DeltaNeutralSnapshot {
  * which is exactly zero at entry and drifts with price. `step` records that
  * exposure every tick and restores neutrality through `rebalance` when the
  * drift's quote value leaves the configured band. Funding accrues from the
- * configured rate; price PnL is marked each step and the round-trip basis is
- * realized at `close`.
+ * configured rate; supply interest on the long leg and borrow interest on the
+ * leveraged legs accrue as net carry each step; price PnL is marked each step
+ * and the round-trip basis is realized at `close`.
  *
  * Simulation only: no network, no clock, no randomness. All money math is
  * bigint stroops surfaced as `FixedPointDecimal`.
@@ -307,6 +321,8 @@ export class DeltaNeutralStrategy implements Strategy<DeltaNeutralConfig> {
   #pricePnl = ZERO;
   #fundingPnl = ZERO;
   #basisPnl = ZERO;
+  #carryPnl = ZERO;
+  #carryRemainder = 0n;
   #rebalanceCount = 0;
   #netDelta = ZERO;
   #netDeltaNotional = ZERO;
@@ -364,8 +380,16 @@ export class DeltaNeutralStrategy implements Strategy<DeltaNeutralConfig> {
     return this.#basisPnl;
   }
 
+  /** Net supply interest earned minus borrow interest paid across ticks. */
+  get carryPnl(): FixedPointDecimal {
+    return this.#carryPnl;
+  }
+
   get totalPnl(): FixedPointDecimal {
-    return fpAdd(fpAdd(this.#pricePnl, this.#fundingPnl), this.#basisPnl);
+    return fpAdd(
+      fpAdd(fpAdd(this.#pricePnl, this.#fundingPnl), this.#basisPnl),
+      this.#carryPnl
+    );
   }
 
   /**
@@ -400,6 +424,7 @@ export class DeltaNeutralStrategy implements Strategy<DeltaNeutralConfig> {
       pricePnl: this.#pricePnl,
       fundingPnl: this.#fundingPnl,
       basisPnl: this.#basisPnl,
+      carryPnl: this.#carryPnl,
       totalPnl: this.totalPnl,
       equity: this.equity,
       rebalanceCount: this.#rebalanceCount,
@@ -435,6 +460,12 @@ export class DeltaNeutralStrategy implements Strategy<DeltaNeutralConfig> {
         "starting capital must be strictly positive"
       );
     }
+    if (config.supplyRate !== undefined && fpSign(config.supplyRate) < 0) {
+      throw new DeltaNeutralConfigError("supplyRate must be non-negative");
+    }
+    if (config.borrowRate !== undefined && fpSign(config.borrowRate) < 0) {
+      throw new DeltaNeutralConfigError("borrowRate must be non-negative");
+    }
 
     this.#config = config;
     this.#venue = config.hedgeVenue ?? new ModeledHedgeVenue();
@@ -452,6 +483,7 @@ export class DeltaNeutralStrategy implements Strategy<DeltaNeutralConfig> {
     // so drift PnL is attributed to the state that was actually exposed.
     this.#markToMarket(price);
     this.#accrueFunding(context.market.timestamp);
+    this.#accrueCarry(context.market.timestamp);
     this.#tickIndex += 1;
     this.#lastPrice = price;
     this.#lastTimestamp = context.market.timestamp;
@@ -698,5 +730,55 @@ export class DeltaNeutralStrategy implements Strategy<DeltaNeutralConfig> {
         seconds
       )
     );
+  }
+
+  /**
+   * Accrues the net supply-minus-borrow carry over the elapsed interval:
+   * - Supply interest accrues on the long spot leg's opening quote notional
+   *   (`spotQuantity × lastPrice`).
+   * - Borrow interest accrues on the borrowed portion of each leveraged leg
+   *   (`max(0, longNotional − longMargin) + max(0, shortNotional − shortMargin)`).
+   *
+   * Evaluated in fixed-point bigint stroops against a 365-day year with a
+   * carried fractional-stroop remainder so short ticks do not lose dust.
+   */
+  #accrueCarry(timestamp: SimulationTimestamp): void {
+    const config = this.#requireConfig();
+    const supplyRateStroops = config.supplyRate?.toStroops() ?? 0n;
+    const borrowRateStroops = config.borrowRate?.toStroops() ?? 0n;
+    if (supplyRateStroops === 0n && borrowRateStroops === 0n) return;
+
+    const elapsed = timestamp - this.#lastTimestamp;
+    if (elapsed <= 0) return;
+
+    const longNotionalStroops = fpMul(
+      this.#spotQuantity,
+      this.#lastPrice
+    ).toStroops();
+    const shortNotionalStroops = this.#venueNotional().toStroops();
+
+    const longBorrowed = longNotionalStroops - this.#longMargin.toStroops();
+    const shortBorrowed = shortNotionalStroops - this.#shortMargin.toStroops();
+    const borrowNotionalStroops =
+      (longBorrowed > 0n ? longBorrowed : 0n) +
+      (shortBorrowed > 0n ? shortBorrowed : 0n);
+
+    const elapsedMs = BigInt(elapsed);
+    const numerator =
+      (longNotionalStroops * supplyRateStroops -
+        borrowNotionalStroops * borrowRateStroops) *
+        elapsedMs +
+      this.#carryRemainder;
+    const denominator = STROOPS_PER_UNIT * YEAR_MILLISECONDS;
+
+    const delta = numerator / denominator;
+    this.#carryRemainder = numerator % denominator;
+
+    if (delta !== 0n) {
+      this.#carryPnl = fpAdd(
+        this.#carryPnl,
+        FixedPointDecimal.fromStroops(delta)
+      );
+    }
   }
 }

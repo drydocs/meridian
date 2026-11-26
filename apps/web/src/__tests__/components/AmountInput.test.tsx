@@ -39,7 +39,7 @@ describe("AmountInput — accessible name", () => {
     renderInput();
 
     expect(
-      screen.getByRole("spinbutton", { name: "Amount in USDC" })
+      screen.getByRole("textbox", { name: "Amount in USDC" })
     ).toBeDefined();
   });
 
@@ -47,13 +47,13 @@ describe("AmountInput — accessible name", () => {
     const { rerenderWith } = renderInput({ currency: "ETH" });
 
     expect(
-      screen.getByRole("spinbutton", { name: "Amount in ETH" })
+      screen.getByRole("textbox", { name: "Amount in ETH" })
     ).toBeDefined();
 
     rerenderWith({ currency: "USDC" });
 
     expect(
-      screen.getByRole("spinbutton", { name: "Amount in USDC" })
+      screen.getByRole("textbox", { name: "Amount in USDC" })
     ).toBeDefined();
   });
 
@@ -61,7 +61,7 @@ describe("AmountInput — accessible name", () => {
     renderInput({ currency: "USDC" }, "fr");
 
     expect(
-      screen.getByRole("spinbutton", { name: "Montant en USDC" })
+      screen.getByRole("textbox", { name: "Montant en USDC" })
     ).toBeDefined();
     expect(screen.queryByLabelText("Amount in USDC")).toBeNull();
   });
@@ -76,14 +76,12 @@ describe("AmountInput — accessible name", () => {
 });
 
 describe("AmountInput — regression: existing props unaffected", () => {
-  it("remains disabled when disabled prop is passed and still has an accessible name", () => {
-    // AmountInput does not yet expose a disabled prop, but the input's
-    // native attributes (min, max, type) must survive the aria-label addition.
+  it("keeps the decimal input contract and accessible name", () => {
     renderInput();
 
-    const input = screen.getByRole("spinbutton", { name: "Amount in USDC" });
-    expect(input).toHaveProperty("min", "0");
-    expect(input).toHaveProperty("type", "number");
+    const input = screen.getByRole("textbox", { name: "Amount in USDC" });
+    expect(input).toHaveProperty("type", "text");
+    expect(input).toHaveProperty("inputMode", "decimal");
     expect(input).toHaveProperty("placeholder", "0.00");
   });
 
@@ -91,10 +89,21 @@ describe("AmountInput — regression: existing props unaffected", () => {
     const onChange = vi.fn();
     renderInput({ value: "", onChange });
 
-    const input = screen.getByRole("spinbutton", { name: "Amount in USDC" });
+    const input = screen.getByRole("textbox", { name: "Amount in USDC" });
     fireEvent.change(input, { target: { value: "42" } });
 
     expect(onChange).toHaveBeenCalledWith("42");
+  });
+
+  it("accepts a French decimal and grouped paste value", () => {
+    const onChange = vi.fn();
+    renderInput({ value: "", onChange }, "fr");
+
+    const input = screen.getByRole("textbox", { name: "Montant en USDC" });
+    expect(input).toHaveProperty("placeholder", "0,00");
+    fireEvent.change(input, { target: { value: "1 234,56" } });
+
+    expect(onChange).toHaveBeenCalledWith("1 234,56");
   });
 
   it("renders the currency badge as visible text alongside the input", () => {
@@ -104,7 +113,7 @@ describe("AmountInput — regression: existing props unaffected", () => {
     expect(screen.getByText("mUSDC")).toBeDefined();
     // And the input's accessible name must also carry the currency.
     expect(
-      screen.getByRole("spinbutton", { name: "Amount in mUSDC" })
+      screen.getByRole("textbox", { name: "Amount in mUSDC" })
     ).toBeDefined();
   });
 });

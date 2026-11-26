@@ -26,3 +26,4 @@ export { SubmissionLease } from "./keeper-state";
 export * from "./vault-cache";
 export * from "./vaults";
 export * from "./admin-history";
+export * from "./vault-events";

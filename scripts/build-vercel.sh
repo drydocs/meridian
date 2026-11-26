@@ -33,6 +33,9 @@ pnpm --filter @meridian/web build
 echo "▶ Building docs (base: /docs/)…"
 pnpm --filter @meridian/docs build
 
+echo "▶ Checking CSP hashes against generated HTML…"
+node "$ROOT/scripts/check-csp-hashes.mjs"
+
 echo "▶ Assembling combined output…"
 # Landing page → dist/index.html
 cp "$ROOT/apps/landing/index.html" "$OUT/index.html"

@@ -1,5 +1,9 @@
 export const DEFAULT_ALLOWED_ORIGIN = "https://usemeridian.vercel.app";
 
+// Maximum JSON request body size accepted by both deployed and local API
+// surfaces. Keep this in sync with Fastify's bodyLimit and the Vercel reader.
+export const MAX_BODY_BYTES = 10 * 1024;
+
 export const SUPPORTED_STABLECOINS = ["USDC", "EURC"] as const;
 export type SupportedStablecoin = (typeof SUPPORTED_STABLECOINS)[number];
 

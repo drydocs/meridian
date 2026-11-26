@@ -25,8 +25,9 @@
     "build": "tsc",
     "test": "vitest run --passWithNoTests",
     "coverage": "vitest run --coverage --passWithNoTests",
-    "lint": "eslint src",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
+    "lint": "eslint src examples scripts",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "example": "tsx scripts/run-example.ts"
   },
   "dependencies": {
     "@meridian/shared": "workspace:*",

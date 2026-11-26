@@ -10,6 +10,7 @@
  */
 
 import type { TFunction } from "i18next";
+import { WalletTimeoutError, WalletCancelledError } from "./wallet";
 
 /**
  * Stable, locale-independent code thrown by the disconnected guard in
@@ -47,6 +48,10 @@ const SERVER_MESSAGE_TO_KEY: Record<string, string> = {
   // Contract code 18 — SlippageExceeded (deposit slippage)
   "Slippage tolerance exceeded. Adjust slippage and retry.":
     "errors.slippageExceeded",
+
+  // Contract code 41, AdapterLiquidityInsufficient
+  "Insufficient liquidity in the underlying yield protocol for this withdrawal. Try a smaller amount or retry later.":
+    "errors.adapterLiquidityInsufficient",
 
   // MissingTrustlineError — single asset
   "Missing USDC trustline. Add the trustline via POST /api/v1/tx/add-trustline before depositing or withdrawing.":
@@ -174,6 +179,15 @@ export function mapError(
 
   if (!(err instanceof Error)) {
     return { message: fallbackKey ? t(fallbackKey) : t("errors.unknown") };
+  }
+
+  // Typed wallet errors carry no user-readable text worth showing; map them
+  // to stable messages rather than falling through to the unknown-error path.
+  if (err instanceof WalletTimeoutError) {
+    return { message: t("errors.walletTimeout") };
+  }
+  if (err instanceof WalletCancelledError) {
+    return { message: t("errors.walletCancelled") };
   }
 
   const raw = err.message;

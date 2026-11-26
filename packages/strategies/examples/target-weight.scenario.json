@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "window": {
+    "start": "2023-11-14T22:13:20.000Z",
+    "end": "2023-11-15T22:13:20.000Z",
+    "step": "PT1H"
+  },
+  "assets": ["USDC"],
+  "source": {
+    "price": "horizon",
+    "rate": "blend"
+  },
+  "startingCapital": "10000",
+  "strategy": {
+    "id": "target-weight",
+    "version": "1.0.0",
+    "params": {
+      "asset": "USDC",
+      "targetWeight": "0.5",
+      "market.startPrice": "1",
+      "market.drift": "0.0015",
+      "market.volatility": "0.004"
+    }
+  },
+  "seed": "example-target-weight-1"
+}

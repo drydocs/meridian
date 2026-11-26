@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "lint": "prettier --check \"**/*.md\"",
+    "test": "node scripts/check-contract-errors.mjs && node scripts/check-api-errors.mjs",
     "dev": "vitepress dev",
     "build": "vitepress build",
     "preview": "vitepress preview"
