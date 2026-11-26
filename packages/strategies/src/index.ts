@@ -53,3 +53,4 @@ export * from "./composition/correlation-matrix";
 export * from "./composition/constraint-engine";
 
 export * from "./scenario-sources";
+export * from "./execute-scenario";
