@@ -150,4 +150,26 @@ pub enum ContractError {
     InvalidTreasuryAddress = 36,
     /// Constructor initialization found that mUSDC is not administered by the vault.
     MusdcAdminMismatch = 37,
+    /// `rescue_token` was called for a protected token: the vault's USDC,
+    /// mUSDC, or the active adapter contract.
+    ProtectedToken = 38,
+    /// The vault does not hold enough of the target token to satisfy the rescue amount.
+    InsufficientBalance = 39,
+    /// `deposit` would cause total assets to exceed the configured deposit cap.
+    DepositCapExceeded = 40,
+    /// `withdraw` preflight (or a zero-payout redemption under illiquidity)
+    /// found that the adapter's currently withdrawable USDC liquidity is below
+    /// the gross USDC required for the requested share redemption. Distinct
+    /// from `WithdrawalTooSmall`, which fires when the requested shares
+    /// legitimately round down to zero USDC.
+    ///
+    /// Soroban `#[contracterror]` enums are unit-only (`#[repr(u32)]`) and
+    /// events emitted before an `Err` return are rolled back; callers read
+    /// `(available, requested)` via `preview_withdraw` (`available_liquidity`
+    /// and `gross_assets`) or `available_liquidity()`.
+    AdapterLiquidityInsufficient = 41,
+    /// `cancel_migration` was called while no migration is pending: no
+    /// `begin_migration` snapshot is live, or it was already cancelled or
+    /// executed.
+    NoPendingMigration = 42,
 }

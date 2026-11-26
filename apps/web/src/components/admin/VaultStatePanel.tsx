@@ -4,17 +4,10 @@ import { useVaultState } from "../../hooks/useVaultState";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { useWallet } from "../../hooks/useWallet";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
-import { APP_NETWORK } from "@meridian/shared";
-
-function formatAmount(value: number): string {
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+import { formatNumber } from "../../lib/format";
 
 export function VaultStatePanel() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data, isLoading, isError, refetch } = useVaultState();
   const { isAdmin, isLoading: isAdminLoading } = useAdminAuth();
   const { address, signAndSubmit } = useWallet();
@@ -120,7 +113,7 @@ export function VaultStatePanel() {
             </p>
             <button
               onClick={() => void refetch()}
-              className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
+              className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
             >
               {t("common.retry")}
             </button>
@@ -220,7 +213,7 @@ export function VaultStatePanel() {
         ) : (
           <div className="grid grid-cols-2 gap-y-5 gap-x-4">
             <div>
-              <p className="text-xs text-gray-500 mb-1">
+              <p className="text-xs text-gray-400 mb-1">
                 {t("admin.vaultState.adapter")}
               </p>
               <p className="text-sm font-semibold text-paper">
@@ -228,7 +221,7 @@ export function VaultStatePanel() {
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 mb-1">
+              <p className="text-xs text-gray-400 mb-1">
                 {t("admin.vaultState.status")}
               </p>
               <span
@@ -247,19 +240,25 @@ export function VaultStatePanel() {
               </span>
             </div>
             <div>
-              <p className="text-xs text-gray-500 mb-1">
+              <p className="text-xs text-gray-400 mb-1">
                 {t("admin.vaultState.totalShares")}
               </p>
               <p className="text-sm font-semibold text-paper tabular-nums">
-                {formatAmount(data.totalShares)}
+                {formatNumber(data.totalShares, i18n.language, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 mb-1">
+              <p className="text-xs text-gray-400 mb-1">
                 {t("admin.vaultState.totalAssets")}
               </p>
               <p className="text-sm font-semibold text-paper tabular-nums">
-                {formatAmount(data.totalAssets)}
+                {formatNumber(data.totalAssets, i18n.language, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </p>
             </div>
           </div>

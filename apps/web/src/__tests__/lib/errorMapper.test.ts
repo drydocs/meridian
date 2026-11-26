@@ -5,6 +5,7 @@ import {
   WALLET_DISCONNECTED_ERROR,
 } from "../../lib/errorMapper";
 import type { TFunction } from "i18next";
+import { WalletTimeoutError, WalletCancelledError } from "../../lib/wallet";
 
 // Minimal t() that returns the key (and optionally the interpolation params
 // for the unknownWithRef case), so tests are independent of translation file content.
@@ -221,6 +222,7 @@ describe("errors i18n keys", () => {
     "depositsPaused",
     "insufficientShares",
     "withdrawalSlippage",
+    "adapterLiquidityInsufficient",
     "slippageExceeded",
     "missingUsdcTrustline",
     "missingTrustline",
@@ -249,6 +251,20 @@ describe("errors i18n keys", () => {
       expect(typeof (fr as unknown as TranslationFile).errors?.[key]).toBe(
         "string"
       );
+    });
+  });
+});
+
+describe("mapError — typed wallet errors", () => {
+  it("maps a wallet timeout to its dedicated message", () => {
+    expect(mapError(new WalletTimeoutError("connect", 90_000), t)).toEqual({
+      message: "errors.walletTimeout",
+    });
+  });
+
+  it("maps a wallet cancellation to its dedicated message", () => {
+    expect(mapError(new WalletCancelledError("sign"), t)).toEqual({
+      message: "errors.walletCancelled",
     });
   });
 });

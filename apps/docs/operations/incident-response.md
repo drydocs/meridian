@@ -156,3 +156,6 @@ one leaks. Treat them accordingly rather than as one undifferentiated
   a fund-safety issue. Rotate by generating a new incoming-webhook URL from
   Slack/Discord and updating the environment variable; no coordination with
   on-chain state needed.
+
+For outages of Upstash Redis, Soroban RPC, DeFiLlama, Vercel or GitHub Actions,
+see the [Outage Recovery runbook](./outage-recovery.md).

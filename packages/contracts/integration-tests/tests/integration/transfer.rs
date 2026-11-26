@@ -7,6 +7,17 @@ use soroban_sdk::{
     Address, IntoVal,
 };
 
+fn report_benchmark(env: &soroban_sdk::Env, name: &str) {
+    let estimate = env.cost_estimate();
+    let resources = estimate.resources();
+    let memory_bytes = estimate.budget().memory_bytes_cost();
+    let fee_stroops = estimate.fee().total;
+    println!(
+        "SOROBAN_BENCHMARK|{}|{}|{}|{}",
+        name, resources.instructions, memory_bytes, fee_stroops
+    );
+}
+
 /// Alice deposits 100 at `START_TIME`, Bob deposits 50 at `START_TIME + 1_000`.
 fn alice_and_bob(f: &Fixture) -> (Address, Address) {
     let alice = Address::generate(&f.env);
@@ -193,4 +204,15 @@ fn a_transfer_the_sender_did_not_authorize_is_rejected() {
 
     assert_eq!(f.musdc_balance(&alice), usdc(100));
     assert_eq!(f.vault.get_principal(&alice), usdc(100));
+}
+
+#[test]
+fn benchmark_vault_transfer_uses_real_token_and_vault() {
+    let f = Fixture::new();
+    let sender = Address::generate(&f.env);
+    let recipient = Address::generate(&f.env);
+    f.fund(&sender, usdc(100));
+    f.deposit(&sender, usdc(100));
+    f.transfer(&sender, &recipient, usdc(50));
+    report_benchmark(&f.env, "vault.transfer");
 }

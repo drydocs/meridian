@@ -110,6 +110,8 @@ cargo test --manifest-path blend-adapter/Cargo.toml
 
 See [Testnet Deployment](./testnet-deployment.md) for deploying the contracts to testnet, and [Vault Contract](../architecture/vault-contract.md) for how the vault and adapters fit together.
 
+For contract storage keys and TTL/archival operations, see [Contract Storage and TTL Reference](../architecture/contract-storage.md).
+
 ## Wallet setup
 
 Install a Stellar wallet browser extension (for example, [Freighter](https://freighter.app)) and switch it to **Testnet** mode. Fund your testnet account using [Stellar Friendbot](https://friendbot.stellar.org/?addr=YOUR_ADDRESS).

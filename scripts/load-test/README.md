@@ -3,16 +3,17 @@
 A [k6](https://k6.io) suite for characterizing how the API and keeper
 endpoints behave under concurrent traffic, before mainnet. It covers:
 
-| Script                   | Target                                                | Purpose                                                                                         |
-| ------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `deposit-withdraw.js`    | `POST /api/v1/tx/deposit`, `POST /api/v1/tx/withdraw` | Throughput/latency under sustained concurrent traffic                                           |
-| `positions.js`           | `GET /api/v1/positions/:publicKey`                    | Steady-state read load                                                                          |
-| `rate-limit-fallback.js` | `GET /api/v1/positions/:publicKey`                    | Characterizes the in-memory rate-limit fallback's per-instance behavior                         |
-| `keepers.js`             | `GET /api/v1/keepers/:action`                         | `health` load, plus a concurrency probe on the accrue/rebalance/alert/snapshot submission-lease |
+| Script                   | Target                                                                                                                                                                                             | Purpose                                                                                         |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `deposit-withdraw.js`    | `POST /api/v1/tx/deposit`, `POST /api/v1/tx/withdraw`                                                                                                                                              | Throughput/latency under sustained concurrent traffic                                           |
+| `positions.js`           | `GET /api/v1/positions/:publicKey`                                                                                                                                                                 | Steady-state read load                                                                          |
+| `rate-limit-fallback.js` | `GET /api/v1/positions/:publicKey`                                                                                                                                                                 | Characterizes the in-memory rate-limit fallback's per-instance behavior                         |
+| `keepers.js`             | `GET /api/v1/keepers/:action`                                                                                                                                                                      | `health` load, plus a concurrency probe on the accrue/rebalance/alert/snapshot submission-lease |
+| `endpoint-coverage.js`   | `GET /api/v1/vaults`, `GET /api/v1/positions/:publicKey/history`, `GET /api/v1/admin/vault-state`, `GET /api/v1/admin/history`, `POST /api/v1/tx/add-trustline`, `POST /api/v1/tx/submit` (opt-in) | Route coverage with smoke, authenticated and rate-limit profiles                                |
 
 None of these submit signed transactions except `keepers.js`'s
 `accrue`/`rebalance`/`alert` invocations, which sign and submit for real off
-the keeper's own key (`snapshot` reads only, signs nothing) — see the safety warning below before running it.
+the keeper's own key (`snapshot` reads only, signs nothing). See the safety warning below before running it.
 
 ## Prerequisites
 
@@ -27,7 +28,7 @@ the keeper's own key (`snapshot` reads only, signs nothing) — see the safety w
 in-memory rate-limit fallback (`rate-limit-fallback.js`'s whole reason for
 existing) only shows its per-instance behavior when a client's requests can
 actually land on more than one warm serverless instance. `pnpm --filter
-@meridian/api-local dev` is a single long-lived process — it cannot
+@meridian/api-local dev` is a single long-lived process, so it cannot
 reproduce that bug even if the code path is broken, so a clean run there
 proves nothing about production behavior.
 
@@ -47,9 +48,9 @@ match `.env.example`:
   a run that exercises the in-memory fallback (the scenario the issue is
   about); set them to a throwaway Upstash database to test the distributed
   limiter instead, for comparison.
-- `CRON_SECRET` — only needed for `keepers.js`. Set it to a throwaway value
+- `CRON_SECRET` is only needed for `keepers.js`. Set it to a throwaway value
   you generate yourself, never a real project's secret.
-- `MERIDIAN_KEEPER_SECRET_KEY` — only needed to test `accrue` for real.
+- `MERIDIAN_KEEPER_SECRET_KEY` is only needed to test `accrue` for real.
   Generate and fund a throwaway key (`stellar keys generate ... --fund
 --network testnet`); it only needs to call the vault's permissionless
   `accrue()`, not admin authority.
@@ -68,7 +69,7 @@ node scripts/load-test/prepare-accounts.mjs 20
 ```
 
 Generates 20 keypairs, funds each with XLM via Friendbot, and writes them to
-`scripts/load-test/accounts.json` (gitignored — never commit it). The
+`scripts/load-test/accounts.json` (gitignored, never commit it). The
 load-test scripts only ever read `publicKey` from this file; nothing here
 signs a transaction, so the `secret` field is unused by default and kept
 only in case you extend the suite later.
@@ -80,15 +81,15 @@ These accounts hold XLM only, no USDC. `POST /api/v1/tx/deposit` and
 (`buildCoordinatorDepositTx`/`buildCoordinatorWithdrawTx` in
 `packages/stellar-sdk-helpers/src/coordinator.ts`), and simulation fails
 with an insufficient-balance or missing-trustline error for an account with
-no USDC. That's still a fully exercised request — rate limiting, schema
+no USDC. That's still a fully exercised request: rate limiting, schema
 validation, and a real Soroban RPC round trip all happen before the
-failure — so it's a valid load-test data point for latency and rate-limit
+failure, so it's a valid load-test data point for latency and rate-limit
 behavior even though it returns HTTP 500 rather than 200.
 
 To also exercise the 200 success path, fund a subset of the generated
 accounts with testnet USDC via <https://testnet.blend.capital> (Blend's own
 faucet; the default `fundFromBlendFaucet()` flow has not reliably granted
-USDC in practice — see
+USDC in practice, see
 [`testnet-deployment.md`](../../apps/docs/operations/testnet-deployment.md#getting-testnet-usdc)),
 and use a `DEPOSIT_AMOUNT` within that balance.
 
@@ -115,6 +116,21 @@ All scripts accept `-e ACCOUNTS_FILE=path/to/other-accounts.json` if you
 keep more than one pool. Each script's header comment documents its other
 tunables (`VUS`, `RPS`, `DURATION`, etc.) and defaults.
 
+### Endpoint coverage profiles
+
+`endpoint-coverage.js` selects a profile with `-e PROFILE=...`:
+
+- `smoke` (default) sends one request per second to each route and expects HTTP 200 from every one. A 404, 500 or 503 counts as a failure, so an unhealthy deployment fails the run.
+- `authenticated` also calls the read-only `snapshot` keeper action with a throwaway `CRON_SECRET`.
+- `rate-limit` drives sustained read traffic and accepts 200 and 429, counting the 429 responses.
+- `submit` sends one signed testnet transaction from `SUBMIT_XDR` and is never part of routine runs, because it broadcasts a transaction.
+
+It enforces p95 latency below 4 seconds for reads and 8 seconds for `add-trustline`, and fewer than 5% failed checks. Tune thresholds only with a recorded baseline and a documented reason.
+
+## CI smoke
+
+`.github/workflows/load-test-smoke.yml` runs the `smoke` profile on load-test pull requests, on manual dispatch and nightly. It skips entirely unless the repository variable `LOAD_TEST_BASE_URL` is set, and it refuses URLs that are not HTTPS or that look like production or mainnet. The k6 summary is uploaded as an artifact.
+
 ## Interpreting the rate-limit fallback results
 
 `rate-limit-fallback.js` prints two counters in k6's end-of-run summary:
@@ -123,7 +139,7 @@ tunables (`VUS`, `RPS`, `DURATION`, etc.) and defaults.
 client IP. Divide `rate_limit_allowed`'s total by the run's duration in
 minutes to get the observed allow-rate:
 
-- **≈100-110/min**: the limiter is holding the line — either Upstash is
+- **≈100-110/min**: the limiter is holding the line, because either Upstash is
   configured, or the deployment stayed on a single warm instance for this
   run (try again with more concurrency/duration to warm up more instances).
 - **Well above that**: multiple serverless instances are almost certainly
@@ -144,10 +160,6 @@ for the same tick is the race this probe exists to catch.
 
 ## What this suite does not cover
 
-- `POST /api/v1/tx/submit` — submitting an already-signed transaction. Load
-  testing it meaningfully requires real signed XDRs, which requires holding
-  private keys in the load-test harness; out of scope here, see
-  `apps/docs/architecture/signing-flow.md` if you want to extend this.
-- `POST /api/v1/tx/add-trustline` — not called out in the issue; add a
-  script following the same pattern as `deposit-withdraw.js` if needed.
-- `/api/v1/vaults` and `/api/v1/admin/*` — not part of this issue's scope.
+- `POST /api/v1/tx/submit` is only an opt-in, one-shot scenario (`PROFILE=submit`) because each request broadcasts a signed transaction and replaying XDR is unsafe. It is not a sustained throughput test. See `apps/docs/architecture/signing-flow.md` if you want to extend this.
+- Mainnet traffic, real user wallets, production credentials or production keeper keys.
+- Soak testing on every pull request. The CI smoke is intentionally low volume.

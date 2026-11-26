@@ -7,6 +7,33 @@ Meridian has two API implementations that share the same interface:
 | Vercel serverless functions | Production        | `api/v1/`         |
 | Fastify server              | Local development | `apps/api-local/` |
 
+## Request IDs and errors
+
+Every response includes an `X-Request-ID` header. Clients may send a
+well-formed value in the same header; otherwise the API generates a UUID. The
+ID is included in structured server logs so operators can match a client
+failure to its request.
+
+Responses with status `400` or higher use one stable envelope in both API
+implementations:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "walletAddress: Invalid input",
+    "requestId": "support-2026.11:abc"
+  }
+}
+```
+
+`code` is stable for the HTTP failure class (or an existing explicit code),
+`message` is safe for the caller, and `requestId` is the value from the
+response header. Resource-specific fields remain alongside the envelope for
+backward-compatible access.
+
+The codes, their causes and the recommended client action for each are listed in the [API Error Reference](./api-errors.md).
+
 ## Endpoints
 
 The machine-readable OpenAPI specification lives at [`docs/openapi.yaml`](https://github.com/drydocs/meridian/blob/main/docs/openapi.yaml).
@@ -113,6 +140,16 @@ Returns the stored position-value time series for a wallet, oldest first ([#973]
 
 **Query:** `days` (optional positive integer, default `30`, capped at the `90`-day retention window). Anything else returns `400`.
 
+Three optional parameters switch the endpoint to bucketed, paginated responses. A request that sends none of them gets the response shown below with every stored snapshot, oldest first.
+
+| Parameter    | Values                               | Meaning                                                                                                                               |
+| ------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolution` | `hour` (default) or `day`            | Bucket size in UTC. Each bucket reports the latest `totalValue`, `totalEarned` and `vaults`, plus the `min` and `max` of both totals. |
+| `limit`      | integer `1` to `1000`, default `720` | Maximum number of buckets in one page.                                                                                                |
+| `cursor`     | timestamp in milliseconds            | Return only buckets after this timestamp. Use the `nextCursor` from the previous page.                                                |
+
+A paginated response adds `resolution`, `nextCursor` (the timestamp of the last bucket in the page, or `null` when there is nothing more) and `truncated` (`true` when more buckets remain). An invalid `resolution`, `limit` or `cursor` returns `400`.
+
 **Response**
 
 ```json
@@ -181,6 +218,40 @@ Builds an unsigned Soroban withdraw transaction.
 ```
 
 **Response:** same shape as deposit: `{ xdr, fee }`.
+
+For both deposit and withdraw, an omitted `min_shares_out` or `min_usdc_out` is no longer treated as zero. The API prices the action with the same simulation as `POST /api/v1/tx/quote` and applies the quote's `recommendedMinimum` (the expected output less the default slippage), so the transaction is protected without the client choosing a floor.
+
+### `POST /api/v1/tx/quote`
+
+Prices a deposit or withdrawal without building a transaction.
+
+**Request**
+
+```json
+{
+  "action": "deposit",
+  "walletAddress": "G...",
+  "vaultId": "blend-usdc-variable",
+  "amount": "100.00"
+}
+```
+
+`action` is `deposit` or `withdraw`. A deposit requires `amount` and a withdrawal requires `shares`. Missing or malformed fields return `400`.
+
+**Response**
+
+```json
+{
+  "action": "deposit",
+  "expectedShares": "98.5",
+  "recommendedMinimum": "98.0075",
+  "slippageBps": 50,
+  "fee": "0",
+  "ledger": 123456
+}
+```
+
+A withdrawal returns `expectedAssets` in place of `expectedShares`, and `fee` is the performance fee in USDC. `recommendedMinimum` is the expected output reduced by `slippageBps`. A paused vault returns `400` for deposits. The quote is a simulation at the reported `ledger`, so it can differ from the executed result.
 
 ### `POST /api/v1/tx/add-trustline`
 

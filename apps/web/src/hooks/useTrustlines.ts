@@ -6,6 +6,7 @@ import { useSignAndSubmit } from "./useSignAndSubmit";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "react-i18next";
 import { mapError } from "../lib/errorMapper";
+import { WalletCancelledError } from "../lib/wallet";
 
 // A trustline just needs to exist (balance can be 0) to receive that asset,
 // unlike hasBlendUsdcBalance which also requires a positive balance.
@@ -48,6 +49,7 @@ export function useTrustlines() {
       push("success", t("vaultActions.assetsAdded"));
       return true;
     } catch (err) {
+      if (err instanceof WalletCancelledError) return false;
       push("error", mapError(err, t, "vaultActions.failedAssets").message);
       return false;
     }

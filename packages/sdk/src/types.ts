@@ -77,6 +77,8 @@ export interface WithdrawPreview {
   treasuryShares: bigint;
   /** USDC the caller receives. */
   assetsOut: bigint;
+  /** Maximum USDC currently liquid and withdrawable from the adapter (stroops). */
+  availableLiquidity: bigint;
 }
 
 /**

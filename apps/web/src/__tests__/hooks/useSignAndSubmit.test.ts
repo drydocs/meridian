@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { renderHook } from "@testing-library/react";
+import { renderHook, act } from "@testing-library/react";
 import { APP_NETWORK, STELLAR_NETWORKS } from "@meridian/shared";
 import { useSignAndSubmit } from "../../hooks/useSignAndSubmit";
 import { useWalletStore } from "../../store/wallet";
@@ -10,14 +10,18 @@ const KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 // build rather than whatever the persisted store happens to hold (#851).
 const OTHER_NETWORK = APP_NETWORK.network === "testnet" ? "mainnet" : "testnet";
 
-vi.mock("../../lib/wallet", () => ({
-  wallet: {
-    sign: vi.fn(async () => "SIGNED_XDR"),
-    isAuthorized: vi.fn(async () => true),
-    getNetwork: vi.fn(async () => APP_NETWORK.network),
-    getAddress: vi.fn(async () => KEY),
-  },
-}));
+vi.mock("../../lib/wallet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/wallet")>();
+  return {
+    ...actual,
+    wallet: {
+      sign: vi.fn(async () => "SIGNED_XDR"),
+      isAuthorized: vi.fn(async () => true),
+      getNetwork: vi.fn(async () => APP_NETWORK.network),
+      getAddress: vi.fn(async () => KEY),
+    },
+  };
+});
 
 vi.mock("../../lib/api", () => ({
   api: {
@@ -26,12 +30,13 @@ vi.mock("../../lib/api", () => ({
 }));
 
 import { api } from "../../lib/api";
-import { wallet } from "../../lib/wallet";
+import { wallet, WalletCancelledError } from "../../lib/wallet";
 import { WALLET_DISCONNECTED_ERROR } from "../../lib/errorMapper";
 
 describe("useSignAndSubmit (#965)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(wallet.sign).mockImplementation(async () => "SIGNED_XDR");
     vi.mocked(wallet.isAuthorized).mockResolvedValue(true);
     vi.mocked(wallet.getNetwork!).mockResolvedValue(APP_NETWORK.network);
     useWalletStore.setState({
@@ -63,7 +68,11 @@ describe("useSignAndSubmit (#965)", () => {
 
       await result.current.signAndSubmit("XDR");
 
-      expect(wallet.sign).toHaveBeenCalledWith("XDR", APP_NETWORK.passphrase);
+      expect(wallet.sign).toHaveBeenCalledWith(
+        "XDR",
+        APP_NETWORK.passphrase,
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
     });
   });
 
@@ -127,7 +136,8 @@ describe("useSignAndSubmit (#965)", () => {
       expect(order).toEqual(["revalidate", "sign", "submit"]);
       expect(wallet.sign).toHaveBeenCalledWith(
         "UNSIGNED_XDR",
-        APP_NETWORK.passphrase
+        APP_NETWORK.passphrase,
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
       expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
       expect(useWalletStore.getState().connected).toBe(true);
@@ -151,5 +161,63 @@ describe("useSignAndSubmit (#965)", () => {
         });
       }
     );
+  });
+});
+
+describe("useSignAndSubmit — cancellation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(wallet.isAuthorized).mockResolvedValue(true);
+    useWalletStore.setState({
+      publicKey: KEY,
+      connected: true,
+      network: APP_NETWORK.network,
+    });
+  });
+
+  it("cancelSign aborts a never-resolving signature so the call exits", async () => {
+    // Only the abort signal settles this promise, mirroring a wallet popup
+    // that is blocked behind the browser and will never answer on its own.
+    vi.mocked(wallet.sign).mockImplementation(
+      (_xdr, _passphrase, options) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () =>
+            reject(new WalletCancelledError("sign"))
+          );
+        })
+    );
+    const { result } = renderHook(() => useSignAndSubmit());
+
+    let pending!: Promise<string>;
+    act(() => {
+      pending = result.current.signAndSubmit("XDR");
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => result.current.cancelSign());
+
+    await expect(pending).rejects.toBeInstanceOf(WalletCancelledError);
+    expect(api.submitTx).not.toHaveBeenCalled();
+  });
+
+  it("passes the same abort signal to the authorization check and the signature", async () => {
+    const signals: (AbortSignal | undefined)[] = [];
+    vi.mocked(wallet.isAuthorized).mockImplementation(async (options) => {
+      signals.push(options?.signal);
+      return true;
+    });
+    vi.mocked(wallet.sign).mockImplementation(async (_xdr, _pass, options) => {
+      signals.push(options?.signal);
+      return "SIGNED_XDR";
+    });
+    const { result } = renderHook(() => useSignAndSubmit());
+
+    await result.current.signAndSubmit("XDR");
+
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[0]).toBe(signals[1]);
   });
 });

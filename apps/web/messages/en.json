@@ -18,6 +18,8 @@
     "chooseWallet": "Choose a wallet",
     "installed": "Installed",
     "install": "Install",
+    "timedOut": "Wallet did not respond",
+    "timedOutHint": "The wallet window may be behind your browser. Check for it and try again.",
     "accountChanged": "Wallet account switched to {{address}}",
     "networkChanged": "Wallet network switched to {{network}}",
     "networkMismatch": "Wallet network mismatch: wallet is on {{walletNetwork}}, but app requires {{appNetwork}}"
@@ -26,6 +28,11 @@
   "vaultPanel": {
     "deposit": "Deposit",
     "withdraw": "Withdraw",
+    "tabs": {
+      "deposit": "Deposit",
+      "withdraw": "Withdraw",
+      "actions": "Vault actions"
+    },
     "network": "Network",
     "apy": "APY",
     "tvl": "TVL",
@@ -42,12 +49,13 @@
     "waiting": "Waiting for signature...",
     "positionsError": "Couldn't load your position. Deposits and withdrawals still work.",
     "balanceError": "Couldn't load your balance.",
-    "retryBalance": "Reload balance",
+    "retryBalance": "Retry loading balance",
     "validation": {
       "required": "Enter an amount to deposit.",
       "invalid": "Enter a valid number.",
       "nonPositive": "Amount must be greater than zero.",
-      "exceedsBalance": "Amount exceeds your available balance."
+      "exceedsBalance": "Amount exceeds your available balance.",
+      "exceedsPosition": "Amount exceeds your available position."
     }
   },
 
@@ -70,7 +78,12 @@
     "earned": "Earned so far",
     "loadError": "Couldn't load your yield history.",
     "empty": "No history yet. Your position value is recorded over time, so the chart fills in after a few snapshots.",
-    "chartLabel": "Position value over time, by protocol"
+    "chartLabel": "Position value over time, by protocol",
+    "viewTable": "View data as table",
+    "hideTable": "Hide tabular data",
+    "tableCaption": "Yield history data points",
+    "date": "Date",
+    "total": "Total"
   },
 
   "riskDisclosure": {
@@ -99,10 +112,12 @@
   },
 
   "common": {
+    "skipToContent": "Skip to content",
     "connectWallet": "Connect Wallet",
     "connecting": "Connecting...",
     "installWallet": "Install {{name}}",
-    "retry": "Retry"
+    "retry": "Retry",
+    "cancel": "Cancel"
   },
 
   "admin": {
@@ -167,6 +182,7 @@
     "depositsPaused": "Deposits are paused. Please try again later.",
     "insufficientShares": "You don't have enough shares for this withdrawal.",
     "withdrawalSlippage": "Withdrawal returned less than your minimum. Adjust slippage tolerance and retry.",
+    "adapterLiquidityInsufficient": "The underlying yield protocol doesn't have enough available liquidity for this withdrawal right now. Try a smaller amount or check back shortly.",
     "slippageExceeded": "Slippage tolerance exceeded. Adjust slippage tolerance and retry.",
     "missingUsdcTrustline": "Your wallet is missing the USDC trustline. Add it and try again.",
     "missingTrustline": "Your wallet is missing one or more required trustlines. Add them and try again.",
@@ -181,12 +197,16 @@
     "walletDeclined": "You declined the request. Try again when ready.",
     "unknown": "Something went wrong. Please try again.",
     "unknownWithRef": "Something went wrong (ref: {{ref}}). Please try again.",
-    "fallbackWithRef": "{{action}} (ref: {{ref}}). Please try again."
+    "fallbackWithRef": "{{action}} (ref: {{ref}}). Please try again.",
+    "walletTimeout": "The wallet didn't respond in time. Its window may be behind your browser — check for it, then retry.",
+    "walletCancelled": "Request cancelled."
   },
 
   "errorBoundary": {
     "title": "Something went wrong. Please reload the page.",
-    "reload": "Reload"
+    "reload": "Reload",
+    "retry": "Retry",
+    "home": "Home"
   },
 
   "status": {
@@ -212,6 +232,22 @@
     "audit": {
       "title": "Security Audit",
       "notYetAvailable": "No independent security audit has been completed yet. A report will be linked here once one exists."
+    }
+  },
+
+  "activity": {
+    "title": "Local Activity",
+    "receipt": "Transaction receipt",
+    "dismiss": "Dismiss receipt",
+    "viewTx": "View tx",
+    "actions": {
+      "deposit": "Deposited",
+      "withdraw": "Withdrew"
+    },
+    "status": {
+      "pending": "Pending",
+      "confirmed": "Confirmed",
+      "failed": "Failed"
     }
   }
 }

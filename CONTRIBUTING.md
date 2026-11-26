@@ -341,6 +341,7 @@ architectural decision do not need an ADR.
   - `PascalCase` for types and traits
   - `UPPER_SNAKE_CASE` for constants
 - **Error handling:** Use `Result<T, E>` everywhere. No `.unwrap()` in contract code except on values that are provably infallible; explain why in an inline comment.
+- **Adding a `ContractError` variant:** When adding a new variant to `ContractError` in any contract crate (`vault`, `blend-adapter`, `defindex-adapter`, or `musdc-token`), assign the next unused `u32` discriminant (never reuse or renumber existing codes), add a `///` doc comment explaining when it is raised, and document the variant with its cause and recommended client/operator response in `apps/docs/architecture/contract-errors.md`. Run `pnpm --filter @meridian/docs test` (included in `pnpm test`) to verify every variant is cataloged.
 - **Documentation:** All public functions must have doc comments (`///`). Include a one-line summary and a note on any panics or preconditions.
 - **Security:** Validate all inputs. Assume callers are adversarial. Never read from storage without checking the key exists first.
 
@@ -442,6 +443,15 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all
 ```
 
+### Adding a new API error code
+
+When introducing a new error code or status mapping in `packages/api-core`:
+
+1. Define the error code string and handler response shape in `packages/api-core`.
+2. Add the code, status, trigger condition, retry guidance, and recommended client action to the catalog in [`apps/docs/architecture/api-errors.md`](apps/docs/architecture/api-errors.md).
+3. If introducing a new user-fixable Soroban contract error mapping, add it to `USER_FIXABLE_CONTRACT_ERRORS` in `packages/api-core/src/tx.ts` and document it in the Contract Simulation Errors table.
+4. Run `pnpm --filter @meridian/docs test` to verify the catalog is complete.
+
 ### Docs checks
 
 The **Docs Lint & Links** CI job runs when a pull request (or a push to `main`) touches Markdown, `apps/docs`, or the checker configs. It runs `pnpm lint:md` and `pnpm check:links`, which are strict: a broken relative link, root-relative VitePress link, or heading anchor fails the job. External links are checked with `pnpm check:links:external`, which only warns on pull requests. Install the link checker locally with `brew install lychee` (or `cargo install lychee`).
@@ -465,7 +475,7 @@ pnpm --filter @meridian/web test:e2e:ui
 
 This suite is a blocking CI check. Tests that depend on live testnet RPC or other external services
 (such as the vault-list APY/TVL/route assertions) stub the API with `page.route()` to keep the
-suite deterministic — real testnet RPC is still exercised in the deposit/withdraw tx-build specs, which
+suite deterministic. Real testnet RPC is still exercised in the deposit/withdraw tx-build specs, which
 accept valid RPC failure states as expected outcomes. Before merging a PR, this job must pass (see #535).
 
 ---

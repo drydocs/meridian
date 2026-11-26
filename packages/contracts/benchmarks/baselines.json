@@ -1,0 +1,73 @@
+{
+  "baseline_policy": "Measured native Soroban cost estimates; tolerance is applied separately.",
+  "rustc_version": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "soroban_sdk_version": "22.0.11",
+  "tolerance_percent": 15,
+  "benchmarks": {
+    "vault.deposit": {
+      "cpu_instructions": 610818,
+      "fee_stroops": 8393621,
+      "memory_bytes": 110962
+    },
+    "vault.withdraw": {
+      "cpu_instructions": 732596,
+      "fee_stroops": 2154538,
+      "memory_bytes": 126974
+    },
+    "vault.transfer": {
+      "cpu_instructions": 257903,
+      "fee_stroops": 5550493,
+      "memory_bytes": 56809
+    },
+    "vault.begin_migration": {
+      "cpu_instructions": 196740,
+      "fee_stroops": 3956834,
+      "memory_bytes": 38400
+    },
+    "vault.migrate_adapter": {
+      "cpu_instructions": 872147,
+      "fee_stroops": 2999181,
+      "memory_bytes": 159388
+    },
+    "vault.set_paused": {
+      "cpu_instructions": 59644,
+      "fee_stroops": 2876611,
+      "memory_bytes": 14108
+    },
+    "vault.set_adapter": {
+      "cpu_instructions": 185397,
+      "fee_stroops": 2827543,
+      "memory_bytes": 35696
+    },
+    "vault.transfer_admin": {
+      "cpu_instructions": 59873,
+      "fee_stroops": 2969738,
+      "memory_bytes": 14108
+    },
+    "vault.accept_admin": {
+      "cpu_instructions": 61283,
+      "fee_stroops": 1330406,
+      "memory_bytes": 14436
+    },
+    "blend_adapter.deposit": {
+      "cpu_instructions": 325220,
+      "fee_stroops": 3101236,
+      "memory_bytes": 54494
+    },
+    "blend_adapter.withdraw": {
+      "cpu_instructions": 366475,
+      "fee_stroops": 2060340,
+      "memory_bytes": 61744
+    },
+    "defindex_adapter.deposit": {
+      "cpu_instructions": 258935,
+      "fee_stroops": 3007010,
+      "memory_bytes": 43092
+    },
+    "defindex_adapter.withdraw": {
+      "cpu_instructions": 388399,
+      "fee_stroops": 2080098,
+      "memory_bytes": 60818
+    }
+  }
+}

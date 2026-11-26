@@ -15,12 +15,16 @@ const KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 const BLEND_TESTNET_USDC_ISSUER = USDC_ISSUER.testnet;
 const MUSDC_TESTNET_ISSUER = MUSDC_ISSUER.testnet;
 
-vi.mock("../../lib/wallet", () => ({
-  wallet: {
-    sign: vi.fn(async () => "SIGNED_XDR"),
-    isAuthorized: vi.fn(async () => true),
-  },
-}));
+vi.mock("../../lib/wallet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/wallet")>();
+  return {
+    ...actual,
+    wallet: {
+      sign: vi.fn(async () => "SIGNED_XDR"),
+      isAuthorized: vi.fn(async () => true),
+    },
+  };
+});
 
 vi.mock("../../lib/api", () => ({
   api: {
@@ -140,7 +144,8 @@ describe("useTrustlines", () => {
     expect(api.addTrustline).toHaveBeenCalledWith(KEY);
     expect(wallet.sign).toHaveBeenCalledWith(
       "TRUSTLINE_XDR",
-      APP_NETWORK.passphrase
+      APP_NETWORK.passphrase,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
     expect(useToastStore.getState().toasts).toContainEqual(

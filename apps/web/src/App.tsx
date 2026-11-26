@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setQueryClient } from "./lib/queryClient";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
@@ -8,9 +8,15 @@ import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useWalletStore } from "./store/wallet";
 import { useDocumentLanguage } from "./hooks/useDocumentLanguage";
 import { useTranslation } from "react-i18next";
-import { AdminLogin } from "./pages/AdminLogin";
-import { StatusPage } from "./pages/StatusPage";
 import { NotFound } from "./pages/NotFound";
+
+const AdminLogin = lazy(() =>
+  import("./pages/AdminLogin").then((m) => ({ default: m.AdminLogin }))
+);
+
+const StatusPage = lazy(() =>
+  import("./pages/StatusPage").then((m) => ({ default: m.StatusPage }))
+);
 
 const queryClient = new QueryClient();
 setQueryClient(queryClient);
@@ -47,6 +53,7 @@ function isDashboardRoute(): boolean {
 
 function Dashboard() {
   const { t, i18n } = useTranslation();
+  const [resetKey, setResetKey] = useState(0);
   const toggleLanguage = useCallback(() => {
     const newLang = i18n.language === "en" ? "fr" : "en";
     i18n.changeLanguage(newLang);
@@ -92,7 +99,7 @@ function Dashboard() {
             <WalletConnect />
             <button
               onClick={toggleLanguage}
-              className="text-sm border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150"
+              className="text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
             >
               {i18n.language === "en" ? "FR" : "EN"}
             </button>
@@ -100,9 +107,15 @@ function Dashboard() {
         </div>
       </header>
 
-      <main className="relative z-10 max-w-xl mx-auto px-6 py-10">
-        <ErrorBoundary>
-          <VaultPanel />
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="relative z-10 max-w-xl mx-auto px-6 py-10 outline-none"
+      >
+        <ErrorBoundary showHome onReset={() => setResetKey((k) => k + 1)}>
+          <div key={resetKey}>
+            <VaultPanel />
+          </div>
         </ErrorBoundary>
       </main>
     </div>
@@ -110,6 +123,7 @@ function Dashboard() {
 }
 
 export default function App() {
+  const { t } = useTranslation();
   useDocumentLanguage();
   useEffect(() => {
     const revalidate = () => void useWalletStore.getState().revalidate();
@@ -122,18 +136,48 @@ export default function App() {
     return () => window.removeEventListener("focus", revalidate);
   }, []);
 
-  const page = isAdminRoute() ? (
-    <AdminLogin />
+  const [pageResetKey, setPageResetKey] = useState(0);
+
+  const rawPage = isAdminRoute() ? (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-night text-paper flex items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+        </div>
+      }
+    >
+      <AdminLogin />
+    </Suspense>
   ) : isStatusRoute() ? (
-    <StatusPage />
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-night text-paper flex items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+        </div>
+      }
+    >
+      <StatusPage />
+    </Suspense>
   ) : isDashboardRoute() ? (
     <Dashboard />
   ) : (
     <NotFound />
   );
 
+  const page = (
+    <ErrorBoundary showHome onReset={() => setPageResetKey((k) => k + 1)}>
+      <div key={pageResetKey}>{rawPage}</div>
+    </ErrorBoundary>
+  );
+
   return (
     <QueryClientProvider client={queryClient}>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-emerald-700 focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 font-medium text-sm"
+      >
+        {t("common.skipToContent")}
+      </a>
       {page}
       <Toasts />
     </QueryClientProvider>
