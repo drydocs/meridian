@@ -885,6 +885,8 @@ version = "0.1.0"
 dependencies = [
  "adapter-common",
  "proptest",
+ "serde",
+ "serde_json",
  "soroban-sdk",
 ]
 

@@ -22,6 +22,7 @@ export {
   DEFAULT_RPC_TIMEOUT_MS,
   convertAssetsToShares,
   convertSharesToAssets,
+  calculatePerformanceFee,
 } from "./vault-base.js";
 export {
   ErrorCode,
