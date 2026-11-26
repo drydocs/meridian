@@ -443,6 +443,15 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all
 ```
 
+### Adding a new API error code
+
+When introducing a new error code or status mapping in `packages/api-core`:
+
+1. Define the error code string and handler response shape in `packages/api-core`.
+2. Add the code, status, trigger condition, retry guidance, and recommended client action to the catalog in [`apps/docs/architecture/api-errors.md`](apps/docs/architecture/api-errors.md).
+3. If introducing a new user-fixable Soroban contract error mapping, add it to `USER_FIXABLE_CONTRACT_ERRORS` in `packages/api-core/src/tx.ts` and document it in the Contract Simulation Errors table.
+4. Run `pnpm --filter @meridian/docs test` to verify the catalog is complete.
+
 ### Docs checks
 
 The **Docs Lint & Links** CI job runs when a pull request (or a push to `main`) touches Markdown, `apps/docs`, or the checker configs. It runs `pnpm lint:md` and `pnpm check:links`, which are strict: a broken relative link, root-relative VitePress link, or heading anchor fails the job. External links are checked with `pnpm check:links:external`, which only warns on pull requests. Install the link checker locally with `brew install lychee` (or `cargo install lychee`).
@@ -466,7 +475,7 @@ pnpm --filter @meridian/web test:e2e:ui
 
 This suite is a blocking CI check. Tests that depend on live testnet RPC or other external services
 (such as the vault-list APY/TVL/route assertions) stub the API with `page.route()` to keep the
-suite deterministic — real testnet RPC is still exercised in the deposit/withdraw tx-build specs, which
+suite deterministic. Real testnet RPC is still exercised in the deposit/withdraw tx-build specs, which
 accept valid RPC failure states as expected outcomes. Before merging a PR, this job must pass (see #535).
 
 ---

@@ -32,6 +32,8 @@ implementations:
 response header. Resource-specific fields remain alongside the envelope for
 backward-compatible access.
 
+The codes, their causes and the recommended client action for each are listed in the [API Error Reference](./api-errors.md).
+
 ## Endpoints
 
 The machine-readable OpenAPI specification lives at [`docs/openapi.yaml`](https://github.com/drydocs/meridian/blob/main/docs/openapi.yaml).
