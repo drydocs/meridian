@@ -203,7 +203,9 @@
 
   "errorBoundary": {
     "title": "Something went wrong. Please reload the page.",
-    "reload": "Reload"
+    "reload": "Reload",
+    "retry": "Retry",
+    "home": "Home"
   },
 
   "status": {
