@@ -50,6 +50,15 @@ curl http://localhost:3001/health
 # {"status":"ok"}
 ```
 
+For API dependency checks, use `GET http://localhost:3001/api/v1/health/live`
+for process liveness and `GET http://localhost:3001/api/v1/health/ready` for
+readiness. Liveness does not contact external services. Readiness reports the
+Soroban RPC, Upstash PING, position snapshot store, and build metadata
+independently; it returns 503 if any required check fails. Without Upstash
+credentials, local snapshot storage is identified as `in-memory`, while the
+Upstash dependency is reported unhealthy and readiness returns 503. Set
+`APP_VERSION` or use the default `0.1.0` to identify the running version.
+
 ## Running tests
 
 ```bash
