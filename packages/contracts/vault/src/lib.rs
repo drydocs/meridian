@@ -43,6 +43,8 @@ const ADAPTER_EVT: (Symbol, Symbol, u32) =
     (ADMIN_EVT, symbol_short!("adapter"), EVENT_SCHEMA_VERSION);
 const MIG_BEGIN_EVT: (Symbol, Symbol, u32) =
     (ADMIN_EVT, symbol_short!("mig_begin"), EVENT_SCHEMA_VERSION);
+const MIG_CANCEL_EVT: (Symbol, Symbol, u32) =
+    (ADMIN_EVT, symbol_short!("mig_canc"), EVENT_SCHEMA_VERSION);
 const MIGRATE_EVT: (Symbol, Symbol, u32) =
     (ADMIN_EVT, symbol_short!("migrate"), EVENT_SCHEMA_VERSION);
 const RESCUE_EVT: (Symbol, Symbol, u32) =
@@ -1749,6 +1751,32 @@ impl MeridianVault {
             MIG_BEGIN_EVT,
             (new_adapter, snapshot_ledger + MIN_LEDGER_GAP),
         );
+
+        Ok(())
+    }
+
+    /// Cancels a pending migration during its cooldown. Admin only.
+    ///
+    /// Clears the snapshot recorded by `begin_migration`, so
+    /// `migrate_adapter` rejects the cancelled target with
+    /// `MigrationNotInitialized` until a new `begin_migration` is made. The
+    /// cooldown for a later migration is unchanged. Returns
+    /// `NoPendingMigration` when no migration is pending. Publishes an
+    /// admin `mig_canc` event carrying the cancelled target adapter.
+    pub fn cancel_migration(env: Env) -> Result<(), ContractError> {
+        Self::require_admin(&env)?;
+        Self::extend_instance(&env);
+
+        let active: i128 = env.storage().instance().get(&MIG_ACTIVE).unwrap_or(0);
+        let snapshot: Option<MigrationSnapshot> = env.storage().instance().get(&MIG_SNAP);
+        let snapshot = match (active, snapshot) {
+            (a, Some(snapshot)) if a != 0 => snapshot,
+            _ => return Err(ContractError::NoPendingMigration),
+        };
+
+        env.storage().instance().remove(&MIG_SNAP);
+        env.storage().instance().remove(&MIG_ACTIVE);
+        env.events().publish(MIG_CANCEL_EVT, snapshot.adapter);
 
         Ok(())
     }
@@ -4722,6 +4750,99 @@ mod tests {
         let (_env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
         let result = vault.try_get_migration_snapshot();
         assert_eq!(result, Err(Ok(ContractError::MigrationNotInitialized)));
+    }
+
+    #[test]
+    fn cancel_migration_clears_the_pending_migration() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0);
+        let new_adapter_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter_id).initialize(&usdc);
+
+        vault.begin_migration(&new_adapter_id);
+        assert_eq!(vault.try_cancel_migration(), Ok(Ok(())));
+
+        let event = find_admin_event(&env, &vault.address, symbol_short!("mig_canc"))
+            .expect("mig_canc event not found");
+        let cancelled: Address = soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(cancelled, new_adapter_id);
+        assert_eq!(
+            vault.try_get_migration_snapshot(),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+    }
+
+    #[test]
+    fn cancel_migration_requires_admin_authorization() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter_id).initialize(&usdc);
+        vault.begin_migration(&new_adapter_id);
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_cancel_migration(),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert_eq!(vault.get_migration_snapshot().adapter, new_adapter_id);
+    }
+
+    #[test]
+    fn cancel_migration_fails_when_nothing_is_pending() {
+        let (_env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+
+        assert_eq!(
+            vault.try_cancel_migration(),
+            Err(Ok(ContractError::NoPendingMigration))
+        );
+    }
+
+    #[test]
+    fn cancel_migration_cannot_be_repeated() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter_id).initialize(&usdc);
+        vault.begin_migration(&new_adapter_id);
+        vault.cancel_migration();
+
+        assert_eq!(
+            vault.try_cancel_migration(),
+            Err(Ok(ContractError::NoPendingMigration))
+        );
+    }
+
+    #[test]
+    fn migrate_adapter_is_rejected_after_cancellation() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0);
+        let new_adapter_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter_id).initialize(&usdc);
+        vault.begin_migration(&new_adapter_id);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += MIN_LEDGER_GAP);
+        vault.cancel_migration();
+
+        assert_eq!(
+            vault.try_migrate_adapter(&new_adapter_id, &0),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+        assert_eq!(vault.get_total_assets(), 100_0000000_i128);
+    }
+
+    #[test]
+    fn migration_can_be_restarted_after_cancellation() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0);
+        let new_adapter_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter_id).initialize(&usdc);
+        vault.begin_migration(&new_adapter_id);
+        vault.cancel_migration();
+
+        vault.begin_migration(&new_adapter_id);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += MIN_LEDGER_GAP);
+        assert_eq!(vault.try_migrate_adapter(&new_adapter_id, &0), Ok(Ok(())));
+        assert_eq!(vault.get_adapter(), new_adapter_id);
     }
 
     #[test]
