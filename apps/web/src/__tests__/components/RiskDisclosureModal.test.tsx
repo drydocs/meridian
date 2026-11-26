@@ -168,4 +168,24 @@ describe("RiskDisclosureModal focus management", () => {
 
     expect(document.activeElement).toBe(trigger);
   });
+
+  it("locks body scroll while open and restores on unmount", () => {
+    document.body.style.overflow = "auto";
+    const { unmount } = renderModal();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    unmount();
+    expect(document.body.style.overflow).toBe("auto");
+  });
+
+  it("exposes aria-describedby pointing to the description", () => {
+    renderModal();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.getAttribute("aria-describedby")).toBe(
+      "risk-disclosure-desc"
+    );
+    expect(document.getElementById("risk-disclosure-desc")?.textContent).toBe(
+      "riskDisclosure.description"
+    );
+  });
 });

@@ -4,7 +4,9 @@ import {
   applyCors,
   checkRateLimit,
   requireGetMethod,
+  sendResponse,
 } from "../../_lib/middleware.js";
+import { logError } from "../../_lib/logger.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
@@ -12,10 +14,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!(await checkRateLimit(req, res))) return;
   } catch (err) {
-    console.error("[positions] rate limit check failed:", err);
-    return res
-      .status(503)
-      .json({ error: "Rate limiter unavailable; refusing to run" });
+    logError("positions.rate_limit_failed", req, err);
+    return sendResponse(req, res, 503, {
+      error: "Rate limiter unavailable; refusing to run",
+    });
   }
   const { publicKey, refresh } = req.query as {
     publicKey: string;
@@ -26,12 +28,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     refresh: refresh === "true" || refresh === "1",
   });
   if (result.error) {
-    console.error("[positions] error:", result.error);
+    logError("positions.failed", req, result.error);
   }
   res.setHeader("Cache-Control", "no-store");
   if (result.etag) res.setHeader("ETag", result.etag);
   if (matchesPositionEtag(req.headers["if-none-match"], result.etag)) {
     return res.status(304).end();
   }
-  res.status(result.status).json(result.body);
+  return sendResponse(req, res, result.status, result.body);
 }

@@ -4,8 +4,10 @@ import {
   applyCors,
   checkRateLimit,
   requireGetMethod,
+  sendResponse,
   vaultReadCacheControl,
 } from "../../_lib/middleware.js";
+import { logError } from "../../_lib/logger.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
@@ -13,18 +15,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!(await checkRateLimit(req, res))) return;
   } catch (err) {
-    console.error("[vaults] rate limit check failed:", err);
-    return res
-      .status(503)
-      .json({ error: "Rate limiter unavailable; refusing to run" });
+    logError("vaults.rate_limit_failed", req, err);
+    return sendResponse(req, res, 503, {
+      error: "Rate limiter unavailable; refusing to run",
+    });
   }
 
   const result = await handleGetVaults();
   if (result.error) {
-    console.error("[vaults] fetch error:", result.error);
+    logError("vaults.failed", req, result.error);
   }
   if (result.status === 200) {
     res.setHeader("Cache-Control", vaultReadCacheControl());
   }
-  res.status(result.status).json(result.body);
+  return sendResponse(req, res, result.status, result.body);
 }

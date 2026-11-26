@@ -1,3 +1,119 @@
+const MAX_MONEY_DECIMAL_PLACES = 7;
+const MONEY_SPACE = /[\s\u00a0\u202f]/g;
+
+function isGroupedInteger(value: string, separator: "," | "."): boolean {
+  const escapedSeparator = separator === "." ? "\\." : separator;
+  return new RegExp(`^\\d{1,3}(?:${escapedSeparator}\\d{3})+$`).test(value);
+}
+
+/**
+ * Converts user-entered money into the dot-decimal representation accepted by
+ * the API. Empty input is returned as an empty string; invalid input is null.
+ */
+export function parseMoneyInput(input: string, locale: string): string | null {
+  const value = input.trim();
+  if (value === "") return "";
+
+  if (!/^\d[\d.,\s\u00a0\u202f]*$/.test(value)) return null;
+
+  if (/[\s\u00a0\u202f]/.test(value)) {
+    if (!/^\d{1,3}(?:[\s\u00a0\u202f]\d{3})*(?:[.,]\d+)?$/.test(value)) {
+      return null;
+    }
+  }
+
+  const compact = value.replace(MONEY_SPACE, "");
+  const hasDot = compact.includes(".");
+  const hasComma = compact.includes(",");
+  let integerPart = compact;
+  let fractionPart = "";
+  let hasDecimalPart = false;
+
+  if (hasDot && hasComma) {
+    const decimalSeparator = locale === "fr" ? "," : ".";
+    const groupingSeparator = decimalSeparator === "." ? "," : ".";
+    const decimalIndex = compact.lastIndexOf(decimalSeparator);
+    if (
+      decimalIndex <= 0 ||
+      decimalIndex === compact.length - 1 ||
+      compact.indexOf(decimalSeparator) !== decimalIndex
+    ) {
+      return null;
+    }
+    integerPart = compact.slice(0, decimalIndex);
+    fractionPart = compact.slice(decimalIndex + 1);
+    hasDecimalPart = true;
+    if (!isGroupedInteger(integerPart, groupingSeparator)) return null;
+    integerPart = integerPart.split(groupingSeparator).join("");
+  } else if (hasComma) {
+    if (locale !== "fr") {
+      if (!isGroupedInteger(compact, ",")) return null;
+      integerPart = compact.split(",").join("");
+    } else {
+      if (compact.indexOf(",") !== compact.lastIndexOf(",")) return null;
+      const decimalIndex = compact.indexOf(",");
+      if (decimalIndex === 0 || decimalIndex === compact.length - 1) {
+        return null;
+      }
+      integerPart = compact.slice(0, decimalIndex);
+      fractionPart = compact.slice(decimalIndex + 1);
+      hasDecimalPart = true;
+    }
+  } else if (hasDot) {
+    if (compact.indexOf(".") !== compact.lastIndexOf(".")) return null;
+    const decimalIndex = compact.indexOf(".");
+    if (decimalIndex === 0 || decimalIndex === compact.length - 1) return null;
+    integerPart = compact.slice(0, decimalIndex);
+    fractionPart = compact.slice(decimalIndex + 1);
+    hasDecimalPart = true;
+  }
+
+  if (!/^\d+$/.test(integerPart) || !/^\d*$/.test(fractionPart)) return null;
+  if (
+    hasDecimalPart &&
+    (fractionPart.length === 0 ||
+      fractionPart.length > MAX_MONEY_DECIMAL_PLACES)
+  ) {
+    return null;
+  }
+
+  return hasDecimalPart ? `${integerPart}.${fractionPart}` : integerPart;
+}
+
+/** Formats a canonical dot-decimal amount for display in an input field. */
+export function formatMoneyInput(value: string, locale: string): string {
+  if (!/^\d+(?:\.\d+)?$/.test(value)) return value;
+  return locale === "fr" ? value.replace(".", ",") : value;
+}
+
+/** Formats a number using the active application locale. */
+export function formatNumber(
+  value: number,
+  locale: string,
+  options: Intl.NumberFormatOptions = {}
+): string {
+  return new Intl.NumberFormat(toIntlLocale(locale), options).format(value);
+}
+
+/** Formats a percentage value without adding a percent sign. */
+export function formatApy(value: number, locale: string): string {
+  return formatNumber(value, locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/** Formats compact USD values such as $12K or 1,2 k $US. */
+export function formatCompactUsd(value: number, locale: string): string {
+  return formatNumber(value, locale, {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    minimumFractionDigits: Math.abs(value) >= 1_000_000 ? 1 : 0,
+    maximumFractionDigits: Math.abs(value) >= 1_000_000 ? 1 : 0,
+  });
+}
+
 /**
  * Formats a numeric USD value as a localised currency string.
  *

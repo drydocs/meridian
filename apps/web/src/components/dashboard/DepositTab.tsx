@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AmountInput } from "../ui/AmountInput";
 import type { ApiPosition, ApiVault } from "../../lib/api";
-import { formatUsd } from "../../lib/format";
+import { formatUsd, parseMoneyInput } from "../../lib/format";
 
 type DepositAmountError =
   "required" | "invalid" | "nonPositive" | "exceedsBalance";
@@ -11,11 +11,15 @@ type DepositAmountError =
 // the balance check only runs when the caller knows the spendable balance.
 function validateDepositAmount(
   amount: string,
-  availableBalance?: number
+  availableBalance: number | undefined,
+  locale: string
 ): DepositAmountError | null {
   if (amount.trim() === "") return "required";
-  const value = Number(amount);
-  if (Number.isNaN(value) || !Number.isFinite(value)) return "invalid";
+  if (amount.trim().startsWith("-")) return "nonPositive";
+  const canonical = parseMoneyInput(amount, locale);
+  if (canonical === null || canonical === "") return "invalid";
+  const value = Number(canonical);
+  if (!Number.isFinite(value)) return "invalid";
   if (value <= 0) return "nonPositive";
   if (availableBalance !== undefined && value > availableBalance) {
     return "exceedsBalance";
@@ -31,6 +35,9 @@ interface DepositTabProps {
   position?: ApiPosition | undefined;
   hasPosition?: boolean;
   isDepositing: boolean;
+  // True only while the wallet signature is pending; gates the cancel control.
+  isSigning?: boolean;
+  onCancel?: () => void;
   onSubmit: () => void;
   availableBalance?: number;
   isBalanceError?: boolean;
@@ -43,6 +50,8 @@ export function DepositTab({
   onAmountKeyDown,
   bestVault,
   isDepositing,
+  isSigning,
+  onCancel,
   onSubmit,
   availableBalance,
   isBalanceError,
@@ -52,7 +61,7 @@ export function DepositTab({
   // True only when the user emptied the field themselves. A completed deposit
   // also clears it, and that must not surface the required message.
   const [clearedByUser, setClearedByUser] = useState(false);
-  const error = validateDepositAmount(amount, availableBalance);
+  const error = validateDepositAmount(amount, availableBalance, i18n.language);
   const showError = error !== null && (amount !== "" || clearedByUser);
 
   function handleMax() {
@@ -68,7 +77,7 @@ export function DepositTab({
     <div className="space-y-4">
       <div>
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-gray-500">
+          <span className="text-xs font-medium text-gray-400">
             {t("vaultPanel.amount")}
           </span>
           {isBalanceError ? (
@@ -132,10 +141,20 @@ export function DepositTab({
         data-testid="vault-deposit-submit"
         onClick={onSubmit}
         disabled={error !== null || !bestVault || isDepositing}
-        className="w-full rounded-xl bg-emerald-600 hover:bg-settled disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3.5 transition-all duration-150 disabled:cursor-not-allowed"
+        className="w-full rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-500 text-white text-sm font-semibold py-3.5 transition-all duration-150 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
       >
         {isDepositing ? t("vaultPanel.waiting") : t("vaultPanel.deposit")}
       </button>
+      {isSigning && onCancel && (
+        <button
+          type="button"
+          data-testid="vault-deposit-cancel"
+          onClick={onCancel}
+          className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium py-2.5 transition-colors duration-150"
+        >
+          {t("common.cancel")}
+        </button>
+      )}
     </div>
   );
 }

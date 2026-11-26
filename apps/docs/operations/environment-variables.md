@@ -6,9 +6,41 @@ Admin page access is gated by comparing the connected wallet with the vault's
 on-chain admin address, fetched with `fetchVaultAdmin()` in `AdminLogin.tsx`.
 This is a frontend visibility gate, not server-side authorization.
 
-| Variable       | Required | Default | Description                                                                                                                       |
-| -------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_API_URL` | No       | `""`    | Base URL of the API server. Empty means same origin. In local dev, Vite proxies `/api` to `localhost:3001` so this is not needed. |
+| Variable          | Required | Default | Description                                                                                                                       |
+| ----------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_API_URL`    | No       | `""`    | Base URL of the API server. Empty means same origin. In local dev, Vite proxies `/api` to `localhost:3001` so this is not needed. |
+| `VITE_SENTRY_DSN` | No       | `""`    | Public Sentry browser DSN. Empty disables error reporting, including in local development.                                        |
+
+### Sentry error reporting
+
+Set `VITE_SENTRY_DSN` in the staging and production build environments to
+deliver scrubbed browser errors to Sentry. The browser reporter attaches the
+route, app release/version, and Stellar network. API failures also include
+the request method, path, status (null for network failures), and category.
+Wallet addresses, XDR, and secret-bearing fields are scrubbed before events
+are sent.
+
+For source-map upload, set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and
+`SENTRY_PROJECT` as build-time CI/Vercel variables. The Vite build generates
+hidden source maps only when all three are present, uploads them to Sentry,
+then removes the map files from the build output. `SENTRY_RELEASE` is
+optional; otherwise the release is the Vercel commit SHA or the web package
+version. The same release is attached to browser events and uploaded maps.
+Never prefix the upload token with `VITE_`.
+
+After deploying a staging build, verify delivery by running this in the
+staging page's browser console:
+
+```js
+window.dispatchEvent(
+  new ErrorEvent("error", { message: "staging error reporter smoke test" })
+);
+```
+
+Confirm that the event appears in the staging Sentry project with route,
+release/app version, and network context, and that its stack resolves to the
+web source rather than only bundled JavaScript. This intentionally creates a
+test event in the monitoring project.
 
 ## API: serverless (`api/v1/`) and Fastify (`apps/api-local`)
 
@@ -33,6 +65,7 @@ This is a frontend visibility gate, not server-side authorization.
 | `MERIDIAN_MIGRATION_MIN_IMPROVEMENT_BPS` | No           | `50`                               | Minimum rate improvement, in basis points, a candidate protocol must clear before the keeper migrates to it.                                                                                                                                                                                                                                                                                                                                                                           |
 | `MERIDIAN_ADAPTER_<PROTOCOL>_ID`         | No           | `""`                               | Candidate adapter contract address the migration keeper may migrate the vault to, one var per protocol (e.g. `MERIDIAN_ADAPTER_BLEND_ID`, `MERIDIAN_ADAPTER_DEFINDEX_ID`). Not a fixed list: any `<PROTOCOL>` is picked up automatically, adding a new protocol needs no code change. Unset excludes that protocol from consideration, no fallback default.                                                                                                                            |
 | `MERIDIAN_ALERT_WEBHOOK_URL`             | Yes (keeper) | `""`                               | Slack or Discord incoming-webhook URL the admin-event alert keeper posts to. See `apps/docs/operations/alert-keeper.md`.                                                                                                                                                                                                                                                                                                                                                               |
+| `MERIDIAN_ALERT_WEBHOOK_SECRET`          | Yes (keeper) | `""`                               | Shared HMAC-SHA256 secret for signing alert webhook deliveries and verifying replay protection. Required on deployed environments when `MERIDIAN_ALERT_WEBHOOK_URL` is configured. See `apps/docs/operations/alert-keeper.md`.                                                                                                                                                                                                                                                         |
 
 ## Deploy scripts (`scripts/`)
 

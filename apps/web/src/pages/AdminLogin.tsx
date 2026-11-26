@@ -64,7 +64,11 @@ export function AdminLogin() {
 
   if (!connected) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-night">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex items-center justify-center min-h-screen bg-night outline-none"
+      >
         <div className="w-full max-w-md rounded-xl border border-gray-800 bg-deep p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-gray-800">
             <LockOpen className="h-5 w-5 text-gray-400" />
@@ -76,18 +80,22 @@ export function AdminLogin() {
           <button
             onClick={() => void handleConnect()}
             disabled={connectStatus === "connecting"}
-            className="mt-6 w-full rounded-lg bg-settled px-6 py-3 font-semibold text-white hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed transition-colors duration-150"
+            className="mt-6 w-full rounded-lg bg-emerald-700 hover:bg-emerald-600 px-6 py-3 font-semibold text-white disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
           >
             {t("common.connectWallet")}
           </button>
         </div>
-      </div>
+      </main>
     );
   }
 
   if (status === "error") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-night">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex items-center justify-center min-h-screen bg-night outline-none"
+      >
         <div className="w-full max-w-md rounded-xl border border-gray-800 bg-deep p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-amber-500/10">
             <AlertCircle className="h-5 w-5 text-amber-400" />
@@ -95,7 +103,7 @@ export function AdminLogin() {
           <h1 className="text-xl font-bold text-paper">{t("admin.title")}</h1>
           <p className="mt-2 text-sm text-amber-400">{t("admin.readError")}</p>
           <div className="mt-6 flex items-center justify-between rounded-lg bg-night px-4 py-3 text-sm">
-            <span className="text-xs font-medium tracking-wide text-gray-500 uppercase">
+            <span className="text-xs font-medium tracking-wide text-gray-400 uppercase">
               {t("admin.connected")}
             </span>
             <span className="font-mono text-gray-300">
@@ -105,25 +113,29 @@ export function AdminLogin() {
           <div className="mt-4 flex flex-col gap-2">
             <button
               onClick={handleRetry}
-              className="w-full rounded-lg bg-settled px-6 py-3 font-semibold text-white hover:bg-emerald-600 transition-colors duration-150"
+              className="w-full rounded-lg bg-emerald-700 hover:bg-emerald-600 px-6 py-3 font-semibold text-white transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
               {t("common.retry")}
             </button>
             <button
               onClick={disconnect}
-              className="w-full rounded-lg border border-gray-700 px-6 py-3 font-semibold text-gray-200 hover:border-gray-600 hover:text-paper transition-colors duration-150"
+              className="w-full rounded-lg border border-gray-700 px-6 py-3 font-semibold text-gray-200 hover:border-gray-600 hover:text-paper transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
               {t("admin.switchWallet")}
             </button>
           </div>
         </div>
-      </div>
+      </main>
     );
   }
 
   if (status === "blocked") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-night">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex items-center justify-center min-h-screen bg-night outline-none"
+      >
         <div className="w-full max-w-md rounded-xl border border-gray-800 bg-deep p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-red-500/10">
             <Lock className="h-5 w-5 text-red-400" />
@@ -132,7 +144,7 @@ export function AdminLogin() {
             {t("admin.notAuthorized")}
           </h1>
           <div className="mt-6 flex items-center justify-between rounded-lg bg-night px-4 py-3 text-sm">
-            <span className="text-xs font-medium tracking-wide text-gray-500 uppercase">
+            <span className="text-xs font-medium tracking-wide text-gray-400 uppercase">
               {t("admin.connected")}
             </span>
             <span className="font-mono text-gray-300">
@@ -141,12 +153,12 @@ export function AdminLogin() {
           </div>
           <button
             onClick={disconnect}
-            className="mt-3 w-full rounded-lg border border-gray-700 px-6 py-3 font-semibold text-gray-200 hover:border-gray-600 hover:text-paper transition-colors duration-150"
+            className="mt-3 w-full rounded-lg border border-gray-700 px-6 py-3 font-semibold text-gray-200 hover:border-gray-600 hover:text-paper transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
           >
             {t("admin.switchWallet")}
           </button>
         </div>
-      </div>
+      </main>
     );
   }
 

@@ -1,15 +1,18 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 mod errors;
 pub mod pricing;
 mod storage;
 
 pub use errors::ContractError;
 pub use storage::{
-    clear_position_records, DataKey, MigrationSnapshot, ADAPTER, ADMIN, ADPT_SH,
-    DEPOSIT_VALUE_TOLERANCE_BPS, DEPOSIT_VALUE_TOLERANCE_STROOPS, LOCKED, MAX_ADMIN_SLIPPAGE_BPS,
-    MIG_ACTIVE, MIG_SNAP, MIN_LEDGER_GAP, MUSDC, OFFSET, PAUSED, PEND_ADM, TOTAL_SH, TREASURY,
-    USDC,
+    clear_position_records, DataKey, MigrationSnapshot, PositionSummary, ADAPTER, ADMIN, ADPT_SH,
+    DEPOSIT_VALUE_TOLERANCE_BPS, DEPOSIT_VALUE_TOLERANCE_STROOPS, DEP_CAP, LOCKED,
+    MAX_ADMIN_SLIPPAGE_BPS, MIG_ACTIVE, MIG_SNAP, MIN_LEDGER_GAP, MUSDC, OFFSET, PAUSED, PEND_ADM,
+    TOTAL_SH, TREASURY, USDC,
 };
 
 use soroban_sdk::{
@@ -42,6 +45,9 @@ const MIG_BEGIN_EVT: (Symbol, Symbol, u32) =
     (ADMIN_EVT, symbol_short!("mig_begin"), EVENT_SCHEMA_VERSION);
 const MIGRATE_EVT: (Symbol, Symbol, u32) =
     (ADMIN_EVT, symbol_short!("migrate"), EVENT_SCHEMA_VERSION);
+const RESCUE_EVT: (Symbol, Symbol, u32) =
+    (ADMIN_EVT, symbol_short!("rescue"), EVENT_SCHEMA_VERSION);
+const CAP_EVT: (Symbol, Symbol, u32) = (ADMIN_EVT, symbol_short!("cap"), EVENT_SCHEMA_VERSION);
 
 // ---------------------------------------------------------------------------
 // TTL constants
@@ -157,6 +163,29 @@ pub struct WithdrawPreview {
     pub treasury_shares: i128,
     /// USDC the caller receives, exactly what `withdraw` returns.
     pub assets_out: i128,
+}
+
+/// Snapshot of the vault's configuration and totals returned by
+/// [`MeridianVault::get_config`] in a single read.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VaultConfig {
+    /// Current admin address.
+    pub admin: Address,
+    /// Pending admin nominee from `transfer_admin`, if any.
+    pub pending_admin: Option<Address>,
+    /// Active yield adapter address.
+    pub adapter: Address,
+    /// Whether deposits are currently paused.
+    pub paused: bool,
+    /// Constructor-fixed performance-fee treasury address.
+    pub treasury: Address,
+    /// Immutable performance fee compiled into this vault, in basis points.
+    pub performance_fee_bps: i128,
+    /// Total mUSDC shares outstanding.
+    pub total_shares: i128,
+    /// Total USDC value managed by the vault as reported by the adapter.
+    pub total_assets: i128,
 }
 
 /// Read-only reconciliation state for the vault and its active adapter.
@@ -410,6 +439,16 @@ impl MeridianVault {
         }
         if quoted_shares < min_shares_out {
             return Err(ContractError::SlippageExceeded);
+        }
+
+        let cap = Self::get_total_deposit_cap(env.clone());
+        if cap > 0 {
+            let resulting_total = assets_before
+                .checked_add(amount)
+                .ok_or(ContractError::Overflow)?;
+            if resulting_total > cap {
+                return Err(ContractError::DepositCapExceeded);
+            }
         }
 
         // A caller who currently holds no shares but still has Entry/Principal
@@ -1064,6 +1103,33 @@ impl MeridianVault {
         env.storage().persistent().get(&key).unwrap_or(0)
     }
 
+    /// Returns an aggregate summary of an address's position (shares, principal,
+    /// entry time, and current asset value) at a consistent ledger snapshot.
+    ///
+    /// If the address holds no shares, returns zeroed values without trapping.
+    pub fn get_position_summary(env: Env, address: Address) -> PositionSummary {
+        let shares = Self::get_position(env.clone(), address.clone());
+        if shares <= 0 {
+            return PositionSummary {
+                shares: 0,
+                principal: 0,
+                entry_time: 0,
+                current_value: 0,
+            };
+        }
+
+        let principal = Self::get_principal(env.clone(), address.clone());
+        let entry_time = Self::get_entry_time(env.clone(), address.clone());
+        let current_value = Self::convert_to_assets(env, shares).unwrap_or(0);
+
+        PositionSummary {
+            shares,
+            principal,
+            entry_time,
+            current_value,
+        }
+    }
+
     /// Permissionless entry point that extends the TTL of instance storage
     /// and the position records for `address`. Anyone can call it, so
     /// off-chain keepers or the user themselves can keep a position alive
@@ -1155,6 +1221,31 @@ impl MeridianVault {
     /// Returns the fee compiled into this vault deployment, in basis points.
     pub fn get_performance_fee_bps(_env: Env) -> i128 {
         PERFORMANCE_FEE_BPS
+    }
+
+    /// Returns a consistent snapshot of the vault's configuration and totals
+    /// in a single read. Fails with `NotInitialized` if the vault has not been
+    /// initialized.
+    pub fn get_config(env: Env) -> Result<VaultConfig, ContractError> {
+        let admin = Self::get_admin(env.clone())?;
+        let pending_admin = Self::get_pending_admin(env.clone());
+        let adapter = Self::get_adapter(env.clone())?;
+        let paused = Self::is_paused(env.clone());
+        let treasury = Self::get_treasury(env.clone())?;
+        let performance_fee_bps = Self::get_performance_fee_bps(env.clone());
+        let total_shares = Self::get_total_shares(env.clone());
+        let total_assets = AdapterClient::new(&env, &adapter).total_assets();
+
+        Ok(VaultConfig {
+            admin,
+            pending_admin,
+            adapter,
+            paused,
+            treasury,
+            performance_fee_bps,
+            total_shares,
+            total_assets,
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -1347,6 +1438,34 @@ impl MeridianVault {
         env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
 
+    /// Admin-only: sets the maximum total asset amount the vault will accept across all deposits.
+    /// A cap of 0 means uncapped. Expressed in the same units as `get_total_assets` (USDC stroops).
+    pub fn set_total_deposit_cap(env: Env, cap: i128) -> Result<(), ContractError> {
+        Self::require_admin(&env)?;
+        if cap < 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+        Self::extend_instance(&env);
+        env.storage().instance().set(&DEP_CAP, &cap);
+        env.events().publish(CAP_EVT, cap);
+        Ok(())
+    }
+
+    /// Returns the current total deposit cap in USDC stroops, or 0 if uncapped.
+    pub fn get_total_deposit_cap(env: Env) -> i128 {
+        env.storage().instance().get(&DEP_CAP).unwrap_or(0)
+    }
+
+    /// Alias for `set_total_deposit_cap`.
+    pub fn set_deposit_cap(env: Env, cap: i128) -> Result<(), ContractError> {
+        Self::set_total_deposit_cap(env, cap)
+    }
+
+    /// Alias for `get_total_deposit_cap`.
+    pub fn get_deposit_cap(env: Env) -> i128 {
+        Self::get_total_deposit_cap(env)
+    }
+
     /// Admin-only: nominate `new_admin` as the next admin. Requires the
     /// current admin's `require_auth()`. Does not itself change who the
     /// admin is — that only happens once the nominee calls `accept_admin`
@@ -1392,6 +1511,49 @@ impl MeridianVault {
             .instance()
             .get(&ADMIN)
             .ok_or(ContractError::NotInitialized)
+    }
+
+    /// Admin-only: rescue unrelated tokens mistakenly sent to the vault address.
+    ///
+    /// Rejects the vault's underlying USDC, share token (mUSDC), and the active adapter.
+    /// Does not alter share, asset, principal, entry time, or adapter accounting.
+    pub fn rescue_token(
+        env: Env,
+        token: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        Self::with_lock(&env, || {
+            Self::require_admin(&env)?;
+            if amount <= 0 {
+                return Err(ContractError::ZeroAmount);
+            }
+            Self::extend_instance(&env);
+
+            let usdc = Self::usdc(&env)?;
+            let musdc = Self::musdc(&env)?;
+            let adapter_addr: Address = env
+                .storage()
+                .instance()
+                .get(&ADAPTER)
+                .ok_or(ContractError::NotInitialized)?;
+
+            if token == usdc || token == musdc || token == adapter_addr {
+                return Err(ContractError::ProtectedToken);
+            }
+
+            let token_client = TokenClient::new(&env, &token);
+            let balance = token_client.balance(&env.current_contract_address());
+            if balance < amount {
+                return Err(ContractError::InsufficientBalance);
+            }
+
+            token_client.transfer(&env.current_contract_address(), &to, &amount);
+
+            env.events().publish(RESCUE_EVT, (token, to, amount));
+
+            Ok(())
+        })
     }
 
     /// Replace the yield adapter. The vault must have no shares outstanding
@@ -1956,6 +2118,20 @@ mod tests {
         token::{StellarAssetClient, TokenClient},
         Address, Env, Symbol,
     };
+
+    fn report_benchmark(env: &Env, name: &str) {
+        let estimate = env.cost_estimate();
+        let resources = estimate.resources();
+        let memory_bytes = estimate.budget().memory_bytes_cost();
+        let fee_stroops = estimate.fee().total;
+        std::println!(
+            "SOROBAN_BENCHMARK|{}|{}|{}|{}",
+            name,
+            resources.instructions,
+            memory_bytes,
+            fee_stroops
+        );
+    }
 
     type WiringFixture = (Env, Address, Address, Address, Address, Address, Address);
 
@@ -4705,6 +4881,78 @@ mod tests {
     }
 
     #[test]
+    fn get_config_fails_before_initialize() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let vault_id = register_uninitialized_vault(&env);
+        let vault = MeridianVaultClient::new(&env, &vault_id);
+        let result = vault.try_get_config();
+        assert_eq!(result, Err(Ok(ContractError::NotInitialized)));
+    }
+
+    #[test]
+    fn get_config_returns_fresh_vault_snapshot() {
+        let (_env, admin, user, _usdc, _musdc, adapter, vault) = setup();
+
+        let config = vault.get_config();
+        assert_eq!(
+            config,
+            VaultConfig {
+                admin: admin.clone(),
+                pending_admin: None,
+                adapter: adapter.clone(),
+                paused: false,
+                treasury: admin.clone(),
+                performance_fee_bps: PERFORMANCE_FEE_BPS,
+                total_shares: 0,
+                total_assets: 0,
+            }
+        );
+
+        let deposit_amount = 250_0000000_i128;
+        let shares = vault.deposit(&user, &deposit_amount, &0);
+        let after_deposit = vault.get_config();
+        assert_eq!(after_deposit.total_shares, shares);
+        assert_eq!(after_deposit.total_assets, deposit_amount);
+        assert_eq!(after_deposit.admin, admin);
+        assert_eq!(after_deposit.pending_admin, None);
+        assert_eq!(after_deposit.adapter, adapter);
+        assert!(!after_deposit.paused);
+        assert_eq!(after_deposit.treasury, admin);
+        assert_eq!(after_deposit.performance_fee_bps, PERFORMANCE_FEE_BPS);
+    }
+
+    #[test]
+    fn get_config_reflects_paused_state() {
+        let (_env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+
+        assert!(!vault.get_config().paused);
+        vault.set_paused(&true);
+        assert!(vault.get_config().paused);
+        vault.set_paused(&false);
+        assert!(!vault.get_config().paused);
+    }
+
+    #[test]
+    fn get_config_reflects_pending_admin() {
+        let (env, admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let nominee = Address::generate(&env);
+
+        assert_eq!(vault.get_config().admin, admin);
+        assert_eq!(vault.get_config().pending_admin, None);
+
+        vault.transfer_admin(&nominee);
+        let during_handover = vault.get_config();
+        assert_eq!(during_handover.admin, admin);
+        assert_eq!(during_handover.pending_admin, Some(nominee.clone()));
+
+        vault.accept_admin();
+        let after_handover = vault.get_config();
+        assert_eq!(after_handover.admin, nominee);
+        assert_eq!(after_handover.pending_admin, None);
+    }
+
+    #[test]
     fn set_paused_fails_before_initialize() {
         let env = Env::default();
         env.mock_all_auths();
@@ -4955,6 +5203,78 @@ mod tests {
             "deposit() instruction count {} exceeds sanity ceiling",
             resources.instructions
         );
+    }
+
+    #[test]
+    fn benchmark_vault_deposit() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0_i128);
+        report_benchmark(&env, "vault.deposit");
+    }
+
+    #[test]
+    fn benchmark_vault_withdraw() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0_i128);
+        vault.withdraw(&user, &amount, &0_i128);
+        report_benchmark(&env, "vault.withdraw");
+    }
+
+    #[test]
+    fn benchmark_vault_begin_migration() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        vault.begin_migration(&new_adapter);
+        report_benchmark(&env, "vault.begin_migration");
+    }
+
+    #[test]
+    fn benchmark_vault_migrate_adapter() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0_i128);
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        vault.begin_migration(&new_adapter);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += MIN_LEDGER_GAP);
+        vault.migrate_adapter(&new_adapter, &0);
+        report_benchmark(&env, "vault.migrate_adapter");
+    }
+
+    #[test]
+    fn benchmark_vault_set_paused() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.set_paused(&true);
+        report_benchmark(&env, "vault.set_paused");
+    }
+
+    #[test]
+    fn benchmark_vault_set_adapter() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter).initialize(&usdc);
+        vault.set_adapter(&new_adapter);
+        report_benchmark(&env, "vault.set_adapter");
+    }
+
+    #[test]
+    fn benchmark_vault_transfer_admin() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let new_admin = Address::generate(&env);
+        vault.transfer_admin(&new_admin);
+        report_benchmark(&env, "vault.transfer_admin");
+    }
+
+    #[test]
+    fn benchmark_vault_accept_admin() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let new_admin = Address::generate(&env);
+        vault.transfer_admin(&new_admin);
+        vault.accept_admin();
+        report_benchmark(&env, "vault.accept_admin");
     }
 
     // -----------------------------------------------------------------------
@@ -5385,6 +5705,8 @@ mod tests {
         assert_eq!(target_adapter, new_adapter_id);
         assert_eq!(earliest_ledger, current_ledger + MIN_LEDGER_GAP);
     }
+
+    mod accounting_properties;
 
     #[test]
     fn migrate_publishes_event_with_old_and_new_adapter() {
@@ -7029,6 +7351,302 @@ mod tests {
             assert_every_reentry_rejected(&r, &r.usdc, "migrate/usdc", attack);
             assert_migrated(&r, &new_adapter);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Total deposit cap tests (#1338)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn deposit_cap_defaults_to_zero_uncapped() {
+        let (_env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        assert_eq!(vault.get_total_deposit_cap(), 0);
+        assert_eq!(vault.get_deposit_cap(), 0);
+    }
+
+    #[test]
+    fn set_total_deposit_cap_rejects_missing_authorization() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_set_total_deposit_cap(&10_000_000_000),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert_eq!(
+            vault.try_set_deposit_cap(&10_000_000_000),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Rescue token tests (#1337)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn rescue_token_rejects_missing_authorization() {
+        let (env, admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let foreign_token = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let recipient = Address::generate(&env);
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_rescue_token(&foreign_token, &recipient, &100),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+    }
+
+    #[test]
+    fn set_total_deposit_cap_rejects_negative() {
+        let (_env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+
+        assert_eq!(
+            vault.try_set_total_deposit_cap(&-1),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.try_set_deposit_cap(&-500),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+    }
+
+    #[test]
+    fn set_total_deposit_cap_succeeds_and_publishes_event() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let cap = 500_0000000_i128;
+
+        vault.set_total_deposit_cap(&cap);
+
+        let event = find_admin_event(&env, &vault.address, symbol_short!("cap"))
+            .expect("cap admin event not found");
+        let published_cap: i128 = soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(published_cap, cap);
+
+        assert_eq!(vault.get_total_deposit_cap(), cap);
+        assert_eq!(vault.get_deposit_cap(), cap);
+    }
+
+    #[test]
+    fn deposit_cap_boundary_and_exceeded() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        let cap = 100_0000000_i128; // 100 USDC cap
+        vault.set_total_deposit_cap(&cap);
+
+        let usdc_client = StellarAssetClient::new(&env, &usdc);
+        usdc_client.mint(&user, &200_0000000);
+
+        // First deposit: 60 USDC (within cap)
+        vault.deposit(&user, &60_0000000, &0);
+        assert_eq!(vault.get_total_assets(), 60_0000000);
+
+        // Second deposit: 40 USDC (exactly at cap boundary: 60 + 40 = 100)
+        vault.deposit(&user, &40_0000000, &0);
+        assert_eq!(vault.get_total_assets(), 100_0000000);
+
+        // Third deposit: 1 stroop exceeds cap -> rejected
+        assert_eq!(
+            vault.try_deposit(&user, &1, &0),
+            Err(Ok(ContractError::DepositCapExceeded))
+        );
+
+        // Larger deposit also rejected
+        assert_eq!(
+            vault.try_deposit(&user, &10_0000000, &0),
+            Err(Ok(ContractError::DepositCapExceeded))
+        );
+
+        // Raising cap to 150 USDC allows further deposit
+        vault.set_total_deposit_cap(&150_0000000);
+        vault.deposit(&user, &50_0000000, &0);
+        assert_eq!(vault.get_total_assets(), 150_0000000);
+
+        // Resetting to 0 removes cap completely
+        vault.set_total_deposit_cap(&0);
+        assert_eq!(vault.get_total_deposit_cap(), 0);
+        usdc_client.mint(&user, &100_0000000);
+        vault.deposit(&user, &100_0000000, &0);
+        assert_eq!(vault.get_total_assets(), 250_0000000);
+    }
+
+    // -----------------------------------------------------------------------
+    // Aggregate position summary tests (#1341)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn position_summary_on_empty_position_returns_zeroed_values() {
+        let (env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let empty_user = Address::generate(&env);
+
+        let summary = vault.get_position_summary(&empty_user);
+        assert_eq!(
+            summary,
+            PositionSummary {
+                shares: 0,
+                principal: 0,
+                entry_time: 0,
+                current_value: 0,
+            }
+        );
+
+        // Verify existing getters remain unchanged
+        assert_eq!(vault.get_position(&empty_user), 0);
+        assert_eq!(vault.get_principal(&empty_user), 0);
+        assert_eq!(vault.get_entry_time(&empty_user), 0);
+    }
+
+    #[test]
+    fn position_summary_on_fresh_position() {
+        let (env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        let amount = 100_0000000_i128; // 100 USDC
+
+        let expected_time = env.ledger().timestamp();
+        let shares = vault.deposit(&user, &amount, &0);
+
+        let summary = vault.get_position_summary(&user);
+        assert_eq!(summary.shares, shares);
+        assert_eq!(summary.principal, amount);
+        assert_eq!(summary.entry_time, expected_time);
+        assert_eq!(summary.current_value, amount);
+
+        // Existing single-field getters match
+        assert_eq!(vault.get_position(&user), summary.shares);
+        assert_eq!(vault.get_principal(&user), summary.principal);
+        assert_eq!(vault.get_entry_time(&user), summary.entry_time);
+    }
+
+    #[test]
+    fn position_summary_on_earning_position() {
+        let (env, _admin, user, usdc, _musdc, adapter, vault) = setup();
+        let amount = 100_0000000_i128; // 100 USDC
+
+        let shares = vault.deposit(&user, &amount, &0);
+        let fresh_summary = vault.get_position_summary(&user);
+        assert_eq!(fresh_summary.current_value, amount);
+
+        // Simulate 20 USDC yield arriving at adapter
+        let yield_amount = 20_0000000_i128;
+        StellarAssetClient::new(&env, &usdc).mint(&adapter, &yield_amount);
+
+        let earning_summary = vault.get_position_summary(&user);
+        assert_eq!(earning_summary.shares, shares);
+        assert_eq!(earning_summary.principal, amount);
+        assert_eq!(earning_summary.entry_time, fresh_summary.entry_time);
+        // Current value should reflect the yield
+        assert!(earning_summary.current_value > amount);
+        assert_eq!(earning_summary.current_value, amount + yield_amount);
+
+        // Full exit resets summary to zero
+        vault.withdraw(&user, &shares, &0);
+        let exited_summary = vault.get_position_summary(&user);
+        assert_eq!(
+            exited_summary,
+            PositionSummary {
+                shares: 0,
+                principal: 0,
+                entry_time: 0,
+                current_value: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn rescue_token_rejects_protected_tokens() {
+        let (env, _admin, _user, usdc, musdc, adapter, vault) = setup();
+        let recipient = Address::generate(&env);
+
+        assert_eq!(
+            vault.try_rescue_token(&usdc, &recipient, &100),
+            Err(Ok(ContractError::ProtectedToken))
+        );
+        assert_eq!(
+            vault.try_rescue_token(&musdc, &recipient, &100),
+            Err(Ok(ContractError::ProtectedToken))
+        );
+        assert_eq!(
+            vault.try_rescue_token(&adapter, &recipient, &100),
+            Err(Ok(ContractError::ProtectedToken))
+        );
+    }
+
+    #[test]
+    fn rescue_token_rejects_zero_and_negative_amounts() {
+        let (env, admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let foreign_token = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let recipient = Address::generate(&env);
+
+        assert_eq!(
+            vault.try_rescue_token(&foreign_token, &recipient, &0),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+        assert_eq!(
+            vault.try_rescue_token(&foreign_token, &recipient, &-50),
+            Err(Ok(ContractError::ZeroAmount))
+        );
+    }
+
+    #[test]
+    fn rescue_token_rejects_insufficient_balance() {
+        let (env, admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+        let foreign_token = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let recipient = Address::generate(&env);
+
+        assert_eq!(
+            vault.try_rescue_token(&foreign_token, &recipient, &500),
+            Err(Ok(ContractError::InsufficientBalance))
+        );
+    }
+
+    #[test]
+    fn rescue_token_succeeds_and_preserves_accounting() {
+        let (env, _admin, user, _usdc, _musdc, adapter, vault) = setup();
+        let issuer = Address::generate(&env);
+        let foreign_token = env.register_stellar_asset_contract_v2(issuer).address();
+        let recipient = Address::generate(&env);
+
+        // Send foreign token to vault
+        let rescue_amount = 5_000;
+        let foreign_client = StellarAssetClient::new(&env, &foreign_token);
+        foreign_client.mint(&vault.address, &rescue_amount);
+        assert_eq!(
+            TokenClient::new(&env, &foreign_token).balance(&vault.address),
+            rescue_amount
+        );
+
+        // Rescue foreign token
+        vault.rescue_token(&foreign_token, &recipient, &rescue_amount);
+
+        // Verify event was emitted
+        let event = find_admin_event(&env, &vault.address, symbol_short!("rescue"))
+            .expect("rescue event not found");
+        let (token, to, amount): (Address, Address, i128) =
+            soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(token, foreign_token);
+        assert_eq!(to, recipient);
+        assert_eq!(amount, rescue_amount);
+
+        // Foreign token is now with recipient and drained from vault
+        assert_eq!(
+            TokenClient::new(&env, &foreign_token).balance(&vault.address),
+            0
+        );
+        assert_eq!(
+            TokenClient::new(&env, &foreign_token).balance(&recipient),
+            rescue_amount
+        );
+
+        // Verify accounting invariants: none of the vault accounting moved
+        assert_eq!(vault.get_total_shares(), 0);
+        assert_eq!(vault.get_total_assets(), 0);
+        assert_eq!(vault.get_position(&user), 0);
+        assert_eq!(vault.get_principal(&user), 0);
+        assert_eq!(vault.get_entry_time(&user), 0);
+        assert_eq!(vault.get_adapter(), adapter);
     }
 
     #[test]

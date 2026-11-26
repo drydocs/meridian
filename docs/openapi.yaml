@@ -1,0 +1,360 @@
+openapi: 3.0.3
+info:
+  title: Meridian API
+  version: 1.0.0
+  description: >-
+    Public HTTP API for the Meridian stablecoin yield aggregator on Stellar.
+servers:
+  - url: https://usemeridian.vercel.app
+    description: Production (Vercel serverless functions)
+  - url: http://localhost:3001
+    description: Local development (Fastify)
+paths:
+  /api/v1/config:
+    get:
+      summary: Get public network, contract, and feature-flag metadata
+      description: >-
+        Returns the active Stellar network name and passphrase, deployed vault,
+        token, and protocol contract addresses from shared constants, the live
+        active adapter address and protocol (or null if unavailable), supported
+        asset symbols, and public feature flags. Never includes secrets,
+        private infrastructure URLs, keeper settings, or admin-only data.
+      operationId: getPublicConfig
+      tags:
+        - Config
+      responses:
+        "200":
+          description: Public API configuration metadata
+          headers:
+            Cache-Control:
+              description: >-
+                Short cache policy when complete
+                (public, max-age=60, s-maxage=60, stale-while-revalidate=300),
+                or no-store if live active adapter resolution degraded.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicConfigResponse"
+        "405":
+          description: Method not allowed (only GET is permitted)
+          headers:
+            Allow:
+              schema:
+                type: string
+                example: GET
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Rate limiter unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/vaults:
+    get:
+      summary: List available vaults with live APY and TVL
+      operationId: getVaults
+      tags:
+        - Vaults
+      responses:
+        "200":
+          description: List of vaults and recommended vault ID
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/vaults/{vaultId}:
+    get:
+      summary: Get a single vault by ID
+      operationId: getVaultById
+      tags:
+        - Vaults
+      parameters:
+        - name: vaultId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Vault metadata and metrics
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Vault not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/positions/{publicKey}:
+    get:
+      summary: Get on-chain vault positions for a Stellar wallet
+      operationId: getPositions
+      tags:
+        - Positions
+      parameters:
+        - name: publicKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current positions for the wallet
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/positions/{publicKey}/history:
+    get:
+      summary: Get stored position-value history for a Stellar wallet
+      operationId: getPositionHistory
+      tags:
+        - Positions
+      parameters:
+        - name: publicKey
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 30
+      responses:
+        "200":
+          description: Stored position history snapshots
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/tx/deposit:
+    post:
+      summary: Build an unsigned deposit transaction
+      operationId: buildDepositTx
+      tags:
+        - Transactions
+      responses:
+        "200":
+          description: Unsigned transaction XDR and estimated fee
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/tx/withdraw:
+    post:
+      summary: Build an unsigned withdraw transaction
+      operationId: buildWithdrawTx
+      tags:
+        - Transactions
+      responses:
+        "200":
+          description: Unsigned transaction XDR and estimated fee
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/tx/add-trustline:
+    post:
+      summary: Build an unsigned trustline setup transaction
+      operationId: buildAddTrustlineTx
+      tags:
+        - Transactions
+      responses:
+        "200":
+          description: Unsigned trustline transaction XDR
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/tx/submit:
+    post:
+      summary: Submit a wallet-signed transaction XDR
+      operationId: submitTx
+      tags:
+        - Transactions
+      responses:
+        "200":
+          description: Submitted transaction hash
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/keepers/health:
+    get:
+      summary: Get read-only scheduled keeper health status
+      operationId: getKeeperHealth
+      tags:
+        - Keepers
+      responses:
+        "200":
+          description: Keeper heartbeat status
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/admin/vault-state:
+    get:
+      summary: Get read-only coordinator vault operational state
+      operationId: getVaultState
+      tags:
+        - Admin
+      responses:
+        "200":
+          description: Coordinator vault state
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/admin/history:
+    get:
+      summary: Get read-only admin action history for a vault
+      operationId: getAdminHistory
+      tags:
+        - Admin
+      parameters:
+        - name: vaultId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Admin actions recorded on-chain for the vault
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  schemas:
+    PublicConfigContracts:
+      type: object
+      additionalProperties: false
+      required:
+        - vault
+        - usdc
+        - musdc
+        - eurc
+        - blendPool
+        - defindexVault
+        - defindexFactory
+      properties:
+        vault:
+          type: string
+          description: Meridian coordinator vault contract address
+        usdc:
+          type: string
+          description: USDC Stellar Asset Contract address
+        musdc:
+          type: string
+          description: mUSDC share token contract address
+        eurc:
+          type: string
+          description: EURC Stellar Asset Contract address
+        blendPool:
+          type: string
+          description: Blend lending pool contract address
+        defindexVault:
+          type: string
+          nullable: true
+          description: DeFindex vault contract address, or null if not configured
+        defindexFactory:
+          type: string
+          nullable: true
+          description: DeFindex factory contract address, or null if not configured
+    ActiveAdapterInfo:
+      type: object
+      additionalProperties: false
+      required:
+        - address
+        - protocol
+      properties:
+        address:
+          type: string
+          description: Currently wired adapter contract address read from the vault
+        protocol:
+          type: string
+          description: Protocol identifier reported by the active adapter (e.g. blend, defindex)
+    PublicConfigFeatures:
+      type: object
+      additionalProperties: false
+      required:
+        - defindexEnabled
+        - musdcTrustlineRequired
+        - riskAcknowledgementRequired
+      properties:
+        defindexEnabled:
+          type: boolean
+          description: Whether a DeFindex vault is configured on this deployment
+        musdcTrustlineRequired:
+          type: boolean
+          description: Whether classic Stellar trustlines are required for mUSDC on this network
+        riskAcknowledgementRequired:
+          type: boolean
+          description: Whether deposit requests must attest riskAcknowledged=true
+    PublicConfigResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - network
+        - passphrase
+        - contracts
+        - activeAdapter
+        - degraded
+        - supportedAssets
+        - features
+      properties:
+        network:
+          type: string
+          enum:
+            - testnet
+            - mainnet
+          description: Active Stellar network identifier
+        passphrase:
+          type: string
+          description: Stellar network passphrase
+        contracts:
+          $ref: "#/components/schemas/PublicConfigContracts"
+        activeAdapter:
+          allOf:
+            - $ref: "#/components/schemas/ActiveAdapterInfo"
+          nullable: true
+          description: Active vault adapter resolved on-chain, or null if unavailable
+        degraded:
+          type: boolean
+          description: >-
+            True when live active adapter resolution failed (so clients can
+            distinguish an RPC failure from a vault with no adapter configured)
+        supportedAssets:
+          type: array
+          items:
+            type: string
+            enum:
+              - USDC
+              - EURC
+          description: Supported stablecoin asset symbols
+        features:
+          $ref: "#/components/schemas/PublicConfigFeatures"
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string

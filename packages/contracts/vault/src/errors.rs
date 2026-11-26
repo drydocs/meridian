@@ -150,4 +150,11 @@ pub enum ContractError {
     InvalidTreasuryAddress = 36,
     /// Constructor initialization found that mUSDC is not administered by the vault.
     MusdcAdminMismatch = 37,
+    /// `rescue_token` was called for a protected token: the vault's USDC,
+    /// mUSDC, or the active adapter contract.
+    ProtectedToken = 38,
+    /// The vault does not hold enough of the target token to satisfy the rescue amount.
+    InsufficientBalance = 39,
+    /// `deposit` would cause total assets to exceed the configured deposit cap.
+    DepositCapExceeded = 40,
 }

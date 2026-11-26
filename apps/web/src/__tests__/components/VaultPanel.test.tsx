@@ -12,6 +12,8 @@ const refetchPositions = vi.fn();
 const deposit = vi.fn(async () => true);
 const withdraw = vi.fn(async () => true);
 const handleConnect = vi.fn();
+const cancelConnect = vi.fn();
+const retryConnect = vi.fn();
 const acceptRiskDisclosure = vi.fn();
 const cancelRiskDisclosure = vi.fn();
 
@@ -70,6 +72,8 @@ function mockPositions(overrides: Partial<ReturnType<typeof usePositions>>) {
 function mockConnect(overrides: Partial<ReturnType<typeof useWalletConnect>>) {
   vi.mocked(useWalletConnect).mockReturnValue({
     handleConnect,
+    cancelConnect,
+    retryConnect,
     status: "idle",
     attemptedWalletId: "freighter",
     showRiskDisclosure: false,
@@ -94,6 +98,8 @@ beforeEach(() => {
     withdraw,
     isDepositing: false,
     isWithdrawing: false,
+    isSigning: false,
+    cancelPending: vi.fn(),
   } as unknown as ReturnType<typeof useVaultActions>);
   mockConnect({});
   // Default: no balance information — DepositTab's guard is skipped.
@@ -186,6 +192,37 @@ describe("VaultPanel — tab switcher", () => {
     );
     expect(screen.getByTestId("vault-tab-withdraw").textContent).toBe(
       "vaultPanel.withdraw"
+    );
+  });
+
+  it("exposes proper WAI-ARIA tab semantics and supports arrow key navigation", () => {
+    render(<VaultPanel />);
+
+    const tablist = screen.getByRole("tablist");
+    expect(tablist).toBeDefined();
+
+    const depositTab = screen.getByRole("tab", { name: "vaultPanel.deposit" });
+    const withdrawTab = screen.getByRole("tab", {
+      name: "vaultPanel.withdraw",
+    });
+
+    expect(depositTab.getAttribute("aria-selected")).toBe("true");
+    expect(depositTab.getAttribute("tabindex")).toBe("0");
+    expect(withdrawTab.getAttribute("aria-selected")).toBe("false");
+    expect(withdrawTab.getAttribute("tabindex")).toBe("-1");
+
+    const tabpanel = screen.getByRole("tabpanel");
+    expect(tabpanel.getAttribute("id")).toBe("vault-tabpanel-deposit");
+    expect(tabpanel.getAttribute("aria-labelledby")).toBe("vault-tab-deposit");
+
+    // Arrow navigation from deposit to withdraw
+    fireEvent.keyDown(depositTab, { key: "ArrowRight" });
+
+    expect(withdrawTab.getAttribute("aria-selected")).toBe("true");
+    expect(withdrawTab.getAttribute("tabindex")).toBe("0");
+    expect(depositTab.getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tabpanel").getAttribute("id")).toBe(
+      "vault-tabpanel-withdraw"
     );
   });
 });
