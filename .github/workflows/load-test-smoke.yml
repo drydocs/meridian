@@ -52,7 +52,7 @@ jobs:
       - name: Prepare testnet accounts
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: .node-version
       - name: Create account pool
         run: |
           node scripts/load-test/prepare-accounts.mjs 2
