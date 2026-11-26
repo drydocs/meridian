@@ -5,6 +5,11 @@ import { BuyAndHoldStrategy } from "./strategy";
 import type { BuyAndHoldConfig, Strategy } from "./strategy";
 import { DeltaNeutralStrategy } from "./delta-neutral";
 import type { DeltaNeutralConfig } from "./delta-neutral";
+import {
+  MARKET_REGIMES,
+  REGIME_PARAM_KEYS,
+  isMarketRegime,
+} from "./regime-scenarios";
 
 /**
  * Runtime dependencies a scenario's string `params` cannot carry. Feeds come
@@ -69,11 +74,13 @@ export class UnknownStrategyError extends Error {
   constructor(
     strategyId: string,
     strategyVersion: string,
-    available: readonly string[]
+    available: readonly string[],
+    message?: string
   ) {
     super(
-      `Unknown strategy '${strategyId}' version '${strategyVersion}'. ` +
-        `Available: ${available.length > 0 ? available.join(", ") : "none"}.`
+      message ??
+        `Unknown strategy '${strategyId}' version '${strategyVersion}'. ` +
+          `Available: ${available.length > 0 ? available.join(", ") : "none"}.`
     );
     this.name = "UnknownStrategyError";
     this.strategyId = strategyId;
@@ -218,6 +225,7 @@ export const deltaNeutralDefinition = defineStrategy<DeltaNeutralConfig>({
   version: STRATEGY_VERSION_1,
   create: () => new DeltaNeutralStrategy(),
   parseParams(params, dependencies) {
+    const regimeKeys: readonly string[] = Object.values(REGIME_PARAM_KEYS);
     rejectUnknownKeys(DELTA_NEUTRAL_ID, params, [
       "asset",
       "targetLeverage",
@@ -225,6 +233,7 @@ export const deltaNeutralDefinition = defineStrategy<DeltaNeutralConfig>({
       "fundingRatePerSecond",
       "supplyRate",
       "borrowRate",
+      ...regimeKeys,
     ]);
     const asset = readAsset(DELTA_NEUTRAL_ID, params, "asset");
     const targetLeverage = readDecimal(
@@ -271,6 +280,93 @@ export const deltaNeutralDefinition = defineStrategy<DeltaNeutralConfig>({
         );
       }
     }
+    let regimeId: string | undefined;
+    const hasRegimeParams = regimeKeys.some((key) =>
+      Object.prototype.hasOwnProperty.call(params, key)
+    );
+    if (hasRegimeParams) {
+      const regime = requireString(
+        DELTA_NEUTRAL_ID,
+        params,
+        REGIME_PARAM_KEYS.regime
+      );
+      if (!isMarketRegime(regime)) {
+        throw new StrategyParamsError(
+          DELTA_NEUTRAL_ID,
+          REGIME_PARAM_KEYS.regime,
+          `'${regime}' is not a supported market regime. Allowed: ${MARKET_REGIMES.join(", ")}`
+        );
+      }
+      const startPrice = readDecimal(
+        DELTA_NEUTRAL_ID,
+        params,
+        REGIME_PARAM_KEYS.startPrice
+      );
+      if (startPrice.toStroops() <= 0n) {
+        throw new StrategyParamsError(
+          DELTA_NEUTRAL_ID,
+          REGIME_PARAM_KEYS.startPrice,
+          "must be strictly positive"
+        );
+      }
+      readDecimal(DELTA_NEUTRAL_ID, params, REGIME_PARAM_KEYS.drift);
+      const volatility = readDecimal(
+        DELTA_NEUTRAL_ID,
+        params,
+        REGIME_PARAM_KEYS.volatility
+      );
+      if (volatility.toStroops() < 0n) {
+        throw new StrategyParamsError(
+          DELTA_NEUTRAL_ID,
+          REGIME_PARAM_KEYS.volatility,
+          "must be non-negative"
+        );
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(
+          params,
+          REGIME_PARAM_KEYS.fundingRatePerSecond
+        )
+      ) {
+        readDecimal(
+          DELTA_NEUTRAL_ID,
+          params,
+          REGIME_PARAM_KEYS.fundingRatePerSecond
+        );
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(
+          params,
+          REGIME_PARAM_KEYS.neutralityBandBps
+        )
+      ) {
+        readNonNegativeInteger(
+          DELTA_NEUTRAL_ID,
+          params,
+          REGIME_PARAM_KEYS.neutralityBandBps
+        );
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(
+          params,
+          REGIME_PARAM_KEYS.targetLeverage
+        )
+      ) {
+        const regimeLeverage = readDecimal(
+          DELTA_NEUTRAL_ID,
+          params,
+          REGIME_PARAM_KEYS.targetLeverage
+        );
+        if (regimeLeverage.toStroops() <= 0n) {
+          throw new StrategyParamsError(
+            DELTA_NEUTRAL_ID,
+            REGIME_PARAM_KEYS.targetLeverage,
+            "must be strictly positive"
+          );
+        }
+      }
+      regimeId = `${DELTA_NEUTRAL_ID}:${regime}`;
+    }
     if (!dependencies.priceFeed) {
       throw new StrategyParamsError(
         DELTA_NEUTRAL_ID,
@@ -279,6 +375,7 @@ export const deltaNeutralDefinition = defineStrategy<DeltaNeutralConfig>({
       );
     }
     return {
+      ...(regimeId ? { id: regimeId } : {}),
       asset,
       targetLeverage,
       rebalanceBandBps,
@@ -331,11 +428,22 @@ export function resolveStrategy(
     (d) => d.id === id && d.version === version
   );
   if (!definition) {
-    throw new UnknownStrategyError(
-      id,
-      version,
-      STRATEGY_DEFINITIONS.map((d) => `${d.id}@${d.version}`)
-    );
+    const available = STRATEGY_DEFINITIONS.map((d) => `${d.id}@${d.version}`);
+    if (
+      version === "1" &&
+      STRATEGY_DEFINITIONS.some(
+        (d) => d.id === id && d.version === STRATEGY_VERSION_1
+      )
+    ) {
+      throw new UnknownStrategyError(
+        id,
+        version,
+        available,
+        `Strategy '${id}' version '1' is no longer supported; migrate saved scenarios to version '${STRATEGY_VERSION_1}'. ` +
+          `Available: ${available.join(", ")}.`
+      );
+    }
+    throw new UnknownStrategyError(id, version, available);
   }
   return definition.resolve(params, dependencies);
 }

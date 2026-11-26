@@ -9,6 +9,9 @@ import {
   StrategyParamsError,
   UnknownStrategyError,
   STRATEGY_DEFINITIONS,
+  STRATEGY_VERSION_1,
+  MARKET_REGIMES,
+  buildRegimeScenario,
   parseScenario,
   resolveStrategy,
   runBacktest,
@@ -192,6 +195,80 @@ describe("resolveStrategy: delta-neutral", () => {
       )
     ).toThrow(/bogus/);
   });
+
+  it("resolves all built-in regime scenarios through the registry", () => {
+    for (const regime of MARKET_REGIMES) {
+      const scenario = buildRegimeScenario(regime);
+      expect(scenario.strategy.version).toBe(STRATEGY_VERSION_1);
+      const { strategy, config } = resolveStrategy(
+        scenario.strategy.id,
+        scenario.strategy.version,
+        scenario.strategy.params,
+        { priceFeed: feed }
+      );
+      expect(strategy).toBeInstanceOf(DeltaNeutralStrategy);
+      expect("id" in config ? config.id : undefined).toBe(
+        `delta-neutral:${regime}`
+      );
+    }
+  });
+
+  it.each([
+    [
+      "unknown market.regime",
+      {
+        "market.regime": "crash",
+        "market.startPrice": "1",
+        "market.drift": "0",
+        "market.volatility": "0.004",
+      },
+    ],
+    [
+      "missing market.startPrice",
+      {
+        "market.regime": "trending",
+        "market.drift": "0",
+        "market.volatility": "0.004",
+      },
+    ],
+    [
+      "non-positive market.startPrice",
+      {
+        "market.regime": "trending",
+        "market.startPrice": "0",
+        "market.drift": "0",
+        "market.volatility": "0.004",
+      },
+    ],
+    [
+      "negative market.volatility",
+      {
+        "market.regime": "trending",
+        "market.startPrice": "1",
+        "market.drift": "0",
+        "market.volatility": "-0.004",
+      },
+    ],
+    [
+      "unknown market key",
+      {
+        "market.regime": "trending",
+        "market.startPrice": "1",
+        "market.drift": "0",
+        "market.volatility": "0.004",
+        "market.extra": "1",
+      },
+    ],
+  ])("rejects invalid regime params: %s", (_label, regimeParams) => {
+    expect(() =>
+      resolveStrategy(
+        "delta-neutral",
+        STRATEGY_VERSION_1,
+        { ...deltaParams, ...regimeParams },
+        { priceFeed: feed }
+      )
+    ).toThrow(StrategyParamsError);
+  });
 });
 
 describe("resolveStrategy: unknown id or version", () => {
@@ -214,6 +291,15 @@ describe("resolveStrategy: unknown id or version", () => {
     expect(() => resolveStrategy("buy-and-hold", "9.9.9", {})).toThrow(
       /buy-and-hold.*9\.9\.9/
     );
+  });
+
+  it("fails with a clear migration message for saved version '1' scenarios", () => {
+    expect(() =>
+      resolveStrategy("delta-neutral", "1", deltaParams, { priceFeed: feed })
+    ).toThrow(UnknownStrategyError);
+    expect(() =>
+      resolveStrategy("delta-neutral", "1", deltaParams, { priceFeed: feed })
+    ).toThrow(/migrate saved scenarios to version '1\.0\.0'/);
   });
 });
 
