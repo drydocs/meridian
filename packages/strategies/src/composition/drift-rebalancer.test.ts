@@ -675,3 +675,117 @@ describe("computeDriftRebalance edge cases", () => {
     expect(sellers.map((o) => o.memberId)).toEqual(["a", "b"]);
   });
 });
+
+describe("computeDriftRebalance short positions and ordering", () => {
+  const prices = new Map<AssetSymbol, FixedPointDecimal>([
+    [USDC, dec("1")],
+    [EURC, dec("1")],
+    [XLM, dec("2")],
+  ]);
+  const halves = [
+    { id: "alpha", targetWeight: dec("0.5") },
+    { id: "beta", targetWeight: dec("0.5") },
+  ];
+  const evaluate = (
+    portfolio: PortfolioView,
+    members = halves,
+    config: Parameters<typeof computeDriftRebalance>[0] = {
+      threshold: dec("0.05"),
+    },
+    last: number | null = START
+  ) =>
+    computeDriftRebalance(config, members, portfolio, prices, [], START, last);
+
+  it("buys more of a short position when its member is underweight", () => {
+    const result = evaluate(
+      staticPortfolio("0", [
+        { asset: XLM, size: "-100", memberId: "alpha" },
+        { asset: EURC, size: "600", memberId: "beta" },
+      ])
+    );
+
+    const alphaOrder = result.orders.find((o) => o.memberId === "alpha");
+    expect(alphaOrder!.size.toStroops()).toBeLessThan(0n);
+  });
+
+  it("covers part of a short position when its member is overweight", () => {
+    const result = evaluate(
+      staticPortfolio("0", [
+        { asset: XLM, size: "-300", memberId: "alpha" },
+        { asset: EURC, size: "200", memberId: "beta" },
+      ])
+    );
+
+    const alphaOrder = result.orders.find((o) => o.memberId === "alpha");
+    expect(alphaOrder!.size.toStroops()).toBeGreaterThan(0n);
+  });
+
+  it("reports both triggers when the threshold and the calendar fire together", () => {
+    const result = evaluate(
+      staticPortfolio("0", [
+        { asset: USDC, size: "700", memberId: "alpha" },
+        { asset: EURC, size: "300", memberId: "beta" },
+      ]),
+      halves,
+      { threshold: dec("0.05"), calendarIntervalMs: ONE_HOUR_MS },
+      START - 2 * ONE_HOUR_MS
+    );
+
+    expect(result.triggerReason).toBe("both");
+  });
+
+  it("emits no orders when only the calendar fires and the weights already match", () => {
+    const result = evaluate(
+      staticPortfolio("0", [
+        { asset: USDC, size: "500", memberId: "alpha" },
+        { asset: EURC, size: "500", memberId: "beta" },
+      ]),
+      halves,
+      { calendarIntervalMs: ONE_HOUR_MS },
+      START - 2 * ONE_HOUR_MS
+    );
+
+    expect(result.triggered).toBe(true);
+    expect(result.triggerReason).toBe("calendar");
+    expect(result.orders).toEqual([]);
+  });
+
+  it("skips a dust holding too small to trade", () => {
+    const result = evaluate(
+      staticPortfolio("0", [
+        { asset: USDC, size: "700", memberId: "alpha" },
+        { asset: XLM, size: "0.0000001", memberId: "alpha" },
+        { asset: EURC, size: "300", memberId: "beta" },
+      ])
+    );
+
+    expect(result.orders.some((o) => o.asset === XLM)).toBe(false);
+    expect(result.orders.some((o) => o.asset === USDC)).toBe(true);
+  });
+
+  it("orders members on each side by the size of their drift", () => {
+    const result = evaluate(
+      staticPortfolio("0", [
+        { asset: USDC, size: "400", memberId: "a" },
+        { asset: USDC, size: "300", memberId: "b" },
+        { asset: EURC, size: "200", memberId: "c" },
+        { asset: EURC, size: "100", memberId: "d" },
+      ]),
+      [
+        { id: "a", targetWeight: dec("0.25") },
+        { id: "b", targetWeight: dec("0.25") },
+        { id: "c", targetWeight: dec("0.25") },
+        { id: "d", targetWeight: dec("0.25") },
+      ]
+    );
+
+    const sellers = result.orders
+      .filter((o) => o.size.toStroops() < 0n)
+      .map((o) => o.memberId);
+    const buyers = result.orders
+      .filter((o) => o.size.toStroops() > 0n)
+      .map((o) => o.memberId);
+    expect(sellers).toEqual(["a", "b"]);
+    expect(buyers).toEqual(["d", "c"]);
+  });
+});

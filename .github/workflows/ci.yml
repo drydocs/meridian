@@ -146,7 +146,7 @@ jobs:
       - uses: pnpm/action-setup@v6.1.1
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: taiki-e/install-action@v2
@@ -310,7 +310,7 @@ jobs:
       - uses: pnpm/action-setup@v6.1.1
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Check contract WASM size budgets

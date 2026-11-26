@@ -305,4 +305,32 @@ describe("executeScenario", () => {
 
     expect(outcome.ok).toBe(true);
   });
+
+  it("returns an execution error when reading the input throws", async () => {
+    const hostile = {
+      get schemaVersion(): never {
+        throw new TypeError("hostile getter");
+      },
+    };
+    const outcome = await executeScenario(hostile);
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: { kind: "execution", message: "hostile getter" },
+    });
+  });
+
+  it("describes a thrown non-error value as an execution error", async () => {
+    const hostile = {
+      get schemaVersion(): never {
+        throw "plain string failure";
+      },
+    };
+    const outcome = await executeScenario(hostile);
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: { kind: "execution", message: "plain string failure" },
+    });
+  });
 });
