@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { Readable } from "node:stream";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { MAX_BODY_BYTES } from "@meridian/shared";
 import {
   applyCors,
   checkRateLimit,
   isCronAuthorized,
   isCronSecretConfigured,
+  readJsonBody,
   requireGetMethod,
   resetRateLimitForTesting,
 } from "../_lib/middleware.js";
@@ -57,6 +60,79 @@ function fakeRes(): FakeRes & VercelResponse {
 }
 
 // ---------------------------------------------------------------------------------
+
+describe("readJsonBody", () => {
+  it("accepts bodies under and exactly at the limit", async () => {
+    const under = fakeReq("POST");
+    under.body = { ok: true };
+    expect((await readJsonBody(under, fakeRes())).ok).toBe(true);
+
+    const prefix = '{"padding":"';
+    const suffix = '"}';
+    const exactRaw =
+      prefix +
+      "x".repeat(MAX_BODY_BYTES - prefix.length - suffix.length) +
+      suffix;
+    const exact = Readable.from([exactRaw]) as unknown as VercelRequest;
+    exact.headers = {};
+    expect((await readJsonBody(exact, fakeRes())).ok).toBe(true);
+  });
+
+  it("rejects an oversized Content-Length before parsing", async () => {
+    const req = fakeReq("POST", {
+      "content-length": String(MAX_BODY_BYTES + 1),
+    });
+    const parse = vi.spyOn(JSON, "parse");
+    const res = fakeRes();
+
+    expect((await readJsonBody(req, res)).ok).toBe(false);
+    expect(res.statusCode).toBe(413);
+    expect(res.body).toMatchObject({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Payload too large",
+      },
+    });
+    expect(parse).not.toHaveBeenCalled();
+    parse.mockRestore();
+  });
+
+  it("caps a chunked oversized body and stops reading early", async () => {
+    let reads = 0;
+    const stream = new Readable({
+      read() {
+        reads++;
+        this.push(
+          reads === 1 ? "x".repeat(MAX_BODY_BYTES + 1) : "x".repeat(100)
+        );
+        this.push(null);
+      },
+    });
+    const req = stream as unknown as VercelRequest;
+    req.headers = {};
+    const res = fakeRes();
+
+    expect((await readJsonBody(req, res)).ok).toBe(false);
+    expect(res.statusCode).toBe(413);
+    expect(res.body).toMatchObject({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Payload too large",
+      },
+    });
+    expect(reads).toBe(1);
+  });
+
+  it("rejects a lying small Content-Length by checking actual bytes", async () => {
+    const raw = " ".repeat(MAX_BODY_BYTES + 1);
+    const req = Readable.from([raw]) as unknown as VercelRequest;
+    req.headers = { "content-length": "1" };
+    const res = fakeRes();
+
+    expect((await readJsonBody(req, res)).ok).toBe(false);
+    expect(res.statusCode).toBe(413);
+  });
+});
 
 beforeEach(() => resetRateLimitForTesting());
 afterEach(() => vi.useRealTimers());

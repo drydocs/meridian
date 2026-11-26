@@ -235,6 +235,7 @@ import {
   fetchVaultsWithCache,
 } from "@meridian/stellar-sdk-helpers";
 import { resetPositionReadCacheForTesting } from "@meridian/api-core";
+import { MAX_BODY_BYTES } from "@meridian/shared";
 
 // A 56-char Stellar public key shape (only the length is validated).
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -360,6 +361,27 @@ describe("POST /api/v1/tx/deposit", () => {
       res
     );
     expect(res.statusCode).toBe(405);
+  });
+
+  it("rejects an oversized Content-Length with 413 before building", async () => {
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "deposit" },
+        method: "POST",
+        headers: { "content-length": String(MAX_BODY_BYTES + 1) },
+        body: {},
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(413);
+    expect(res.body).toMatchObject({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Payload too large",
+      },
+    });
+    expect(buildDepositTx).not.toHaveBeenCalled();
   });
 
   it("returns 400 listing the missing fields", async () => {

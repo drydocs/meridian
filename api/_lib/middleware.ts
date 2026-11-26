@@ -1,7 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
+import { Buffer } from "node:buffer";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import { DEFAULT_ALLOWED_ORIGIN, MAX_BODY_BYTES } from "@meridian/shared";
 import {
   createRequestId,
   responseBody,
@@ -16,6 +17,132 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN;
+
+export { MAX_BODY_BYTES };
+
+export const PAYLOAD_TOO_LARGE_ERROR = {
+  error: "Payload too large",
+  code: "PAYLOAD_TOO_LARGE",
+} as const;
+
+export function sendPayloadTooLarge(
+  req: VercelRequest,
+  res: VercelResponse
+): boolean {
+  sendResponse(req, res, 413, PAYLOAD_TOO_LARGE_ERROR);
+  return true;
+}
+
+export interface ReadJsonBodyResult {
+  ok: boolean;
+  body?: unknown;
+}
+
+function contentLength(req: VercelRequest): number | undefined {
+  const raw = req.headers["content-length"];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) ? value : undefined;
+  }
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+function byteLength(value: unknown): number {
+  if (typeof value === "string") return Buffer.byteLength(value, "utf8");
+  if (value === undefined) return 0;
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8");
+  } catch {
+    return MAX_BODY_BYTES + 1;
+  }
+}
+
+/**
+ * Reads and parses a JSON request body with a hard 10 KB ceiling.
+ * Content-Length is used only as an early rejection hint; the bytes actually
+ * received are always counted and checked before JSON parsing.
+ */
+export async function readJsonBody(
+  req: VercelRequest,
+  res: VercelResponse
+): Promise<ReadJsonBodyResult> {
+  const declaredLength = contentLength(req);
+  if (declaredLength !== undefined && declaredLength > MAX_BODY_BYTES) {
+    sendPayloadTooLarge(req, res);
+    return { ok: false };
+  }
+
+  const iterable = req as VercelRequest & {
+    [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>;
+  };
+
+  if (typeof iterable[Symbol.asyncIterator] === "function") {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let payloadTooLarge = false;
+    const stream = iterable as unknown as AsyncIterable<Uint8Array | string>;
+
+    try {
+      for await (const chunk of stream) {
+        const bytes =
+          typeof chunk === "string"
+            ? Buffer.from(chunk, "utf8")
+            : Buffer.from(chunk);
+        total += bytes.byteLength;
+        if (total > MAX_BODY_BYTES) {
+          payloadTooLarge = true;
+          if (
+            typeof (req as { destroy?: (error?: Error) => void }).destroy ===
+            "function"
+          ) {
+            (req as { destroy: (error?: Error) => void }).destroy();
+          }
+          sendPayloadTooLarge(req, res);
+          return { ok: false };
+        }
+        chunks.push(bytes);
+      }
+    } catch {
+      if (payloadTooLarge) return { ok: false };
+      sendResponse(req, res, 400, { error: "Malformed JSON" });
+      return { ok: false };
+    }
+
+    if (total > 0) {
+      const raw = Buffer.concat(chunks).toString("utf8");
+      try {
+        return { ok: true, body: JSON.parse(raw) };
+      } catch {
+        sendResponse(req, res, 400, { error: "Malformed JSON" });
+        return { ok: false };
+      }
+    }
+  }
+
+  // Vercel may expose an already-parsed body without a readable stream. Check
+  // the actual serialized size rather than trusting req.headers blindly.
+  if (req.body !== undefined) {
+    if (byteLength(req.body) > MAX_BODY_BYTES) {
+      sendPayloadTooLarge(req, res);
+      return { ok: false };
+    }
+    if (typeof req.body === "string") {
+      try {
+        return { ok: true, body: JSON.parse(req.body) };
+      } catch {
+        sendResponse(req, res, 400, { error: "Malformed JSON" });
+        return { ok: false };
+      }
+    }
+    return { ok: true, body: req.body };
+  }
+
+  return { ok: true, body: undefined };
+}
 
 const LIMIT = 100;
 const WINDOW = "60 s";
