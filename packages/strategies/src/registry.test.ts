@@ -125,6 +125,17 @@ describe("resolveStrategy: delta-neutral", () => {
     expect(config.fundingRate.ratePerSecond.toStroops()).toBe(-2n);
   });
 
+  it("parses optional supplyRate and borrowRate when supplied", () => {
+    const { config } = resolveStrategy(
+      "delta-neutral",
+      "1.0.0",
+      { ...deltaParams, supplyRate: "0.06", borrowRate: "0.03" },
+      { priceFeed: feed }
+    );
+    expect(config.supplyRate?.toString()).toBe("0.06");
+    expect(config.borrowRate?.toString()).toBe("0.03");
+  });
+
   it("requires a price feed", () => {
     expect(() =>
       resolveStrategy("delta-neutral", "1.0.0", deltaParams)
@@ -155,6 +166,10 @@ describe("resolveStrategy: delta-neutral", () => {
     ["rebalanceBandBps", "fifty"],
     ["fundingRatePerSecond", "0.00000001"],
     ["fundingRatePerSecond", ""],
+    ["supplyRate", "-0.01"],
+    ["supplyRate", "abc"],
+    ["borrowRate", "-0.05"],
+    ["borrowRate", ""],
     ["asset", "XLM"],
   ])("rejects %s = %j", (key, value) => {
     expect(() =>
