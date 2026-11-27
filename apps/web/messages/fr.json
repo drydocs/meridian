@@ -38,6 +38,12 @@
     "tvl": "TVL",
     "route": "Route",
     "noLiveRateData": "Aucune donnée de rendement disponible.",
+    "emptyState": {
+      "noVaultsTitle": "Aucun coffre disponible",
+      "noVaultsDescription": "Il n'y a actuellement aucun coffre actif sur ce réseau. Veuillez réessayer plus tard.",
+      "failureTitle": "Échec du chargement des coffres",
+      "failureDescription": "Impossible de récupérer les données des coffres. Vérifiez votre connexion et réessayez."
+    },
     "yourPosition": "Votre position",
     "earned": "Gains",
     "connectUSDC": "Connectez votre portefeuille pour déposer des USDC et commencer à générer du rendement automatiquement.",

@@ -38,6 +38,12 @@
     "tvl": "TVL",
     "route": "Route",
     "noLiveRateData": "No live rate data.",
+    "emptyState": {
+      "noVaultsTitle": "No vaults available",
+      "noVaultsDescription": "There are currently no active vaults on this network. Please check back later.",
+      "failureTitle": "Failed to load vaults",
+      "failureDescription": "We couldn't retrieve the latest vault data. Check your network connection and try again."
+    },
     "yourPosition": "Your Position",
     "earned": "Earned",
     "connectUSDC": "Connect your wallet to deposit USDC and start earning yield automatically.",
