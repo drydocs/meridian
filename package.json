@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "preinstall": "node scripts/check-version.js",
-    "dev": "turbo run dev",
-    "build": "turbo run build",
+    "dev": "node init && turbo run dev",
+    "build": "node init && turbo run build",
     "test": "turbo run test",
     "coverage": "turbo run coverage",
     "lint": "turbo run lint",

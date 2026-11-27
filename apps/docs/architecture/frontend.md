@@ -92,6 +92,19 @@ Which wallet is "selected" is tracked independently of `useWalletStore`. It live
 
 The exported `wallet: WalletAdapter` singleton still exists for callers that only care about "whichever wallet the user is connected through" (`useSignAndSubmit`'s `sign()` call, and the store's `revalidate()`'s `isAuthorized()` check). It now dispatches to `getWalletAdapter(getSelectedWalletId())` on every call rather than being pinned to Freighter. Adding a new wallet still means adding a `WalletAdapter` implementation and one entry in `WALLETS`; no caller of the singleton or of `useWalletConnect` needs to change.
 
+## Wallet capability matrix
+
+What each wallet adapter in `apps/web/src/lib/wallet.ts` does today. The picker lists the entries of `WALLETS`. No adapter switches the wallet's network for the user. The app signs for the network it is configured for, and only Freighter reports which network the wallet is on.
+
+| Wallet    | Connect     | Sign transaction                                          | Reports wallet network | In the picker                        |
+| --------- | ----------- | --------------------------------------------------------- | ---------------------- | ------------------------------------ |
+| Freighter | Yes         | Yes, with the app's network passphrase                    | Yes (`getNetwork`)     | Yes                                  |
+| LOBSTR    | Yes         | Yes, the extension picks the network (no passphrase sent) | No                     | Yes                                  |
+| xBull     | Yes         | Yes, with the app's network passphrase                    | No                     | Yes                                  |
+| Albedo    | Implemented | Implemented, public or testnet from the passphrase        | No                     | No, implemented but not in `WALLETS` |
+
+To update the matrix when a wallet changes, edit its row, confirm the capability against its adapter class in `wallet.ts`, and keep the picker column in sync with `WALLETS`.
+
 ## API client
 
 `apps/web/src/lib/api.ts` exports a typed `api` object wrapping `fetch`. All requests go to `${VITE_API_URL}/api/v1/...`. In local dev `VITE_API_URL` is empty and Vite proxies `/api` to `http://localhost:3001`. In production it is also empty and requests hit the same Vercel origin where the serverless functions live.
