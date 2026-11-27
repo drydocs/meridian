@@ -17,6 +17,7 @@ import {
   simErrorMessage,
   prepareSorobanTx,
   ContractSimulationError,
+  TransactionOutcomeUnknownError,
   VAULT_CONTRACT_ERROR_MESSAGES,
   buildAddTrustlineTx,
   assertRequiredTrustlines,
@@ -151,6 +152,8 @@ const VAULT_CONTRACT_ERRORS: ReadonlyArray<readonly [string, number]> = [
   ["MigrationSnapshotAssetsInvalid", 22],
   ["AdapterCreditedNothing", 23],
   ["DivisionByZero", 24],
+  ["DepositValueMismatch", 30],
+  ["AdapterLiquidityInsufficient", 41],
 ];
 
 // The shape of `sim.error` for a contract error: the HostError line, then the
@@ -175,10 +178,12 @@ describe("simErrorMessage snapshots", () => {
     expect(surfaced).toMatchInlineSnapshot(`
       {
         "AdapterCreditedNothing": "The adapter did not credit any shares for this deposit.",
+        "AdapterLiquidityInsufficient": "Insufficient liquidity in the underlying yield protocol for this withdrawal. Try a smaller amount or retry later.",
         "AdapterReportedNoAssets": "The adapter reported no assets while shares are still outstanding.",
         "AdapterSwapUnsafe": "HostError: Error(Contract, #10)",
         "AlreadyInitialized": "This contract is already initialized.",
         "DepositTooSmall": "HostError: Error(Contract, #5)",
+        "DepositValueMismatch": "The adapter's credit for this deposit did not match the value it received.",
         "DepositsPaused": "HostError: Error(Contract, #3)",
         "DivisionByZero": "The vault hit a divide-by-zero in adapter accounting.",
         "InsufficientShares": "HostError: Error(Contract, #7)",
@@ -582,7 +587,7 @@ describe("waitForTransaction", () => {
         now: steppingClock(5_000),
         timeoutMs: 10_000,
       })
-    ).rejects.toThrow(/Timed out/);
+    ).rejects.toMatchObject(new TransactionOutcomeUnknownError("TXHASH"));
   });
 });
 

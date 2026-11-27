@@ -35,7 +35,7 @@ export function withRaceTimeout<T>(
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const handle = setTimeout(
-      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      () => reject(new UpstreamDeadlineError(label, ms)),
       ms
     );
     fn().then(
@@ -49,6 +49,18 @@ export function withRaceTimeout<T>(
       }
     );
   });
+}
+
+/** Stable error returned when an upstream RPC or Horizon call exceeds its budget. */
+export class UpstreamDeadlineError extends Error {
+  readonly code = "UPSTREAM_DEADLINE_EXCEEDED";
+  readonly status = 503;
+  readonly retryAfterSeconds = 1;
+
+  constructor(label: string, ms: number) {
+    super(`${label} timed out after ${ms}ms`);
+    this.name = "UpstreamDeadlineError";
+  }
 }
 
 export interface RetryOptions {

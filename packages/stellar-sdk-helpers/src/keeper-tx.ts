@@ -9,6 +9,7 @@ import {
   TransactionBuilder,
   rpc,
   xdr,
+  type Transaction,
 } from "@stellar/stellar-sdk";
 import { withRaceTimeout } from "@meridian/shared";
 import {
@@ -45,6 +46,10 @@ export const KEEPER_BASE_FEE_STROOPS = 10_000;
 // very high inclusion fee for Stellar; real congestion is not expected to
 // require bidding anywhere near this.
 export const KEEPER_MAX_FEE_STROOPS = 1_000_000;
+
+// Match the Stellar SDK's missing-export errors without treating contract
+// traps (InvalidAction) as if an older vault simply lacked this view.
+const MISSING_FUNCTION_PATTERN = /non-existent contract function|MissingValue/i;
 
 export interface FeeEscalationConfig {
   maxFee: number;
@@ -264,6 +269,43 @@ export async function assertAdapterUnchanged(
   }
 }
 
+/**
+ * Reads the vault's reconciliation view immediately before a keeper action.
+ * The shape check is deliberately tolerant of older vault deployments that
+ * predate get_health; a deployed health response with either mismatch flag is
+ * not safe to act on and is rejected.
+ */
+export async function assertVaultHealthy(
+  server: KeeperRpcServer,
+  vaultContractId: string,
+  networkPassphrase: string
+): Promise<void> {
+  let health: unknown;
+  try {
+    health = await simulateView(
+      server as never,
+      vaultContractId,
+      networkPassphrase,
+      "get_health"
+    );
+  } catch (error) {
+    // Older vault deployments do not export get_health. A missing contract
+    // function is the one safe error to ignore; RPC and other contract errors
+    // still block a keeper action.
+    const message = errorMessage(error);
+    if (MISSING_FUNCTION_PATTERN.test(message)) return;
+    throw error;
+  }
+  if (!health || typeof health !== "object") return;
+  const value = health as Record<string, unknown>;
+  if (value.total_shares_mismatch === true) {
+    throw new Error("vault health check failed: total shares mismatch");
+  }
+  if (value.adapter_shares_mismatch === true) {
+    throw new Error("vault health check failed: adapter shares mismatch");
+  }
+}
+
 // Lifecycle hooks around the two moments that matter for cross-invocation
 // dedup:
 //
@@ -303,6 +345,284 @@ export interface KeeperTxConfig {
   secretKey: string;
   rpcTimeoutMs: number;
   confirmationTimeoutMs: number;
+}
+
+export interface KeeperTransactionRetryPolicy {
+  maxAttempts: number;
+  baseDelayMs: number;
+  isRetryable?: (error: unknown) => boolean;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+export interface KeeperTransactionFeePolicy extends FeeEscalationConfig {
+  baseFee?: number;
+}
+
+export interface KeeperTransactionClientConfig {
+  signer: Keypair;
+  server: KeeperRpcServer;
+  rpcTimeoutMs: number;
+  confirmationTimeoutMs: number;
+  retryPolicy: KeeperTransactionRetryPolicy;
+  feeEscalation?: KeeperTransactionFeePolicy;
+  deadlineAt: number;
+}
+
+export type KeeperTransactionResult =
+  | { status: "landed"; hash: string; ledger: number; attempts: number }
+  | { status: "duplicate"; hash: string; ledger: number; attempts: number }
+  | { status: "retryable"; error: unknown; attempts: number }
+  | { status: "terminal"; error: unknown; attempts: number };
+
+export interface KeeperTransactionSubmitOptions {
+  priorHash?: string;
+  hooks?: KeeperSubmissionHooks;
+  initialAttempt?: number;
+}
+
+const defaultRetrySleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function isDuplicateSubmissionError(err: unknown): boolean {
+  return /duplicate|already (?:known|submitted|in the ledger)/i.test(
+    rawErrorText(err)
+  );
+}
+
+class KeeperTransactionDeadlineError extends Error {
+  constructor() {
+    super("Keeper transaction deadline exhausted");
+    this.name = "KeeperTransactionDeadlineError";
+  }
+}
+
+/**
+ * Submits transactions built from fresh account state, applying bounded fee
+ * escalation and retrying only while the run deadline permits.
+ */
+export class KeeperTransactionClient {
+  constructor(private readonly config: KeeperTransactionClientConfig) {
+    const { retryPolicy, feeEscalation, deadlineAt } = config;
+    if (
+      !Number.isInteger(retryPolicy.maxAttempts) ||
+      retryPolicy.maxAttempts < 1
+    ) {
+      throw new Error("retryPolicy.maxAttempts must be a positive integer");
+    }
+    if (
+      !Number.isFinite(retryPolicy.baseDelayMs) ||
+      retryPolicy.baseDelayMs < 0
+    ) {
+      throw new Error("retryPolicy.baseDelayMs must be a non-negative number");
+    }
+    if (!Number.isFinite(deadlineAt)) {
+      throw new Error("deadlineAt must be a finite timestamp");
+    }
+    if (
+      !Number.isFinite(config.rpcTimeoutMs) ||
+      config.rpcTimeoutMs <= 0 ||
+      !Number.isFinite(config.confirmationTimeoutMs) ||
+      config.confirmationTimeoutMs <= 0
+    ) {
+      throw new Error("RPC and confirmation timeouts must be positive numbers");
+    }
+    if (
+      feeEscalation &&
+      (!Number.isInteger(feeEscalation.maxFee) ||
+        feeEscalation.maxFee <= 0 ||
+        !Number.isFinite(feeEscalation.multiplier) ||
+        feeEscalation.multiplier < 1 ||
+        (feeEscalation.baseFee !== undefined &&
+          (!Number.isInteger(feeEscalation.baseFee) ||
+            feeEscalation.baseFee <= 0)))
+    ) {
+      throw new Error(
+        "feeEscalation must contain positive fees and a multiplier >= 1"
+      );
+    }
+  }
+
+  async submit(
+    buildTransaction: (fee: number, attempt: number) => Promise<Transaction>,
+    options: KeeperTransactionSubmitOptions = {}
+  ): Promise<KeeperTransactionResult> {
+    if (
+      options.initialAttempt !== undefined &&
+      (!Number.isInteger(options.initialAttempt) || options.initialAttempt < 0)
+    ) {
+      throw new Error("initialAttempt must be a non-negative integer");
+    }
+    const { retryPolicy, feeEscalation } = this.config;
+    const isRetryable = (error: unknown) =>
+      error instanceof KeeperTransactionDeadlineError ||
+      error instanceof SubmissionInFlightError ||
+      (retryPolicy.isRetryable ?? isTransientKeeperError)(error);
+    const sleep = retryPolicy.sleep ?? defaultRetrySleep;
+    let priorHash = options.priorHash;
+    let wasDuplicate = false;
+    let attempts = 0;
+    let lastError: unknown;
+
+    while (attempts < retryPolicy.maxAttempts) {
+      if (Date.now() >= this.config.deadlineAt) {
+        return {
+          status:
+            lastError && !isRetryable(lastError) ? "terminal" : "retryable",
+          error:
+            lastError ?? new Error("Keeper transaction deadline exhausted"),
+          attempts,
+        };
+      }
+
+      attempts += 1;
+      try {
+        if (priorHash) {
+          try {
+            const confirmed = await waitForTransaction(
+              this.config.server,
+              priorHash,
+              {
+                timeoutMs: this.remainingTimeout(
+                  this.config.confirmationTimeoutMs
+                ),
+              }
+            );
+            await runHook(options.hooks?.onResolved, priorHash);
+            return {
+              status: wasDuplicate ? "duplicate" : "landed",
+              hash: priorHash,
+              ledger: confirmed.ledger,
+              attempts,
+            };
+          } catch (err) {
+            if (isDefinitiveOnChainFailure(err)) {
+              await runHook(options.hooks?.onResolved, priorHash);
+              throw new SubmissionFailedError(err);
+            }
+            throw err;
+          }
+        }
+
+        const attempt = (options.initialAttempt ?? 0) + attempts - 1;
+        const fee = Math.ceil(
+          keeperFeeForAttempt(
+            attempt,
+            feeEscalation?.baseFee ?? KEEPER_BASE_FEE_STROOPS,
+            feeEscalation
+          )
+        );
+        const transaction = await withRaceTimeout(
+          () => buildTransaction(fee, attempt),
+          this.remainingTimeout(this.config.rpcTimeoutMs),
+          "Soroban RPC"
+        );
+        const simulation = await withRaceTimeout(
+          () => this.config.server.simulateTransaction(transaction),
+          this.remainingTimeout(this.config.rpcTimeoutMs),
+          "Soroban RPC"
+        );
+        if (rpc.Api.isSimulationError(simulation)) {
+          throw new Error(
+            `Simulation failed: ${simErrorMessage(simulation.error)}`
+          );
+        }
+        if (!rpc.Api.isSimulationSuccess(simulation)) {
+          throw new Error("Simulation did not return a successful result");
+        }
+
+        const prepared = rpc
+          .assembleTransaction(transaction, simulation)
+          .build();
+        prepared.sign(this.config.signer);
+        const hash = prepared.hash().toString("hex");
+        await runHook(options.hooks?.onSigned, hash);
+
+        let sent: Awaited<ReturnType<KeeperRpcServer["sendTransaction"]>>;
+        try {
+          sent = await withRaceTimeout(
+            () => this.config.server.sendTransaction(prepared),
+            this.remainingTimeout(this.config.rpcTimeoutMs),
+            "Soroban RPC"
+          );
+        } catch (err) {
+          throw new SubmissionInFlightError(hash, err);
+        }
+
+        if (sent.status === "ERROR") {
+          const sendError = new Error(
+            `Transaction rejected at submission: ${describeSendError(sent)}`
+          );
+          if (isDuplicateSubmissionError(sendError)) {
+            priorHash = hash;
+            wasDuplicate = true;
+            throw new SubmissionInFlightError(hash, sendError);
+          }
+          await runHook(options.hooks?.onResolved, hash);
+          throw sendError;
+        }
+        if (sent.status === "TRY_AGAIN_LATER") {
+          throw new SubmissionInFlightError(
+            hash,
+            new Error(
+              "Transaction could not be submitted yet (try again later)"
+            )
+          );
+        }
+        if (sent.status === "DUPLICATE") {
+          wasDuplicate = true;
+        }
+
+        try {
+          const confirmed = await waitForTransaction(
+            this.config.server,
+            sent.hash,
+            {
+              timeoutMs: this.remainingTimeout(
+                this.config.confirmationTimeoutMs
+              ),
+            }
+          );
+          await runHook(options.hooks?.onResolved, sent.hash);
+          return {
+            status: wasDuplicate ? "duplicate" : "landed",
+            hash: sent.hash,
+            ledger: confirmed.ledger,
+            attempts,
+          };
+        } catch (err) {
+          if (isDefinitiveOnChainFailure(err)) {
+            await runHook(options.hooks?.onResolved, sent.hash);
+            throw new SubmissionFailedError(err);
+          }
+          throw new SubmissionInFlightError(sent.hash, err);
+        }
+      } catch (err) {
+        lastError = err;
+        if (err instanceof SubmissionInFlightError) {
+          priorHash = err.sentHash;
+        } else if (!isRetryable(err)) {
+          return { status: "terminal", error: err, attempts };
+        }
+
+        if (attempts >= retryPolicy.maxAttempts) break;
+        const delayMs = retryPolicy.baseDelayMs * 2 ** (attempts - 1);
+        if (Date.now() + delayMs >= this.config.deadlineAt) break;
+        await sleep(delayMs);
+      }
+    }
+
+    return {
+      status: lastError && !isRetryable(lastError) ? "terminal" : "retryable",
+      error: lastError ?? new Error("Keeper transaction deadline exhausted"),
+      attempts,
+    };
+  }
+
+  private remainingTimeout(timeoutMs: number): number {
+    const remaining = this.config.deadlineAt - Date.now();
+    if (remaining <= 0) throw new KeeperTransactionDeadlineError();
+    return Math.max(1, Math.min(timeoutMs, remaining));
+  }
 }
 
 // Builds, signs, and submits a single contract invocation from the keeper's
@@ -347,85 +667,42 @@ export async function submitKeeperOperation(
   }
 
   const keypair = Keypair.fromSecret(config.secretKey);
-  const source = await withRaceTimeout(
-    () => server.getAccount(keypair.publicKey()),
-    config.rpcTimeoutMs,
-    "Soroban RPC"
-  );
-  const contract = new Contract(contractId);
-  const tx = new TransactionBuilder(source, {
-    fee: String(keeperFeeForAttempt(attempt, KEEPER_BASE_FEE_STROOPS)),
-    networkPassphrase: config.network.passphrase,
-  })
-    .addOperation(contract.call(method, ...args))
-    .setTimeout(TX_VALIDITY_WINDOW_MS / 1000)
-    .build();
-
-  const sim = await withRaceTimeout(
-    () => server.simulateTransaction(tx),
-    config.rpcTimeoutMs,
-    "Soroban RPC"
-  );
-  if (rpc.Api.isSimulationError(sim)) {
-    throw new Error(`Simulation failed: ${simErrorMessage(sim.error)}`);
-  }
-  if (!rpc.Api.isSimulationSuccess(sim)) {
-    throw new Error("Simulation did not return a successful result");
-  }
-
-  const prepared = rpc.assembleTransaction(tx, sim).build();
-  prepared.sign(keypair);
-
-  // Known before the network is touched at all: from here on, every path
-  // out of this function has a hash to track, so no failure mode can leave a
-  // transaction in the mempool with nothing recorded against it.
-  const signedHash = prepared.hash().toString("hex");
-  await runHook(hooks?.onSigned, signedHash);
-
-  let sent: Awaited<ReturnType<KeeperRpcServer["sendTransaction"]>>;
-  try {
-    sent = await withRaceTimeout(
-      () => server.sendTransaction(prepared),
-      config.rpcTimeoutMs,
-      "Soroban RPC"
-    );
-  } catch (err) {
-    // The send may well have reached the network before this timed out.
-    // Never rebuild after this point: a fresh transaction would have a
-    // different hash and could land alongside this one. Tracking the same
-    // hash is what the retry path is for.
-    throw new SubmissionInFlightError(signedHash, err);
-  }
-  if (sent.status === "ERROR") {
-    // Rejected outright: this transaction is not in flight and never will
-    // be, so release the record rather than blocking the target until it
-    // ages out.
-    await runHook(hooks?.onResolved, signedHash);
-    throw new Error(
-      `Transaction rejected at submission: ${describeSendError(sent)}`
-    );
-  }
-  if (sent.status === "TRY_AGAIN_LATER") {
-    // Explicitly *not* a clean "nothing happened": the node may already be
-    // processing this transaction. Same treatment as a timeout, recheck the
-    // hash instead of building a second transaction.
-    throw new SubmissionInFlightError(
-      signedHash,
-      new Error("Transaction could not be submitted yet (try again later)")
-    );
-  }
-
-  try {
-    const confirmed = await waitForTransaction(server, sent.hash, {
-      timeoutMs: config.confirmationTimeoutMs,
-    });
-    await runHook(hooks?.onResolved, sent.hash);
-    return { hash: sent.hash, ledger: confirmed.ledger };
-  } catch (err) {
-    if (isDefinitiveOnChainFailure(err)) {
-      await runHook(hooks?.onResolved, sent.hash);
-      throw new SubmissionFailedError(err);
+  // The keeper orchestration retains retry timing, logging, and attempt
+  // accounting; this adapter delegates each fresh submission attempt to the
+  // reusable client without nesting another retry loop.
+  const client = new KeeperTransactionClient({
+    signer: keypair,
+    server,
+    rpcTimeoutMs: config.rpcTimeoutMs,
+    confirmationTimeoutMs: config.confirmationTimeoutMs,
+    retryPolicy: {
+      maxAttempts: 1,
+      baseDelayMs: 0,
+    },
+    deadlineAt: Number.MAX_SAFE_INTEGER,
+  });
+  const result = await client.submit(
+    async (fee) => {
+      const source = await withRaceTimeout(
+        () => server.getAccount(keypair.publicKey()),
+        config.rpcTimeoutMs,
+        "Soroban RPC"
+      );
+      return new TransactionBuilder(source, {
+        fee: String(fee),
+        networkPassphrase: config.network.passphrase,
+      })
+        .addOperation(new Contract(contractId).call(method, ...args))
+        .setTimeout(TX_VALIDITY_WINDOW_MS / 1000)
+        .build();
+    },
+    {
+      ...(hooks !== undefined && { hooks }),
+      initialAttempt: attempt,
     }
-    throw new SubmissionInFlightError(sent.hash, err);
+  );
+  if (result.status === "landed" || result.status === "duplicate") {
+    return { hash: result.hash, ledger: result.ledger };
   }
+  throw result.error;
 }

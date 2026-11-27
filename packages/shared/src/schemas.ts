@@ -12,13 +12,12 @@ export const DepositRequestSchema = z.object({
   // Minimum mUSDC shares the caller is willing to receive. The vault contract
   // rejects the deposit with SlippageExceeded if the minted shares fall below
   // this value. Expressed as a decimal string (e.g. "9.95"); converted to
-  // stroops before the transaction is built. Defaults to "0" (no slippage
-  // protection) when omitted.
+  // stroops before the transaction is built. When omitted, the API derives a
+  // protected floor from the contract quote and default slippage.
   min_shares_out: z
     .string()
     .regex(/^\d+(\.\d{1,7})?$/)
-    .optional()
-    .default("0"),
+    .optional(),
   // The caller attests the wallet has explicitly acknowledged the deposit
   // risk-disclosure notice (#720), the smart-contract and adapter/protocol
   // risk warning shown before a wallet's first deposit into a vault.
@@ -49,8 +48,7 @@ export const WithdrawRequestSchema = z.object({
   min_usdc_out: z
     .string()
     .regex(/^\d+(\.\d{1,7})?$/)
-    .optional()
-    .default("0"),
+    .optional(),
 });
 
 export const TrustlineRequestSchema = z.object({
@@ -61,10 +59,42 @@ export const SubmitRequestSchema = z.object({
   xdr: z.string().min(1).max(10_000),
 });
 
+export const QuoteRequestSchema = z
+  .object({
+    action: z.enum(["deposit", "withdraw"]),
+    walletAddress: stellarAddress,
+    vaultId: z.string().min(1),
+    amount: z
+      .string()
+      .regex(/^\d+(\.\d{1,7})?$/)
+      .optional(),
+    shares: z
+      .string()
+      .regex(/^\d+(\.\d{1,7})?$/)
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.action === "deposit" && !value.amount) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["amount"],
+        message: "amount is required for deposit quotes",
+      });
+    }
+    if (value.action === "withdraw" && !value.shares) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["shares"],
+        message: "shares is required for withdrawal quotes",
+      });
+    }
+  });
+
 export type DepositRequest = z.infer<typeof DepositRequestSchema>;
 export type WithdrawRequest = z.infer<typeof WithdrawRequestSchema>;
 export type TrustlineRequest = z.infer<typeof TrustlineRequestSchema>;
 export type SubmitRequest = z.infer<typeof SubmitRequestSchema>;
+export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
 
 export function formatZodError(err: z.ZodError): string {
   const fields = err.flatten().fieldErrors as Record<

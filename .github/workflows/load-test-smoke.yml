@@ -1,0 +1,70 @@
+name: Load-test smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/load-test/**"
+      - ".github/workflows/load-test-smoke.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: load-test-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: vars.LOAD_TEST_BASE_URL != ''
+    name: Testnet API load-test smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_URL: ${{ vars.LOAD_TEST_BASE_URL }}
+      STELLAR_NETWORK: testnet
+      PROFILE: smoke
+      DURATION: 30s
+      RPS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require an explicitly configured disposable testnet target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${BASE_URL}" ]]; then
+            echo "::error::Set the LOAD_TEST_BASE_URL repository variable to a disposable testnet preview deployment."
+            exit 1
+          fi
+          if [[ "${BASE_URL}" != https://* ]]; then
+            echo "::error::LOAD_TEST_BASE_URL must use HTTPS."
+            exit 1
+          fi
+          if [[ "${BASE_URL}" == *mainnet* || "${BASE_URL}" == *production* ]]; then
+            echo "::error::Refusing to run load tests against a production/mainnet URL."
+            exit 1
+          fi
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+      - name: Prepare testnet accounts
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - name: Create account pool
+        run: |
+          node scripts/load-test/prepare-accounts.mjs 2
+      - name: Run endpoint smoke profile
+        run: |
+          k6 run --summary-export=load-test-summary.json scripts/load-test/endpoint-coverage.js
+      - name: Upload load-test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-smoke-${{ github.run_id }}
+          path: |
+            load-test-summary.json
+          if-no-files-found: warn
+          retention-days: 14

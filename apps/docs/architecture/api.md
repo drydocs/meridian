@@ -7,7 +7,71 @@ Meridian has two API implementations that share the same interface:
 | Vercel serverless functions | Production        | `api/v1/`         |
 | Fastify server              | Local development | `apps/api-local/` |
 
+## Request IDs and errors
+
+Every response includes an `X-Request-ID` header. Clients may send a
+well-formed value in the same header; otherwise the API generates a UUID. The
+ID is included in structured server logs so operators can match a client
+failure to its request.
+
+Responses with status `400` or higher use one stable envelope in both API
+implementations:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "walletAddress: Invalid input",
+    "requestId": "support-2026.11:abc"
+  }
+}
+```
+
+`code` is stable for the HTTP failure class (or an existing explicit code),
+`message` is safe for the caller, and `requestId` is the value from the
+response header. Resource-specific fields remain alongside the envelope for
+backward-compatible access.
+
+The codes, their causes and the recommended client action for each are listed in the [API Error Reference](./api-errors.md).
+
 ## Endpoints
+
+The machine-readable OpenAPI specification lives at [`docs/openapi.yaml`](https://github.com/drydocs/meridian/blob/main/docs/openapi.yaml).
+
+### `GET /api/v1/config`
+
+Returns public network, contract, active adapter, supported asset, and feature-flag metadata derived from `@meridian/shared` constants. Never includes secrets, private infrastructure URLs, keeper settings, or admin-only data.
+
+**Response**
+
+```json
+{
+  "network": "mainnet",
+  "passphrase": "Public Global Stellar Network ; September 2015",
+  "contracts": {
+    "vault": "CBRAD5MD7CCXNXRLRGTRKG4NNZKR3N643VUEBNJGWB2L6KLZDLFWMXHQ",
+    "usdc": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+    "musdc": "CAEJJPN73VOEWUVCXCXMIXOHMFLUXAYVFMCTCJHQFI5R2NIB2S5YTOFL",
+    "eurc": "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
+    "blendPool": "CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD",
+    "defindexVault": null,
+    "defindexFactory": null
+  },
+  "activeAdapter": {
+    "address": "CBNKERYAG7VZNBH2V3TF5JBXLD3MXLVQW5GG4AO445EUDCPKP4D2DDP2",
+    "protocol": "blend"
+  },
+  "degraded": false,
+  "supportedAssets": ["USDC", "EURC"],
+  "features": {
+    "defindexEnabled": false,
+    "musdcTrustlineRequired": false,
+    "riskAcknowledgementRequired": true
+  }
+}
+```
+
+Cached briefly with `Cache-Control: public, max-age=60, s-maxage=60, stale-while-revalidate=300`. If live active adapter resolution fails, `activeAdapter` is returned as `null` with `degraded: true` (distinguishing an RPC failure from a vault with no adapter) and `Cache-Control: no-store` so transient RPC failures are not cached.
 
 ### `GET /api/v1/vaults`
 
@@ -44,7 +108,13 @@ Returns a single vault or 404.
 
 ### `GET /api/v1/positions/:publicKey`
 
-Returns the user's on-chain position.
+Returns the user's on-chain position. Results are cached for 15 seconds by
+network, wallet, and latest Stellar ledger, with concurrent cold reads for the
+same wallet coalesced. Responses include an `ETag` derived from those same
+values; send it as `If-None-Match` to receive `304 Not Modified`. Add
+`?refresh=true` to bypass the position cache and force a fresh contract read.
+The response remains `Cache-Control: no-store`; this conditional request
+support is for clients rather than intermediary caching.
 
 **Response**
 
@@ -69,6 +139,16 @@ Reads position data directly from the vault contract via `simulateTransaction`. 
 Returns the stored position-value time series for a wallet, oldest first ([#973](https://github.com/drydocs/meridian/issues/973)). Soroban retains no queryable historical state, so history exists only from the moment snapshots started being captured.
 
 **Query:** `days` (optional positive integer, default `30`, capped at the `90`-day retention window). Anything else returns `400`.
+
+Three optional parameters switch the endpoint to bucketed, paginated responses. A request that sends none of them gets the response shown below with every stored snapshot, oldest first.
+
+| Parameter    | Values                               | Meaning                                                                                                                               |
+| ------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolution` | `hour` (default) or `day`            | Bucket size in UTC. Each bucket reports the latest `totalValue`, `totalEarned` and `vaults`, plus the `min` and `max` of both totals. |
+| `limit`      | integer `1` to `1000`, default `720` | Maximum number of buckets in one page.                                                                                                |
+| `cursor`     | timestamp in milliseconds            | Return only buckets after this timestamp. Use the `nextCursor` from the previous page.                                                |
+
+A paginated response adds `resolution`, `nextCursor` (the timestamp of the last bucket in the page, or `null` when there is nothing more) and `truncated` (`true` when more buckets remain). An invalid `resolution`, `limit` or `cursor` returns `400`.
 
 **Response**
 
@@ -138,6 +218,40 @@ Builds an unsigned Soroban withdraw transaction.
 ```
 
 **Response:** same shape as deposit: `{ xdr, fee }`.
+
+For both deposit and withdraw, an omitted `min_shares_out` or `min_usdc_out` is no longer treated as zero. The API prices the action with the same simulation as `POST /api/v1/tx/quote` and applies the quote's `recommendedMinimum` (the expected output less the default slippage), so the transaction is protected without the client choosing a floor.
+
+### `POST /api/v1/tx/quote`
+
+Prices a deposit or withdrawal without building a transaction.
+
+**Request**
+
+```json
+{
+  "action": "deposit",
+  "walletAddress": "G...",
+  "vaultId": "blend-usdc-variable",
+  "amount": "100.00"
+}
+```
+
+`action` is `deposit` or `withdraw`. A deposit requires `amount` and a withdrawal requires `shares`. Missing or malformed fields return `400`.
+
+**Response**
+
+```json
+{
+  "action": "deposit",
+  "expectedShares": "98.5",
+  "recommendedMinimum": "98.0075",
+  "slippageBps": 50,
+  "fee": "0",
+  "ledger": 123456
+}
+```
+
+A withdrawal returns `expectedAssets` in place of `expectedShares`, and `fee` is the performance fee in USDC. `recommendedMinimum` is the expected output reduced by `slippageBps`. A paused vault returns `400` for deposits. The quote is a simulation at the reported `ledger`, so it can differ from the executed result.
 
 ### `POST /api/v1/tx/add-trustline`
 
@@ -230,6 +344,8 @@ The Fastify server (`apps/api-local/`) runs the same packages directly via `tsx`
 ## Vault ID to contract address mapping
 
 The vault contract's `deposit`/`withdraw` take no protocol-selection parameter. Which protocol a deposit reaches is fixed by whichever adapter the target vault instance has set, not by anything passed in the call. Building a deposit transaction therefore resolves `vaultId` directly to the specific deployed vault contract address to call, via the mapping in `packages/stellar-sdk-helpers/src/known-pools.ts`:
+
+This adapter-based model uses no separate on-chain router contract; see [ADR-0002](./adr/0002-no-onchain-router.md) and [ADR-0001](./adr/0001-one-vault-per-asset.md).
 
 | Vault ID prefix | Resolves to                                                |
 | --------------- | ---------------------------------------------------------- |

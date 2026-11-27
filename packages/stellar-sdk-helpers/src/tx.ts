@@ -37,6 +37,16 @@ export class SorobanTimeoutError extends Error {
   }
 }
 
+/** Submission reached an uncertain point, so callers must poll this hash. */
+export class TransactionOutcomeUnknownError extends Error {
+  readonly code = "TRANSACTION_OUTCOME_UNKNOWN";
+
+  constructor(readonly hash: string) {
+    super(`Transaction outcome is unknown for ${hash}`);
+    this.name = "TransactionOutcomeUnknownError";
+  }
+}
+
 /** A recognized contract rejection, distinct from an RPC/server failure. */
 export class ContractSimulationError extends Error {
   constructor(
@@ -279,15 +289,15 @@ export async function buildAddTrustlineTx(
 const CONFIRM_POLL_INTERVAL_MS = 1_000;
 const CONFIRM_TIMEOUT_MS = 60_000;
 
-export interface SubmitResult {
-  hash: string;
-  status: "SUCCESS";
-  ledger: number;
-}
+export type SubmitResult =
+  | { hash: string; status: "SUCCESS"; ledger: number }
+  | { hash: string; status: "PENDING" };
 
 export interface ConfirmOptions {
   pollIntervalMs?: number;
   timeoutMs?: number;
+  /** Return after RPC acceptance instead of waiting for ledger confirmation. */
+  waitForConfirmation?: boolean;
   // Injection seams so the polling loop is unit-testable without real timers.
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -321,14 +331,22 @@ export async function waitForTransaction(
   const deadline = now() + timeoutMs;
 
   for (;;) {
-    const res = await withSorobanTimeout(() => server.getTransaction(hash));
+    let res: rpc.Api.GetTransactionResponse;
+    try {
+      res = await withSorobanTimeout(() => server.getTransaction(hash));
+    } catch (err) {
+      if (err instanceof SorobanTimeoutError) {
+        throw new TransactionOutcomeUnknownError(hash);
+      }
+      throw err;
+    }
     if (res.status === rpc.Api.GetTransactionStatus.SUCCESS) return res;
     if (res.status === rpc.Api.GetTransactionStatus.FAILED) {
       throw new Error(`Transaction ${hash} failed on-chain`);
     }
     // NOT_FOUND: still propagating; keep polling until the deadline.
     if (now() >= deadline) {
-      throw new Error(`Timed out waiting for transaction ${hash} to confirm`);
+      throw new TransactionOutcomeUnknownError(hash);
     }
     await sleep(pollIntervalMs);
   }
@@ -353,6 +371,8 @@ export const VAULT_CONTRACT_ERROR_MESSAGES: Record<number, string> = {
   22: "The migration target reported an invalid asset balance.",
   23: "The adapter did not credit any shares for this deposit.",
   24: "The vault hit a divide-by-zero in adapter accounting.",
+  30: "The adapter's credit for this deposit did not match the value it received.",
+  41: "Insufficient liquidity in the underlying yield protocol for this withdrawal. Try a smaller amount or retry later.",
 };
 
 const CONTRACT_ERROR_CODE = /Error\(\s*Contract\s*,\s*#(\d+)\s*\)/i;
@@ -487,10 +507,11 @@ export function assertSubmittable(
 }
 
 /**
- * Submit a signed transaction and wait for it to actually land. Rejection at
- * submission time (ERROR / TRY_AGAIN_LATER) throws immediately; PENDING and
- * DUPLICATE are polled to a final on-chain status so a resolved promise always
- * means the transaction succeeded.
+ * Submit a signed transaction. By default, PENDING and DUPLICATE are polled to
+ * a final on-chain status. Callers that must respond before confirmation can
+ * set `waitForConfirmation: false`; that returns the accepted hash as PENDING.
+ * Submission or confirmation timeouts throw `TransactionOutcomeUnknownError`
+ * with the hash so callers can check the transaction without resubmitting it.
  */
 export async function submitTx(
   signedXdr: string,
@@ -501,8 +522,17 @@ export async function submitTx(
   const server = getRpcServer(network.rpcUrl, 8_000);
   const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
   assertSubmittable(tx, network);
+  const transactionHash = tx.hash().toString("hex");
 
-  const sent = await withSorobanTimeout(() => server.sendTransaction(tx));
+  let sent: Awaited<ReturnType<typeof server.sendTransaction>>;
+  try {
+    sent = await withSorobanTimeout(() => server.sendTransaction(tx));
+  } catch (err) {
+    if (err instanceof SorobanTimeoutError) {
+      throw new TransactionOutcomeUnknownError(transactionHash);
+    }
+    throw err;
+  }
   if (sent.status === "ERROR") {
     throw new Error(
       `Transaction rejected at submission: ${describeSendError(sent)}`
@@ -512,8 +542,11 @@ export async function submitTx(
     throw new Error("Transaction could not be submitted yet (try again later)");
   }
 
-  // PENDING or DUPLICATE: the transaction is in (or already passed through) the
-  // mempool under this hash, so wait for the ledger to record its outcome.
+  // PENDING or DUPLICATE means the RPC accepted the hash. API callers can
+  // return now; other callers may wait for the ledger result below.
+  if (opts.waitForConfirmation === false) {
+    return { hash: sent.hash || transactionHash, status: "PENDING" };
+  }
   const confirmed = await waitForTransaction(server, sent.hash, opts);
   return { hash: sent.hash, status: "SUCCESS", ledger: confirmed.ledger };
 }

@@ -4,9 +4,10 @@ import {
   applyCors,
   checkRateLimit,
   requireGetMethod,
+  sendResponse,
+  HISTORY_CACHE_CONTROL,
 } from "../../_lib/middleware.js";
-
-const HISTORY_CACHE_CONTROL = "public, s-maxage=30, stale-while-revalidate=120";
+import { logError } from "../../_lib/logger.js";
 
 // Consolidated from two separate files (history/vault-state) to stay under
 // Vercel's per-deployment Serverless Functions cap. URL paths are
@@ -20,10 +21,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!(await checkRateLimit(req, res))) return;
   } catch (err) {
-    console.error("[admin] rate limit check failed:", err);
-    return res
-      .status(503)
-      .json({ error: "Rate limiter unavailable; refusing to run" });
+    logError("admin.rate_limit_failed", req, err);
+    return sendResponse(req, res, 503, {
+      error: "Rate limiter unavailable; refusing to run",
+    });
   }
 
   const { resource } = req.query;
@@ -31,23 +32,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (resource === "vault-state") {
     if (requireGetMethod(req, res)) return;
     const result = await handleGetVaultState();
-    if (result.error) console.error("[admin/vault-state] error:", result.error);
+    if (result.error) logError("admin.vault_state_failed", req, result.error);
     res.setHeader("Cache-Control", "no-store");
-    return res.status(result.status).json(result.body);
+    return sendResponse(req, res, result.status, result.body);
   }
 
   if (resource === "history") {
     if (requireGetMethod(req, res)) return;
     const raw = req.query["vaultId"];
     const vaultId = typeof raw === "string" ? raw : undefined;
-    if (!vaultId) return res.status(400).json({ error: "vaultId is required" });
+    if (!vaultId)
+      return sendResponse(req, res, 400, { error: "vaultId is required" });
 
     const result = await handleGetAdminHistory(vaultId);
     if (result.status === 200) {
       res.setHeader("Cache-Control", HISTORY_CACHE_CONTROL);
     }
-    return res.status(result.status).json(result.body);
+    return sendResponse(req, res, result.status, result.body);
   }
 
-  return res.status(404).json({ error: "Unknown resource" });
+  return sendResponse(req, res, 404, { error: "Unknown resource" });
 }

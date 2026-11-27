@@ -4,6 +4,8 @@ import {
   WithdrawRequestSchema,
   TrustlineRequestSchema,
   SubmitRequestSchema,
+  QuoteRequestSchema,
+  DEFAULT_SLIPPAGE_BPS,
   formatZodError,
   sanitizeTxError,
 } from "@meridian/shared";
@@ -15,9 +17,17 @@ import {
   ContractSimulationError,
   assertRequiredTrustlines,
   MissingTrustlineError,
+  quoteVaultAction,
+  TransactionOutcomeUnknownError,
 } from "@meridian/stellar-sdk-helpers";
+import { UpstreamDeadlineError } from "@meridian/shared";
 import { trackPositionHistoryUser } from "./position-tracking";
 import type { RouteResult } from "./types";
+import {
+  deadlineResult,
+  UPSTREAM_TIMEOUT_MS,
+  withUpstreamDeadline,
+} from "./deadline";
 
 /**
  * Vault ContractError discriminants that the caller can correct (slippage,
@@ -30,6 +40,7 @@ const USER_FIXABLE_CONTRACT_ERRORS: Record<number, string> = {
   7: "Insufficient shares for this withdrawal.",
   15: "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
   18: "Slippage tolerance exceeded. Adjust slippage and retry.",
+  41: "Insufficient liquidity in the underlying yield protocol for this withdrawal. Try a smaller amount or retry later.",
 };
 
 /**
@@ -71,6 +82,12 @@ function txErrorResult(err: unknown, fallback: string): RouteResult {
   };
 }
 
+function txFailureResult(err: unknown, fallback: string): RouteResult {
+  return err instanceof UpstreamDeadlineError
+    ? deadlineResult(err, fallback)
+    : txErrorResult(err, fallback);
+}
+
 export async function handleDepositRequest(
   body: unknown
 ): Promise<RouteResult> {
@@ -81,21 +98,35 @@ export async function handleDepositRequest(
 
   try {
     const { walletAddress, vaultId, amount, min_shares_out } = parsed.data;
-    await assertRequiredTrustlines(walletAddress, APP_NETWORK);
-    const result = await buildDepositTx(
-      vaultId,
-      walletAddress,
-      amount,
-      APP_NETWORK,
-      min_shares_out
-    );
+    const result = await withUpstreamDeadline(async () => {
+      await assertRequiredTrustlines(walletAddress, APP_NETWORK);
+      let protectedMinimum = min_shares_out;
+      if (!protectedMinimum) {
+        const quote = await quoteVaultAction({
+          action: "deposit",
+          walletAddress,
+          vaultId,
+          amount,
+          network: APP_NETWORK,
+          slippageBps: DEFAULT_SLIPPAGE_BPS,
+        });
+        protectedMinimum = quote.recommendedMinimum;
+      }
+      return buildDepositTx(
+        vaultId,
+        walletAddress,
+        amount,
+        APP_NETWORK,
+        protectedMinimum
+      );
+    }, "deposit preparation");
     await trackPositionHistoryUser(walletAddress);
     return { status: 200, body: result };
   } catch (err) {
     if (err instanceof MissingTrustlineError) {
       return { status: 400, body: { error: err.message }, error: err };
     }
-    return txErrorResult(err, "Failed to build deposit transaction");
+    return txFailureResult(err, "Failed to build deposit transaction");
   }
 }
 
@@ -109,21 +140,35 @@ export async function handleWithdrawRequest(
 
   try {
     const { walletAddress, vaultId, shares, min_usdc_out } = parsed.data;
-    await assertRequiredTrustlines(walletAddress, APP_NETWORK);
-    const result = await buildWithdrawTx(
-      vaultId,
-      walletAddress,
-      shares,
-      APP_NETWORK,
-      min_usdc_out
-    );
+    const result = await withUpstreamDeadline(async () => {
+      await assertRequiredTrustlines(walletAddress, APP_NETWORK);
+      let protectedMinimum = min_usdc_out;
+      if (!protectedMinimum) {
+        const quote = await quoteVaultAction({
+          action: "withdraw",
+          walletAddress,
+          vaultId,
+          shares,
+          network: APP_NETWORK,
+          slippageBps: DEFAULT_SLIPPAGE_BPS,
+        });
+        protectedMinimum = quote.recommendedMinimum;
+      }
+      return buildWithdrawTx(
+        vaultId,
+        walletAddress,
+        shares,
+        APP_NETWORK,
+        protectedMinimum
+      );
+    }, "withdraw preparation");
     await trackPositionHistoryUser(walletAddress);
     return { status: 200, body: result };
   } catch (err) {
     if (err instanceof MissingTrustlineError) {
       return { status: 400, body: { error: err.message }, error: err };
     }
-    return txErrorResult(err, "Failed to build withdraw transaction");
+    return txFailureResult(err, "Failed to build withdraw transaction");
   }
 }
 
@@ -136,13 +181,13 @@ export async function handleAddTrustlineRequest(
   }
 
   try {
-    const result = await buildAddTrustlineTx(
-      parsed.data.walletAddress,
-      APP_NETWORK
+    const result = await withUpstreamDeadline(
+      () => buildAddTrustlineTx(parsed.data.walletAddress, APP_NETWORK),
+      "trustline transaction"
     );
     return { status: 200, body: result };
   } catch (err) {
-    return txErrorResult(err, "Failed to build trustline transaction");
+    return txFailureResult(err, "Failed to build trustline transaction");
   }
 }
 
@@ -153,9 +198,67 @@ export async function handleSubmitRequest(body: unknown): Promise<RouteResult> {
   }
 
   try {
-    const result = await submitTx(parsed.data.xdr, APP_NETWORK);
+    // Do not race a signed submission against the request deadline. The RPC
+    // helper waits for normal ledger confirmation and returns 202 only when
+    // the transaction was accepted but its final outcome could not be read.
+    const result = await submitTx(parsed.data.xdr, APP_NETWORK, {
+      timeoutMs: UPSTREAM_TIMEOUT_MS,
+    });
+    if (result.status === "PENDING") {
+      return {
+        status: 202,
+        body: {
+          hash: result.hash,
+          status: "PENDING",
+        },
+      };
+    }
     return { status: 200, body: result };
   } catch (err) {
-    return txErrorResult(err, "Failed to submit transaction");
+    if (err instanceof TransactionOutcomeUnknownError) {
+      return {
+        status: 202,
+        body: {
+          hash: err.hash,
+          status: "OUTCOME_UNKNOWN",
+          code: err.code,
+        },
+        error: err,
+      };
+    }
+    return txFailureResult(err, "Failed to submit transaction");
+  }
+}
+
+export async function handleQuoteRequest(body: unknown): Promise<RouteResult> {
+  const parsed = QuoteRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return { status: 400, body: { error: formatZodError(parsed.error) } };
+  }
+
+  try {
+    const { action, walletAddress, vaultId, amount, shares } = parsed.data;
+    const quote = await withUpstreamDeadline(
+      () =>
+        quoteVaultAction({
+          action,
+          walletAddress,
+          vaultId,
+          amount,
+          shares,
+          network: APP_NETWORK,
+          slippageBps: DEFAULT_SLIPPAGE_BPS,
+        }),
+      "transaction quote"
+    );
+    return { status: 200, body: quote };
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      err.message === "Deposits are currently paused"
+    ) {
+      return { status: 400, body: { error: err.message }, error: err };
+    }
+    return txFailureResult(err, "Failed to simulate transaction quote");
   }
 }

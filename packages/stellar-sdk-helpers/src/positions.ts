@@ -6,6 +6,8 @@ export interface PositionInfo {
   deposited: number;
   earned: number;
   entryTime: number;
+  /** Recorded cost basis in USDC, when available from the vault contract. */
+  principal?: number;
 }
 
 // Raw i128/u64 figures read from the vault contract, in stroops (7 decimals).
@@ -65,6 +67,45 @@ export function computePosition(
       deposited: stroopsToUnits(currentValue),
       earned: stroopsToUnits(earned),
       entryTime: Number(raw.entryTime),
+      ...(hasBasis ? { principal: stroopsToUnits(raw.principal!) } : {}),
+    },
+  ];
+}
+
+/**
+ * Aggregate position summary returned by the vault's `get_position_summary` view (#1341).
+ * All amounts are in stroops (7 decimals).
+ */
+export interface PositionSummary {
+  shares: bigint;
+  principal: bigint;
+  entryTime: bigint;
+  currentValue: bigint;
+}
+
+/**
+ * Derive the display position from an on-chain `PositionSummary` snapshot.
+ * Returns an empty array when the address holds no shares.
+ */
+export function computePositionFromSummary(
+  vaultId: string,
+  summary: PositionSummary
+): PositionInfo[] {
+  if (summary.shares <= 0n) return [];
+
+  const hasBasis = summary.principal > 0n;
+  const earned =
+    hasBasis && summary.currentValue > summary.principal
+      ? summary.currentValue - summary.principal
+      : 0n;
+
+  return [
+    {
+      vaultId,
+      shares: stroopsToUnits(summary.shares),
+      deposited: stroopsToUnits(summary.currentValue),
+      earned: stroopsToUnits(earned),
+      entryTime: Number(summary.entryTime),
     },
   ];
 }

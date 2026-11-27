@@ -4,7 +4,7 @@
  * drives members in declaration order, and returned orders retain that order.
  */
 import { FixedPointDecimal, STROOPS_PER_UNIT } from "../types";
-import type { AssetSymbol } from "../types";
+import type { AssetSymbol, SimulationTimestamp } from "../types";
 import type {
   Order,
   PortfolioView,
@@ -13,6 +13,7 @@ import type {
   StrategyContext,
   StrategyInitParams,
 } from "../strategy";
+import type { VenuePortfolioView, VenuePosition } from "../venue";
 import { allocateCapital } from "./capital-allocation";
 import {
   enforceClamp,
@@ -21,6 +22,11 @@ import {
   type CompositionConstraintConfig,
   type MemberView,
 } from "./constraint-engine";
+import {
+  computeDriftRebalance,
+  validateDriftRebalanceConfig,
+  type DriftRebalanceConfig,
+} from "./drift-rebalancer";
 
 /**
  * A member of a composed strategy. `allocation` is the fraction of the
@@ -39,7 +45,7 @@ interface InitializedMember {
   readonly strategy: Strategy<unknown>;
   readonly allocation: FixedPointDecimal;
   readonly config: unknown;
-  readonly portfolio: (portfolio: PortfolioView) => PortfolioView;
+  readonly portfolio: (portfolio: PortfolioView) => MemberPortfolioView;
 }
 
 /**
@@ -55,6 +61,12 @@ interface InitializedMember {
  * An optional `constraintConfig` applies composition-wide limits at init and
  * on every rebalance. The default enforcement mode is `reject`; `clamp`
  * trims aggregate-exposure orders that would breach an asset limit.
+ *
+ * An optional `driftConfig` enables target-weight drift rebalancing via a
+ * threshold policy, a calendar policy, or both. When triggered, cross-member
+ * transfer orders are generated (sells before buys, descending absolute drift,
+ * ties broken by member declaration order) and validated against
+ * `constraintConfig` together with member orders.
  */
 export class ComposedStrategy implements Strategy<unknown> {
   readonly name = "composed-strategy";
@@ -64,10 +76,13 @@ export class ComposedStrategy implements Strategy<unknown> {
   }[];
   readonly #members: readonly InitializedMember[];
   readonly #constraintConfig: CompositionConstraintConfig | undefined;
+  readonly #driftConfig: DriftRebalanceConfig | undefined;
+  #lastDriftRebalanceTimestamp: SimulationTimestamp | null = null;
 
   constructor(
     members: readonly ComposedStrategyMember<unknown>[],
-    constraintConfig?: CompositionConstraintConfig
+    constraintConfig?: CompositionConstraintConfig,
+    driftConfig?: DriftRebalanceConfig
   ) {
     if (members.length === 0) {
       throw new RangeError("a composed strategy requires at least one member");
@@ -102,6 +117,10 @@ export class ComposedStrategy implements Strategy<unknown> {
       );
     }
 
+    if (driftConfig !== undefined) {
+      validateDriftRebalanceConfig(driftConfig);
+    }
+
     this.#members = members.map((member) => ({
       id: member.id,
       strategy: member.strategy,
@@ -114,9 +133,11 @@ export class ComposedStrategy implements Strategy<unknown> {
       allocation,
     }));
     this.#constraintConfig = constraintConfig;
+    this.#driftConfig = driftConfig;
   }
 
   init(_params: StrategyInitParams<unknown>): void {
+    this.#lastDriftRebalanceTimestamp = null;
     if (this.#constraintConfig !== undefined) {
       const emptyPortfolio: PortfolioView = {
         cash: _params.startingCapital,
@@ -168,12 +189,37 @@ export class ComposedStrategy implements Strategy<unknown> {
   }
 
   rebalance(context: StrategyContext): readonly Order[] {
-    const orders = this.#members.flatMap((member) =>
+    const memberOrders = this.#members.flatMap((member) =>
       this.#tagOrders(
         this.#memberNamespace(member.id, context.portfolio),
         member.strategy.rebalance(this.#memberContext(member, context))
       )
     );
+
+    let orders: readonly Order[] = memberOrders;
+    if (this.#driftConfig !== undefined) {
+      if (this.#lastDriftRebalanceTimestamp === null) {
+        this.#lastDriftRebalanceTimestamp = context.market.timestamp;
+      }
+      const driftResult = computeDriftRebalance(
+        this.#driftConfig,
+        this.#members.map((member) => ({
+          id: this.#memberNamespace(member.id, context.portfolio),
+          targetWeight: member.allocation,
+        })),
+        context.portfolio,
+        context.market.prices,
+        memberOrders,
+        context.market.timestamp,
+        this.#lastDriftRebalanceTimestamp
+      );
+      if (driftResult.triggered) {
+        this.#lastDriftRebalanceTimestamp = context.market.timestamp;
+      }
+      if (driftResult.orders.length > 0) {
+        orders = [...memberOrders, ...driftResult.orders];
+      }
+    }
 
     const config = this.#constraintConfig;
     if (config === undefined) return orders;
@@ -217,9 +263,11 @@ export class ComposedStrategy implements Strategy<unknown> {
     member: InitializedMember,
     context: StrategyContext
   ): StrategyContext {
+    const portfolio = member.portfolio(context.portfolio);
     return {
       market: context.market,
-      portfolio: member.portfolio(context.portfolio),
+      portfolio,
+      ...(context.venues === undefined ? {} : { venues: portfolio }),
     };
   }
 
@@ -242,8 +290,9 @@ export class ComposedStrategy implements Strategy<unknown> {
 }
 
 export * from "./backtest-runner";
+export * from "./drift-rebalancer";
 
-class MemberPortfolioView implements PortfolioView {
+class MemberPortfolioView implements PortfolioView, VenuePortfolioView {
   readonly #portfolio: PortfolioView;
   readonly namespace: string;
 
@@ -269,6 +318,21 @@ class MemberPortfolioView implements PortfolioView {
     return this.#portfolio
       .positions()
       .filter((position) => position.memberId === this.namespace);
+  }
+
+  getVenuePosition(
+    venueId: string,
+    asset: AssetSymbol
+  ): VenuePosition | undefined {
+    return this.venues().find(
+      (position) => position.venueId === venueId && position.asset === asset
+    );
+  }
+
+  venues(): readonly VenuePosition[] {
+    return (this.#portfolio.venues?.() ?? []).filter(
+      (position) => position.memberId === this.namespace
+    );
   }
 
   totalValue(

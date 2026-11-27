@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Address, nativeToScVal } from "@stellar/stellar-sdk";
+import {
+  makeTx,
+  FIXTURE_TESTNET,
+  FIXTURE_CONTRACT,
+  FIXTURE_CALLER,
+  FIXTURE_OTHER_WALLET,
+  FIXTURE_ADAPTER_CONTRACT,
+} from "./testing/fixtures.js";
 
 // ---------------------------------------------------------------------------
 // Mock @meridian/stellar-sdk-helpers before importing the module under test.
@@ -23,29 +31,27 @@ import {
   convertAssetsToShares,
   convertSharesToAssets,
 } from "./vault-base.js";
-import type { VaultConfig, Transaction } from "./types.js";
+import type { VaultConfig } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// Test fixtures
+// Test fixtures — sourced from the shared deterministic fixture builders
+// introduced in issue #1366.
 // ---------------------------------------------------------------------------
 
-const TESTNET: VaultConfig["network"] = {
-  network: "testnet",
-  rpcUrl: "https://soroban-testnet.stellar.org",
-  passphrase: "Test SDF Network ; September 2015",
-};
+const TESTNET: VaultConfig["network"] = FIXTURE_TESTNET;
 
-const CONTRACT_ID = "CAIQBVLBIUWQGE6DQUHDMZ2QWI7QP6KTCN7GP2BIZ6JZC4ES47JO4SSM";
+const CONTRACT_ID = FIXTURE_CONTRACT;
 
-const WALLET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+const WALLET = FIXTURE_CALLER;
 
 // A second valid G-address, used to prove receiver/owner mismatches are
 // rejected rather than silently redirected.
-const OTHER_WALLET = "GDVEU3DD4KOFECV66VIHWEZOYX4ZKR3WV27L464SIIPOU2IUI3JCZA57";
+const OTHER_WALLET = FIXTURE_OTHER_WALLET;
 
-const ADAPTER_ID = "CBNKERYAG7VZNBH2V3TF5JBXLD3MXLVQW5GG4AO445EUDCPKP4D2DDP2";
+const ADAPTER_ID = FIXTURE_ADAPTER_CONTRACT;
 
-const STUB_TX: Transaction = { xdr: "UNSIGNED_XDR", fee: "150" };
+/** Deterministic unsigned transaction stub from the fixture builder. */
+const STUB_TX = makeTx();
 
 // Stub RPC server — its identity is all that matters; simulateView is fully
 // mocked so the stub never actually calls the network.
@@ -356,6 +362,78 @@ describe("VaultBase.withdraw", () => {
     await expect(vault.withdraw(0n, WALLET, WALLET)).rejects.toThrow(
       "assets must be positive"
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VaultBase: withdrawAssets
+// ---------------------------------------------------------------------------
+
+describe("VaultBase.withdrawAssets", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(prepareSorobanTx).mockResolvedValue(STUB_TX);
+  });
+
+  it("builds a withdraw_assets call with owner, assets, and maxSharesIn", async () => {
+    const vault = makeVault();
+    const result = await vault.withdrawAssets(
+      5_000_000n,
+      WALLET,
+      WALLET,
+      6_000_000n
+    );
+    expect(result).toEqual(STUB_TX);
+    expect(prepareSorobanTx).toHaveBeenCalledTimes(1);
+
+    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    const hostFn = op.body().invokeHostFunctionOp().hostFunction();
+    const invokeContract = hostFn.invokeContract();
+    expect(invokeContract.functionName().toString()).toBe("withdraw_assets");
+    const args = invokeContract.args();
+    expect(args).toHaveLength(3);
+    expect(Address.fromScVal(args[0]!).toString()).toBe(WALLET);
+    expect(args[1]).toEqual(nativeToScVal(5_000_000n, { type: "i128" }));
+    expect(args[2]).toEqual(nativeToScVal(6_000_000n, { type: "i128" }));
+  });
+
+  it("defaults maxSharesIn to max i128 when omitted", async () => {
+    const vault = makeVault();
+    await vault.withdrawAssets(5_000_000n, WALLET, WALLET);
+    const [, , op] = vi.mocked(prepareSorobanTx).mock.calls[0]!;
+    const args = op
+      .body()
+      .invokeHostFunctionOp()
+      .hostFunction()
+      .invokeContract()
+      .args();
+    const defaultMax = (1n << 127n) - 1n;
+    expect(args[2]).toEqual(nativeToScVal(defaultMax, { type: "i128" }));
+  });
+
+  it("throws when receiver differs from owner", async () => {
+    const vault = makeVault();
+    await expect(
+      vault.withdrawAssets(5_000_000n, OTHER_WALLET, WALLET)
+    ).rejects.toThrow("receiver must equal owner");
+    expect(prepareSorobanTx).not.toHaveBeenCalled();
+  });
+
+  it("throws for non-positive assets", async () => {
+    const vault = makeVault();
+    await expect(vault.withdrawAssets(0n, WALLET, WALLET)).rejects.toThrow(
+      "assets must be positive"
+    );
+    await expect(vault.withdrawAssets(-1n, WALLET, WALLET)).rejects.toThrow(
+      "assets must be positive"
+    );
+  });
+
+  it("throws for negative maxSharesIn", async () => {
+    const vault = makeVault();
+    await expect(
+      vault.withdrawAssets(5_000_000n, WALLET, WALLET, -1n)
+    ).rejects.toThrow("maxSharesIn must be non-negative");
   });
 });
 
@@ -714,6 +792,7 @@ describe("VaultBase ERC-4626 view methods", () => {
         fee: 1_000_000n,
         treasury_shares: 909_000n,
         assets_out: 109_000_000n,
+        available_liquidity: 80_000_000n,
       },
     });
     const vault = makeVault();
@@ -722,6 +801,7 @@ describe("VaultBase ERC-4626 view methods", () => {
       fee: 1_000_000n,
       treasuryShares: 909_000n,
       assetsOut: 109_000_000n,
+      availableLiquidity: 80_000_000n,
     });
   });
 

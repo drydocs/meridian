@@ -14,6 +14,8 @@ export function WalletConnect() {
   const { push } = useToastStore();
   const {
     handleConnect,
+    cancelConnect,
+    retryConnect,
     status,
     showRiskDisclosure,
     acceptRiskDisclosure,
@@ -191,15 +193,17 @@ export function WalletConnect() {
           aria-label={
             copied ? t("walletConnect.copied") : t("walletConnect.copyAddress")
           }
-          className="text-gray-400 hover:text-paper transition-colors duration-150"
+          className="text-gray-400 hover:text-paper rounded p-0.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
 
-        <span className="text-gray-600">·</span>
+        <span className="text-gray-500" aria-hidden="true">
+          ·
+        </span>
         <button
           onClick={handleDisconnect}
-          className="text-gray-400 hover:text-paper transition-colors duration-150"
+          className="text-gray-400 hover:text-paper rounded px-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
         >
           {t("walletConnect.disconnect")}
         </button>
@@ -227,13 +231,53 @@ export function WalletConnect() {
         disabled={status === "connecting"}
         aria-haspopup="menu"
         aria-expanded={pickerOpen}
-        className="text-sm border border-gray-700 rounded-lg pl-4 pr-3 py-2 font-medium text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+        className="text-sm border border-gray-700 rounded-lg pl-4 pr-3 py-2 font-medium text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
       >
         {status === "connecting"
           ? t("common.connecting")
           : t("common.connectWallet")}
         <ChevronDown size={14} />
       </button>
+
+      {status === "connecting" && (
+        <button
+          type="button"
+          data-testid="wallet-connect-cancel"
+          onClick={cancelConnect}
+          className="ml-2 text-sm border border-gray-700 rounded-lg px-3 py-2 text-gray-400 hover:border-gray-600 hover:text-paper transition-colors duration-150"
+        >
+          {t("common.cancel")}
+        </button>
+      )}
+
+      {status === "timed-out" && (
+        <div
+          data-testid="wallet-connect-timeout"
+          role="status"
+          className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-amber-800/70 bg-amber-950/90 p-3 text-xs text-amber-200 shadow-xl z-20"
+        >
+          <p className="font-semibold mb-1">{t("walletConnect.timedOut")}</p>
+          <p className="mb-2 leading-snug">{t("walletConnect.timedOutHint")}</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              data-testid="wallet-connect-retry"
+              onClick={retryConnect}
+              className="rounded-lg bg-amber-700/60 px-3 py-1.5 font-medium text-amber-100 hover:bg-amber-700 transition-colors duration-150"
+            >
+              {t("common.retry")}
+            </button>
+            <button
+              type="button"
+              data-testid="wallet-connect-dismiss"
+              onClick={cancelConnect}
+              className="rounded-lg border border-amber-800/70 px-3 py-1.5 text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
+        </div>
+      )}
 
       {pickerOpen && (
         <div

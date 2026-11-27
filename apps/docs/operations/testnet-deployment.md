@@ -25,6 +25,16 @@ Both scripts require a `DEPLOYER` secret key, funded via [Friendbot](https://fri
 
 Save the `ADMIN` secret key somewhere durable (a password manager, not a plaintext file) the moment you deploy with it. There is no recovery path if it's lost. `transfer_admin`/`set_paused`/`set_adapter` become permanently inaccessible, and since adapters have no in-place upgrade path, that also means the vault can never be pointed at fixed adapter code again.
 
+## Performance-fee treasury
+
+Set `TREASURY` to the approved public key or contract address that will
+receive fee shares. The testnet script warns and defaults it to `ADMIN` if
+unset; use an explicit, dedicated test treasury for a realistic rehearsal.
+The treasury is fixed in the vault constructor and cannot be changed after
+deployment. Follow [Treasury Operations and Fee Accounting](./treasury-fees.md)
+to select/review the address, verify it on-chain, monitor fee events, and
+perform a testnet redemption.
+
 ## Standing up a fresh environment
 
 ```bash
@@ -37,9 +47,14 @@ DEPLOYER_ADDR=$(stellar keys address my-deployer)
 stellar keys generate my-admin --fund --network testnet
 ADMIN_ADDR=$(stellar keys address my-admin)
 
+# Use a separately controlled test treasury address; this example generates
+# a test key only. Do not reuse it for mainnet.
+stellar keys generate my-treasury --fund --network testnet
+TREASURY_ADDR=$(stellar keys address my-treasury)
+
 # ADMIN_KEY lets the script source the vault's deploy transaction itself, so
 # the vault is never left undeployed and waiting on a second manual step.
-DEPLOYER=my-deployer ADMIN=$ADMIN_ADDR ADMIN_KEY=my-admin bash scripts/deploy-testnet.sh
+DEPLOYER=my-deployer ADMIN=$ADMIN_ADDR ADMIN_KEY=my-admin TREASURY=$TREASURY_ADDR bash scripts/deploy-testnet.sh
 ```
 
 This builds all four contract crates (`vault`, `blend-adapter`, `defindex-adapter`, `musdc-token`), uploads and deploys the vault, a `BlendAdapter`, and mUSDC, a custom SEP-41 token ([#578](https://github.com/drydocs/meridian/issues/578)) rather than a Stellar Asset Contract, and wires everything together:
@@ -78,6 +93,18 @@ Review and commit the generated `packages/shared/deployed-contracts.json` change
 The adapter contract address is **not** hardcoded anywhere in the app. The frontend discovers the active adapter live via `vault.get_adapter()`, and that adapter's `get_pool()`/`get_protocol()`, rather than tracking it in config. This is deliberate: it means the app self-updates if the adapter is ever swapped via `set_adapter` or `migrate_adapter`, with nothing that could drift out of sync.
 
 ## Verifying the deployment
+
+After deployment, check `GET /api/v1/health/live` for process liveness and
+`GET /api/v1/health/ready` for dependency readiness. Configure uptime monitors
+and traffic readiness probes to use the readiness endpoint; use liveness only
+for process restart decisions. Readiness reports Soroban RPC, Upstash Redis,
+the snapshot registry, and build metadata separately, and returns HTTP 503 if
+any required dependency is unhealthy. Deployed environments must have
+persistent Upstash credentials and a build commit SHA. An empty snapshot
+registry is healthy.
+
+The existing `/api/v1/keepers/health` route remains a separate report about
+keeper heartbeat freshness.
 
 ```bash
 stellar contract invoke --network testnet --source my-deployer \

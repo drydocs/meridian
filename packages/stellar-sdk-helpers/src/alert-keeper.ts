@@ -25,6 +25,7 @@
 // (see #707's acceptance criteria, which lists paused/transfer/adapter/
 // migrate only).
 
+import { hash, rpc } from "@stellar/stellar-sdk";
 import { withRaceTimeout, withRetry } from "@meridian/shared";
 import { APP_NETWORK } from "@meridian/shared";
 import {
@@ -40,13 +41,18 @@ import {
   type KeeperLogger,
 } from "./keeper-retry";
 
+export const ALERT_WEBHOOK_SIGNATURE_HEADER = "X-Meridian-Signature";
+export const ALERT_WEBHOOK_TIMESTAMP_HEADER = "X-Meridian-Timestamp";
+export const ALERT_WEBHOOK_DELIVERY_HEADER = "X-Meridian-Delivery";
+export const DEFAULT_ALERT_WEBHOOK_TOLERANCE_SECONDS = 300;
+
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_DELAY_MS = 1_000;
 const DEFAULT_RPC_TIMEOUT_MS = 10_000;
 
 /** Admin actions worth an immediate alert. See the file header for why
  *  `accept` is deliberately left out. */
-const ALERTABLE_ACTIONS: ReadonlySet<RpcAdminActionType> = new Set([
+export const ALERTABLE_ACTIONS: ReadonlySet<RpcAdminActionType> = new Set([
   "paused",
   "transfer",
   "adapter",
@@ -57,9 +63,178 @@ const ALERTABLE_ACTIONS: ReadonlySet<RpcAdminActionType> = new Set([
 export interface AlertKeeperConfig {
   network: StellarNetwork;
   webhookUrl: string;
+  webhookSecret?: string | undefined;
   maxAttempts: number;
   baseDelayMs: number;
   rpcTimeoutMs: number;
+}
+
+export interface VerifyAlertWebhookOptions {
+  toleranceSeconds?: number | undefined;
+  now?: number | undefined;
+}
+
+export interface VerifyAlertWebhookResult {
+  valid: boolean;
+  error?: string | undefined;
+}
+
+function safeCompare(a: string, b: string): boolean {
+  const digestA = hash(Buffer.from(a, "utf8"));
+  const digestB = hash(Buffer.from(b, "utf8"));
+  if (digestA.length !== digestB.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < digestA.length; i++) {
+    mismatch |= digestA[i]! ^ digestB[i]!;
+  }
+  return mismatch === 0;
+}
+
+// HMAC-SHA256 built on the SDK's `hash` instead of `node:crypto`: the web app
+// bundles this package, and a `node:crypto` import breaks the browser build.
+// The known-answer tests pin the output to a standard HMAC, including keys
+// longer than the 64 byte block size.
+function computeHmacSha256Hex(secret: string, message: string): string {
+  const blockSize = 64;
+  let key: Buffer = Buffer.from(secret, "utf8");
+  if (key.length > blockSize) {
+    key = Buffer.from(hash(key));
+  }
+  if (key.length < blockSize) {
+    key = Buffer.concat([key, Buffer.alloc(blockSize - key.length, 0)]);
+  }
+  const oKeyPad = Buffer.alloc(blockSize);
+  const iKeyPad = Buffer.alloc(blockSize);
+  for (let i = 0; i < blockSize; i++) {
+    oKeyPad[i] = key[i]! ^ 0x5c;
+    iKeyPad[i] = key[i]! ^ 0x36;
+  }
+  const msgBuf = Buffer.from(message, "utf8");
+  const innerHash = hash(Buffer.concat([iKeyPad, msgBuf]));
+  const outerHash = hash(Buffer.concat([oKeyPad, innerHash]));
+  return outerHash.toString("hex");
+}
+
+function generateDeliveryId(): string {
+  if (typeof globalThis !== "undefined" && globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
+ * Computes an HMAC-SHA256 signature for alert keeper webhook deliveries over
+ * `${timestamp}.${deliveryId}.${body}` using the shared secret. Returns `sha256=${digest}`.
+ */
+export function createAlertWebhookSignature(
+  timestamp: number | string,
+  deliveryId: string,
+  body: string,
+  secret: string
+): string {
+  const payload = `${timestamp}.${deliveryId}.${body}`;
+  const digest = computeHmacSha256Hex(secret, payload);
+  return `sha256=${digest}`;
+}
+
+/**
+ * Verifies an incoming webhook payload using the shared secret, enforcing HMAC-SHA256
+ * signature matching and replay protection within a tolerance window (default 300 seconds).
+ */
+export function verifyAlertWebhookSignature(
+  headers: Record<string, string | string[] | undefined>,
+  body: string,
+  secret: string,
+  options: VerifyAlertWebhookOptions = {}
+): VerifyAlertWebhookResult {
+  if (!secret) {
+    return { valid: false, error: "Missing webhook secret" };
+  }
+
+  const getHeader = (name: string): string | undefined => {
+    const target = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers)) {
+      if (key.toLowerCase() === target) {
+        return Array.isArray(value) ? value[0] : value;
+      }
+    }
+    return undefined;
+  };
+
+  const signatureHeader = getHeader(ALERT_WEBHOOK_SIGNATURE_HEADER);
+  if (!signatureHeader) {
+    return {
+      valid: false,
+      error: `Missing ${ALERT_WEBHOOK_SIGNATURE_HEADER} header`,
+    };
+  }
+
+  const timestampHeader = getHeader(ALERT_WEBHOOK_TIMESTAMP_HEADER);
+  if (!timestampHeader) {
+    return {
+      valid: false,
+      error: `Missing ${ALERT_WEBHOOK_TIMESTAMP_HEADER} header`,
+    };
+  }
+
+  const deliveryHeader = getHeader(ALERT_WEBHOOK_DELIVERY_HEADER);
+  if (!deliveryHeader) {
+    return {
+      valid: false,
+      error: `Missing ${ALERT_WEBHOOK_DELIVERY_HEADER} header`,
+    };
+  }
+
+  const parsedTimestamp = Number.parseInt(timestampHeader, 10);
+  if (!Number.isFinite(parsedTimestamp)) {
+    return {
+      valid: false,
+      error: `Invalid ${ALERT_WEBHOOK_TIMESTAMP_HEADER} header`,
+    };
+  }
+
+  const toleranceSeconds =
+    options.toleranceSeconds ?? DEFAULT_ALERT_WEBHOOK_TOLERANCE_SECONDS;
+  const now = options.now ?? Math.floor(Date.now() / 1000);
+  if (Math.abs(now - parsedTimestamp) > toleranceSeconds) {
+    return {
+      valid: false,
+      error: "Timestamp outside replay tolerance window",
+    };
+  }
+
+  const expectedSignature = createAlertWebhookSignature(
+    parsedTimestamp,
+    deliveryHeader,
+    body,
+    secret
+  );
+
+  const normalizedSignature = signatureHeader.startsWith("sha256=")
+    ? signatureHeader
+    : `sha256=${signatureHeader}`;
+
+  if (!safeCompare(normalizedSignature, expectedSignature)) {
+    return { valid: false, error: "Signature mismatch" };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Boolean helper for verifyAlertWebhookSignature.
+ */
+export function isAlertWebhookSignatureValid(
+  headers: Record<string, string | string[] | undefined>,
+  body: string,
+  secret: string,
+  options: VerifyAlertWebhookOptions = {}
+): boolean {
+  return verifyAlertWebhookSignature(headers, body, secret, options).valid;
 }
 
 /** Mirrors isMigrationKeeperConfigured: lets ops leave the alert webhook
@@ -79,9 +254,18 @@ export function loadAlertKeeperConfig(
     throw new Error("MERIDIAN_ALERT_WEBHOOK_URL is required");
   }
 
+  const webhookSecret = env.MERIDIAN_ALERT_WEBHOOK_SECRET?.trim();
+  const isDeployed = Boolean(env.VERCEL_ENV || env.NODE_ENV === "production");
+  if (!webhookSecret && isDeployed) {
+    throw new Error(
+      "MERIDIAN_ALERT_WEBHOOK_SECRET is required on deployed environments"
+    );
+  }
+
   return {
     network: APP_NETWORK,
     webhookUrl,
+    webhookSecret: webhookSecret || undefined,
     maxAttempts: parsePositiveInt(
       env.MERIDIAN_KEEPER_MAX_ATTEMPTS,
       DEFAULT_MAX_ATTEMPTS,
@@ -224,16 +408,39 @@ async function sendAlert(
     baseDelayMs: number;
     timeoutMs: number;
     fetchImpl: typeof fetch;
+    webhookSecret?: string | undefined;
   }
 ): Promise<void> {
+  // `loadAlertKeeperConfig` refuses to start on a deployed environment without
+  // a secret, so a missing one here means local development. The alert is sent
+  // unsigned, without the signature headers, so a local receiver still works.
+  const body = JSON.stringify({ text: message, content: message });
+  const signingHeaders: Record<string, string> = {};
+  if (options.webhookSecret) {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const deliveryId = generateDeliveryId();
+    signingHeaders[ALERT_WEBHOOK_SIGNATURE_HEADER] =
+      createAlertWebhookSignature(
+        timestamp,
+        deliveryId,
+        body,
+        options.webhookSecret
+      );
+    signingHeaders[ALERT_WEBHOOK_TIMESTAMP_HEADER] = timestamp;
+    signingHeaders[ALERT_WEBHOOK_DELIVERY_HEADER] = deliveryId;
+  }
+
   await withRetry(
     async () => {
       const response = await withRaceTimeout(
         () =>
           options.fetchImpl(webhookUrl, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: message, content: message }),
+            headers: {
+              "Content-Type": "application/json",
+              ...signingHeaders,
+            },
+            body,
             signal: AbortSignal.timeout(options.timeoutMs),
           }),
         options.timeoutMs,
@@ -326,4 +533,167 @@ export interface AlertKeeperDeps {
   fetchImpl?: typeof fetch;
   /** Overrides vault discovery; used by tests. */
   targets?: AlertVaultTarget[];
+}
+
+/**
+ * Runs one alerting pass over every known Meridian vault: reads each
+ * vault's admin-event history since its last-processed ledger, posts a
+ * webhook alert for every qualifying action, and advances the cursor past
+ * successfully processed actions (including those that needed no alert).
+ * A failed send keeps the persisted cursor at or before its ledger, so the
+ * failed action and anything after it in the same page are retried on the
+ * next scheduled run. Earlier successful alerts in that ledger can repeat.
+ */
+/** One vault's worth of work for a single run: resolve its start ledger,
+ *  fetch admin history since it, alert on every qualifying action, and
+ *  persist however far the cursor actually got. Extracted so `runAlertKeeper`
+ *  can run every vault concurrently, the same reasoning
+ *  `accrual-keeper.ts`'s discovery uses for its own per-vault work: each
+ *  vault's RPC fetch and webhook sends are independent of every other
+ *  vault's, so running them one at a time would let the endpoint's 60s
+ *  `maxDuration` (see vercel.json) get eaten by earlier vaults before later
+ *  ones are even attempted. */
+async function processVaultAlerts(
+  target: AlertVaultTarget,
+  config: AlertKeeperConfig,
+  cursorStore: KeeperHeartbeatStore,
+  fetchImpl: typeof fetch,
+  logger: KeeperLogger
+): Promise<{ alertsSent: AlertSuccess[]; failures: AlertFailure[] }> {
+  const key = alertCursorKey(target.vaultContractId, config.network.network);
+  const alertsSent: AlertSuccess[] = [];
+  const failures: AlertFailure[] = [];
+
+  let startLedger: number;
+  try {
+    const stored = await cursorStore.get(key);
+    if (stored !== null) {
+      startLedger = stored;
+    } else {
+      // No cursor yet: start from the current ledger rather than replaying
+      // this vault's entire history as alerts on first deploy. Restart
+      // safety only needs to cover events since the keeper started
+      // watching, not events that predate it.
+      const server = new rpc.Server(config.network.rpcUrl);
+      const latest = await withRaceTimeout(
+        () => server.getLatestLedger(),
+        config.rpcTimeoutMs,
+        "Soroban RPC"
+      );
+      startLedger = latest.sequence;
+    }
+  } catch (err) {
+    failures.push({
+      vaultId: target.vaultId,
+      vaultContractId: target.vaultContractId,
+      stage: "discover",
+      attempts: 1,
+      error: errorMessage(err),
+    });
+    return { alertsSent, failures };
+  }
+
+  let actions: RpcAdminAction[];
+  try {
+    const result = await withRetry(
+      () =>
+        withRaceTimeout(
+          () =>
+            getRpcAdminHistory(config.network.rpcUrl, target.vaultContractId, {
+              startLedger,
+            }),
+          config.rpcTimeoutMs,
+          "Soroban RPC"
+        ),
+      config.maxAttempts,
+      config.baseDelayMs
+    );
+    actions = result.actions;
+  } catch (err) {
+    failures.push({
+      vaultId: target.vaultId,
+      vaultContractId: target.vaultContractId,
+      stage: "discover",
+      attempts: config.maxAttempts,
+      error: errorMessage(err),
+    });
+    return { alertsSent, failures };
+  }
+
+  let cursor = startLedger;
+  for (const action of actions) {
+    if (ALERTABLE_ACTIONS.has(action.action)) {
+      try {
+        await sendAlert(
+          config.webhookUrl,
+          formatAlertMessage(target.vaultId, action),
+          {
+            maxAttempts: config.maxAttempts,
+            baseDelayMs: config.baseDelayMs,
+            timeoutMs: config.rpcTimeoutMs,
+            fetchImpl,
+            webhookSecret: config.webhookSecret,
+          }
+        );
+        alertsSent.push({
+          vaultId: target.vaultId,
+          action: action.action,
+          ledgerSequence: action.ledgerSequence,
+        });
+      } catch (err) {
+        failures.push({
+          vaultId: target.vaultId,
+          vaultContractId: target.vaultContractId,
+          stage: "send",
+          attempts: config.maxAttempts,
+          error: errorMessage(err),
+        });
+        // A preceding action (including a skipped accept) may have already
+        // advanced past this ledger. Replay it so the failed alert is retried.
+        cursor = Math.min(cursor, action.ledgerSequence);
+        break;
+      }
+    }
+    cursor = action.ledgerSequence + 1;
+  }
+
+  try {
+    await cursorStore.set(key, cursor);
+  } catch (err) {
+    logger.warn("[alert-keeper] could not persist cursor", {
+      vaultId: target.vaultId,
+      error: errorMessage(err),
+    });
+  }
+
+  return { alertsSent, failures };
+}
+
+export async function runAlertKeeper(
+  config: AlertKeeperConfig,
+  deps: AlertKeeperDeps = {}
+): Promise<AlertKeeperResult> {
+  const startedAt = new Date().toISOString();
+  const logger = deps.logger ?? consoleLogger;
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const cursorStore = deps.cursorStore ?? createInMemoryKeeperHeartbeatStore();
+  const targets = deps.targets ?? discoverAlertVaultTargets(config.network);
+
+  const settled = await Promise.all(
+    targets.map((target) =>
+      processVaultAlerts(target, config, cursorStore, fetchImpl, logger)
+    )
+  );
+
+  const alertsSent = settled.flatMap((r) => r.alertsSent);
+  const failures = settled.flatMap((r) => r.failures);
+
+  return {
+    network: config.network.network,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    vaultsChecked: targets.length,
+    alertsSent,
+    failures,
+  };
 }

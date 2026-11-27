@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Decides which of the expensive jobs below a push actually needs.
   # Job-level `paths` doesn't exist in Actions, and a workflow-level filter
@@ -14,6 +18,7 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
@@ -21,6 +26,8 @@ jobs:
       test: ${{ steps.filter.outputs.test }}
       e2e: ${{ steps.filter.outputs.e2e }}
       contracts: ${{ steps.filter.outputs.contracts }}
+      strategies: ${{ steps.filter.outputs.strategies }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -57,23 +64,39 @@ jobs:
               - "packages/stellar-sdk-helpers/**"
               - "packages/api-core/**"
               - "!**/*.md"
+            docs:
+              - "**/*.md"
+              - "apps/docs/**"
+              - lychee.toml
+              - .markdownlint.json
+              - .markdownlint-cli2.jsonc
+              - .github/workflows/ci.yml
             contracts:
               - .github/workflows/ci.yml
               - "packages/contracts/**"
+              - "scripts/check-wasm-size.ts"
+              - "packages/shared/src/wasm-size-budget.ts"
               - "scripts/deploy-*.sh"
               - "scripts/redeploy-*.sh"
               - "scripts/lib/**"
+              - "!**/*.md"
+            strategies:
+              - *workspace
+              - "packages/strategies/**"
+              - "packages/shared/**"
+              - "packages/stellar-sdk-helpers/**"
               - "!**/*.md"
 
   lint-typecheck:
     name: Lint & Typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6.1.1
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
@@ -87,12 +110,13 @@ jobs:
   vercel-build:
     name: Verify Vercel Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6.1.1
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Run the real Vercel build script
@@ -105,27 +129,81 @@ jobs:
               exit 1
             fi
           done
+      - name: Check web bundle budget
+        run: pnpm bundle:check
+
+  # Markdown lint plus link checks for the README, root docs and `apps/docs`.
+  # Internal links are strict; external links are best-effort on PRs (hosts
+  # that block CI are allowlisted in lychee.toml).
+  docs-checks:
+    name: Docs Lint & Links
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: lychee
+      - name: Lint Markdown
+        run: pnpm lint:md
+      - name: Check internal links
+        run: pnpm check:links
+      - name: Check external links
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        # An authenticated request keeps github.com links from being rejected
+        # with 503 once the runner is rate limited.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm check:links:external
 
   test:
     name: Test
     needs: changes
     if: needs.changes.outputs.test == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6.1.1
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm coverage
+      - name: Run strategies example smoke test
+        if: needs.changes.outputs.strategies == 'true'
+        run: |
+          pnpm exec turbo run build --filter=@meridian/strategies...
+          # pnpm prints a `> package script` banner before the script output, so
+          # keep only the JSON object the example writes.
+          summary="$(pnpm --filter @meridian/strategies example | sed -n '/^{/,$p')"
+          printf '%s\n' "$summary"
+          node -e '
+            const s = JSON.parse(process.argv[1]);
+            const required = ["strategy", "seed", "assets", "ticks", "initialCash", "finalValue", "strategyEquity", "pnl", "totalFees", "totalInterest", "totalFunding"];
+            for (const key of required) {
+              if (!(key in s)) throw new Error(`Missing summary field: ${key}`);
+            }
+            if (s.strategy !== "target-weight@1.0.0") throw new Error(`Unexpected strategy: ${s.strategy}`);
+            if (typeof s.ticks !== "number" || s.ticks <= 0) throw new Error(`Invalid ticks: ${s.ticks}`);
+            if (!/^-?\d+(\.\d+)?$/.test(s.finalValue)) throw new Error(`Malformed finalValue: ${s.finalValue}`);
+          ' "$summary"
 
   commitlint:
     name: Commit Messages
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
@@ -138,6 +216,7 @@ jobs:
     name: Dependency Review
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/dependency-review-action@v5
@@ -147,6 +226,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Drives the real dev stack against real Stellar testnet RPC (wallet
     # signing is mocked, see apps/web/e2e/fixtures.ts), so it exercises
     # the real API and Soroban simulation paths end to end. Tests use page.route()
@@ -165,7 +245,7 @@ jobs:
       - uses: pnpm/action-setup@v6.1.1
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # apps/api-local imports its workspace deps (@meridian/shared etc.) by
@@ -181,10 +261,15 @@ jobs:
     needs: changes
     if: needs.changes.outputs.contracts == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The WASM size check builds the PR's base commit for its delta.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.100.0
           targets: wasm32v1-none
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
@@ -214,6 +299,40 @@ jobs:
           --workspace
           --summary-only
           --fail-under-lines 97.5
+      - name: Run Soroban resource benchmarks
+        working-directory: packages/contracts
+        run: |
+          set -o pipefail
+          cargo test --workspace -- --nocapture 2>&1 | tee benchmark-output.log
       - name: Build wasm
         working-directory: packages/contracts
         run: cargo build --target wasm32v1-none --release
+      # Compares each contract's release WASM with its budget in
+      # packages/contracts/wasm-size-budgets.json and, on PRs, with a build of
+      # the base commit (same command, separate target dir). Fails when a
+      # contract is over budget; the table also goes to the job summary.
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check contract WASM size budgets
+        env:
+          WASM_SIZE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: pnpm check:wasm-size
+      - name: Gate Soroban resource benchmarks
+        run: >
+          pnpm check:contract-benchmarks
+          --input packages/contracts/benchmark-output.log
+          --baseline packages/contracts/benchmarks/baselines.json
+          --output packages/contracts/benchmark-results.json
+      - name: Upload Soroban benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soroban-resource-benchmarks
+          path: |
+            packages/contracts/benchmark-results.json
+            packages/contracts/benchmark-output.log
+          if-no-files-found: warn

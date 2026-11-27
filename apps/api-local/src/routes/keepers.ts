@@ -6,11 +6,12 @@ import { handleGetKeeperHealth } from "@meridian/api-core";
 // sign real transactions off a funded keeper account and are deliberately
 // not wired into the local Fastify server.
 export const keepersRoute: FastifyPluginAsync = async (app) => {
-  app.get("/health", async (_req, reply) => {
+  app.get("/health", async (req, reply) => {
     const result = await handleGetKeeperHealth();
     if (result.error) {
-      app.log.error(result.error, "[keepers] failed to read keeper health");
+      req.log.error(result.error, "[keepers] failed to read keeper health");
     }
+    reply.header("Cache-Control", "no-store");
     return reply.code(result.status).send(result.body);
   });
 };

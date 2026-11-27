@@ -1,16 +1,22 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import {
   getSelectedWalletId,
   getWalletAdapter,
   setSelectedWalletId,
+  WalletCancelledError,
+  WalletTimeoutError,
   type WalletId,
 } from "../lib/wallet";
 import { useRiskDisclosure } from "./useRiskDisclosure";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "react-i18next";
+import { mapError } from "../lib/errorMapper";
 
-export type ConnectStatus = "idle" | "connecting" | "no-extension";
+// "timed-out" is distinct from "idle" so the UI can explain the likely cause
+// (a wallet window hidden behind the browser) and offer a retry.
+export type ConnectStatus =
+  "idle" | "connecting" | "no-extension" | "timed-out";
 
 interface UseWalletConnectOptions {
   // For call sites where connecting isn't a deposit action, e.g. AdminLogin.
@@ -24,12 +30,16 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
   const { push } = useToastStore();
   const [status, setStatus] = useState<ConnectStatus>("idle");
   // The wallet handleConnect most recently attempted — meaningful once
-  // status is "connecting" or "no-extension", so the UI knows which
-  // wallet's install link to show. Defaults to the persisted selection so a
-  // returning user's plain "Connect Wallet" click (no explicit walletId)
-  // still resolves to the right wallet from the very first render.
+  // status is "connecting", "no-extension" or "timed-out", so the UI knows
+  // which wallet's install link to show and which wallet to retry.
+  // Defaults to the persisted selection so a returning user's plain
+  // "Connect Wallet" click (no explicit walletId) still resolves to the
+  // right wallet from the very first render.
   const [attemptedWalletId, setAttemptedWalletId] =
     useState<WalletId>(getSelectedWalletId);
+  // The in-flight connect attempt. A cancel aborts it; a superseded attempt
+  // must not overwrite the status of the one that replaced it.
+  const controllerRef = useRef<AbortController | null>(null);
   // The risk-disclosure gate lives here, not in each component that can
   // trigger a connect (#720): there is more than one such call site
   // (WalletConnect.tsx's own button, VaultPanel.tsx's inline connect
@@ -40,18 +50,37 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
   // gated callback instead of a separate walletIdToConnect state.
   const riskDisclosure = useRiskDisclosure();
 
-  async function connectNow(walletId: WalletId) {
-    setAttemptedWalletId(walletId);
-    const adapter = getWalletAdapter(walletId);
-    const installed = await adapter.isInstalled();
-    if (!installed) {
-      setStatus("no-extension");
-      return;
-    }
+  function isCurrent(controller: AbortController) {
+    return controllerRef.current === controller;
+  }
 
+  async function connectNow(walletId: WalletId) {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    setAttemptedWalletId(walletId);
     setStatus("connecting");
     try {
-      const key = await adapter.connect();
+      const adapter = getWalletAdapter(walletId);
+      const installed = await adapter.isInstalled({
+        signal: controller.signal,
+      });
+      if (!installed) {
+        if (isCurrent(controller)) setStatus("no-extension");
+        return;
+      }
+
+      const key = await adapter.connect({ signal: controller.signal });
+      if (typeof adapter.getNetwork === "function") {
+        try {
+          const reportedNetwork = await adapter.getNetwork();
+          if (reportedNetwork === "mainnet" || reportedNetwork === "testnet") {
+            useWalletStore.setState({ network: reportedNetwork });
+          }
+        } catch {
+          // Ignore passive reporting errors
+        }
+      }
       // Only persisted on success: a failed or cancelled connect attempt
       // must not silently switch which wallet future sign/reconnect calls
       // (which dispatch off the persisted selection) go through.
@@ -60,14 +89,29 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
       setStatus("idle");
       push("success", t("walletConnect.walletConnected"));
     } catch (err) {
+      if (!isCurrent(controller)) return;
+      // A cancel returns to idle without touching the persisted selection.
+      if (err instanceof WalletCancelledError) {
+        setStatus("idle");
+        return;
+      }
+      if (err instanceof WalletTimeoutError) {
+        // Keep the attempted wallet so the UI can offer a retry, and explain
+        // that the wallet window may simply be behind the browser.
+        setStatus("timed-out");
+        push("error", mapError(err, t).message);
+        return;
+      }
       const message = err instanceof Error ? err.message : "";
       // User closed the popup — not an error worth surfacing
       if (!message || /cancel|decline|reject/i.test(message)) {
         setStatus("idle");
         return;
       }
-      push("error", message);
+      push("error", mapError(err, t).message);
       setStatus("idle");
+    } finally {
+      if (isCurrent(controller)) controllerRef.current = null;
     }
   }
 
@@ -86,10 +130,26 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
     await riskDisclosure.requireAcceptance(() => connectNow(walletId));
   }
 
+  // Aborts an in-flight connect and returns to idle. The persisted wallet
+  // selection is untouched, so a later connect still targets the same wallet.
+  function cancelConnect() {
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    setStatus("idle");
+  }
+
+  // Re-runs the last attempt after a timeout, without asking the user to
+  // reopen the picker.
+  function retryConnect() {
+    void handleConnect(attemptedWalletId);
+  }
+
   // Same return shape as before #814, so WalletConnect, VaultPanel and
   // AdminLogin keep consuming these names unchanged.
   return {
     handleConnect,
+    cancelConnect,
+    retryConnect,
     status,
     attemptedWalletId,
     showRiskDisclosure: riskDisclosure.show,

@@ -1,3 +1,4 @@
+import { STRATEGY_ENGINE_VERSION } from "./engine";
 export * from "./decimal";
 export * from "./guard";
 export * from "./volatility";
@@ -9,7 +10,7 @@ export interface StrategyEngine {
 
 export const STRATEGY_ENGINE: StrategyEngine = {
   name: "meridian-strategies",
-  version: "0.1.0",
+  version: STRATEGY_ENGINE_VERSION,
 };
 
 export * from "./types";
@@ -21,6 +22,7 @@ export * from "./gbm";
 export * from "./sizing";
 export * from "./backtest";
 export * from "./portfolio";
+export * from "./venue";
 export * from "./strategy";
 export * from "./composition";
 export * from "./clock";
@@ -44,9 +46,11 @@ export * from "./correlated-paths";
 export * from "./regime-scenarios";
 export * from "./rebalance";
 export * from "./report";
+export * from "./report-builder";
 export * from "./registry";
 export * from "./composition/capital-allocation";
 export * from "./composition/correlation-matrix";
 export * from "./composition/constraint-engine";
 
 export * from "./scenario-sources";
+export * from "./execute-scenario";

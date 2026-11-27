@@ -50,6 +50,15 @@ curl http://localhost:3001/health
 # {"status":"ok"}
 ```
 
+For API dependency checks, use `GET http://localhost:3001/api/v1/health/live`
+for process liveness and `GET http://localhost:3001/api/v1/health/ready` for
+readiness. Liveness does not contact external services. Readiness reports the
+Soroban RPC, Upstash PING, position snapshot store, and build metadata
+independently; it returns 503 if any required check fails. Without Upstash
+credentials, local snapshot storage is identified as `in-memory`, while the
+Upstash dependency is reported unhealthy and readiness returns 503. Set
+`APP_VERSION` or use the default `0.1.0` to identify the running version.
+
 ## Running tests
 
 ```bash
@@ -109,6 +118,8 @@ cargo test --manifest-path blend-adapter/Cargo.toml
 `stellar contract build` targets `wasm32v1-none`, not `wasm32-unknown-unknown`. Install the correct target with `rustup target add wasm32v1-none` if you haven't already.
 
 See [Testnet Deployment](./testnet-deployment.md) for deploying the contracts to testnet, and [Vault Contract](../architecture/vault-contract.md) for how the vault and adapters fit together.
+
+For contract storage keys and TTL/archival operations, see [Contract Storage and TTL Reference](../architecture/contract-storage.md).
 
 ## Wallet setup
 

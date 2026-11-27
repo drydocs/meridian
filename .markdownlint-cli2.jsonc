@@ -1,0 +1,10 @@
+{
+  // Rules live in .markdownlint.json; this file only selects inputs.
+  "globs": ["**/*.md"],
+  "ignores": [
+    "**/node_modules/**",
+    "**/.vitepress/**",
+    "**/target/**",
+    "CHANGELOG.md",
+  ],
+}

@@ -14,14 +14,19 @@ import {
   type BacktestPricePoint,
   type PriceFeed,
 } from "./types";
-import { durationToMilliseconds, type Scenario } from "./scenario";
+import {
+  durationToMilliseconds,
+  scenarioCostSchedule,
+  type Scenario,
+} from "./scenario";
 import {
   loadHistoricalSeries,
   type HistoricalInput,
   type LoadedStream,
 } from "./historical-loader";
-import type { AccrualConfig } from "./backtest/runner";
+import type { AccrualConfig, ExecutionConfig } from "./backtest/runner";
 import type { DefiLlamaPool } from "@meridian/stellar-sdk-helpers";
+import { isRegimeScenario, scenarioPriceFeed } from "./regime-scenarios";
 
 /**
  * Thrown when a declared price or rate source does not contain data covering
@@ -55,7 +60,9 @@ export class MissingSourceDataError extends Error {
  */
 export interface ResolvedScenarioSources {
   readonly prices: PriceFeed;
+  readonly hedgePrices?: PriceFeed;
   readonly accrual?: AccrualConfig;
+  readonly execution: ExecutionConfig;
 }
 
 /**
@@ -110,6 +117,19 @@ export async function resolveScenarioSources(
   scenario: Scenario,
   options: ResolveScenarioSourcesOptions = {}
 ): Promise<ResolvedScenarioSources> {
+  if (
+    isRegimeScenario(scenario) &&
+    scenario.source.price === "horizon" &&
+    options.historicalData === undefined &&
+    options.defiLlamaPools === undefined &&
+    options.fetchDeFiLlamaPools === undefined
+  ) {
+    return {
+      prices: scenarioPriceFeed(scenario),
+      execution: { costSchedule: scenarioCostSchedule(scenario) },
+    };
+  }
+
   const windowStartMs = Date.parse(scenario.window.start);
   const windowEndMs = Date.parse(scenario.window.end);
   const stepMs =
@@ -127,27 +147,35 @@ export async function resolveScenarioSources(
     });
   }
 
-  // 2. Resolve Price Feed
-  let priceFeed: PriceFeed;
-  const priceSource = scenario.source.price;
+  // 2. Resolve the spot and (optional) hedge price feeds. Both come from
+  // recorded series supplied in `historicalData`, so they share one builder.
+  const feedOptions: BacktestPriceFeedOptions | undefined =
+    options.strict !== undefined ? { strict: options.strict } : undefined;
 
-  if (priceSource === "horizon" || priceSource === "defillama") {
-    // Both horizon and defillama price sources require real price observations (#1025)
+  /**
+   * Builds a feed from the loaded series, one per scenario asset. A series
+   * must exist and span the whole scenario window, otherwise the run fails
+   * before it starts with a MissingSourceDataError.
+   */
+  const buildFeed = (
+    kind: "price" | "hedge",
+    source: string,
+    seriesKeys: (asset: string) => readonly string[]
+  ): PriceFeed => {
+    const prefix = kind === "hedge" ? "hedge " : "";
     const feedMap = new Map<AssetSymbol, BacktestPricePoint[]>();
 
     for (const asset of scenario.assets) {
-      // Look for stream "price:<asset>", "<asset>", or "price:<asset.toUpperCase()>"
-      const stream =
-        loadedSeries[`price:${asset}`] ??
-        loadedSeries[asset] ??
-        loadedSeries[`price:${asset.toUpperCase()}`];
+      const stream = seriesKeys(asset)
+        .map((key) => loadedSeries[key])
+        .find((candidate) => candidate !== undefined);
 
       if (!stream || stream.series.points.length === 0) {
         throw new MissingSourceDataError({
           asset,
           window: { start: scenario.window.start, end: scenario.window.end },
-          source: priceSource,
-          message: `${priceSource} price data missing for asset "${asset}" across window ${scenario.window.start} to ${scenario.window.end}`,
+          source,
+          message: `${source} ${prefix}price data missing for asset "${asset}" across window ${scenario.window.start} to ${scenario.window.end}`,
         });
       }
 
@@ -160,24 +188,56 @@ export async function resolveScenarioSources(
         throw new MissingSourceDataError({
           asset,
           window: { start: scenario.window.start, end: scenario.window.end },
-          source: priceSource,
-          message: `${priceSource} recorded series for asset "${asset}" covers ${new Date(minTimestamp).toISOString()} to ${new Date(maxTimestamp).toISOString()}, which does not fully span scenario window ${scenario.window.start} to ${scenario.window.end}`,
+          source,
+          message: `${source} ${prefix}recorded series for asset "${asset}" covers ${new Date(minTimestamp).toISOString()} to ${new Date(maxTimestamp).toISOString()}, which does not fully span scenario window ${scenario.window.start} to ${scenario.window.end}`,
         });
       }
 
-      const pricePoints: BacktestPricePoint[] = points.map((p) => ({
-        timestamp: p.timestampMs,
-        price: FixedPointDecimal.fromString(p.value.toString()),
-      }));
-
-      feedMap.set(asset as AssetSymbol, pricePoints);
+      feedMap.set(
+        asset as AssetSymbol,
+        points.map((p) => ({
+          timestamp: p.timestampMs,
+          price: FixedPointDecimal.fromString(p.value.toString()),
+        }))
+      );
     }
 
-    const feedOptions: BacktestPriceFeedOptions | undefined =
-      options.strict !== undefined ? { strict: options.strict } : undefined;
-    priceFeed = new BacktestPriceFeed(feedMap, feedOptions);
+    return new BacktestPriceFeed(feedMap, feedOptions);
+  };
+
+  let priceFeed: PriceFeed;
+  const priceSource = scenario.source.price;
+
+  if (priceSource === "horizon" || priceSource === "defillama") {
+    // Both horizon and defillama price sources require real price observations (#1025).
+    // Spot series are named "price:<asset>", "<asset>" or "price:<ASSET>".
+    priceFeed = buildFeed("price", priceSource, (asset) => [
+      `price:${asset}`,
+      asset,
+      `price:${asset.toUpperCase()}`,
+    ]);
   } else {
     throw new Error(`Unsupported price source: ${priceSource}`);
+  }
+
+  // The hedge leg's prices are read from price rows whose `asset` is
+  // "hedge:<asset>" in `historicalData` (the loader names that series
+  // "price:hedge:<asset>"), one per scenario asset, with the same loader and
+  // the same window coverage rules as the spot series. No loader or synthetic history
+  // produces them yet, so a scenario that declares `source.hedge` must be
+  // given those series by its caller; without them the run fails before it
+  // starts with a MissingSourceDataError.
+  let hedgeFeed: PriceFeed | undefined;
+  const hedgeSource = scenario.source.hedge;
+
+  if (hedgeSource !== undefined) {
+    if (hedgeSource === "horizon" || hedgeSource === "defillama") {
+      hedgeFeed = buildFeed("hedge", hedgeSource, (asset) => [
+        `price:hedge:${asset}`,
+      ]);
+    } else {
+      throw new Error(`Unsupported hedge source: ${hedgeSource}`);
+    }
   }
 
   // 3. Resolve Rate Source & Accrual Config
@@ -266,6 +326,8 @@ export async function resolveScenarioSources(
 
   return {
     prices: priceFeed,
+    ...(hedgeFeed ? { hedgePrices: hedgeFeed } : {}),
     accrual: accrualConfig,
+    execution: { costSchedule: scenarioCostSchedule(scenario) },
   };
 }

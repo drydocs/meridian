@@ -1,4 +1,6 @@
-import { toStroops } from "./tx";
+import { Address, nativeToScVal } from "@stellar/stellar-sdk";
+import { toBigInt } from "./internal";
+import { simulateView, toStroops } from "./tx";
 import {
   buildCoordinatorDepositTx,
   buildCoordinatorWithdrawTx,
@@ -7,6 +9,7 @@ import {
 import type { StellarNetwork } from "./types";
 import type { PositionInfo } from "./positions";
 import { KNOWN_POOLS } from "./known-pools";
+import { getRpcServer } from "./internal";
 
 /**
  * Look up the registry entry for `vaultId` on the given network. Throws if the
@@ -116,4 +119,113 @@ export async function resolvePositions(
     }
   }
   return positions;
+}
+
+export interface TransactionQuote {
+  action: "deposit" | "withdraw";
+  expectedShares?: string;
+  expectedAssets?: string;
+  fee: string;
+  ledger: number;
+  recommendedMinimum: string;
+  slippageBps: number;
+}
+
+function i128(value: bigint) {
+  return nativeToScVal(value, { type: "i128" });
+}
+
+export async function quoteVaultAction(options: {
+  vaultId: string;
+  walletAddress: string;
+  action: "deposit" | "withdraw";
+  amount?: string | undefined;
+  shares?: string | undefined;
+  network: StellarNetwork;
+  slippageBps: number;
+}): Promise<TransactionQuote> {
+  if (
+    !Number.isInteger(options.slippageBps) ||
+    options.slippageBps < 0 ||
+    options.slippageBps > 10_000
+  ) {
+    throw new Error("slippageBps must be between 0 and 10000");
+  }
+  const entry = resolveVaultEntry(options.vaultId, options.network);
+  const server = getRpcServer(options.network.rpcUrl, 12_000);
+
+  if (options.action === "deposit") {
+    if (!options.amount)
+      throw new Error("amount is required for deposit quotes");
+    const amount = toStroops(options.amount);
+    const paused = Boolean(
+      await simulateView(
+        server,
+        entry.contractId,
+        options.network.passphrase,
+        "is_paused"
+      )
+    );
+    if (paused) throw new Error("Deposits are currently paused");
+    const result = await simulateView(
+      server,
+      entry.contractId,
+      options.network.passphrase,
+      "preview_deposit",
+      i128(amount)
+    );
+    const expected = toBigInt(result);
+    const recommended =
+      (expected * BigInt(10_000 - options.slippageBps)) / 10_000n;
+    const latest = await server.getLatestLedger();
+    return {
+      action: "deposit",
+      expectedShares: formatStroops(expected),
+      recommendedMinimum: formatStroops(recommended),
+      slippageBps: options.slippageBps,
+      fee: "0",
+      ledger: latest.sequence,
+    };
+  }
+
+  if (!options.shares)
+    throw new Error("shares is required for withdrawal quotes");
+  const shares = toStroops(options.shares);
+  const result = (await simulateView(
+    server,
+    entry.contractId,
+    options.network.passphrase,
+    "preview_withdraw",
+    Address.fromString(options.walletAddress).toScVal(),
+    i128(shares)
+  )) as Record<string, unknown>;
+  const assetsOut = toBigInt(result.assets_out);
+  const performanceFee = toBigInt(result.fee);
+  const recommended =
+    (assetsOut * BigInt(10_000 - options.slippageBps)) / 10_000n;
+  const latest = await server.getLatestLedger();
+  return {
+    action: "withdraw",
+    expectedAssets: formatStroops(assetsOut),
+    fee: formatStroops(performanceFee),
+    recommendedMinimum: formatStroops(recommended),
+    slippageBps: options.slippageBps,
+    ledger: latest.sequence,
+  };
+}
+
+function formatStroops(value: bigint): string {
+  const whole = value / 10_000_000n;
+  const remainder = value % 10_000_000n;
+  if (remainder === 0n) return whole.toString();
+  return `${whole}.${remainder.toString().padStart(7, "0").replace(/0+$/, "")}`;
+}
+
+/** Returns the latest closed ledger sequence for the given network. */
+export async function getLatestLedgerSequence(
+  network: StellarNetwork
+): Promise<number> {
+  const server = getRpcServer(network.rpcUrl, 12_000);
+  const latest = await server.getLatestLedger();
+  return latest.sequence;
 }

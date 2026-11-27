@@ -70,7 +70,7 @@ Before cloning, confirm you have the required tools installed:
 
 | Tool           | Required version | Check               |
 | -------------- | ---------------- | ------------------- |
-| Node.js        | `>=20`           | `node --version`    |
+| Node.js        | `22.x`           | `node --version`    |
 | pnpm           | `9.x`            | `pnpm --version`    |
 | Rust toolchain | stable (latest)  | `rustc --version`   |
 | Stellar CLI    | latest           | `stellar --version` |
@@ -82,6 +82,25 @@ To install pnpm at the correct version:
 ```bash
 npm install -g pnpm@9
 ```
+
+### Toolchain Version Pinning
+
+Meridian pins its supported Node.js and pnpm versions to ensure consistent local development and CI environments:
+
+- **Node.js**: The supported Node.js major version is pinned in `.node-version` and `.nvmrc` (`22`). CI workflows (`.github/workflows/ci.yml` and `.github/workflows/verify-contract-addresses.yml`) read `.node-version` via `actions/setup-node`'s `node-version-file` input.
+- **pnpm**: The package manager is declared in `package.json` under `"packageManager"` (`pnpm@9.0.0`) and enforced in `"engines"`.
+- **Preinstall Enforcement**: A preinstall check (`scripts/check-version.js`) runs before `pnpm install` to verify that the active Node.js and package manager versions match the repository pins. If an unsupported version is detected, it fails with a clear error message.
+
+#### Updating the Version Pins
+
+When upgrading the repository toolchain (e.g. migrating to a newer Node.js LTS or pnpm major version):
+
+1. **Update `.node-version` and `.nvmrc`**: Update the major version number (e.g., `22`) in both `.node-version` and `.nvmrc`.
+2. **Update `package.json`**:
+   - Update `"packageManager"` with the new target version (e.g., `"pnpm@10.0.0"`).
+   - Update the `"engines"` field (`"node"` and `"pnpm"`) to reflect the supported ranges.
+3. **Update Documentation**: Update the versions listed in the Prerequisites table in this file.
+4. **Verify**: Run `pnpm install`, `pnpm lint`, and `pnpm typecheck` to confirm the new versions pass all checks.
 
 ---
 
@@ -290,6 +309,15 @@ Commits that do not match the `^(feat|fix|docs|chore|refactor|test|style|ci|perf
 
 ## Code Standards
 
+### Architecture Decision Records
+
+When a change alters an accepted architectural decision, update the relevant
+ADR or add a new one in [`apps/docs/architecture/adr/`](apps/docs/architecture/adr/).
+Use the [ADR template](apps/docs/architecture/adr/template.md), update the
+[index](apps/docs/architecture/adr/index.md), and link the record from the
+affected architecture documentation. Routine changes that do not alter an
+architectural decision do not need an ADR.
+
 ### TypeScript (`apps/web`, `apps/api-local`, `packages/*`)
 
 - **Formatting:** Run `pnpm format` before committing. Prettier with default settings.
@@ -313,8 +341,22 @@ Commits that do not match the `^(feat|fix|docs|chore|refactor|test|style|ci|perf
   - `PascalCase` for types and traits
   - `UPPER_SNAKE_CASE` for constants
 - **Error handling:** Use `Result<T, E>` everywhere. No `.unwrap()` in contract code except on values that are provably infallible; explain why in an inline comment.
+- **Adding a `ContractError` variant:** When adding a new variant to `ContractError` in any contract crate (`vault`, `blend-adapter`, `defindex-adapter`, or `musdc-token`), assign the next unused `u32` discriminant (never reuse or renumber existing codes), add a `///` doc comment explaining when it is raised, and document the variant with its cause and recommended client/operator response in `apps/docs/architecture/contract-errors.md`. Run `pnpm --filter @meridian/docs test` (included in `pnpm test`) to verify every variant is cataloged.
 - **Documentation:** All public functions must have doc comments (`///`). Include a one-line summary and a note on any panics or preconditions.
 - **Security:** Validate all inputs. Assume callers are adversarial. Never read from storage without checking the key exists first.
+
+#### Contract WASM size budgets
+
+Each contract's release WASM has a size budget in [`packages/contracts/wasm-size-budgets.json`](packages/contracts/wasm-size-budgets.json), keyed by the WASM file name (`meridian_vault`, `meridian_blend_adapter`, ...). The **Soroban Contract Tests** CI job builds the contracts, then runs `pnpm check:wasm-size`, which prints each contract's size, budget, share of the budget used and the delta from the PR's base commit (also shown in the job summary). It fails when a contract is over its budget, when a newly built contract has no budget, or when a budgeted contract was not built. The job only runs when contract sources, build settings or the check itself change.
+
+To check locally (needs the `wasm32v1-none` target; uses `stellar contract build` when the Stellar CLI is installed, `cargo build --target wasm32v1-none --release` otherwise):
+
+```bash
+pnpm check:wasm-size -- --build                  # sizes vs budgets
+pnpm check:wasm-size -- --build --base-ref main  # plus the delta from main
+```
+
+**Updating a budget.** When a contract grows on purpose, raise its number in `wasm-size-budgets.json` in the same PR and say in the PR description what grew and why; reviewers treat the budget change as an explicit sign-off on the larger binary. For a new contract, add an entry. Budgets are set to roughly the current size plus 10%, rounded up to a whole KiB, so routine changes don't need an update but significant growth gets a deliberate review.
 
 ---
 
@@ -361,6 +403,15 @@ Pull requests are reviewed within 72 hours of submission. You will receive one o
 - **Changes requested** -- address the comments and request a re-review
 - **Closed** -- the PR is out of scope, a duplicate, or does not meet the standards in this guide; the closing comment will explain why
 
+### CI Concurrency and Timeouts
+
+All GitHub Actions workflows under `.github/workflows/` define explicit concurrency groups and per-job timeouts:
+
+- **Concurrency groups** are keyed by workflow and ref (`${{ github.workflow }}-${{ github.ref }}`).
+- **Pull request workflows** (`ci.yml`, `pr-title.yml`, `verify-contract-addresses.yml`) set `cancel-in-progress` for pull request runs so pushing a new commit cancels superseded runs on the same ref.
+- **Default branch and keeper runs** are never cancelled by concurrency (`cancel-in-progress` is disabled for pushes to `main` and for `keepers.yml`), ensuring scheduled keeper runs and main-branch checks run to completion.
+- **Job timeouts** (`timeout-minutes`) are set explicitly on every job, sized above observed runtimes so hung installs, builds, or tests fail promptly instead of waiting for the default 6-hour limit. When adding a new job or workflow, always include both a `concurrency` block and an explicit `timeout-minutes` value.
+
 ---
 
 ## Running Checks Locally
@@ -377,6 +428,8 @@ pnpm typecheck     # tsc --noEmit across all packages
 pnpm test          # Vitest across all packages
 pnpm coverage      # Vitest with coverage thresholds across all packages
 pnpm format        # Prettier (auto-fix)
+pnpm lint:md       # markdownlint (config: .markdownlint.json)
+pnpm check:links   # Internal links and heading anchors in all Markdown (needs lychee)
 
 # Run tests for a single package
 pnpm --filter @meridian/stellar-sdk-helpers test
@@ -389,6 +442,21 @@ cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo test --all
 ```
+
+### Adding a new API error code
+
+When introducing a new error code or status mapping in `packages/api-core`:
+
+1. Define the error code string and handler response shape in `packages/api-core`.
+2. Add the code, status, trigger condition, retry guidance, and recommended client action to the catalog in [`apps/docs/architecture/api-errors.md`](apps/docs/architecture/api-errors.md).
+3. If introducing a new user-fixable Soroban contract error mapping, add it to `USER_FIXABLE_CONTRACT_ERRORS` in `packages/api-core/src/tx.ts` and document it in the Contract Simulation Errors table.
+4. Run `pnpm --filter @meridian/docs test` to verify the catalog is complete.
+
+### Docs checks
+
+The **Docs Lint & Links** CI job runs when a pull request (or a push to `main`) touches Markdown, `apps/docs`, or the checker configs. It runs `pnpm lint:md` and `pnpm check:links`, which are strict: a broken relative link, root-relative VitePress link, or heading anchor fails the job. External links are checked with `pnpm check:links:external`, which only warns on pull requests. Install the link checker locally with `brew install lychee` (or `cargo install lychee`).
+
+Hosts that block or rate-limit CI runners, and GitHub-relative links such as `../../issues`, are allowlisted in [`lychee.toml`](lychee.toml); add a comment explaining any new entry. Heading anchors must resolve on both GitHub and VitePress, so avoid apostrophes and other punctuation in headings that are linked to.
 
 ### End-to-end tests
 
@@ -407,7 +475,7 @@ pnpm --filter @meridian/web test:e2e:ui
 
 This suite is a blocking CI check. Tests that depend on live testnet RPC or other external services
 (such as the vault-list APY/TVL/route assertions) stub the API with `page.route()` to keep the
-suite deterministic — real testnet RPC is still exercised in the deposit/withdraw tx-build specs, which
+suite deterministic. Real testnet RPC is still exercised in the deposit/withdraw tx-build specs, which
 accept valid RPC failure states as expected outcomes. Before merging a PR, this job must pass (see #535).
 
 ---

@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Strategies: CVaR and downside risk metrics (#1434).** `@meridian/strategies`
+  adds `conditionalValueAtRisk`, `downsideDeviation`, `sortinoRatio` and
+  `calmarRatio`, all in fixed point. `computeRiskMetrics` returns the new
+  fields (Sortino and Calmar are `null` when their denominator is zero) and
+  accepts `minimumAcceptableReturn` and `periodsPerYear`. The app's risk
+  panel shows CVaR, annualized Sortino and Calmar.
+  `RunReport.riskMetrics` now carries `valueAtRisk`, `conditionalValueAtRisk`,
+  `downsideDeviation`, `sortinoRatio` and `calmarRatio`, and
+  `REPORT_FORMAT_VERSION` is bumped to 3. Version 2 reports are rejected with
+  `UnknownReportVersionError`.
+- **SDK: typed errors, retry policy and instrumentation hooks (#1299).** `@meridian/sdk`
+  now throws `MeridianError` subclasses with a stable `code` and `retryable`
+  flag, accepts `timeouts` (RPC default stays 12000ms), an opt-in `retry`
+  policy (reads only unless `retryTxBuilders`) and redacted lifecycle `hooks`.
+  Method signatures and error messages are unchanged.
 - **MeridianVault: per-user deposit entry time.** The contract now stamps
   `env.ledger().timestamp()` on a user's first deposit (top-ups keep the original;
   a full withdrawal clears it) and exposes it via `get_entry_time`. The

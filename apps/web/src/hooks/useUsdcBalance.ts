@@ -6,28 +6,62 @@ import { fetchBalances } from "../lib/horizonAccount";
 export interface UseUsdcBalanceResult {
   /** The wallet's spendable USDC, or undefined when unknown (skip guard). */
   balance: number | undefined;
+  /** True when reading the balance from Horizon failed. */
+  isError?: boolean;
   /** Re-fetch the balance — call this after a deposit succeeds. */
   refetch: () => void;
 }
 
 /**
- * Reads the connected wallet's USDC balance from Horizon — the same source
+ * Reads the spendable USDC balance for the given account from Horizon.
+ * Deducts selling liabilities if present. Returns undefined when no USDC
+ * issuer is configured for the network.
+ * Throws when Horizon returns non-ok or the account cannot be read.
+ */
+export async function fetchSpendableBalance(
+  publicKey: string,
+  network: string
+): Promise<number | undefined> {
+  const account = await fetchBalances(publicKey, network);
+  if (!account) {
+    throw new Error(`Failed to fetch balance from Horizon for ${publicKey}`);
+  }
+
+  const issuer = USDC_ISSUER[network];
+  if (!issuer) return undefined;
+  const usdc = account.balances.find(
+    (b) => b.asset_code === "USDC" && b.asset_issuer === issuer
+  );
+
+  if (!usdc) return 0;
+
+  const rawBalance = parseFloat(usdc.balance);
+  if (Number.isNaN(rawBalance)) return 0;
+
+  const liabilities = parseFloat(
+    (usdc as { selling_liabilities?: string }).selling_liabilities ?? "0"
+  );
+  const sellingLiabilities = Number.isNaN(liabilities) ? 0 : liabilities;
+
+  return Math.max(0, rawBalance - sellingLiabilities);
+}
+
+/**
+ * Reads the connected wallet's spendable USDC balance from Horizon — the same source
  * that `hasRequiredTrustlines` in `useTrustlines` uses for the deposit's
  * trustline check (see #1063).
  *
  * Returns:
  *   - `balance: undefined` while loading, when no wallet is connected, or
- *     on a network/Horizon error. Callers gating submit on the value must
- *     treat `undefined` as "no opinion" (do not block), matching the
- *     DepositTab contract where `availableBalance` is optional.
- *   - `balance: number` (>= 0) when the account exists and holds a USDC
- *     trustline.
- *   - `refetch()` to force a fresh Horizon read — e.g. after a deposit
- *     changes the balance.
+ *     on a network/Horizon error.
+ *   - `balance: number` (>= 0) spendable USDC (net of selling liabilities).
+ *   - `isError: true` when Horizon reading fails (for retryable UI).
+ *   - `refetch()` to force a fresh Horizon read.
  */
 export function useUsdcBalance(): UseUsdcBalanceResult {
   const { publicKey, network } = useWalletStore();
   const [balance, setBalance] = useState<number | undefined>(undefined);
+  const [isError, setIsError] = useState(false);
   const [nonce, setNonce] = useState(0);
 
   const refetch = useCallback(() => {
@@ -41,7 +75,10 @@ export function useUsdcBalance(): UseUsdcBalanceResult {
     // the effect body (react-hooks/set-state-in-effect).
     if (!publicKey) {
       queueMicrotask(() => {
-        if (!cancelled) setBalance(undefined);
+        if (!cancelled) {
+          setBalance(undefined);
+          setIsError(false);
+        }
       });
       return () => {
         cancelled = true;
@@ -50,28 +87,15 @@ export function useUsdcBalance(): UseUsdcBalanceResult {
 
     (async () => {
       try {
-        const account = await fetchBalances(publicKey, network);
+        setIsError(false);
+        const spendable = await fetchSpendableBalance(publicKey, network);
         if (cancelled) return;
-        if (!account) {
-          setBalance(undefined);
-          return;
-        }
-        const usdcIssuer = USDC_ISSUER[network];
-        if (!usdcIssuer) {
-          setBalance(undefined);
-          return;
-        }
-        const usdc = account.balances.find(
-          (b) => b.asset_code === "USDC" && b.asset_issuer === usdcIssuer
-        );
-        if (!usdc) {
-          setBalance(undefined);
-          return;
-        }
-        const parsed = Number(usdc.balance);
-        setBalance(Number.isFinite(parsed) ? parsed : undefined);
+        setBalance(spendable);
       } catch {
-        if (!cancelled) setBalance(undefined);
+        if (!cancelled) {
+          setBalance(undefined);
+          setIsError(true);
+        }
       }
     })();
 
@@ -80,5 +104,5 @@ export function useUsdcBalance(): UseUsdcBalanceResult {
     };
   }, [publicKey, network, nonce]);
 
-  return { balance, refetch };
+  return { balance, isError, refetch };
 }

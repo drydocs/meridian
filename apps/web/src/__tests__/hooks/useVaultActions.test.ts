@@ -4,6 +4,8 @@ import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
 import { useToastStore } from "../../store/toast";
 
+const mockLocale = vi.hoisted(() => ({ value: "en" }));
+
 const invalidateQueries = vi.fn();
 const setQueryData = vi.fn();
 const getQueryData = vi.fn<(key: unknown[]) => unknown>(() => undefined);
@@ -65,12 +67,16 @@ vi.mock("@tanstack/react-query", async () => {
   };
 });
 
-vi.mock("../../lib/wallet", () => ({
-  wallet: {
-    sign: vi.fn(async () => "SIGNED_XDR"),
-    isAuthorized: vi.fn(async () => true),
-  },
-}));
+vi.mock("../../lib/wallet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/wallet")>();
+  return {
+    ...actual,
+    wallet: {
+      sign: vi.fn(async () => "SIGNED_XDR"),
+      isAuthorized: vi.fn(async () => true),
+    },
+  };
+});
 
 vi.mock("../../lib/api", () => ({
   api: {
@@ -103,6 +109,11 @@ vi.mock("react-i18next", () => {
   return {
     useTranslation: () => ({
       t: (key: string) => translations[key] ?? key,
+      i18n: {
+        get language() {
+          return mockLocale.value;
+        },
+      },
     }),
   };
 });
@@ -153,6 +164,7 @@ function bothTrustlinesHorizonResponse() {
 }
 
 beforeEach(() => {
+  mockLocale.value = "en";
   useWalletStore.setState({
     publicKey: KEY,
     connected: true,
@@ -203,7 +215,8 @@ describe("useVaultActions — deposit", () => {
     });
     expect(wallet.sign).toHaveBeenCalledWith(
       "DEPOSIT_XDR",
-      APP_NETWORK.passphrase
+      APP_NETWORK.passphrase,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect(api.submitTx).toHaveBeenCalledWith({ xdr: "SIGNED_XDR" });
     expect(useToastStore.getState().toasts[0]).toMatchObject({
@@ -235,6 +248,25 @@ describe("useVaultActions — deposit", () => {
       min_shares_out: "9.5",
       riskAcknowledged: true,
     });
+  });
+
+  it("canonicalizes French input before building the API request", async () => {
+    mockLocale.value = "fr";
+    const { result } = renderHook(() => useVaultActions());
+
+    await act(async () => {
+      await result.current.deposit(
+        "1 234,56",
+        "blend-usdc-fixed",
+        "USDC",
+        "9.5",
+        true
+      );
+    });
+
+    expect(api.buildDeposit).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: "1234.56" })
+    );
   });
 
   it("returns false without calling the API when risk has not been acknowledged", async () => {

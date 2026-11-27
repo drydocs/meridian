@@ -1,0 +1,186 @@
+# Risk metrics
+
+Meridian's strategies package computes risk metrics from backtest returns and
+drawdowns. A move of 2% is represented as `0.02`.
+
+## Return and drawdown series
+
+A period return compares portfolio value with its value at the previous step.
+For a positive previous value, `return[t] = value[t] / value[t - 1] - 1`.
+A drawdown compares the same value with the running peak through that step.
+For a positive peak, `drawdown[t] = value[t] / peak[t] - 1`.
+Returns can be positive during a recovery while drawdown remains negative.
+
+## Maximum drawdown
+
+`maxDrawdown` reports the worst decline as a non-negative fraction of the running peak.
+[Source](https://github.com/drydocs/meridian/blob/fa4e674f6818d4498cd080111c172297d84eaa32/packages/strategies/src/risk-metrics.ts#L141)
+
+```text
+maximum drawdown = -min(0, drawdown[1], ..., drawdown[n])
+```
+
+A worst drawdown of `-0.02` yields `0.02`, or a 2% peak-to-trough loss.
+An empty series or a series that stays at its peak yields zero.
+
+## Per-period Sharpe ratio
+
+`sharpeRatio` reports mean excess return per unit of return dispersion for one period.
+[Source](https://github.com/drydocs/meridian/blob/fa4e674f6818d4498cd080111c172297d84eaa32/packages/strategies/src/risk-metrics.ts#L45)
+
+```text
+mean = sum(returns) / n
+variance = sum((return[i] - mean)^2) / divisor
+Sharpe = (mean - riskFreePerPeriod) / sqrt(variance)
+```
+
+Here `n` is the number of returns. Population variance uses `divisor = n` by
+default. Set `varianceMode` to `"sample"` to use
+`divisor = n - 1`. The risk-free input defaults to zero and uses the same period
+as the returns. Convert an annual risk-free rate to the return period before
+passing it in. The ratio is unitless, with the same sign as the excess mean.
+The function throws `RangeError` for fewer than two returns or a computed
+variance of zero.
+
+## Annualized Sharpe ratio
+
+`annualizeSharpe` scales a per-period Sharpe ratio using the convention for independent, identically distributed periods.
+[Source](https://github.com/drydocs/meridian/blob/fa4e674f6818d4498cd080111c172297d84eaa32/packages/strategies/src/risk-metrics.ts#L82)
+
+```text
+annualized Sharpe = per-period Sharpe * sqrt(periodsPerYear)
+```
+
+The caller supplies `periodsPerYear`. When the series has one return per fixed
+scenario step, get `stepMs` from `durationToMilliseconds(scenario.window.step)`.
+For a 365-day year, `periodsPerYear = 365 * 24 * 60 * 60 * 1000 / stepMs`. A daily step gives
+365 periods and an hourly step gives 8,760. Use the cadence of the return series
+if you aggregate the steps first. The result is unitless and keeps the sign of
+the per-period ratio. A non-positive period count throws `RangeError`.
+
+## Historical value at risk
+
+`valueAtRisk` sorts period returns in ascending order. At a confidence level
+`c`, it selects a lower-tail observation by its one-based rank.
+[Source](https://github.com/drydocs/meridian/blob/fa4e674f6818d4498cd080111c172297d84eaa32/packages/strategies/src/risk-metrics.ts#L106)
+
+```text
+k = clamp(ceil((1 - c) * n), 1, n)
+VaR = -sortedReturns[k - 1]
+```
+
+The ceiling keeps an exact integer rank unchanged and rounds a fractional rank
+up. Clamping keeps the observation within the available sample. Rank 1 selects
+the worst return and rank `n` selects the best. The calculation uses the selected
+observation directly. VaR is a fraction for one return period. Positive VaR
+represents a loss, zero represents break-even, and negative VaR means the selected
+lower-tail return is positive. An empty return series or confidence outside the
+open interval `(0, 1)` throws `RangeError`. The `computeRiskMetrics` helper
+defaults to 95% confidence.
+
+## Conditional value at risk
+
+`conditionalValueAtRisk` (expected shortfall) averages every return at or
+below the VaR threshold at the same confidence, then negates the mean.
+[Source](https://github.com/drydocs/meridian/blob/main/packages/strategies/src/risk-metrics.ts)
+
+```text
+k = clamp(ceil((1 - c) * n), 1, n)
+threshold = sortedReturns[k - 1]
+CVaR = -mean(return[i] for return[i] <= threshold)
+```
+
+Returns tied with the threshold join the tail, so CVaR is never a smaller loss
+than VaR. It uses the same sign convention: positive is a loss, negative means
+even the tail was a gain. It throws `RangeError` for the same inputs as
+`valueAtRisk`.
+
+## Downside deviation
+
+`downsideDeviation` measures dispersion below a per-period minimum acceptable
+return (MAR), which defaults to zero.
+
+```text
+downside deviation = sqrt(sum(min(0, return[i] - MAR)^2) / n)
+```
+
+Every return counts in `n`, but only shortfalls below the MAR add to the sum.
+The result is zero or higher, and zero when no return fell below the MAR. An
+empty series throws `RangeError`.
+
+## Sortino ratio
+
+`sortinoRatio` is the per-period excess mean over the downside deviation.
+
+```text
+Sortino = (mean - MAR) / downside deviation
+```
+
+It throws `RangeError` for an empty series or a zero downside deviation.
+Annualize it like Sharpe: `annualizeSharpe(sortino, periodsPerYear)`.
+
+## Calmar ratio
+
+`calmarRatio` divides the annualized mean return by the maximum drawdown.
+
+```text
+Calmar = mean(returns) * periodsPerYear / maximum drawdown
+```
+
+The mean is annualized arithmetically, without compounding, so the
+calculation stays in fixed point. `periodsPerYear` defaults to `1`, which gives
+a per-period ratio. The ratio keeps the sign of the mean return. It throws
+`RangeError` for an empty return series, a non-positive `periodsPerYear`, or a
+zero maximum drawdown.
+
+`computeRiskMetrics` returns all four new fields. It reports `sortinoRatio` and
+`calmarRatio` as `null` instead of throwing when their denominator is zero, and
+accepts `minimumAcceptableReturn` and `periodsPerYear` options.
+
+## Worked fixed-point example
+
+Take daily portfolio values `1`, `0.98`, `0.9849`, `0.9996735` and `1.03966044`.
+The four period returns are `-0.02`, `0.005`, `0.015` and `0.04`. The drawdowns
+after those four steps are `-0.02`, `-0.0151`, `-0.0003265` and `0`. Use a
+per-period risk-free input of `0.002`.
+
+```ts
+import {
+  annualizeSharpe,
+  computeRiskMetrics,
+  Decimal,
+  sharpeRatio,
+} from "@meridian/strategies";
+
+const decimal = (value: string) => Decimal.fromString(value, 7);
+const returns = ["-0.02", "0.005", "0.015", "0.04"].map(decimal);
+const drawdowns = ["-0.02", "-0.0151", "-0.0003265", "0"].map(decimal);
+const riskFreePerPeriod = decimal("0.002");
+const metrics = computeRiskMetrics(drawdowns, returns, {
+  riskFreePerPeriod,
+  periodsPerYear: 365,
+});
+
+metrics.maxDrawdown.toString(); // "0.020000000000000000"
+metrics.sharpeRatio.toFixed(6); // "0.371992"
+sharpeRatio(returns, riskFreePerPeriod, "sample").toFixed(6); // "0.322155"
+annualizeSharpe(metrics.sharpeRatio, 365).toFixed(6); // "7.106906"
+metrics.valueAtRisk.toString(); // "0.0200000"
+metrics.conditionalValueAtRisk.toString(); // "0.020000000000000000"
+metrics.downsideDeviation.toString(); // "0.010000000000000000"
+metrics.sortinoRatio?.toString(); // "1.000000000000000000"
+metrics.calmarRatio?.toString(); // "182.500000000000000000"
+```
+
+The mean return is `0.01`, the excess mean is `0.008` and the sum of squared
+deviations is `0.00185`. Population variance is `0.0004625` and sample variance
+is about `0.000616666666666667` at scale 18. At 95% confidence, the tail rank is
+`ceil(0.05 * 4) = 1`, so VaR is `-(-0.02) = 0.02`, and the tail holds only that
+return, so CVaR is also `0.02`. Only `-0.02` falls below a zero MAR, so the
+downside deviation is `sqrt(0.0004 / 4) = 0.01` and Sortino is
+`0.01 / 0.01 = 1`. Calmar is `0.01 * 365 / 0.02 = 182.5`.
+
+Maximum drawdown and both Sharpe calculations use at least 18 decimal places
+and keep wider input scales. The Sharpe calculations round multiplication and
+division half up, and floor square roots at the working scale. VaR preserves
+the scale of the selected observation, which is 7 in this example.

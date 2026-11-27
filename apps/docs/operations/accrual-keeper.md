@@ -12,6 +12,7 @@ A GitHub Actions workflow (`.github/workflows/keepers.yml`) calls
 plan restricts Cron Jobs to once per day, which can't express a 15-minute
 interval, so scheduling lives in GitHub Actions instead, authenticating with
 the same `CRON_SECRET` bearer token Vercel Cron would have used. See [#513](https://github.com/drydocs/meridian/issues/513).
+This scheduling choice is recorded in [ADR-0005](../architecture/adr/0005-github-actions-keeper-scheduling.md).
 
 GitHub disables scheduled workflows after 60 days of repository inactivity
 (no pushes); an active repo keeps this running indefinitely, but a long-quiet
