@@ -102,6 +102,8 @@ Returns all available vaults with live APY and TVL.
 
 APY data is sourced from DeFiLlama's `/pools` endpoint filtered to Stellar stablecoins. Pools are matched against a curated registry (`known-pools.ts`) that maps DeFiLlama pool UUIDs to protocol metadata. `recommendedVaultId` is the vault with the highest APY, or `null` if none qualifies.
 
+When DeFiLlama and Soroban RPC both fail, the response serves the last shared vault list (kept for one hour) with `"stale": true` and `cacheAgeSeconds`, so clients can show the outage instead of an empty list. After three consecutive total failures a circuit breaker skips live fetches for 30 seconds, and a failed probe after that window reopens it immediately. With no cached copy, the route answers with an error instead of an empty list.
+
 ### `GET /api/v1/vaults/:vaultId`
 
 Returns a single vault or 404.
