@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { handleGetVaults } from "@meridian/api-core";
+import { handleGetPublicVaultState, handleGetVaults } from "@meridian/api-core";
 import {
   applyCors,
   checkRateLimit,
@@ -22,11 +22,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  const result = await handleGetVaults();
+  const view = typeof req.query?.view === "string" ? req.query.view : undefined;
+  const result =
+    view === "state"
+      ? await handleGetPublicVaultState()
+      : await handleGetVaults();
   if (result.error) {
     logError("vaults.failed", req, result.error);
   }
   if (result.status === 200) {
+    if (view === "state") {
+      res.setHeader(
+        "Cache-Control",
+        "public, s-maxage=10, stale-while-revalidate=30"
+      );
+      return sendResponse(req, res, result.status, result.body);
+    }
     const body = JSON.stringify(result.body);
     if (body === undefined) {
       throw new TypeError("Vault list response is not JSON serializable");

@@ -2,7 +2,6 @@ import { useTranslation } from "react-i18next";
 import { APP_ADDRESSES, APP_NETWORK } from "@meridian/shared";
 import { useVaultState } from "../hooks/useVaultState";
 import { VaultStatePanel } from "../components/admin/VaultStatePanel";
-import { AdminActionHistory } from "../components/dashboard/AdminActionHistory";
 import { ErrorBoundary } from "../components/ui/ErrorBoundary";
 
 // Migration cooldown is a compile-time Rust constant
@@ -130,13 +129,6 @@ export function StatusPage() {
             {t("status.parameters.note")}
           </p>
         </div>
-
-        <ErrorBoundary>
-          <AdminActionHistory
-            vaultId="meridian-usdc"
-            network={APP_NETWORK.network}
-          />
-        </ErrorBoundary>
 
         <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40 px-6 py-6">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">

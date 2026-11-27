@@ -317,6 +317,26 @@ Read-only status of both scheduled keepers, for the admin dashboard's Keeper Hea
 
 `lastSuccessMs` is `null` until that keeper's endpoint (`/api/v1/keepers/accrue` or `/rebalance`) has completed a run with zero failures at least once. See `keeper-heartbeat.ts` for the definition. `healthy` is `false` whenever `lastSuccessMs` is `null` or more than 2x the keeper's own schedule interval old, matching `.github/workflows/keepers.yml`'s cron cadence.
 
+### `GET /api/v1/vaults?view=state`
+
+Public coordinator vault state used by deposit/withdraw slippage calculations and
+the public status page. It returns the active adapter, total shares, total assets,
+and pause flag. Responses are edge-cacheable for 10 seconds.
+
+### Admin challenge and session endpoints
+
+`POST /api/v1/admin/challenge` accepts `{ "address": "G..." }` and returns a
+short-lived one-time challenge. `POST /api/v1/admin/verify` accepts the address,
+challenge, and base64 wallet signature, then returns a short-lived bearer token.
+SEP-53 signatures are accepted. Admin dashboard requests send that token in the
+`Authorization` header; every protected request re-reads the live on-chain admin.
+
+`GET /api/v1/admin/vault-state` is protected and returns the same state for the
+admin dashboard. `GET /api/v1/admin/history` is also protected.
+
+The server requires `MERIDIAN_ADMIN_SESSION_SECRET` (at least 32 random bytes).
+On Vercel, Upstash Redis is required for the distributed one-time challenge store.
+
 ### `GET /api/v1/admin/vault-state`
 
 Read-only coordinator vault state for the admin dashboard's Vault State card ([#615](https://github.com/drydocs/meridian/issues/615)): active adapter/protocol, total shares, total assets, and the pause flag. It is public, for the same reason as `/api/v1/keepers/health`, and it exposes the same on-chain data `/api/v1/vaults` already surfaces, just reshaped for the admin view.

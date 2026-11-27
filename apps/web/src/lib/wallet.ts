@@ -1,3 +1,5 @@
+import { APP_NETWORK } from "@meridian/shared";
+
 // Closing the Albedo popup does not reject the request the way a genuine
 // failure does: @albedo-link/intent's transportCloseHandler() resolves every
 // pending request with intentErrors.actionRejectedByUser
@@ -19,6 +21,13 @@ type FreighterModule = {
     xdr: string,
     opts?: { networkPassphrase?: string }
   ) => Promise<{ signedTxXdr?: string; error?: { message: string } }>;
+  signMessage?: (
+    message: string,
+    opts?: { networkPassphrase?: string }
+  ) => Promise<{
+    signedMessage: string | Buffer | null;
+    error?: { message: string };
+  }>;
   getAddress?: () => Promise<{ address?: string; error?: { message: string } }>;
   getNetwork?: () => Promise<{
     network?: string;
@@ -124,6 +133,7 @@ export interface E2EMockWallet {
   authorized: boolean;
   address: string;
   sign: (xdr: string, networkPassphrase: string) => Promise<string>;
+  signMessage?: (message: string) => Promise<string>;
   network?: string;
   getAddress?: () => Promise<string | null> | string | null;
   getNetwork?: () => Promise<string | null> | string | null;
@@ -265,6 +275,7 @@ export interface WalletAdapter {
   ): Promise<string>;
   getAddress?(): Promise<string | null>;
   getNetwork?(): Promise<string | null>;
+  signMessage?(message: string): Promise<string>;
 }
 
 class FreighterWallet implements WalletAdapter {
@@ -338,6 +349,29 @@ class FreighterWallet implements WalletAdapter {
           }
         ),
       options
+    );
+  }
+
+  async signMessage(message: string): Promise<string> {
+    return withMockWallet(
+      async (mock) => {
+        if (!mock.signMessage)
+          throw new Error("This wallet cannot sign an admin login message");
+        return mock.signMessage(message);
+      },
+      async () => {
+        const freighter = await getFreighter();
+        if (!freighter.signMessage)
+          throw new Error("This wallet cannot sign an admin login message");
+        const result = await freighter.signMessage(message, {
+          networkPassphrase: APP_NETWORK.passphrase,
+        });
+        if (result.error) throw new Error(result.error.message);
+        if (!result.signedMessage) throw new Error("Signing cancelled");
+        return typeof result.signedMessage === "string"
+          ? result.signedMessage
+          : Buffer.from(result.signedMessage).toString("base64");
+      }
     );
   }
 
@@ -814,4 +848,12 @@ export const wallet: WalletAdapter = {
   getNetwork: () =>
     getWalletAdapter(getSelectedWalletId()).getNetwork?.() ??
     Promise.resolve(null),
+  signMessage: (message) => {
+    const adapter = getWalletAdapter(getSelectedWalletId());
+    if (!adapter.signMessage)
+      return Promise.reject(
+        new Error("This wallet cannot sign an admin login message")
+      );
+    return adapter.signMessage(message);
+  },
 };

@@ -4,6 +4,7 @@ import {
   scrubSensitiveText,
   type ApiErrorContext,
 } from "./errorReporter";
+import { clearAdminToken, getAdminToken } from "./adminSession";
 
 export type { ApiVault };
 export type ApiPosition = PositionInfo;
@@ -72,12 +73,18 @@ function httpErrorCategory(status: number): ApiErrorContext["category"] {
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+  const token = getAdminToken();
+  if (path.startsWith("/api/v1/admin/") && token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       signal: AbortSignal.timeout(15_000),
-      headers: { "Content-Type": "application/json" },
       ...init,
+      headers,
     });
   } catch (error) {
     const category =
@@ -114,12 +121,19 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       }
     }
     msg = msg || `Request failed (${res.status})`;
+    if (
+      path.startsWith("/api/v1/admin/") &&
+      (res.status === 401 || res.status === 403)
+    ) {
+      clearAdminToken();
+    }
     const apiError = new ApiRequestError(msg, {
       method,
       path: apiPath(path),
       status: res.status,
       category: httpErrorCategory(res.status),
     });
+    (apiError as ApiRequestError & { status?: number }).status = res.status;
     reportError(apiError, { category: "api", api: apiError.context });
     throw apiError;
   }
@@ -182,7 +196,25 @@ export const api = {
     apiFetch<{ keepers: KeeperHealthEntry[]; checkedAt: string }>(
       "/api/v1/keepers/health"
     ),
+  getPublicVaultState: () => apiFetch<VaultState>("/api/v1/vaults?view=state"),
   getVaultState: () => apiFetch<VaultState>("/api/v1/admin/vault-state"),
+  createAdminChallenge: (address: string) =>
+    apiFetch<{ challenge: string; expiresAt: number }>(
+      "/api/v1/admin/challenge",
+      {
+        method: "POST",
+        body: JSON.stringify({ address }),
+      }
+    ),
+  verifyAdminChallenge: (body: {
+    address: string;
+    challenge: string;
+    signature: string;
+  }) =>
+    apiFetch<{ token: string; expiresAt: number }>("/api/v1/admin/verify", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   getAdminHistory: (vaultId: string) =>
     apiFetch<{
       vaultId: string;

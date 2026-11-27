@@ -10,13 +10,13 @@ import {
 
 vi.mock("../../lib/api", () => ({
   api: {
-    getVaultState: vi.fn(),
+    getPublicVaultState: vi.fn(),
   },
 }));
 
 import { api } from "../../lib/api";
 
-const getVaultState = vi.mocked(api.getVaultState);
+const getVaultState = vi.mocked(api.getPublicVaultState);
 
 const STATE = {
   protocol: "meridian",

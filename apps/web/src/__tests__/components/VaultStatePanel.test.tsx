@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { VaultStatePanel } from "../../components/admin/VaultStatePanel";
-import { useVaultState } from "../../hooks/useVaultState";
+import { useAdminVaultState, useVaultState } from "../../hooks/useVaultState";
 
 const refetch = vi.fn();
 
 vi.mock("../../hooks/useVaultState", () => ({
   useVaultState: vi.fn(),
+  useAdminVaultState: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -17,13 +18,15 @@ vi.mock("react-i18next", () => ({
 }));
 
 function mock(overrides: Partial<ReturnType<typeof useVaultState>>) {
-  vi.mocked(useVaultState).mockReturnValue({
+  const value = {
     data: undefined,
     isLoading: false,
     isError: false,
     refetch,
     ...overrides,
-  } as ReturnType<typeof useVaultState>);
+  } as ReturnType<typeof useVaultState>;
+  vi.mocked(useVaultState).mockReturnValue(value);
+  vi.mocked(useAdminVaultState).mockReturnValue(value);
 }
 
 beforeEach(() => vi.clearAllMocks());

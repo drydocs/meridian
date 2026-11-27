@@ -27,7 +27,7 @@ export function AdminDashboard() {
           <KeeperHealthPanel />
         </ErrorBoundary>
         <ErrorBoundary>
-          <VaultStatePanel />
+          <VaultStatePanel admin />
         </ErrorBoundary>
       </div>
 

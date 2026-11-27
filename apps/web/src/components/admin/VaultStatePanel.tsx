@@ -1,11 +1,15 @@
 import { useTranslation } from "react-i18next";
-import { useVaultState } from "../../hooks/useVaultState";
+import { useAdminVaultState, useVaultState } from "../../hooks/useVaultState";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
 import { formatNumber } from "../../lib/format";
 
-export function VaultStatePanel() {
+export function VaultStatePanel({ admin = false }: { admin?: boolean }) {
   const { t, i18n } = useTranslation();
-  const { data, isLoading, isError, refetch } = useVaultState();
+  const publicQuery = useVaultState();
+  const adminQuery = useAdminVaultState(admin);
+  const { data, isLoading, isError, refetch } = admin
+    ? adminQuery
+    : publicQuery;
 
   return (
     <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40">

@@ -14,7 +14,7 @@ const STALE_TIME_MS = 30_000;
  * rather than a stale position share price.
  */
 export async function fetchFreshVaultState(): Promise<VaultState> {
-  return api.getVaultState();
+  return api.getPublicVaultState();
 }
 
 /** Shares expected for `amount` USDC at the live vault share price, with slippage haircut. */
@@ -107,7 +107,17 @@ export function computeMinUsdcOut({
 export function useVaultState() {
   return useQuery({
     queryKey: ["vault-state"],
+    queryFn: () => api.getPublicVaultState(),
+    staleTime: STALE_TIME_MS,
+    retry: 1,
+  });
+}
+
+export function useAdminVaultState(enabled = true) {
+  return useQuery({
+    queryKey: ["admin", "vault-state"],
     queryFn: () => api.getVaultState(),
+    enabled,
     staleTime: STALE_TIME_MS,
     retry: 1,
   });

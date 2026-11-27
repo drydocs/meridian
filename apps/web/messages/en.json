@@ -134,6 +134,9 @@
     "switchWallet": "Switch Wallet",
     "connected": "Connected",
     "readError": "Failed to verify admin status.",
+    "signIn": "Sign in as admin",
+    "signing": "Waiting for wallet signature...",
+    "walletCannotSign": "This wallet cannot sign an admin login message. Use Freighter.",
     "loading": "Loading...",
     "keeperHealth": {
       "title": "Keeper Health",

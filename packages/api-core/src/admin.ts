@@ -8,6 +8,9 @@ import {
   KNOWN_POOLS,
   loadKeeperHeartbeatStore,
 } from "@meridian/stellar-sdk-helpers";
+import { verifyAdmin } from "./admin-auth";
+import { resolveCoordinatorVault } from "./coordinator-vault";
+export { resolveCoordinatorVault } from "./coordinator-vault";
 import type { RouteResult } from "./types";
 import { deadlineResult, withUpstreamDeadline } from "./deadline";
 
@@ -59,14 +62,46 @@ export async function handleGetKeeperHealth(): Promise<RouteResult> {
   }
 }
 
+export async function handleGetPublicVaultState(): Promise<RouteResult> {
+  const vault = resolveCoordinatorVault();
+  if (!vault) {
+    return {
+      status: 404,
+      body: {
+        error: "No Meridian coordinator vault configured for this network",
+      },
+    };
+  }
+  try {
+    const state = await withUpstreamDeadline(
+      () =>
+        fetchCoordinatorState({
+          contractId: vault.contractId,
+          network: APP_NETWORK,
+        }),
+      "vault state"
+    );
+    return { status: 200, body: state };
+  } catch (err) {
+    return { ...deadlineResult(err, "Failed to read vault state", 503) };
+  }
+}
+
 /**
  * Reads the Meridian coordinator vault's current operational state for the
  * admin dashboard's Vault State card. There is exactly one coordinator vault
  * per network in KNOWN_POOLS today (see known-pools.ts); if that ever
  * changes, this picks the first one rather than guessing which is "the"
  * vault the dashboard should show.
+ *
+ * `authorization` must be a valid `Authorization: Bearer <token>` value from
+ * a completed challenge/verify flow. verifyAdmin re-reads `get_admin()` on
+ * every call so an admin key rotation immediately revokes access without
+ * waiting for the session to expire.
  */
-export async function handleGetVaultState(): Promise<RouteResult> {
+export async function handleGetVaultState(
+  authorization: string | undefined
+): Promise<RouteResult> {
   const pools =
     APP_NETWORK.network === "testnet"
       ? KNOWN_POOLS.testnet
@@ -83,6 +118,9 @@ export async function handleGetVaultState(): Promise<RouteResult> {
       },
     };
   }
+
+  const authError = await verifyAdmin(entry.contractId, authorization);
+  if (authError) return authError;
 
   try {
     const state = await withUpstreamDeadline(

@@ -19,7 +19,19 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
   };
 });
 
+// Stub admin-auth so these tests are isolated to the handler contract and do
+// not exercise the challenge/verify flow (which has its own test file).
+// handleGetAdminHistory imports verifyAdmin from "./admin-auth" inside the
+// api-core package; mocking by the package-relative path intercepts the binding.
+vi.mock("../../packages/api-core/dist/admin-auth.js", () => ({
+  verifyAdmin: vi.fn(async () => null),
+}));
+
 import { handleGetAdminHistory } from "@meridian/api-core";
+
+// A placeholder authorization value — verifyAdmin is stubbed to always pass,
+// so the actual token content does not matter here.
+const AUTH = "Bearer test-token";
 
 describe("handleGetAdminHistory", () => {
   beforeEach(() => {
@@ -27,7 +39,7 @@ describe("handleGetAdminHistory", () => {
   });
 
   it("returns 404 for an unknown vault", async () => {
-    const result = await handleGetAdminHistory("unknown-vault");
+    const result = await handleGetAdminHistory("unknown-vault", AUTH);
     expect(result.status).toBe(404);
     expect(result.body).toEqual({
       error: "vault not found or missing contractId",
@@ -36,7 +48,7 @@ describe("handleGetAdminHistory", () => {
   });
 
   it("returns 200 with actions for a known vault", async () => {
-    const result = await handleGetAdminHistory("meridian-usdc");
+    const result = await handleGetAdminHistory("meridian-usdc", AUTH);
     expect(result.status).toBe(200);
     const body = result.body as { actions: Array<{ type: string }> };
     expect(body.actions).toHaveLength(1);
