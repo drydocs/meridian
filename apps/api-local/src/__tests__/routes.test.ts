@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import { positionsRoute } from "../routes/positions.js";
@@ -15,9 +15,18 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     ContractSimulationError: actual.ContractSimulationError,
     MissingTrustlineError: actual.MissingTrustlineError,
     resolvePositions: vi.fn(),
+    getLatestLedgerSequence: vi.fn(async () => 100),
     buildDepositTx: vi.fn(),
     buildWithdrawTx: vi.fn(),
     buildAddTrustlineTx: vi.fn(),
+    // Prices the slippage floor when a build request omits its minimum.
+    quoteVaultAction: vi.fn(async ({ action }: { action: string }) => ({
+      action,
+      fee: "0",
+      ledger: 100,
+      recommendedMinimum: action === "deposit" ? "9.9" : "4.9",
+      slippageBps: 50,
+    })),
     submitTx: vi.fn(),
     fetchAllVaults: fetchAllVaultsMock,
     fetchVaultsWithCache: vi.fn(async (...args: unknown[]) => ({
@@ -71,15 +80,18 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
 });
 
 import {
+  getLatestLedgerSequence,
   resolvePositions,
   buildDepositTx,
   buildWithdrawTx,
   buildAddTrustlineTx,
+  quoteVaultAction,
   submitTx,
   fetchAllVaults,
   selectBestVault,
   getPositionHistory,
 } from "@meridian/stellar-sdk-helpers";
+import { resetPositionReadCacheForTesting } from "@meridian/api-core";
 
 const WALLET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
@@ -92,7 +104,16 @@ function buildApp() {
   return app;
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  resetPositionReadCacheForTesting();
+  vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_KV_REST_API_URL", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_KV_REST_API_TOKEN", "");
+  vi.mocked(getLatestLedgerSequence).mockResolvedValue(100);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe("GET /health", () => {
   it("returns 200 with status ok", async () => {
@@ -123,6 +144,62 @@ describe("GET /api/v1/positions/:publicKey", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ positions: pos });
+    expect(res.headers.etag).toMatch(/^"[a-f0-9]{64}"$/);
+  });
+
+  it("returns 304 for a matching If-None-Match header", async () => {
+    const app = buildApp();
+    vi.mocked(resolvePositions).mockResolvedValue([]);
+    const first = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}`,
+    });
+    const second = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}`,
+      headers: { "if-none-match": first.headers.etag as string },
+    });
+    expect(second.statusCode).toBe(304);
+    expect(second.headers.etag).toBe(first.headers.etag);
+    expect(resolvePositions).toHaveBeenCalledOnce();
+  });
+
+  it("omits ETag and does not cache partial position reads", async () => {
+    const app = buildApp();
+    vi.mocked(resolvePositions)
+      .mockImplementationOnce(async (_publicKey, _network, options) => {
+        options?.onVaultError?.(new Error("vault RPC down"));
+        return [];
+      })
+      .mockResolvedValueOnce([]);
+
+    const partial = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}`,
+    });
+    expect(partial.statusCode).toBe(200);
+    expect(partial.headers.etag).toBeUndefined();
+
+    const complete = await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}`,
+    });
+    expect(resolvePositions).toHaveBeenCalledTimes(2);
+    expect(complete.headers.etag).toMatch(/^"[a-f0-9]{64}"$/);
+  });
+
+  it("accepts refresh=true to bypass the cached positions", async () => {
+    const app = buildApp();
+    vi.mocked(resolvePositions).mockResolvedValue([]);
+    await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}`,
+    });
+    await app.inject({
+      method: "GET",
+      url: `/api/v1/positions/${WALLET}?refresh=true`,
+    });
+    expect(resolvePositions).toHaveBeenCalledTimes(2);
   });
 
   it("returns 400 for an invalid public key", async () => {
@@ -445,6 +522,64 @@ describe("POST /api/v1/tx/submit", () => {
   });
 });
 
+describe("POST /api/v1/tx/quote", () => {
+  const body = {
+    action: "deposit",
+    walletAddress: WALLET,
+    vaultId: "blend-usdc-fixed",
+    amount: "10",
+  };
+
+  it("returns 200 with the quote from the SDK", async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/tx/quote",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      action: "deposit",
+      recommendedMinimum: "9.9",
+    });
+  });
+
+  it("returns 400 when a deposit quote has no amount", async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/tx/quote",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...body, amount: undefined }),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toHaveProperty("error");
+  });
+
+  it("returns 500 and hides the cause when the quote simulation fails", async () => {
+    const app = buildApp();
+    vi.mocked(quoteVaultAction).mockRejectedValueOnce(new Error("rpc down"));
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/tx/quote",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toEqual({
+      error: "Failed to simulate transaction quote",
+    });
+  });
+
+  it("rejects GET with 405", async () => {
+    const app = buildApp();
+    const res = await app.inject({ method: "GET", url: "/api/v1/tx/quote" });
+    expect(res.statusCode).toBe(405);
+    expect(res.headers.allow).toBe("POST");
+  });
+});
+
 describe("GET /api/v1/vaults", () => {
   it("returns 200 with vault list and recommendedVaultId", async () => {
     const app = buildApp();
@@ -580,4 +715,34 @@ describe("GET /api/v1/vaults/:vaultId", () => {
     expect(res.headers.allow).toBe("GET");
     expect(fetchAllVaults).not.toHaveBeenCalled();
   });
+});
+
+describe("method guards on positions routes", () => {
+  it.each([
+    `/api/v1/positions/${WALLET}`,
+    `/api/v1/positions/${WALLET}/history`,
+  ])("rejects non-GET methods on %s with 405", async (url) => {
+    const app = buildApp();
+    const res = await app.inject({ method: "POST", url });
+    expect(res.statusCode).toBe(405);
+    expect(res.headers.allow).toBe("GET");
+    expect(resolvePositions).not.toHaveBeenCalled();
+    expect(getPositionHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe("method guards on tx routes", () => {
+  it.each(["deposit", "withdraw", "add-trustline", "submit"])(
+    "rejects GET on /api/v1/tx/%s with 405",
+    async (route) => {
+      const app = buildApp();
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/v1/tx/${route}`,
+      });
+      expect(res.statusCode).toBe(405);
+      expect(res.headers.allow).toBe("POST");
+      expect(submitTx).not.toHaveBeenCalled();
+    }
+  );
 });

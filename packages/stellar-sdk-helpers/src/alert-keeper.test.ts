@@ -1,13 +1,22 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Address, rpc, xdr } from "@stellar/stellar-sdk";
 import {
+  ALERTABLE_ACTIONS,
   formatAlertMessage,
   runAlertKeeper,
   alertCursorKey,
+  createAlertWebhookSignature,
+  verifyAlertWebhookSignature,
+  isAlertWebhookSignatureValid,
+  loadAlertKeeperConfig,
+  ALERT_WEBHOOK_SIGNATURE_HEADER,
+  ALERT_WEBHOOK_TIMESTAMP_HEADER,
+  ALERT_WEBHOOK_DELIVERY_HEADER,
   type AlertKeeperConfig,
 } from "./alert-keeper";
 import { createInMemoryKeeperHeartbeatStore } from "./keeper-heartbeat";
-import type { RpcAdminAction } from "./admin-history";
+import type { RpcAdminAction, RpcAdminActionType } from "./admin-history";
 import type { StellarNetwork } from "./types";
 
 const network: StellarNetwork = {
@@ -21,6 +30,42 @@ const VAULT_CONTRACT_ID =
 const NEW_ADMIN = "GC7MCAT5QBXWXOUDN57SFAM3T353J7KMNVDRK4J5ZSILUJVRL7M3OUIN";
 const NEW_ADAPTER = "CABAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAFNSZ";
 const OLD_ADAPTER = "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526";
+const ALERT_KEEPER_RUNBOOK = readFileSync(
+  new URL("../../../apps/docs/operations/alert-keeper.md", import.meta.url),
+  "utf8"
+);
+const ALERT_EXAMPLES: Record<RpcAdminActionType, RpcAdminAction> = {
+  paused: {
+    action: "paused",
+    ledgerSequence: 300,
+    payload: { paused: true },
+  },
+  transfer: {
+    action: "transfer",
+    ledgerSequence: 300,
+    payload: { newAdmin: NEW_ADMIN },
+  },
+  accept: {
+    action: "accept",
+    ledgerSequence: 300,
+    payload: { newAdmin: NEW_ADMIN },
+  },
+  adapter: {
+    action: "adapter",
+    ledgerSequence: 300,
+    payload: { newAdapter: NEW_ADAPTER },
+  },
+  migrate: {
+    action: "migrate",
+    ledgerSequence: 300,
+    payload: { oldAdapter: OLD_ADAPTER, newAdapter: NEW_ADAPTER },
+  },
+  mig_begin: {
+    action: "mig_begin",
+    ledgerSequence: 300,
+    payload: { newAdapter: NEW_ADAPTER, earliestLedger: 17380 },
+  },
+};
 
 function adminEvent(
   action: string,
@@ -63,6 +108,7 @@ function baseConfig(
   return {
     network,
     webhookUrl: "https://hooks.example.com/webhook",
+    webhookSecret: "test-webhook-secret",
     maxAttempts: 1,
     baseDelayMs: 0,
     ...overrides,
@@ -125,6 +171,19 @@ describe("formatAlertMessage", () => {
     expect(msg).toContain(NEW_ADAPTER.slice(0, 8));
     expect(msg).toContain("17380");
   });
+});
+
+describe("alert keeper runbook", () => {
+  it.each([...ALERTABLE_ACTIONS])(
+    "documents the exact payload message for %s",
+    (action) => {
+      const message = formatAlertMessage(
+        "meridian-usdc",
+        ALERT_EXAMPLES[action]
+      );
+      expect(ALERT_KEEPER_RUNBOOK).toContain(message);
+    }
+  );
 });
 
 describe("runAlertKeeper", () => {
@@ -533,5 +592,359 @@ describe("runAlertKeeper", () => {
 
     expect(result.vaultsChecked).toBe(2);
     expect(result.alertsSent).toHaveLength(1);
+  });
+
+  it("attaches valid signature, timestamp, and delivery headers to webhook POSTs", async () => {
+    vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
+      events: [adminEvent("paused", xdr.ScVal.scvBool(true), 300)],
+      latestLedger: 300,
+    } as never);
+
+    const cursorStore = createInMemoryKeeperHeartbeatStore();
+    await cursorStore.set(alertCursorKey(VAULT_CONTRACT_ID, "testnet"), 200);
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true });
+    const secret = "super-secret-signing-key";
+
+    await runAlertKeeper(baseConfig({ webhookSecret: secret }), {
+      targets: [target],
+      cursorStore,
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    const [, init] = fetchImpl.mock.calls[0]!;
+    const headers = (init as { headers: Record<string, string> }).headers;
+    const body = (init as { body: string }).body;
+
+    expect(headers[ALERT_WEBHOOK_SIGNATURE_HEADER]).toMatch(
+      /^sha256=[a-f0-9]{64}$/
+    );
+    expect(headers[ALERT_WEBHOOK_TIMESTAMP_HEADER]).toBeDefined();
+    expect(headers[ALERT_WEBHOOK_DELIVERY_HEADER]).toBeDefined();
+
+    const verification = verifyAlertWebhookSignature(headers, body, secret);
+    expect(verification.valid).toBe(true);
+  });
+
+  it("sends an unsigned alert when no secret is configured, as local development does", async () => {
+    vi.spyOn(rpc.Server.prototype, "getEvents").mockResolvedValueOnce({
+      events: [adminEvent("paused", xdr.ScVal.scvBool(true), 300)],
+      latestLedger: 300,
+    } as never);
+
+    const cursorStore = createInMemoryKeeperHeartbeatStore();
+    await cursorStore.set(alertCursorKey(VAULT_CONTRACT_ID, "testnet"), 200);
+    const fetchImpl = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 200 })
+    );
+
+    const result = await runAlertKeeper(
+      baseConfig({ webhookSecret: undefined }),
+      {
+        targets: [target],
+        cursorStore,
+        fetchImpl,
+      }
+    );
+
+    expect(result.failures).toEqual([]);
+    expect(result.alertsSent).toHaveLength(1);
+    const init = fetchImpl.mock.calls[0]?.[1] as {
+      headers: Record<string, string>;
+    };
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(init.headers[ALERT_WEBHOOK_SIGNATURE_HEADER]).toBeUndefined();
+    expect(init.headers[ALERT_WEBHOOK_TIMESTAMP_HEADER]).toBeUndefined();
+    expect(init.headers[ALERT_WEBHOOK_DELIVERY_HEADER]).toBeUndefined();
+  });
+});
+
+describe("loadAlertKeeperConfig", () => {
+  it("throws when MERIDIAN_ALERT_WEBHOOK_URL is missing", () => {
+    expect(() => loadAlertKeeperConfig({})).toThrow(
+      "MERIDIAN_ALERT_WEBHOOK_URL is required"
+    );
+  });
+
+  it("loads config in local dev without secret", () => {
+    const config = loadAlertKeeperConfig({
+      MERIDIAN_ALERT_WEBHOOK_URL: "https://hooks.example.com",
+    });
+    expect(config.webhookUrl).toBe("https://hooks.example.com");
+    expect(config.webhookSecret).toBeUndefined();
+  });
+
+  it.each(["production", "preview"])(
+    "throws when VERCEL_ENV=%s and secret is missing",
+    (vercelEnv) => {
+      expect(() =>
+        loadAlertKeeperConfig({
+          MERIDIAN_ALERT_WEBHOOK_URL: "https://hooks.example.com",
+          VERCEL_ENV: vercelEnv,
+        })
+      ).toThrow(
+        "MERIDIAN_ALERT_WEBHOOK_SECRET is required on deployed environments"
+      );
+    }
+  );
+
+  it("throws when NODE_ENV=production and secret is missing", () => {
+    expect(() =>
+      loadAlertKeeperConfig({
+        MERIDIAN_ALERT_WEBHOOK_URL: "https://hooks.example.com",
+        NODE_ENV: "production",
+      })
+    ).toThrow(
+      "MERIDIAN_ALERT_WEBHOOK_SECRET is required on deployed environments"
+    );
+  });
+
+  it("loads successfully on deployed environment when secret is provided", () => {
+    const config = loadAlertKeeperConfig({
+      MERIDIAN_ALERT_WEBHOOK_URL: "https://hooks.example.com",
+      MERIDIAN_ALERT_WEBHOOK_SECRET: "my-prod-secret",
+      VERCEL_ENV: "production",
+    });
+    expect(config.webhookUrl).toBe("https://hooks.example.com");
+    expect(config.webhookSecret).toBe("my-prod-secret");
+  });
+});
+
+describe("createAlertWebhookSignature and verifyAlertWebhookSignature", () => {
+  const secret = "test-secret-12345";
+  const body = JSON.stringify({
+    text: "vault paused",
+    content: "vault paused",
+  });
+  const deliveryId = "123e4567-e89b-12d3-a456-426614174000";
+  const now = 1700000000;
+
+  it("generates a sha256= prefixed hex signature and verifies successfully", () => {
+    const sig = createAlertWebhookSignature(now, deliveryId, body, secret);
+    expect(sig).toMatch(/^sha256=[a-f0-9]{64}$/);
+
+    const headers = {
+      [ALERT_WEBHOOK_SIGNATURE_HEADER]: sig,
+      [ALERT_WEBHOOK_TIMESTAMP_HEADER]: String(now),
+      [ALERT_WEBHOOK_DELIVERY_HEADER]: deliveryId,
+    };
+
+    const result = verifyAlertWebhookSignature(headers, body, secret, { now });
+    expect(result).toEqual({ valid: true });
+    expect(isAlertWebhookSignatureValid(headers, body, secret, { now })).toBe(
+      true
+    );
+  });
+
+  it("handles case-insensitive header names and raw hex signatures", () => {
+    const sig = createAlertWebhookSignature(now, deliveryId, body, secret);
+    const rawHex = sig.replace("sha256=", "");
+
+    const headers = {
+      "x-meridian-signature": rawHex,
+      "x-meridian-timestamp": String(now),
+      "x-meridian-delivery": deliveryId,
+    };
+
+    const result = verifyAlertWebhookSignature(headers, body, secret, { now });
+    expect(result).toEqual({ valid: true });
+  });
+
+  it("rejects invalid signature when body was modified", () => {
+    const sig = createAlertWebhookSignature(now, deliveryId, body, secret);
+    const headers = {
+      [ALERT_WEBHOOK_SIGNATURE_HEADER]: sig,
+      [ALERT_WEBHOOK_TIMESTAMP_HEADER]: String(now),
+      [ALERT_WEBHOOK_DELIVERY_HEADER]: deliveryId,
+    };
+
+    const result = verifyAlertWebhookSignature(
+      headers,
+      JSON.stringify({ text: "tampered" }),
+      secret,
+      { now }
+    );
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe("Signature mismatch");
+  });
+
+  it("rejects verification when secret is wrong", () => {
+    const sig = createAlertWebhookSignature(now, deliveryId, body, secret);
+    const headers = {
+      [ALERT_WEBHOOK_SIGNATURE_HEADER]: sig,
+      [ALERT_WEBHOOK_TIMESTAMP_HEADER]: String(now),
+      [ALERT_WEBHOOK_DELIVERY_HEADER]: deliveryId,
+    };
+
+    const result = verifyAlertWebhookSignature(headers, body, "wrong-secret", {
+      now,
+    });
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe("Signature mismatch");
+  });
+
+  it("rejects verification when secret is empty", () => {
+    const headers = {
+      [ALERT_WEBHOOK_SIGNATURE_HEADER]: "sig",
+      [ALERT_WEBHOOK_TIMESTAMP_HEADER]: String(now),
+      [ALERT_WEBHOOK_DELIVERY_HEADER]: deliveryId,
+    };
+    const result = verifyAlertWebhookSignature(headers, body, "");
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe("Missing webhook secret");
+  });
+
+  it("rejects missing headers", () => {
+    const sig = createAlertWebhookSignature(now, deliveryId, body, secret);
+
+    expect(
+      verifyAlertWebhookSignature(
+        {
+          [ALERT_WEBHOOK_TIMESTAMP_HEADER]: String(now),
+          [ALERT_WEBHOOK_DELIVERY_HEADER]: deliveryId,
+        },
+        body,
+        secret
+      )
+    ).toEqual({
+      valid: false,
+      error: `Missing ${ALERT_WEBHOOK_SIGNATURE_HEADER} header`,
+    });
+
+    expect(
+      verifyAlertWebhookSignature(
+        {
+          [ALERT_WEBHOOK_SIGNATURE_HEADER]: sig,
+          [ALERT_WEBHOOK_DELIVERY_HEADER]: deliveryId,
+        },
+        body,
+        secret
+      )
+    ).toEqual({
+      valid: false,
+      error: `Missing ${ALERT_WEBHOOK_TIMESTAMP_HEADER} header`,
+    });
+
+    expect(
+      verifyAlertWebhookSignature(
+        {
+          [ALERT_WEBHOOK_SIGNATURE_HEADER]: sig,
+          [ALERT_WEBHOOK_TIMESTAMP_HEADER]: String(now),
+        },
+        body,
+        secret
+      )
+    ).toEqual({
+      valid: false,
+      error: `Missing ${ALERT_WEBHOOK_DELIVERY_HEADER} header`,
+    });
+  });
+
+  it("rejects non-numeric timestamp header", () => {
+    const headers = {
+      [ALERT_WEBHOOK_SIGNATURE_HEADER]: "sig",
+      [ALERT_WEBHOOK_TIMESTAMP_HEADER]: "not-a-number",
+      [ALERT_WEBHOOK_DELIVERY_HEADER]: deliveryId,
+    };
+    const result = verifyAlertWebhookSignature(headers, body, secret);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("Invalid X-Meridian-Timestamp");
+  });
+
+  it("rejects stale timestamps outside tolerance window (replay attack)", () => {
+    const staleTime = now - 301; // 301s ago (> default 300s)
+    const sig = createAlertWebhookSignature(
+      staleTime,
+      deliveryId,
+      body,
+      secret
+    );
+    const headers = {
+      [ALERT_WEBHOOK_SIGNATURE_HEADER]: sig,
+      [ALERT_WEBHOOK_TIMESTAMP_HEADER]: String(staleTime),
+      [ALERT_WEBHOOK_DELIVERY_HEADER]: deliveryId,
+    };
+
+    const result = verifyAlertWebhookSignature(headers, body, secret, { now });
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("replay tolerance window");
+  });
+
+  it("rejects future timestamps outside tolerance window", () => {
+    const futureTime = now + 301;
+    const sig = createAlertWebhookSignature(
+      futureTime,
+      deliveryId,
+      body,
+      secret
+    );
+    const headers = {
+      [ALERT_WEBHOOK_SIGNATURE_HEADER]: sig,
+      [ALERT_WEBHOOK_TIMESTAMP_HEADER]: String(futureTime),
+      [ALERT_WEBHOOK_DELIVERY_HEADER]: deliveryId,
+    };
+
+    const result = verifyAlertWebhookSignature(headers, body, secret, { now });
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("replay tolerance window");
+  });
+
+  it("accepts custom toleranceSeconds window", () => {
+    const slightlyOld = now - 40;
+    const sig = createAlertWebhookSignature(
+      slightlyOld,
+      deliveryId,
+      body,
+      secret
+    );
+    const headers = {
+      [ALERT_WEBHOOK_SIGNATURE_HEADER]: sig,
+      [ALERT_WEBHOOK_TIMESTAMP_HEADER]: String(slightlyOld),
+      [ALERT_WEBHOOK_DELIVERY_HEADER]: deliveryId,
+    };
+
+    // Stricter 30-second window rejects 40-second-old payload
+    expect(
+      verifyAlertWebhookSignature(headers, body, secret, {
+        now,
+        toleranceSeconds: 30,
+      }).valid
+    ).toBe(false);
+
+    // More relaxed 60-second window accepts it
+    expect(
+      verifyAlertWebhookSignature(headers, body, secret, {
+        now,
+        toleranceSeconds: 60,
+      }).valid
+    ).toBe(true);
+  });
+});
+
+describe("alert webhook signature", () => {
+  // Digests computed independently with Node's standard HMAC-SHA256 (`createHmac`)
+  // over `${timestamp}.${deliveryId}.${body}`, so a receiver using
+  // `createHmac` verifies what the keeper sends.
+  const body = JSON.stringify({ text: "a", content: "a" });
+
+  it("matches a known HMAC-SHA256 digest", () => {
+    expect(
+      createAlertWebhookSignature("1700000000", "delivery-1", body, "secret")
+    ).toBe(
+      "sha256=ead122a33a300cb6d90f7ce79992d8bf4bcf4f2c3b7c00a4c518e14cc3115fc2"
+    );
+  });
+
+  it("matches a known digest for a key longer than the 64 byte block size", () => {
+    expect(
+      createAlertWebhookSignature(
+        "1700000000",
+        "delivery-1",
+        body,
+        "k".repeat(100)
+      )
+    ).toBe(
+      "sha256=59d642fecda64aa0891c5ac52b7470bfc07f486117523ee7efb2940fdd52a5a7"
+    );
   });
 });

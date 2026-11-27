@@ -17,17 +17,33 @@
     "walletConnected": "Portefeuille connecté",
     "chooseWallet": "Choisir un portefeuille",
     "installed": "Installé",
-    "install": "Installer"
+    "install": "Installer",
+    "timedOut": "Le portefeuille n'a pas répondu",
+    "timedOutHint": "La fenêtre du portefeuille est peut-être derrière votre navigateur. Vérifiez-la et réessayez.",
+    "accountChanged": "Compte de portefeuille changé pour {{address}}",
+    "networkChanged": "Réseau de portefeuille changé pour {{network}}",
+    "networkMismatch": "Incompatibilité de réseau: le portefeuille est sur {{walletNetwork}}, mais l'application requiert {{appNetwork}}"
   },
 
   "vaultPanel": {
     "deposit": "Déposer",
     "withdraw": "Retirer",
+    "tabs": {
+      "deposit": "Déposer",
+      "withdraw": "Retirer",
+      "actions": "Actions du coffre"
+    },
     "network": "Réseau",
     "apy": "Rendement annuel",
     "tvl": "TVL",
     "route": "Route",
     "noLiveRateData": "Aucune donnée de rendement disponible.",
+    "emptyState": {
+      "noVaultsTitle": "Aucun coffre disponible",
+      "noVaultsDescription": "Il n'y a actuellement aucun coffre actif sur ce réseau. Veuillez réessayer plus tard.",
+      "failureTitle": "Échec du chargement des coffres",
+      "failureDescription": "Impossible de récupérer les données des coffres. Vérifiez votre connexion et réessayez."
+    },
     "yourPosition": "Votre position",
     "earned": "Gains",
     "connectUSDC": "Connectez votre portefeuille pour déposer des USDC et commencer à générer du rendement automatiquement.",
@@ -38,12 +54,25 @@
     "position": "Aucune position dans ce coffre.",
     "waiting": "En attente de signature...",
     "positionsError": "Impossible de charger votre position. Les dépôts et retraits fonctionnent toujours.",
+    "balanceError": "Impossible de charger votre solde.",
+    "retryBalance": "Réessayer de charger le solde",
     "validation": {
       "required": "Saisissez un montant à déposer.",
       "invalid": "Saisissez un nombre valide.",
       "nonPositive": "Le montant doit être supérieur à zéro.",
-      "exceedsBalance": "Le montant dépasse votre solde disponible."
+      "exceedsBalance": "Le montant dépasse votre solde disponible.",
+      "exceedsPosition": "Le montant dépasse votre position disponible."
     }
+  },
+
+  "positionPnl": {
+    "title": "Détail du rendement",
+    "principal": "Capital déposé",
+    "grossYield": "Rendement brut",
+    "performanceFee": "Frais de performance ({{percent}} %)",
+    "netYield": "Rendement net",
+    "currentValue": "Valeur actuelle",
+    "unavailable": "Le détail de la position est actuellement indisponible."
   },
 
   "yieldHistory": {
@@ -55,7 +84,12 @@
     "earned": "Gains cumulés",
     "loadError": "Impossible de charger l'historique de votre rendement.",
     "empty": "Pas encore d'historique. La valeur de votre position est enregistrée au fil du temps ; le graphique se remplira après quelques relevés.",
-    "chartLabel": "Valeur de la position dans le temps, par protocole"
+    "chartLabel": "Valeur de la position dans le temps, par protocole",
+    "viewTable": "Afficher les données sous forme de tableau",
+    "hideTable": "Masquer les données du tableau",
+    "tableCaption": "Points de données de l'historique de rendement",
+    "date": "Date",
+    "total": "Total"
   },
 
   "riskDisclosure": {
@@ -84,10 +118,12 @@
   },
 
   "common": {
+    "skipToContent": "Aller au contenu principal",
     "connectWallet": "Connecter le portefeuille",
     "connecting": "Connexion...",
     "installWallet": "Installer {{name}}",
-    "retry": "Réessayer"
+    "retry": "Réessayer",
+    "cancel": "Annuler"
   },
 
   "admin": {
@@ -148,9 +184,35 @@
     }
   },
 
+  "errors": {
+    "depositsPaused": "Les dépôts sont suspendus. Veuillez réessayer plus tard.",
+    "insufficientShares": "Vous n'avez pas assez de parts pour ce retrait.",
+    "withdrawalSlippage": "Le retrait a renvoyé moins que votre minimum. Ajustez la tolérance de glissement et réessayez.",
+    "adapterLiquidityInsufficient": "Le protocole de rendement sous-jacent ne dispose pas d'assez de liquidités disponibles pour ce retrait actuellement. Essayez un montant plus petit ou réessayez plus tard.",
+    "slippageExceeded": "Tolérance de glissement dépassée. Ajustez la tolérance et réessayez.",
+    "missingUsdcTrustline": "Votre portefeuille ne dispose pas de la ligne de confiance USDC. Ajoutez-la et réessayez.",
+    "missingTrustline": "Votre portefeuille n'a pas une ou plusieurs lignes de confiance requises. Ajoutez-les et réessayez.",
+    "trustlinesAlreadyExist": "Toutes les lignes de confiance requises sont déjà dans votre portefeuille.",
+    "depositBuildFailed": "Impossible de préparer le dépôt. Veuillez réessayer.",
+    "withdrawBuildFailed": "Impossible de préparer le retrait. Veuillez réessayer.",
+    "trustlineBuildFailed": "Impossible de préparer la transaction de ligne de confiance. Veuillez réessayer.",
+    "submitFailed": "La soumission de la transaction a échoué. Veuillez réessayer.",
+    "transactionPending": "La transaction {{hash}} a été acceptée et attend sa confirmation. Vérifiez son état avant de réessayer.",
+    "transactionOutcomeUnknown": "La confirmation de la transaction {{hash}} a expiré. Vérifiez son état avant de réessayer.",
+    "walletDisconnected": "Votre portefeuille s'est déconnecté. Reconnectez-le et réessayez.",
+    "walletDeclined": "Vous avez refusé la demande. Réessayez quand vous êtes prêt.",
+    "unknown": "Une erreur est survenue. Veuillez réessayer.",
+    "unknownWithRef": "Une erreur est survenue (réf. : {{ref}}). Veuillez réessayer.",
+    "fallbackWithRef": "{{action}} (réf. : {{ref}}). Veuillez réessayer.",
+    "walletTimeout": "Le portefeuille n'a pas répondu à temps. Sa fenêtre est peut-être derrière votre navigateur — vérifiez-la, puis réessayez.",
+    "walletCancelled": "Requête annulée."
+  },
+
   "errorBoundary": {
     "title": "Une erreur s'est produite. Veuillez recharger la page.",
-    "reload": "Recharger"
+    "reload": "Recharger",
+    "retry": "Réessayer",
+    "home": "Accueil"
   },
 
   "status": {
@@ -176,6 +238,31 @@
     "audit": {
       "title": "Audit de sécurité",
       "notYetAvailable": "Aucun audit de sécurité indépendant n'a encore été réalisé. Un rapport sera lié ici dès qu'il existera."
+    }
+  },
+
+  "activity": {
+    "title": "Activité locale",
+    "receipt": "Reçu de transaction",
+    "dismiss": "Fermer le reçu",
+    "viewTx": "Voir tx",
+    "actions": {
+      "deposit": "Déposé",
+      "withdraw": "Retiré"
+    },
+    "status": {
+      "pending": "En attente",
+      "confirmed": "Confirmé",
+      "failed": "Échec"
+    }
+  },
+
+  "a11y": {
+    "titles": {
+      "dashboard": "Tableau de bord — Meridian",
+      "status": "Statut du protocole — Meridian",
+      "admin": "Tableau de bord admin — Meridian",
+      "notFound": "Page introuvable — Meridian"
     }
   }
 }

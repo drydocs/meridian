@@ -2,26 +2,16 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useKeeperHealth } from "../../hooks/useKeeperHealth";
 import type { KeeperHealthEntry } from "../../lib/api";
+import { formatDuration } from "../../lib/format";
 
 // How often the "overdue by Xm" readout advances. Coarser than a clock tick
-// since formatDuration below only shows whole minutes anyway.
+// since formatDuration only shows whole minutes anyway.
 const NOW_TICK_MS = 30_000;
 
 const KEEPER_LABEL_KEY: Record<KeeperHealthEntry["id"], string> = {
   accrual: "admin.keeperHealth.accrual",
   migration: "admin.keeperHealth.migration",
 };
-
-// Coarse, human-friendly duration for the last-run/overdue-by readouts —
-// this is a health dashboard, not a stopwatch, so "5m" is more useful at a
-// glance than "5m 12s".
-function formatDuration(ms: number): string {
-  const minutes = Math.round(ms / 60_000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.round(hours / 24)}d`;
-}
 
 export function KeeperHealthPanel() {
   const { t } = useTranslation();
@@ -95,7 +85,7 @@ export function KeeperHealthPanel() {
                         : "admin.keeperHealth.stalled"
                     )}
                   </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
+                  <p className="text-xs text-gray-400 mt-0.5">
                     {keeper.lastSuccessMs === null
                       ? t("admin.keeperHealth.never")
                       : keeper.healthy

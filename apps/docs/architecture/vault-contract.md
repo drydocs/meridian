@@ -2,6 +2,10 @@
 
 The `MeridianVault` contract is a Soroban smart contract written in Rust, located at `packages/contracts/vault/src/lib.rs`. It is a protocol-agnostic coordinator: it holds no direct opinion about where funds actually earn yield. Instead it delegates all protocol-specific work to a swappable **adapter** contract (see [Adapter Contracts](#adapter-contracts) below).
 
+For the complete contract storage key inventory, TTL thresholds, archival behavior, and recovery paths, see [Contract Storage and TTL Reference](./contract-storage.md).
+
+The architecture behind this contract is recorded in the ADRs for [one vault per asset](./adr/0001-one-vault-per-asset.md), [no separate on-chain router](./adr/0002-no-onchain-router.md), [custom mUSDC shares](./adr/0003-custom-musdc-share-token.md), [contract immutability](./adr/0004-immutable-contracts.md), [the migration timelock](./adr/0006-migration-timelock.md), and [the migration slippage cap](./adr/0007-admin-migration-slippage-cap.md).
+
 ## Tokens
 
 | Token | Role                                                                                                               |
@@ -19,7 +23,7 @@ mUSDC is a **freely transferable** share token, and the vault treats it as one: 
 
 Sets the admin, USDC contract address, mUSDC contract address, initial yield adapter, and dedicated performance-fee treasury inside the deploying transaction's own `CreateContract` operation. Like the adapters (see [Adapter Contracts](#adapter-contracts) below), the vault no longer follows a two-step `deploy` then `initialize` pattern: there is no intervening ledger where an attacker could land a self-authorized `initialize()` call first and become admin ([#551](https://github.com/drydocs/meridian/issues/551), same bug class as [#505](https://github.com/drydocs/meridian/issues/505), fixed for the adapters/mUSDC in [#550](https://github.com/drydocs/meridian/issues/550)). The treasury has no setter; changing it requires a fresh vault deployment.
 
-Unlike the adapters/mUSDC's constructor arguments, `admin` is a human-held key, not a programmatically-derived contract address, so `__constructor` calls `admin.require_auth()` too. Soroban only honors `require_auth()` inside a constructor for the address that is the deploying transaction's own source account, so deploying with a separate `admin` requires that address itself to source and sign the deploy transaction, not just the deployer paying its fees. See "Standing up a fresh environment" in [Testnet Deployment](../operations/testnet-deployment.md) for how `deploy-testnet.sh` handles this, and for how the vault's constructor arguments get the mUSDC/adapter addresses it needs, given those two contracts' own constructors need the vault's address first.
+Unlike the adapters/mUSDC's constructor arguments, `admin` is a human-held key, not a programmatically-derived contract address, so `__constructor` calls `admin.require_auth()` too. Soroban only honors `require_auth()` inside a constructor for the address that is the deploying transaction's own source account, so deploying with a separate `admin` requires that address itself to source and sign the deploy transaction, so a different account paying the fees is not sufficient. See "Standing up a fresh environment" in [Testnet Deployment](../operations/testnet-deployment.md) for how `deploy-testnet.sh` handles this, and for how the vault's constructor arguments get the mUSDC/adapter addresses it needs, given those two contracts' own constructors need the vault's address first.
 
 ### `initialize(admin, usdc, musdc, adapter, treasury) -> Result<(), ContractError>`
 
@@ -27,11 +31,30 @@ Retained as a hand-initialization path for undeployed legacy flows. Its argument
 
 ### `deposit(caller, amount, min_shares_out) -> Result<i128, ContractError>`
 
-Transfers `amount` USDC from the caller into the vault, forwards it to the active adapter, and mints proportional mUSDC shares. Fails with `DepositsPaused` if `set_paused(true)` is in effect, `ZeroAmount` if `amount <= 0`, `DepositTooSmall` if the amount rounds down to zero shares at the current price, or `SlippageExceeded` if the minted shares would fall below `min_shares_out`. Callers wishing to opt out of minimum-output enforcement pass `0`.
+Transfers `amount` USDC from the caller into the vault, forwards it to the active adapter, and mints mUSDC shares for the value the adapter actually credited. Fails with `DepositsPaused` if `set_paused(true)` is in effect, `ZeroAmount` if `amount <= 0`, `DepositTooSmall` if the deposit rounds down to zero shares at the current price, `AdapterCreditedNothing` if the adapter credits zero shares, `DepositValueMismatch` if the adapter's reported credit is not backed by its own post-deposit ledger (see below), or `SlippageExceeded` if the minted shares would fall below `min_shares_out`. Callers wishing to opt out of minimum-output enforcement pass `0`.
 
+The mint is priced from the adapter's credit, not from `amount` ([#1263](https://github.com/drydocs/meridian/issues/1263)). A partial fill, a supply cap or a fee taken on deposit can leave the adapter holding less value than the caller sent; pricing from `amount` would still mint the full quote and dilute existing holders. After the adapter's `deposit()` returns the shares it credited, the vault calls `refresh()` and reads the adapter's post-deposit `total_assets()` and `total_shares()` once, and prices everything from those reads:
+
+```text
+quoted_shares   = amount * (total_shares + OFFSET) / (assets_before + OFFSET)
+credited_value  = adapter_shares_credited * assets_after / adapter_shares_after
+backing         = min(amount, assets_after - assets_before)
+tolerance       = amount * DEPOSIT_VALUE_TOLERANCE_BPS / 10_000 + DEPOSIT_VALUE_TOLERANCE_STROOPS
+                  -> DepositValueMismatch if credited_value > backing + tolerance
+one_share       = ceil(assets_after / adapter_shares_after)
+credited_value  = backing if backing - credited_value <= one_share + 1
+credited_value  = min(credited_value, backing)
+existing_value  = assets_after - credited_value
+shares_minted   = min(credited_value * (total_shares + OFFSET) / (existing_value + OFFSET), quoted_shares)
 ```
-shares_minted = amount * (total_shares + OFFSET) / (adapter_total_assets + OFFSET)
-```
+
+`credited_value` and `existing_value` are both taken at the adapter's post-deposit rate, so the depositor's share of the vault matches their credit's share of the adapter's position, which is also the share `withdraw` redeems for them. The mint is never larger than `quoted_shares`, the pre-deposit quote for `amount`, and `min_shares_out` is checked against the final mint. A share-based adapter rounds its own mint down by less than one of its shares, so a credit short of `backing` by at most one adapter share's value plus one stroop, capped at the deposit value tolerance below, is treated as rounding and counts as the full `backing`; with an adapter that credits at its pre-deposit rate the mint therefore equals `preview_deposit`. The cap matters when adapter shares are expensive: there a shortfall of nearly a whole share is real uncredited value, and rounding it up would let the depositor mint on it at existing holders' expense. A credit worth less than that is accepted and minted at its real value. Reverting on every partial fill was rejected because some protocols legitimately credit less than requested.
+
+`DEPOSIT_VALUE_TOLERANCE_BPS` is 10 (0.1% of `amount`) and `DEPOSIT_VALUE_TOLERANCE_STROOPS` is 100 (0.00001 USDC). The valuation is built from integer reads that each round down, so an honest adapter's credit can land a few stroops above its exact value. The tolerance only decides whether such an excess counts as rounding or as a broken adapter: within it, the credit is still capped at `backing` before pricing, so the tolerance never lets a deposit mint more than it delivered. A credit larger than the adapter's whole post-deposit share balance is also a `DepositValueMismatch`.
+
+USDC an adapter receives but does not invest (for example the unfilled part of a supply-capped deposit) is not part of its `total_assets()` and is not minted for. The vault has no way to pull it back, so it stays on the adapter.
+
+On success the vault emits a `deposit` event with data `(caller, amount, adapter_shares_credited, shares_minted)`: the USDC requested, the adapter shares the adapter reported crediting, and the mUSDC minted. Before [#1263](https://github.com/drydocs/meridian/issues/1263) the data was the three-element `(caller, amount, shares_minted)`.
 
 `OFFSET` is a virtual liquidity constant (1,000 stroops) that makes the first-deposit price 1 share = 1 stroop while neutralising the first-depositor inflation attack: an attacker who donates USDC directly to the adapter to inflate the share price before a victim deposits recovers only a negligible fraction of the donation, making the skim strictly unprofitable (see the `inflation_attack_is_unprofitable` test). Returns the number of shares minted.
 
@@ -47,7 +70,7 @@ Burns `shares` mUSDC from the caller, redeems the proportional adapter position,
 
 The `InsufficientShares` check reads the caller's live mUSDC balance, the same balance the burn operates on, so the two can never disagree. The check is kept rather than left to the burn's own failure so callers get the typed error instead of a panic.
 
-```
+```text
 adapter_shares_to_burn = shares * total_adapter_shares / total_shares
 usdc_out = <whatever the adapter's withdraw() returns for that many adapter shares>
 principal_out = Principal(caller) * shares / caller_shares
@@ -58,9 +81,15 @@ net_usdc_out = usdc_out - fee
 
 The fee is a constructor-immutable 1,000 basis points (10%) and applies only to positive gain above the proportional `Principal` cost basis. There is no deposit fee and no duration gate. Losses and principal are never charged. The fee USDC remains invested through the active adapter and the vault mints the equivalently priced mUSDC shares to the constructor-fixed treasury, so the revenue mint is fully backed. A `perf_fee` event records the caller, treasury, USDC fee, and treasury shares.
 
-After a charged withdrawal, the caller's `Principal` retires the proportional withdrawn basis and ratchets upward by the gain just taxed, making it the account's high-water mark. A full exit clears both `Entry(caller)` and `Principal(caller)`. Withdrawals are never blocked by `set_paused`. See [Authorization and safety rails](#authorization-and-safety-rails) for the full pause behavior.
+After a withdrawal, the caller's `Principal` retires strictly the proportional withdrawn basis (`principal * shares / caller_shares`); the retained shares keep their own untaxed basis, so their gain is charged when they are withdrawn. This makes the total fee independent of how many transactions a position is exited in ([#1039](https://github.com/drydocs/meridian/issues/1039)). A full exit clears both `Entry(caller)` and `Principal(caller)`. Withdrawals are never blocked by `set_paused`. See [Authorization and safety rails](#authorization-and-safety-rails) for the full pause behavior.
 
 The single aggregate `Principal` deliberately nets deposits and losses. A deposit made after a loss is therefore fee-shielded until the account as a whole recovers above total deposited. Per-lot cost basis, deposit fees, duration-gated fees, and contract-level fee waivers are intentionally outside this deployment. Any promotional waiver must be an off-chain treasury rebate after the normal on-chain fee is charged.
+
+### `withdraw_assets(caller, assets, max_shares_in) -> Result<i128, ContractError>`
+
+Withdraws an exact net USDC `assets` amount by burning at most `max_shares_in` mUSDC shares, returning the USDC amount sent back to the caller. Authoritatively computes the required shares using the shared preview and pricing helpers while accounting for fee-bearing gain, proportional principal retirement, and dust fee return.
+
+Fails with `ZeroAmount` if `assets <= 0` or `max_shares_in < 0`, `NoSharesOutstanding` if the vault has no shares outstanding at all, `InsufficientShares` if the caller's share balance is zero or less than the required burn, or `MaxSharesExceeded` if the required shares exceed `max_shares_in`.
 
 ### `on_transfer(from, to, amount, sender_balance_before, receiver_balance_before) -> Result<(), ContractError>`
 
@@ -78,9 +107,24 @@ Returns the ledger timestamp of the address's current deposit, or `0` if it hold
 
 Returns the address's cost basis: the net USDC it has deposited and not yet withdrawn. Yield earned off-chain is computed as `current_share_value - principal`. Reported as `0` for an address holding no mUSDC without modifying storage. An address whose shares arrived by transfer now ([#578](https://github.com/drydocs/meridian/issues/578)) reports the pro-rata basis it inherited via `on_transfer`, not `0`. See [Transferable shares](#transferable-shares) for that split.
 
+### `get_position_summary(address) -> PositionSummary`
+
+Returns an address's position in a single read: shares, cost basis, entry time and current value. An address with no shares gets all zeros and the call does not fail. The single-field getters (`get_position`, `get_principal`, `get_entry_time`) are unchanged.
+
+| Field           | Type   | Meaning                                                                                        |
+| --------------- | ------ | ---------------------------------------------------------------------------------------------- |
+| `shares`        | `i128` | mUSDC held by the address.                                                                     |
+| `principal`     | `i128` | Net USDC cost basis, as returned by `get_principal`.                                           |
+| `entry_time`    | `u64`  | Ledger timestamp of the first deposit, as returned by `get_entry_time`.                        |
+| `current_value` | `i128` | USDC value of the shares at the adapter's reported assets, as returned by `convert_to_assets`. |
+
 ### `get_total_assets() -> i128`
 
 Returns the live USDC value of the vault's position, read directly from the active adapter's `total_assets()`. Includes yield accrued by the underlying protocol (for Blend, only as of the adapter's last `accrue()` call, described below).
+
+### `get_health() -> Health`
+
+Returns a read-only reconciliation snapshot. `total_shares_mismatch` compares the vault's `TOTAL_SH` counter with the mUSDC token's `total_supply`; `adapter_shares_mismatch` compares `ADPT_SH` with the active adapter's own protocol-share balance. The response also includes the adapter's cached and live asset values, the last accrual ledger, and migration state. Each optional external read has a corresponding `*_stale` flag; when a legacy token or adapter does not expose that view or the read fails, the value falls back to a cached estimate and the flag is `true`. Consumers must not treat a fallback as a successful reconciliation. When a migration is active, `migration_earliest_ledger` is the first ledger at which `migrate_adapter` can execute; it is `0` otherwise. This view never refreshes or writes state, so keepers can use it as a preflight check before submitting a transaction.
 
 ### `get_total_shares() -> i128`
 
@@ -94,9 +138,15 @@ Returns the currently active adapter contract address.
 
 Points the vault at a new adapter contract. **This is the only way to change which protocol a vault routes to, or to push new adapter code live**, because adapter contracts have no in-place upgrade path (no `update_current_contract_wasm`). The contract itself rejects the call with `AdapterSwapUnsafe` while the vault still has shares outstanding (`get_total_shares() > 0`) **or** while the old adapter still holds a position (`ADPT_SH > 0`). Both counters are checked because they can desync: `ADPT_SH` can remain positive after `TOTAL_SH` reaches zero (see `migrate_adapter`'s `NoAdapterPosition` doc), so a `TOTAL_SH`-only check could silently strand real value at the old adapter. Use this only when the vault has no depositors yet, e.g. right after a fresh deploy. For a vault with real depositors, use `migrate_adapter` instead: unlike `set_adapter`, calling this on a live vault does not itself move any funds out of the old adapter first. `ADPT_SH` is deliberately not reset to zero on swap: the guard now guarantees it is already zero on success, and resetting it in a genuinely-empty-but-desynced vault would destroy the only evidence that a stranded position existed. See `scripts/redeploy-blend-adapter.sh` for the supported procedure.
 
+The target is also validated before it is accepted ([#1270](https://github.com/drydocs/meridian/issues/1270)). `set_adapter` fails with `AdapterUsdcMismatch` if the target's `get_usdc()` differs from the vault's USDC, `AdapterVaultMismatch` if its `get_vault()` is not this vault, and `AdapterResidualPosition` if its `total_shares()` or `total_assets()` is nonzero. A target that does not export the two views, or whose views fail, is rejected, as described under [Adapter compatibility checks](#adapter-compatibility-checks). `set_adapter` runs under the reentrancy lock.
+
 ### `begin_migration(new_adapter)` (admin only)
 
-Phase 1 of a two-phase migration ([#567](https://github.com/drydocs/meridian/issues/567)). Snapshots `new_adapter`'s `total_assets()` and the current ledger sequence into instance storage (`MIG_SNAP`, `MIG_ACTIVE`). `migrate_adapter` refuses to run against `new_adapter` until at least `MIN_LEDGER_GAP` ledgers (17,280, ~1 day as of [#557](https://github.com/drydocs/meridian/issues/557); previously 12, ~1 minute) have elapsed since this call, so a transiently-manipulated valuation at submission time can't slip through: an observer would have to sustain the manipulation across the whole cooldown, not just the instant `migrate_adapter` executes. The longer gap also makes this a genuine timelock, not just a valuation-stability check: it gives observers or automated monitoring a real window to notice and react to a `begin_migration` call before `migrate_adapter` can move funds. Fails with `SameAdapter` if `new_adapter` is the vault's current adapter, or `MigrationSnapshotAssetsInvalid` if `new_adapter.total_assets()` is negative. A negative snapshot would make `migrate_adapter`'s stability check's tolerance-scaled floor negative too, so it would pass regardless of how much the target is drained during the cooldown. Can be called repeatedly, for the same or a different adapter; each call overwrites the previous snapshot.
+Phase 1 of a two-phase migration ([#567](https://github.com/drydocs/meridian/issues/567)). Snapshots `new_adapter`'s `total_assets()` and the current ledger sequence into instance storage (`MIG_SNAP`, `MIG_ACTIVE`). `migrate_adapter` refuses to run against `new_adapter` until at least `MIN_LEDGER_GAP` ledgers (17,280, ~1 day as of [#557](https://github.com/drydocs/meridian/issues/557); previously 12, ~1 minute) have elapsed since this call, so a transiently-manipulated valuation at submission time can't slip through: an observer would have to sustain the manipulation across the whole cooldown instead of only at the moment `migrate_adapter` executes. The longer gap also makes this a timelock as well as a valuation-stability check. It gives observers or automated monitoring a real window to notice and react to a `begin_migration` call before `migrate_adapter` can move funds. Fails with `SameAdapter` if `new_adapter` is the vault's current adapter, or `MigrationSnapshotAssetsInvalid` if `new_adapter.total_assets()` is negative. A negative snapshot would make `migrate_adapter`'s stability check's tolerance-scaled floor negative too, so it would pass regardless of how much the target is drained during the cooldown. Can be called repeatedly, for the same or a different adapter; each call overwrites the previous snapshot. The target is validated first ([#1270](https://github.com/drydocs/meridian/issues/1270)): `begin_migration` fails with `AdapterUsdcMismatch` or `AdapterVaultMismatch` under the same rules as `set_adapter`, and a rejected target writes no snapshot. It deliberately does not reject a target that holds a position, so a funded target can be re-snapshotted after a partial attempt.
+
+### `cancel_migration()` (admin only)
+
+Cancels a pending migration during its cooldown. It clears the snapshot recorded by `begin_migration` (`MIG_SNAP`, `MIG_ACTIVE`), so `migrate_adapter` rejects the cancelled target with `MigrationNotInitialized` until a new `begin_migration` is made. The cooldown for a later migration is unchanged. Fails with `NoPendingMigration` when no migration is pending, including after it was already cancelled or executed. Publishes an admin `mig_canc` event carrying the cancelled target adapter.
 
 ### `get_migration_snapshot() -> Result<MigrationSnapshot, ContractError>`
 
@@ -108,11 +158,15 @@ Phase 2. Must be preceded by `begin_migration(new_adapter)`, with `MIN_LEDGER_GA
 
 Fails up front with `InvalidSlippageBps` if `max_slippage_bps > MAX_ADMIN_SLIPPAGE_BPS` (500 bps, 5%, as of [#557](https://github.com/drydocs/meridian/issues/557); previously 10,000, unlimited), `SameAdapter` if `new_adapter` is the vault's current adapter, `NoAdapterPosition` if the current adapter has no position (`ADPT_SH <= 0`, distinct from `NoSharesOutstanding`, which checks `TOTAL_SH` [vault mUSDC shares] instead and can desync from it), or `MigrationNotInitialized`/`MigrationCooldownNotMet` if no matching, sufficiently-aged `begin_migration` snapshot exists for `new_adapter`.
 
-Refreshes and reads the old adapter's `total_assets()` as the pre-migration value (an independent measurement taken before extraction, so it can catch loss on the withdrawal leg itself, not just the deposit leg), also baselines `new_adapter`'s `total_assets()` before landing any funds on it (so a pre-existing balance the target already held, e.g. residue stranded by the `set_adapter` wrong-counter case above, isn't later counted as value this migration delivered), withdraws the vault's entire adapter-share position into the vault itself, deposits it into `new_adapter`, and requires the new adapter to report a positive share count (`DepositTooSmall` otherwise, this is what stops the vault's own bookkeeping from ever being pointed at zero adapter shares while `TOTAL_SH` is still positive). Two independent checks then have to pass: a post-migration `total_assets()` delta over the pre-deposit baseline no lower than `(10_000 - max_slippage_bps) / 10_000` of the _pre-migration_ value (`MigrationValueDrift` otherwise), and the target's pre-deposit baseline itself no lower than `(10_000 - max_slippage_bps) / 10_000` of the `begin_migration` _snapshot_ value (`MigrationStabilityDrift` otherwise). Together, these prove the target wasn't drained or manipulated during the cooldown. The second check deliberately reads the pre-deposit baseline, not the post-migration total: the post-migration total always includes the funds this call itself just delivered, so checking it against the snapshot would pass regardless of how much the target's pre-existing balance had been manipulated. `max_slippage_bps` is capped at `500` (5%) by the `InvalidSlippageBps` check above, so `10_000` is not an accepted value; the most permissive accepted setting is `500`, which still requires the migration to preserve at least 95% of value. Since Soroban transactions are atomic, a failed check leaves no partial state and nothing moves. The `begin_migration` snapshot also survives a failed attempt and can be reused. On success, `ADAPTER`, `ADPT_SH`, and the migration snapshot are cleared; `TOTAL_SH`, every holder's mUSDC balance, and every depositor's `Principal`/`Entry` are untouched, since they're denominated in vault mUSDC shares, not adapter shares.
+Refreshes and reads the old adapter's `total_assets()` as the pre-migration value (an independent measurement taken before extraction, so it can catch loss on the withdrawal leg itself as well as the deposit leg), also baselines `new_adapter`'s `total_assets()` before landing any funds on it (so a pre-existing balance the target already held, e.g. residue stranded by the `set_adapter` wrong-counter case above, isn't later counted as value this migration delivered), withdraws the vault's entire adapter-share position into the vault itself, deposits it into `new_adapter`, and requires the new adapter to report a positive share count (`DepositTooSmall` otherwise, this is what stops the vault's own bookkeeping from ever being pointed at zero adapter shares while `TOTAL_SH` is still positive). Two independent checks then have to pass: a post-migration `total_assets()` delta over the pre-deposit baseline no lower than `(10_000 - max_slippage_bps) / 10_000` of the _pre-migration_ value (`MigrationValueDrift` otherwise), and the target's pre-deposit baseline itself no lower than `(10_000 - max_slippage_bps) / 10_000` of the `begin_migration` _snapshot_ value (`MigrationStabilityDrift` otherwise). Together, these prove the target wasn't drained or manipulated during the cooldown. The second check deliberately reads the pre-deposit baseline, not the post-migration total: the post-migration total always includes the funds this call itself just delivered, so checking it against the snapshot would pass regardless of how much the target's pre-existing balance had been manipulated. `max_slippage_bps` is capped at `500` (5%) by the `InvalidSlippageBps` check above, so `10_000` is not an accepted value; the most permissive accepted setting is `500`, which still requires the migration to preserve at least 95% of value. Since Soroban transactions are atomic, a failed check leaves no partial state and nothing moves. The `begin_migration` snapshot also survives a failed attempt and can be reused. On success, `ADAPTER`, `ADPT_SH`, and the migration snapshot are cleared; `TOTAL_SH`, every holder's mUSDC balance, and every depositor's `Principal`/`Entry` are untouched, since they're denominated in vault mUSDC shares, not adapter shares.
 
 **This does not protect against a malicious or compromised admin key.** The admin chooses `new_adapter`, and a fake adapter could report whatever `total_assets()` it likes to pass the slippage check and then keep the funds. The invariant guards against accidental value loss (slippage, a buggy new adapter), not against the admin key itself. That is a key-custody problem (see the shared testnet admin/deployer/mUSDC-issuer key warning in the deploy scripts), not something this function can close on its own.
 
 **The invariant's real strength also depends on how honestly the new adapter's `total_assets()` reflects what it actually holds.** `BlendAdapter::total_assets()` self-reports based on the amount `deposit()` was called with, not an independent on-chain measurement, so migrating into a `BlendAdapter` target mainly gets protection from the old-adapter-side check (independently measured before and after extraction), not from anything verifying the new `BlendAdapter` actually supplied the funds to its pool rather than just returning success.
+
+### `rescue_token(token, to, amount) -> Result<(), ContractError>` (admin only)
+
+Transfers `amount` of an unrelated token that was sent to the vault address by mistake to `to`. It rejects the vault's USDC, the mUSDC share token and the active adapter with `ProtectedToken`, a non-positive `amount` with `ZeroAmount`, and an amount larger than the vault's balance of `token` with `InsufficientBalance`. It never changes shares, assets, principal, entry times or adapter accounting, and runs under the reentrancy lock. A successful rescue emits the `rescue` admin event.
 
 ### `set_paused(paused: bool)` (admin only)
 
@@ -121,6 +175,16 @@ Emergency switch. While paused, new deposits are rejected. Withdrawals remain op
 ### `is_paused() -> bool`
 
 Returns whether deposits are currently paused.
+
+### `set_total_deposit_cap(cap: i128) -> Result<(), ContractError>` (admin only)
+
+Sets the maximum total asset amount (in USDC stroops, the same units as `get_total_assets()`) the vault will accept across all deposits. Setting `0` leaves the vault uncapped (the default). Rejecting any negative cap value with `ZeroAmount`. Emits an admin event with topic `("admin", "cap")` and data `cap`.
+
+When a positive cap is set, any `deposit` that would cause resulting total assets (`total_assets + amount`) to exceed `cap` fails with `DepositCapExceeded`. A deposit that reaches the cap exactly (`total_assets + amount == cap`) succeeds.
+
+### `get_total_deposit_cap() -> i128`
+
+Returns the current total deposit cap in USDC stroops, or `0` if deposits are uncapped.
 
 ### `transfer_admin(new_admin)` (admin only)
 
@@ -139,6 +203,46 @@ Returns the currently pending nominee, or `None` if no handover is in progress.
 ### `get_admin() -> Address`
 
 Returns the current admin address.
+
+### `get_config() -> Result<VaultConfig, ContractError>`
+
+Returns the vault's configuration and totals in a single read, so dashboards and admin pages do not have to combine several getter calls. Fails with `NotInitialized` if the vault has not been initialized. The individual getters are unchanged.
+
+| Field                 | Type              | Meaning                                                                         |
+| --------------------- | ----------------- | ------------------------------------------------------------------------------- |
+| `admin`               | `Address`         | Current admin.                                                                  |
+| `pending_admin`       | `Option<Address>` | Nominee from `transfer_admin`, or `None` if no handover is in progress.         |
+| `adapter`             | `Address`         | Active yield adapter.                                                           |
+| `paused`              | `bool`            | Whether deposits are paused.                                                    |
+| `treasury`            | `Address`         | Constructor-fixed performance-fee treasury.                                     |
+| `performance_fee_bps` | `i128`            | Performance fee compiled into this vault, in basis points.                      |
+| `total_shares`        | `i128`            | Total outstanding mUSDC shares.                                                 |
+| `total_assets`        | `i128`            | USDC value reported by the active adapter, as returned by `get_total_assets()`. |
+
+## Events
+
+Every vault event carries a schema version in its final topic segment. The current version is `1` (`u32`). Event names remain stable across versions; consumers must inspect the final topic segment and reject versions they do not understand instead of decoding them using this schema.
+
+All topic segments are `Symbol` values unless shown as `u32(1)`. Soroban encodes tuple payloads as an `ScVal` vector, so the payload fields below are positional.
+
+| Event       | Topic                        | Payload                                                                               |
+| ----------- | ---------------------------- | ------------------------------------------------------------------------------------- |
+| `deposit`   | `(deposit, u32(1))`          | `(caller: Address, amount: i128, adapter_shares_credited: i128, shares_minted: i128)` |
+| `perf_fee`  | `(perf_fee, u32(1))`         | `(caller: Address, treasury: Address, fee: i128, treasury_shares: i128)`              |
+| `withdraw`  | `(withdraw, u32(1))`         | `(caller: Address, shares_burned: i128, usdc_out: i128)`                              |
+| `paused`    | `(admin, paused, u32(1))`    | `paused: bool`                                                                        |
+| `transfer`  | `(admin, transfer, u32(1))`  | `new_admin: Address`                                                                  |
+| `accept`    | `(admin, accept, u32(1))`    | `new_admin: Address`                                                                  |
+| `adapter`   | `(admin, adapter, u32(1))`   | `new_adapter: Address`                                                                |
+| `mig_begin` | `(admin, mig_begin, u32(1))` | `(new_adapter: Address, earliest_ledger: u32)`                                        |
+| `mig_canc`  | `(admin, mig_canc, u32(1))`  | `cancelled_adapter: Address`                                                          |
+| `migrate`   | `(admin, migrate, u32(1))`   | `(old_adapter: Address, new_adapter: Address)`                                        |
+| `cap`       | `(admin, cap, u32(1))`       | `cap: i128`                                                                           |
+| `rescue`    | `(admin, rescue, u32(1))`    | `(token: Address, to: Address, amount: i128)`                                         |
+
+### Event schema compatibility
+
+Schema v1 is a breaking change from the unversioned topics. The event names are unchanged, but named events now have a trailing `u32(1)` topic and admin events change from `(admin, action)` to `(admin, action, u32(1))`. Indexers using exact-length topic filters, including Soroban RPC `getEvents`, must add the version segment. Decoders must ignore or explicitly reject events with an unsupported version rather than interpreting their fields as v1. Existing admin history can be read alongside v1 by filtering both topic shapes and decoding the legacy two-segment `(admin, action)` events with the original schema; `getRpcAdminHistory` does this.
 
 ## Transferable shares
 
@@ -187,10 +291,21 @@ pub trait YieldAdapterInterface {
     fn total_assets(env: Env) -> i128;
     fn get_pool(env: Env) -> Address;
     fn get_protocol(env: Env) -> Symbol;
+    fn get_vault(env: Env) -> Address;
+    fn get_usdc(env: Env) -> Address;
 }
 ```
 
 `get_pool()` returns the address of the underlying protocol contract the adapter wraps (a lending pool for Blend, a vault for DeFindex). `get_protocol()` returns a stable lowercase identifier (`"blend"`, `"defindex"`) for that protocol. Both exist purely for off-chain callers: they let the frontend discover live rate data (e.g. Blend's supply APY) without maintaining a config mapping that could drift out of sync if the adapter is later swapped via `set_adapter`. The vault itself never calls either.
+
+### Adapter compatibility checks
+
+`set_adapter` and `begin_migration` ([#1270](https://github.com/drydocs/meridian/issues/1270)) call `get_vault()` and `get_usdc()` on the target and compare them with the vault's own address and USDC. `get_vault()` returns the vault the adapter is bound to and `get_usdc()` the USDC it holds. Both are called through the non-panicking `try_` client, so a bad target produces a typed error instead of aborting the transaction:
+
+- The view returns this vault's value: the check passes.
+- The view returns a different value, is not exported by the target, panics, or the target is not a contract: the call fails with `AdapterUsdcMismatch` (for `get_usdc()`) or `AdapterVaultMismatch` (for `get_vault()`).
+
+There is no fallback for older adapters. An adapter deployed before these views existed is rejected, so it has to be redeployed from the current source before the vault will accept it; the Blend and DeFindex adapters in this repo both export the views. The residue check in `set_adapter` (`AdapterResidualPosition`) rejects a target whose `total_shares()` or `total_assets()` is nonzero.
 
 Two adapters exist today, at `packages/contracts/blend-adapter/src/lib.rs` and `packages/contracts/defindex-adapter/src/lib.rs`.
 
@@ -232,15 +347,15 @@ USDC on Stellar uses 7 decimal places. 1 USDC = `10_000_000` stroops. All contra
 
 ## Authorization and safety rails
 
-`caller.require_auth()` is called at the start of both `deposit` and `withdraw`. Admin functions (`transfer_admin`, `set_paused`, `set_adapter`) call an internal `require_admin` helper that reads the stored admin address and calls `require_auth()` on it. `accept_admin` is one exception: it calls `require_auth()` on the pending nominee instead, since its whole purpose is to require the _new_ admin's signature, not the current one's. `on_transfer` ([#578](https://github.com/drydocs/meridian/issues/578)) is the other: it calls `require_auth()` on the stored mUSDC address, which only succeeds when mUSDC is the direct caller of that invocation. See [Transferable shares](#transferable-shares) for the full mechanism, and [BlendAdapter's auth note](#blendadapter) above for a subtler auth requirement specific to that adapter.
+`caller.require_auth()` is called at the start of `deposit`, `withdraw`, and `withdraw_assets`. Admin functions (`transfer_admin`, `set_paused`, `set_adapter`) call an internal `require_admin` helper that reads the stored admin address and calls `require_auth()` on it. `accept_admin` is one exception: it calls `require_auth()` on the pending nominee instead, since its whole purpose is to require the _new_ admin's signature, not the current one's. `on_transfer` ([#578](https://github.com/drydocs/meridian/issues/578)) is the other: it calls `require_auth()` on the stored mUSDC address, which only succeeds when mUSDC is the direct caller of that invocation. See [Transferable shares](#transferable-shares) for the full mechanism, and [BlendAdapter's auth note](#blendadapter) above for a subtler auth requirement specific to that adapter.
 
 Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is deliberate, so a pause can never trap user funds.
 
-`deposit`, `withdraw`, `begin_migration`, `migrate_adapter` and `on_transfer` run under a reentrancy lock ([#1264](https://github.com/drydocs/meridian/issues/1264)). Each of them makes external calls (to the adapter, to USDC or mUSDC), or is reached from one, and so could be called back into while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or the migration state is not final. While the lock is held, a second guarded call returns `ReentrancyDetected` and changes nothing. The lock is released on both success and failure. This is defense in depth: the Soroban host already refuses to re-enter a contract that is on the call stack, and the lock keeps the vault safe if that ever changes. `deposit` also writes `TOTAL_SH` and the caller's position records before its external calls; `withdraw` and `migrate_adapter` cannot, because what they write depends on what those calls return.
+`deposit`, `withdraw`, `withdraw_assets`, `rescue_token`, `set_adapter`, `begin_migration`, `migrate_adapter` and `on_transfer` run under a reentrancy lock ([#1264](https://github.com/drydocs/meridian/issues/1264)). Each of them makes external calls (to the adapter, to USDC or mUSDC), or is reached from one, and so could be called back into while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or the migration state is not final. While the lock is held, a second guarded call returns `ReentrancyDetected` and changes nothing. The lock is released on both success and failure. This is defense in depth: the Soroban host already refuses to re-enter a contract that is on the call stack, and the lock keeps the vault safe if that ever changes. `deposit` also writes the caller's position records, and `TOTAL_SH` at the pre-deposit quote (the most the deposit can mint), before its external calls, then reconciles `TOTAL_SH` and `ADPT_SH` from the adapter's post-deposit reads before the mUSDC mint; `withdraw` and `migrate_adapter` cannot write ahead, because what they write depends on what those calls return.
 
 ## Error codes
 
-`ContractError` (defined in `vault/src/lib.rs`) gives fallible entry points typed, stable error codes instead of panic strings:
+`ContractError` (defined in `packages/contracts/vault/src/errors.rs`) gives fallible entry points typed, stable error codes instead of panic strings. For the complete catalog across the vault, adapters, and mUSDC token, with causes and recommended client or operator responses, see the [Contract Error Reference](./contract-errors.md).
 
 | Variant                          | Code | Meaning                                                                                                                                                                                           |
 | -------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -266,7 +381,26 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `MigrationCooldownNotMet`        | 20   | `migrate_adapter` was called before `MIN_LEDGER_GAP` ledgers had elapsed since `begin_migration`.                                                                                                 |
 | `MigrationStabilityDrift`        | 21   | `migrate_adapter`'s target adapter's pre-deposit balance fell outside `max_slippage_bps` of the `begin_migration` snapshot, indicating the target was drained or manipulated during the cooldown. |
 | `MigrationSnapshotAssetsInvalid` | 22   | `begin_migration` was called against a target adapter reporting a negative `total_assets()`.                                                                                                      |
-| `ReentrancyDetected`             | 26   | `deposit`, `withdraw`, `begin_migration`, `migrate_adapter` or `on_transfer` was called while another guarded call was still running.                                                             |
+| `AdapterCreditedNothing`         | 23   | `deposit` or `migrate_adapter` received zero or negative shares from the adapter.                                                                                                                 |
+| `DivisionByZero`                 | 24   | An internal division attempted to divide by zero.                                                                                                                                                 |
+| `MigrationBaselineInvalid`       | 25   | `migrate_adapter` read a zero or negative asset baseline from the old adapter while the vault held adapter shares.                                                                                |
+| `ReentrancyDetected`             | 26   | `deposit`, `withdraw`, `withdraw_assets`, `rescue_token`, `set_adapter`, `begin_migration`, `migrate_adapter` or `on_transfer` was called while another guarded call was still running.           |
+| `AdapterUsdcMismatch`            | 27   | `set_adapter`, `begin_migration`, or constructor wiring was given a target whose `get_usdc()` differs from the vault's USDC, is missing, or fails.                                                |
+| `AdapterVaultMismatch`           | 28   | `set_adapter`, `begin_migration`, or constructor wiring was given a target whose `get_vault()` is not this vault, is missing, or fails.                                                           |
+| `AdapterResidualPosition`        | 29   | `set_adapter` was given a target that already holds a position (nonzero `total_shares()` or `total_assets()`).                                                                                    |
+| `DepositValueMismatch`           | 30   | `deposit`'s adapter reported a credit worth more than the USDC it was given or more than its `total_assets()` grew by, beyond the documented tolerance.                                           |
+| `MaxSharesExceeded`              | 31   | `withdraw_assets` burned share count exceeded the caller-specified maximum bound (`max_shares_in`).                                                                                               |
+| `InvalidAdminAddress`            | 32   | Constructor initialization rejected a zero or vault-self admin address.                                                                                                                           |
+| `InvalidUsdcAddress`             | 33   | Constructor initialization rejected a zero or vault-self USDC address.                                                                                                                            |
+| `InvalidMusdcAddress`            | 34   | Constructor initialization rejected a zero or vault-self mUSDC address.                                                                                                                           |
+| `InvalidAdapterAddress`          | 35   | Constructor initialization rejected a zero or vault-self adapter address.                                                                                                                         |
+| `InvalidTreasuryAddress`         | 36   | Constructor initialization rejected a zero or vault-self treasury address.                                                                                                                        |
+| `MusdcAdminMismatch`             | 37   | Constructor initialization found that mUSDC is not administered by this vault.                                                                                                                    |
+| `ProtectedToken`                 | 38   | `rescue_token` was called for the vault's USDC, the mUSDC share token or the active adapter.                                                                                                      |
+| `InsufficientBalance`            | 39   | `rescue_token` was asked for more of the token than the vault holds.                                                                                                                              |
+| `DepositCapExceeded`             | 40   | `deposit` would take the vault's total assets above the cap set with `set_total_deposit_cap`.                                                                                                     |
+| `AdapterLiquidityInsufficient`   | 41   | The active adapter's available USDC liquidity is below the gross USDC needed for the requested withdrawal. Distinct from `WithdrawalTooSmall`.                                                    |
+| `NoPendingMigration`             | 42   | `cancel_migration` was called while no migration is pending.                                                                                                                                      |
 
 ## Contract storage
 

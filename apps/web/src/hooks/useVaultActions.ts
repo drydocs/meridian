@@ -9,11 +9,15 @@ import { useTrustlines } from "./useTrustlines";
 import { useBlendFaucet } from "./useBlendFaucet";
 import { usePositionPolling } from "./usePositionPolling";
 import { useTranslation } from "react-i18next";
+import { parseMoneyInput } from "../lib/format";
 import {
   computeMinSharesOut,
   computeMinUsdcOut,
   fetchFreshVaultState,
 } from "./useVaultState";
+import { useActivityStore } from "../store/activity";
+import { mapError } from "../lib/errorMapper";
+import { WalletCancelledError } from "../lib/wallet";
 
 /**
  * Live vault totals for pricing a slippage floor, falling back to the cached
@@ -45,17 +49,21 @@ function estimatePrincipal(position: ApiPosition | undefined): number {
 }
 
 export function useVaultActions() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { publicKey, network } = useWalletStore();
   const queryClient = useQueryClient();
   const { push } = useToastStore();
   const [isDepositing, setIsDepositing] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  // True only while the wallet signature is pending, so the UI shows the
+  // cancel control at the point where aborting actually helps.
+  const [isSigning, setIsSigning] = useState(false);
 
-  const { signAndSubmit, passphrase } = useSignAndSubmit();
+  const { signAndSubmit, cancelSign, passphrase } = useSignAndSubmit();
   const { hasRequiredTrustlines, addTrustline } = useTrustlines();
   const { hasBlendUsdcBalance, fundFromBlendFaucet } = useBlendFaucet();
   const { startPolling } = usePositionPolling();
+  const { addPending, updateActivity } = useActivityStore.getState();
 
   async function deposit(
     amount: string,
@@ -66,7 +74,16 @@ export function useVaultActions() {
   ): Promise<boolean> {
     if (!riskAcknowledged) return false;
     if (!publicKey || !passphrase) return false;
+    const canonicalAmount = parseMoneyInput(amount, i18n.language);
+    if (canonicalAmount === null || canonicalAmount === "") return false;
     setIsDepositing(true);
+    const activityId = addPending({
+      action: "deposit",
+      amount,
+      asset,
+      vaultId,
+      publicKey,
+    });
     try {
       // Snapshot the cached positions before any async work so the optimistic
       // update and the poll share a baseline, the same shape as `withdraw`.
@@ -77,7 +94,7 @@ export function useVaultActions() {
       const matchedBefore = positionsBefore?.find((p) => p.vaultId === vaultId);
       const sharesBefore = matchedBefore?.shares ?? Infinity;
       const depositedBefore = matchedBefore?.deposited ?? 0;
-      const depositAmount = parseFloat(amount);
+      const depositAmount = parseFloat(canonicalAmount);
 
       // Price the floor before anything that costs a signature, so a vault
       // state outage fails the deposit outright instead of leaving it to
@@ -92,7 +109,7 @@ export function useVaultActions() {
           return false;
         }
         resolvedMinSharesOut = computeMinSharesOut(
-          parseFloat(amount),
+          parseFloat(canonicalAmount),
           state.totalAssets,
           state.totalShares
         );
@@ -120,11 +137,18 @@ export function useVaultActions() {
       const { xdr } = await api.buildDeposit({
         walletAddress: publicKey,
         vaultId,
-        amount,
+        amount: canonicalAmount,
         min_shares_out: resolvedMinSharesOut,
         riskAcknowledged: true,
       });
-      await signAndSubmit(xdr);
+      setIsSigning(true);
+      const txHash = await signAndSubmit(xdr);
+
+      updateActivity(activityId, {
+        transactionHash: txHash,
+        status: "confirmed",
+        error: undefined,
+      });
 
       // Without this, the vault panel's TVL/APY keep serving their cached
       // value for up to staleTime (5 min) after a deposit actually lands.
@@ -168,11 +192,16 @@ export function useVaultActions() {
       push("success", `${t("vaultActions.deposited")} ${amount} ${asset}`);
       return true;
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : t("vaultActions.depositFailed");
+      const msg = mapError(err, t, "vaultActions.depositFailed").message;
+      if (err instanceof WalletCancelledError) {
+        updateActivity(activityId, { status: "failed", error: msg });
+        return false;
+      }
       push("error", msg);
+      updateActivity(activityId, { status: "failed", error: msg });
       return false;
     } finally {
+      setIsSigning(false);
       setIsDepositing(false);
     }
   }
@@ -184,7 +213,17 @@ export function useVaultActions() {
     minUsdcOut?: string
   ): Promise<boolean> {
     if (!publicKey || !passphrase) return false;
+    const canonicalShares = parseMoneyInput(shares, i18n.language);
+    if (canonicalShares === null || canonicalShares === "") return false;
     setIsWithdrawing(true);
+    const activityId = addPending({
+      action: "withdraw",
+      amount: shares,
+      // The amount is a share count, so it is labelled with the share token.
+      asset: "mUSDC",
+      vaultId,
+      publicKey,
+    });
     try {
       // Snapshot the current positions before any async work so the optimistic
       // update and poll have a consistent baseline.
@@ -198,7 +237,7 @@ export function useVaultActions() {
       // matching the deposit path.
       const matchedBefore = positionsBefore?.find((p) => p.vaultId === vaultId);
       const sharesBefore = matchedBefore?.shares ?? Infinity;
-      const withdrawnShares = parseFloat(shares);
+      const withdrawnShares = parseFloat(canonicalShares);
 
       // Price the floor from live vault totals, net of the performance fee the
       // vault charges before it enforces the floor. Failing to price one must
@@ -212,7 +251,7 @@ export function useVaultActions() {
           return false;
         }
         resolvedMinUsdcOut = computeMinUsdcOut({
-          shares: parseFloat(shares),
+          shares: parseFloat(canonicalShares),
           totalAssets: state.totalAssets,
           totalShares: state.totalShares,
           principal: estimatePrincipal(matchedBefore),
@@ -223,11 +262,17 @@ export function useVaultActions() {
       const { xdr } = await api.buildWithdraw({
         walletAddress: publicKey,
         vaultId,
-        shares,
+        shares: canonicalShares,
         min_usdc_out: resolvedMinUsdcOut,
       });
+      setIsSigning(true);
+      const txHash = await signAndSubmit(xdr);
 
-      await signAndSubmit(xdr);
+      updateActivity(activityId, {
+        transactionHash: txHash,
+        status: "confirmed",
+        error: undefined,
+      });
 
       // Without this, the vault panel's TVL/APY keep serving their cached
       // value for up to staleTime (5 min) after a withdrawal actually lands.
@@ -262,12 +307,16 @@ export function useVaultActions() {
       push("success", `${t("vaultActions.withdrew")} ${shares} ${asset}`);
       return true;
     } catch (err) {
-      push(
-        "error",
-        err instanceof Error ? err.message : t("vaultActions.withdrawalFailed")
-      );
+      const msg = mapError(err, t, "vaultActions.withdrawalFailed").message;
+      if (err instanceof WalletCancelledError) {
+        updateActivity(activityId, { status: "failed", error: msg });
+        return false;
+      }
+      push("error", msg);
+      updateActivity(activityId, { status: "failed", error: msg });
       return false;
     } finally {
+      setIsSigning(false);
       setIsWithdrawing(false);
     }
   }
@@ -277,5 +326,7 @@ export function useVaultActions() {
     withdraw,
     isDepositing,
     isWithdrawing,
+    isSigning,
+    cancelPending: cancelSign,
   };
 }

@@ -43,7 +43,7 @@ test.describe("position load error", () => {
     await expect(page.getByTestId("vault-tab-deposit")).toBeVisible();
     await expect(page.getByTestId("vault-deposit-submit")).toBeVisible();
 
-    await page.getByRole("button", { name: "Retry" }).click();
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
 
     await expect(
       page.getByText(

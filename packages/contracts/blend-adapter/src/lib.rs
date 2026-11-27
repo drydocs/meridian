@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 mod errors;
 mod types;
 
@@ -26,6 +29,7 @@ use soroban_sdk::{
 
 const POOL_KEY: Symbol = symbol_short!("POOL");
 const TOTAL_KEY: Symbol = symbol_short!("TOTAL");
+const LAST_ACCRUAL_KEY: Symbol = symbol_short!("LAST_ACCR");
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -81,6 +85,7 @@ impl MeridianBlendAdapter {
         store_vault_and_usdc(env, vault, usdc);
         env.storage().instance().set(&POOL_KEY, pool);
         env.storage().instance().set(&TOTAL_KEY, &0_i128);
+        env.storage().instance().set(&LAST_ACCRUAL_KEY, &0_u32);
     }
 
     /// Called by the vault after transferring `amount` USDC to this adapter.
@@ -277,6 +282,9 @@ impl MeridianBlendAdapter {
 
         let prev: i128 = env.storage().instance().get(&TOTAL_KEY).unwrap_or(0);
         env.storage().instance().set(&TOTAL_KEY, &current_value);
+        env.storage()
+            .instance()
+            .set(&LAST_ACCRUAL_KEY, &env.ledger().sequence());
 
         env.events()
             .publish((symbol_short!("accrue"),), (prev, current_value));
@@ -313,6 +321,28 @@ impl MeridianBlendAdapter {
         env.storage().instance().get(&TOTAL_KEY).unwrap_or(0)
     }
 
+    /// Returns the live Blend valuation without updating the cached total.
+    pub fn live_total_assets(env: Env) -> i128 {
+        let pool = adapter_common::get_or_not_initialized::<_, ContractError>(
+            &env,
+            env.storage().instance().get(&POOL_KEY),
+        );
+        let usdc = get_usdc(&env);
+        let client = BlendPoolClient::new(&env, &pool);
+        let reserve = client.get_reserve(&usdc);
+        let b_tokens = client
+            .get_positions(&env.current_contract_address())
+            .collateral
+            .get(reserve.config.index)
+            .unwrap_or(0);
+        b_tokens_to_usdc(b_tokens, reserve.data.b_rate)
+            .unwrap_or_else(|err| panic_with_error!(&env, err))
+    }
+
+    pub fn last_accrual_ledger(env: Env) -> u32 {
+        env.storage().instance().get(&LAST_ACCRUAL_KEY).unwrap_or(0)
+    }
+
     /// Returns the adapter's current bToken share balance, read directly from
     /// Blend's ledger rather than self-tracked.
     pub fn total_shares(env: Env) -> i128 {
@@ -332,6 +362,43 @@ impl MeridianBlendAdapter {
             .unwrap_or(0)
     }
 
+    /// Returns the maximum USDC amount currently withdrawable from the Blend
+    /// pool for this adapter: the minimum of the adapter's live redeemable
+    /// collateral value and the Blend pool's unborrowed USDC token balance.
+    pub fn available_liquidity(env: Env) -> i128 {
+        let pool: Address = adapter_common::get_or_not_initialized::<_, ContractError>(
+            &env,
+            env.storage().instance().get(&POOL_KEY),
+        );
+        let usdc = get_usdc(&env);
+        let adapter = env.current_contract_address();
+
+        let client = BlendPoolClient::new(&env, &pool);
+        let reserve = client.get_reserve(&usdc);
+        let b_tokens = client
+            .get_positions(&adapter)
+            .collateral
+            .get(reserve.config.index)
+            .unwrap_or(0);
+        if b_tokens <= 0 {
+            return 0;
+        }
+
+        let position_usdc = match b_tokens_to_usdc(b_tokens, reserve.data.b_rate) {
+            Ok(amount) => amount,
+            Err(err) => panic_with_error!(&env, err),
+        };
+        if position_usdc <= 0 {
+            return 0;
+        }
+
+        let pool_balance = TokenClient::new(&env, &usdc).balance(&pool);
+        if pool_balance <= 0 {
+            return 0;
+        }
+        position_usdc.min(pool_balance)
+    }
+
     /// Returns the Blend pool this adapter supplies to.
     pub fn get_pool(env: Env) -> Address {
         adapter_common::get_or_not_initialized::<_, ContractError>(
@@ -343,6 +410,22 @@ impl MeridianBlendAdapter {
     /// Returns "blend", identifying which protocol this adapter wraps.
     pub fn get_protocol(env: Env) -> Symbol {
         Symbol::new(&env, "blend")
+    }
+
+    /// Returns the vault this adapter is bound to. Lets the vault verify, in
+    /// `set_adapter`/`begin_migration`, that a candidate target answers to
+    /// *it* and not to some other vault.
+    pub fn get_vault(env: Env) -> Address {
+        adapter_common::get_or_not_initialized::<_, ContractError>(
+            &env,
+            adapter_common::get_vault(&env),
+        )
+    }
+
+    /// Returns the USDC token this adapter holds and supplies. Lets the vault
+    /// verify a candidate target uses the same USDC as the vault itself.
+    pub fn get_usdc(env: Env) -> Address {
+        get_usdc(&env)
     }
 }
 
@@ -359,6 +442,20 @@ mod tests {
         token::{StellarAssetClient, TokenClient},
         Address, Env, Map, Val,
     };
+
+    fn report_benchmark(env: &Env, name: &str) {
+        let estimate = env.cost_estimate();
+        let resources = estimate.resources();
+        let memory_bytes = estimate.budget().memory_bytes_cost();
+        let fee_stroops = estimate.fee().total;
+        std::println!(
+            "SOROBAN_BENCHMARK|{}|{}|{}|{}",
+            name,
+            resources.instructions,
+            memory_bytes,
+            fee_stroops
+        );
+    }
 
     // -----------------------------------------------------------------------
     // MockBlendPool: a minimal Blend pool double. Tracks a single reserve's
@@ -982,6 +1079,16 @@ mod tests {
         );
     }
 
+    /// The `get_vault`/`get_usdc` views the vault's `set_adapter` and
+    /// `begin_migration` validate against (#1270) report the constructor's
+    /// wiring.
+    #[test]
+    fn exposes_vault_and_usdc_views() {
+        let (_env, vault, usdc_id, adapter, _pool) = setup();
+        assert_eq!(adapter.get_vault(), vault);
+        assert_eq!(adapter.get_usdc(), usdc_id);
+    }
+
     #[test]
     #[should_panic]
     fn deposit_requires_vault_auth() {
@@ -1120,5 +1227,49 @@ mod tests {
         let data: (i128, Address, i128) =
             soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
         assert_eq!(data, (amount, recipient, delivered));
+    }
+
+    #[test]
+    fn benchmark_blend_deposit() {
+        let (env, vault, usdc_id, adapter, _pool) = setup();
+        let amount = 100_0000000_i128;
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        adapter.deposit(&amount);
+        report_benchmark(&env, "blend_adapter.deposit");
+    }
+
+    #[test]
+    fn benchmark_blend_withdraw() {
+        let (env, vault, usdc_id, adapter, _pool) = setup();
+        let amount = 100_0000000_i128;
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        adapter.deposit(&amount);
+        let recipient = Address::generate(&env);
+        adapter.withdraw(&amount, &recipient);
+        report_benchmark(&env, "blend_adapter.withdraw");
+    }
+
+    #[test]
+    fn available_liquidity_handles_full_partial_and_zero_pool_liquidity() {
+        let (env, vault, usdc_id, adapter, pool) = setup();
+        let amount = 100_0000000_i128;
+
+        // Empty adapter reports 0 available liquidity.
+        assert_eq!(adapter.available_liquidity(), 0);
+
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        adapter.deposit(&amount);
+
+        // Fully liquid: pool holds the entire deposited USDC.
+        assert_eq!(adapter.available_liquidity(), amount);
+
+        // Partially liquid: simulate borrowers drawing 65 USDC out of the pool.
+        let borrower = Address::generate(&env);
+        TokenClient::new(&env, &usdc_id).transfer(&pool.address, &borrower, &65_0000000_i128);
+        assert_eq!(adapter.available_liquidity(), 35_0000000_i128);
+
+        // Zero liquidity: remaining 35 USDC leaves the pool.
+        TokenClient::new(&env, &usdc_id).transfer(&pool.address, &borrower, &35_0000000_i128);
+        assert_eq!(adapter.available_liquidity(), 0);
     }
 }

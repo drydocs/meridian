@@ -35,6 +35,14 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
     buildDepositTx: vi.fn(async () => ({ xdr: "DEPOSIT_XDR", fee: "100" })),
     buildWithdrawTx: vi.fn(async () => ({ xdr: "WITHDRAW_XDR", fee: "100" })),
     buildAddTrustlineTx: vi.fn(async () => ({ xdr: "TRUST_XDR" })),
+    // Prices the slippage floor when a build request omits its minimum.
+    quoteVaultAction: vi.fn(async ({ action }: { action: string }) => ({
+      action,
+      fee: "0",
+      ledger: 1,
+      recommendedMinimum: action === "deposit" ? "9.9" : "4.9",
+      slippageBps: 50,
+    })),
     submitTx: vi.fn(async () => ({ hash: "HASH" })),
     loadBlendAccrualKeeperConfig: vi.fn(() => ({
       network: {
@@ -115,6 +123,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
         entryTime: 0,
       },
     ]),
+    getLatestLedgerSequence: vi.fn(async () => 100),
     consoleLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     loadKeeperHeartbeatStore: vi.fn(() => ({
       get: vi.fn(async () => null),
@@ -163,6 +172,7 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
         passphrase: "Test SDF Network ; September 2015",
       },
       webhookUrl: "https://hooks.example.com/webhook",
+      webhookSecret: "test-secret",
       maxAttempts: 3,
       baseDelayMs: 1,
       rpcTimeoutMs: 100,
@@ -191,6 +201,23 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
       recorded: 2,
       skipped: 0,
       failures: [],
+    })),
+    runKeeperDoctor: vi.fn(async () => ({
+      keeper: "migration",
+      network: "testnet",
+      checkedAt: "2026-11-20T00:00:00.000Z",
+      status: "pass",
+      ok: true,
+      signerPublicKey:
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      checks: [
+        {
+          id: "signer_derivation",
+          status: "pass",
+          summary: "Derived signer public key from configured secret key",
+        },
+      ],
+      blockedReasons: [],
     })),
   };
 });
@@ -221,9 +248,12 @@ import {
   MissingTrustlineError,
   getPositionHistory,
   runPositionSnapshotKeeper,
+  runKeeperDoctor,
   fetchAllVaults,
   fetchVaultsWithCache,
 } from "@meridian/stellar-sdk-helpers";
+import { resetPositionReadCacheForTesting } from "@meridian/api-core";
+import { MAX_BODY_BYTES } from "@meridian/shared";
 
 // A 56-char Stellar public key shape (only the length is validated).
 const PUBKEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -237,6 +267,8 @@ interface FakeRes {
   headers: Record<string, string>;
   status(code: number): FakeRes;
   json(payload: unknown): FakeRes;
+  send(payload: string): FakeRes;
+  end(): FakeRes;
   setHeader(key: string, value: string): void;
 }
 
@@ -253,6 +285,13 @@ function makeRes(): FakeRes & VercelResponse {
       r.body = payload;
       return r;
     },
+    send(payload: string) {
+      r.body = JSON.parse(payload);
+      return r;
+    },
+    end() {
+      return r;
+    },
     setHeader(key: string, value: string) {
       r.headers[key] = value;
     },
@@ -260,12 +299,35 @@ function makeRes(): FakeRes & VercelResponse {
   return r as unknown as FakeRes & VercelResponse;
 }
 
+function expectErrorResponse(
+  res: FakeRes,
+  message: string | ReturnType<typeof expect.stringContaining>,
+  code?: string
+) {
+  expect(res.body).toMatchObject({
+    error: {
+      ...(code ? { code } : {}),
+      message,
+      requestId: expect.any(String),
+    },
+  });
+  expect(res.headers["X-Request-ID"]).toBe(
+    (res.body as { error: { requestId: string } }).error.requestId
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  resetPositionReadCacheForTesting();
+  vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_KV_REST_API_URL", "");
+  vi.stubEnv("UPSTASH_REDIS_REST_KV_REST_API_TOKEN", "");
   process.env.CRON_SECRET = "cron-secret";
   process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY = "S".repeat(56);
   process.env.MERIDIAN_ALERT_WEBHOOK_URL = "https://hooks.example.com/webhook";
 });
+afterEach(() => vi.unstubAllEnvs());
 
 describe("GET /api/v1/positions/[publicKey]", () => {
   it("documents the 200 status and Cache-Control header contract", async () => {
@@ -317,9 +379,7 @@ describe("POST /api/v1/tx/deposit", () => {
     );
 
     expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual({
-      error: "Rate limiter unavailable; refusing to run",
-    });
+    expectErrorResponse(res, "Rate limiter unavailable; refusing to run");
   });
 
   it("rejects non-POST methods with 405", async () => {
@@ -335,6 +395,27 @@ describe("POST /api/v1/tx/deposit", () => {
     expect(res.statusCode).toBe(405);
   });
 
+  it("rejects an oversized Content-Length with 413 before building", async () => {
+    const res = makeRes();
+    await txHandler(
+      fakeReq({
+        query: { action: "deposit" },
+        method: "POST",
+        headers: { "content-length": String(MAX_BODY_BYTES + 1) },
+        body: {},
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(413);
+    expect(res.body).toMatchObject({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Payload too large",
+      },
+    });
+    expect(buildDepositTx).not.toHaveBeenCalled();
+  });
+
   it("returns 400 listing the missing fields", async () => {
     const res = makeRes();
     await txHandler(
@@ -346,10 +427,10 @@ describe("POST /api/v1/tx/deposit", () => {
       res
     );
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({
-      error:
-        "vaultId: Invalid input: expected string, received undefined; amount: Invalid input: expected string, received undefined; riskAcknowledged: Invalid input: expected true",
-    });
+    expectErrorResponse(
+      res,
+      "vaultId: Invalid input: expected string, received undefined; amount: Invalid input: expected string, received undefined; riskAcknowledged: Invalid input: expected true"
+    );
   });
 
   it("rejects a deposit request missing risk acknowledgement", async () => {
@@ -435,7 +516,7 @@ describe("POST /api/v1/tx/deposit", () => {
       res
     );
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: "USDC trustline missing" });
+    expectErrorResponse(res, "USDC trustline missing");
   });
 
   it("returns 400 when the pre-flight trustline check reports a missing USDC trustline", async () => {
@@ -457,9 +538,7 @@ describe("POST /api/v1/tx/deposit", () => {
       res
     );
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({
-      error: expect.stringContaining("Missing USDC trustline"),
-    });
+    expectErrorResponse(res, expect.stringContaining("Missing USDC trustline"));
     // The check short-circuits, so nothing is simulated for a wallet that
     // cannot hold the asset and no builder error is ever reached.
     expect(buildDepositTx).not.toHaveBeenCalled();
@@ -506,9 +585,10 @@ describe("POST /api/v1/tx/withdraw", () => {
       res
     );
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({
-      error: "shares: Invalid input: expected string, received undefined",
-    });
+    expectErrorResponse(
+      res,
+      "shares: Invalid input: expected string, received undefined"
+    );
   });
 
   it("builds the withdraw transaction", async () => {
@@ -571,11 +651,10 @@ describe("POST /api/v1/tx/withdraw", () => {
       res
     );
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({
-      error: expect.stringContaining(
-        "Missing required trustlines: USDC, MUSDC"
-      ),
-    });
+    expectErrorResponse(
+      res,
+      expect.stringContaining("Missing required trustlines: USDC, MUSDC")
+    );
     expect(buildWithdrawTx).not.toHaveBeenCalled();
   });
 });
@@ -648,7 +727,7 @@ describe("POST /api/v1/tx/[action] action validation", () => {
       res
     );
     expect(res.statusCode).toBe(404);
-    expect(res.body).toEqual({ error: "Unknown action" });
+    expectErrorResponse(res, "Unknown action");
   });
 
   it("rejects prototype property names like toString with 404", async () => {
@@ -662,7 +741,7 @@ describe("POST /api/v1/tx/[action] action validation", () => {
       res
     );
     expect(res.statusCode).toBe(404);
-    expect(res.body).toEqual({ error: "Unknown action" });
+    expectErrorResponse(res, "Unknown action");
   });
 
   it("rejects unknown action names with 404", async () => {
@@ -676,7 +755,7 @@ describe("POST /api/v1/tx/[action] action validation", () => {
       res
     );
     expect(res.statusCode).toBe(404);
-    expect(res.body).toEqual({ error: "Unknown action" });
+    expectErrorResponse(res, "Unknown action");
   });
 });
 
@@ -825,6 +904,66 @@ describe("GET /api/v1/positions/:publicKey", () => {
     expect(resolvePositions).toHaveBeenCalledOnce();
   });
 
+  it("omits ETag and does not cache partial position reads", async () => {
+    vi.mocked(resolvePositions).mockImplementationOnce(
+      async (_publicKey, _network, options) => {
+        options?.onVaultError?.(new Error("vault RPC down"));
+        return [];
+      }
+    );
+
+    const partial = makeRes();
+    await positionsHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY } }),
+      partial
+    );
+    expect(partial.statusCode).toBe(200);
+    expect(partial.headers.ETag).toBeUndefined();
+
+    const complete = makeRes();
+    await positionsHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY } }),
+      complete
+    );
+    expect(resolvePositions).toHaveBeenCalledTimes(2);
+    expect(complete.headers.ETag).toMatch(/^"[a-f0-9]{64}"$/);
+  });
+
+  it("returns 304 for a matching If-None-Match value", async () => {
+    const first = makeRes();
+    await positionsHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY } }),
+      first
+    );
+    const second = makeRes();
+    await positionsHandler(
+      fakeReq({
+        method: "GET",
+        query: { publicKey: PUBKEY },
+        headers: { "if-none-match": first.headers.ETag },
+      }),
+      second
+    );
+    expect(second.statusCode).toBe(304);
+    expect(second.headers.ETag).toBe(first.headers.ETag);
+    expect(second.body).toBeUndefined();
+  });
+
+  it("refresh=true bypasses the cached positions", async () => {
+    await positionsHandler(
+      fakeReq({ method: "GET", query: { publicKey: PUBKEY } }),
+      makeRes()
+    );
+    await positionsHandler(
+      fakeReq({
+        method: "GET",
+        query: { publicKey: PUBKEY, refresh: "true" },
+      }),
+      makeRes()
+    );
+    expect(resolvePositions).toHaveBeenCalledTimes(2);
+  });
+
   it("returns 503 when the Blend read throws", async () => {
     vi.mocked(resolvePositions).mockRejectedValueOnce(new Error("rpc down"));
     const res = makeRes();
@@ -833,7 +972,7 @@ describe("GET /api/v1/positions/:publicKey", () => {
       res
     );
     expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual({ error: "Failed to read positions" });
+    expectErrorResponse(res, "Failed to read positions");
   });
 });
 
@@ -906,7 +1045,7 @@ describe("GET /api/v1/positions/:publicKey/history", () => {
       res
     );
     expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual({ error: "Failed to read position history" });
+    expectErrorResponse(res, "Failed to read position history");
   });
 });
 
@@ -1074,7 +1213,7 @@ describe("GET /api/v1/keepers/accrue", () => {
     );
 
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: "Keeper operation failed" });
+    expectErrorResponse(res, "Keeper operation failed");
   });
 
   describe("without CRON_SECRET configured", () => {
@@ -1252,7 +1391,7 @@ describe("GET /api/v1/keepers/alert", () => {
     );
 
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: "Keeper operation failed" });
+    expectErrorResponse(res, "Keeper operation failed");
   });
 });
 
@@ -1390,7 +1529,7 @@ describe("GET /api/v1/keepers/rebalance", () => {
     );
 
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: "Keeper operation failed" });
+    expectErrorResponse(res, "Keeper operation failed");
   });
 });
 
@@ -1453,9 +1592,7 @@ describe("GET /api/v1/keepers/health", () => {
     );
 
     expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual({
-      error: "Rate limiter unavailable; refusing to run",
-    });
+    expectErrorResponse(res, "Rate limiter unavailable; refusing to run");
   });
 });
 
@@ -1476,9 +1613,7 @@ describe("GET /api/v1/admin/vault-state", () => {
     );
 
     expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual({
-      error: "Rate limiter unavailable; refusing to run",
-    });
+    expectErrorResponse(res, "Rate limiter unavailable; refusing to run");
   });
 
   it("is public — no cron bearer token required", async () => {
@@ -1548,5 +1683,141 @@ describe("GET /api/v1/admin/vault-state", () => {
     expect(res.statusCode).toBe(405);
     expect(res.headers["Allow"]).toBe("GET");
     expect(fetchCoordinatorState).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET/POST /api/v1/keepers/doctor", () => {
+  const prevCronSecret = process.env.CRON_SECRET;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetRateLimitForTesting();
+    process.env.CRON_SECRET = "test-cron-secret";
+  });
+
+  afterEach(() => {
+    if (prevCronSecret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = prevCronSecret;
+  });
+
+  it("requires cron bearer auth", async () => {
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({ query: { action: "doctor" }, method: "GET" }),
+      res
+    );
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("returns 200 with structured report when all checks pass", async () => {
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "doctor" },
+        method: "GET",
+        headers: { authorization: "Bearer test-cron-secret" },
+      }),
+      res
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["Cache-Control"]).toBe("no-store");
+    expect(res.body).toMatchObject({
+      keeper: "migration",
+      status: "pass",
+      ok: true,
+    });
+    expect(runKeeperDoctor).toHaveBeenCalledWith(
+      expect.objectContaining({ keeper: "migration" })
+    );
+  });
+
+  it("returns 503 with structured report when doctor checks fail", async () => {
+    vi.mocked(runKeeperDoctor).mockResolvedValueOnce({
+      keeper: "migration",
+      network: "testnet",
+      checkedAt: "2026-11-20T00:00:00.000Z",
+      status: "fail",
+      ok: false,
+      checks: [
+        {
+          id: "vault_admin_match",
+          status: "fail",
+          summary: "Signer does not match vault admin",
+          remediation: "Use the vault admin key.",
+        },
+      ],
+      blockedReasons: [
+        "vault_admin_match: Signer does not match vault admin (Use the vault admin key.)",
+      ],
+    });
+
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "doctor", keeper: "migration" },
+        method: "GET",
+        headers: { authorization: "Bearer test-cron-secret" },
+      }),
+      res
+    );
+
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toMatchObject({
+      ok: false,
+      status: "fail",
+    });
+  });
+
+  it("returns 400 for an invalid keeper query parameter", async () => {
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "doctor", keeper: "unknown" },
+        method: "GET",
+        headers: { authorization: "Bearer test-cron-secret" },
+      }),
+      res
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(runKeeperDoctor).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 and records no heartbeat when rebalance returns blocked: true", async () => {
+    const prevKey = process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY;
+    process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY = "SKEY";
+    vi.mocked(runMigrationKeeper).mockResolvedValueOnce({
+      network: "testnet",
+      startedAt: "2026-11-20T00:00:00.000Z",
+      finishedAt: "2026-11-20T00:00:01.000Z",
+      discoveredVaults: 0,
+      migrations: [],
+      skipped: [],
+      failures: [],
+      blocked: true,
+      blockedReasons: ["vault_admin_match: mismatch"],
+    });
+
+    try {
+      const res = makeRes();
+      await keepersHandler(
+        fakeReq({
+          query: { action: "rebalance" },
+          method: "POST",
+          headers: { authorization: "Bearer test-cron-secret" },
+        }),
+        res
+      );
+
+      // A blocked run did nothing, so the scheduler must see a failure.
+      expect(res.statusCode).toBe(503);
+      expect(res.body).toMatchObject({ blocked: true });
+      expect(recordKeeperHeartbeat).not.toHaveBeenCalled();
+    } finally {
+      if (prevKey === undefined)
+        delete process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY;
+      else process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY = prevKey;
+    }
   });
 });

@@ -1,6 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
 import { KNOWN_POOLS } from "@meridian/stellar-sdk-helpers";
-import { handleGetVaults, handleGetVaultById } from "@meridian/api-core";
+import {
+  handleGetVaults,
+  handleGetVaultById,
+  vaultReadCacheControl,
+} from "@meridian/api-core";
 
 const KNOWN_VAULT_IDS = new Set(
   [
@@ -10,10 +14,13 @@ const KNOWN_VAULT_IDS = new Set(
 );
 
 export const vaultsRoute: FastifyPluginAsync = async (app) => {
-  app.get("/", async (_req, reply) => {
+  app.get("/", async (req, reply) => {
     const result = await handleGetVaults();
     if (result.error) {
-      app.log.error(result.error, "[vaults] failed to fetch vaults");
+      req.log.error(result.error, "[vaults] failed to fetch vaults");
+    }
+    if (result.status === 200) {
+      reply.header("Cache-Control", vaultReadCacheControl());
     }
     return reply.code(result.status).send(result.body);
   });
@@ -24,7 +31,10 @@ export const vaultsRoute: FastifyPluginAsync = async (app) => {
       return reply.code(404).send({ error: "vault not found", vaultId });
     const result = await handleGetVaultById(vaultId);
     if (result.error) {
-      app.log.error(result.error, "[vaults] failed to fetch vault by id");
+      req.log.error(result.error, "[vaults] failed to fetch vault by id");
+    }
+    if (result.status === 200) {
+      reply.header("Cache-Control", vaultReadCacheControl());
     }
     return reply.code(result.status).send(result.body);
   });
@@ -36,7 +46,7 @@ export const vaultsRoute: FastifyPluginAsync = async (app) => {
       reply
         .code(405)
         .header("Allow", "GET")
-        .send({ error: "method not allowed" }),
+        .send({ error: "Method not allowed" }),
   });
 
   app.route({
@@ -46,6 +56,6 @@ export const vaultsRoute: FastifyPluginAsync = async (app) => {
       reply
         .code(405)
         .header("Allow", "GET")
-        .send({ error: "method not allowed" }),
+        .send({ error: "Method not allowed" }),
   });
 };

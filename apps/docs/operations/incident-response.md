@@ -15,7 +15,7 @@ what to do when the code is fine but something operational is wrong. If
 you're not sure which applies: if the fix involves deploying new contract
 code, it's [#706](https://github.com/drydocs/meridian/issues/706)'s page; if it doesn't, it's this one.
 
-## Detection: what's actually watching right now
+## Detection: what is actually watching right now
 
 **Read this before assuming an alert will tell you something is wrong.** As
 of this writing, `MERIDIAN_ALERT_WEBHOOK_URL` is unset in production (see
@@ -156,3 +156,6 @@ one leaks. Treat them accordingly rather than as one undifferentiated
   a fund-safety issue. Rotate by generating a new incoming-webhook URL from
   Slack/Discord and updating the environment variable; no coordination with
   on-chain state needed.
+
+For outages of Upstash Redis, Soroban RPC, DeFiLlama, Vercel or GitHub Actions,
+see the [Outage Recovery runbook](./outage-recovery.md).

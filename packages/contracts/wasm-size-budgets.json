@@ -1,0 +1,9 @@
+{
+  "$comment": "Largest allowed size in bytes of each contract's release WASM (packages/contracts/target/wasm32v1-none/release/<name>.wasm). CI fails when a build exceeds its budget. To raise one after an intentional increase, update the number here in the same PR and explain the growth in the PR description; see CONTRIBUTING.md, 'Contract WASM size budgets'.",
+  "budgets": {
+    "meridian_blend_adapter": 31744,
+    "meridian_defindex_adapter": 26624,
+    "meridian_musdc_token": 23552,
+    "meridian_vault": 83968
+  }
+}

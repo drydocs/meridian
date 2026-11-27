@@ -94,11 +94,13 @@ describe("Rate limit production fail-closed scoping (#621)", () => {
     const allowed = await mod.checkRateLimit(req, res, { strict: true });
     expect(allowed).toBe(false);
     expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual(
-      expect.objectContaining({
+    expect(res.body).toMatchObject({
+      code: "RATE_LIMIT_BACKEND_UNAVAILABLE",
+      error: {
         code: "RATE_LIMIT_BACKEND_UNAVAILABLE",
-      })
-    );
+        requestId: expect.any(String),
+      },
+    });
   }, 15000);
 
   it.each(["preview", "development"])(
@@ -117,9 +119,13 @@ describe("Rate limit production fail-closed scoping (#621)", () => {
       const allowed = await mod.checkRateLimit(req, res, { strict: true });
       expect(allowed).toBe(false);
       expect(res.statusCode).toBe(503);
-      expect(res.body).toEqual(
-        expect.objectContaining({ code: "RATE_LIMIT_BACKEND_UNAVAILABLE" })
-      );
+      expect(res.body).toMatchObject({
+        code: "RATE_LIMIT_BACKEND_UNAVAILABLE",
+        error: {
+          code: "RATE_LIMIT_BACKEND_UNAVAILABLE",
+          requestId: expect.any(String),
+        },
+      });
     },
     15000
   );

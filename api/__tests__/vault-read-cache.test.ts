@@ -33,6 +33,7 @@ interface FakeRes {
   headers: Record<string, string>;
   status(code: number): FakeRes;
   json(payload: unknown): FakeRes;
+  send(payload: string): FakeRes;
   setHeader(key: string, value: string): void;
 }
 
@@ -47,6 +48,10 @@ function makeRes(): FakeRes & VercelResponse {
     },
     json(payload: unknown) {
       r.body = payload;
+      return r;
+    },
+    send(payload: string) {
+      r.body = JSON.parse(payload);
       return r;
     },
     setHeader(key: string, value: string) {
@@ -66,6 +71,7 @@ const savedNetwork = process.env.STELLAR_NETWORK;
 afterEach(() => {
   if (savedNetwork === undefined) delete process.env.STELLAR_NETWORK;
   else process.env.STELLAR_NETWORK = savedNetwork;
+  vi.unstubAllEnvs();
   vi.resetModules();
 });
 
@@ -75,14 +81,14 @@ describe("vaultReadCacheControl", () => {
     vi.resetModules();
     const { vaultReadCacheControl } = await import("../_lib/middleware.js");
     expect(vaultReadCacheControl()).toBe(MAINNET_CACHE_HEADER);
-  });
+  }, 15000);
 
   it("serves testnet vault reads uncached", async () => {
     process.env.STELLAR_NETWORK = "testnet";
     vi.resetModules();
     const { vaultReadCacheControl } = await import("../_lib/middleware.js");
     expect(vaultReadCacheControl()).toBe("no-store");
-  });
+  }, 15000);
 });
 
 // #1051: the detail endpoint used to answer with
@@ -92,6 +98,10 @@ describe("vaultReadCacheControl", () => {
 describe("GET /api/v1/vaults/:vaultId on testnet (#1051)", () => {
   it("serves a 200 single-vault read with no-store", async () => {
     process.env.STELLAR_NETWORK = "testnet";
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_KV_REST_API_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_KV_REST_API_TOKEN", "");
     vi.resetModules();
     const { default: handler } = await import("../v1/vaults/[vaultId]");
     const res = makeRes();

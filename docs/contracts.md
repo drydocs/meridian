@@ -38,13 +38,15 @@ calculations to neutralise the first-depositor inflation attack: an attacker
 who donates USDC directly to the adapter recovers only a negligible fraction of
 the donation, making the skim unprofitable.
 
+A pending migration can be cancelled during its cooldown with `cancel_migration`. The call is admin-only, clears the migration snapshot, emits an admin event and fails with `NoPendingMigration` when nothing is pending. After a cancellation `migrate_adapter` rejects the call until a new `begin_migration` is made, and the cooldown itself is unchanged.
+
 For the full entry-point reference, error codes, and storage layout, see
 [`apps/docs/architecture/vault-contract.md`](../apps/docs/architecture/vault-contract.md),
 that page is the canonical, detailed reference.
 
 ## Contract immutability
 
-None of Meridian's contracts — vault or adapters — expose an
+Neither the vault nor the adapters expose an
 `update_current_contract_wasm` (or any other upgrade) entry point. This is a
 deliberate security property, not an omission: **once deployed, no one,
 including Meridian, can rewrite the contract logic.** For a savings product,
@@ -81,3 +83,37 @@ bash scripts/deploy-testnet.sh
 
 The deploy script prints the deployed contract IDs. Add them to `.env` as
 `VAULT_CONTRACT_ID`.
+
+## Soroban resource benchmarks
+
+Contract tests report native Soroban cost estimates for vault deposits,
+withdrawals, share transfers, migration setup and execution, pause and admin
+operations, and Blend and DeFindex adapter deposits and withdrawals. CI checks
+CPU instructions, memory bytes, and estimated fees against
+[`packages/contracts/benchmarks/baselines.json`](../packages/contracts/benchmarks/baselines.json)
+with a 15% tolerance. The share-transfer baseline measures the real mUSDC
+token's transfer and callback path. Adapter and vault paths use local protocol
+doubles. These estimates use the Soroban SDK's fee schedule and are regression
+indicators, not replacements for transaction simulation against deployed WASM.
+CI pins Rust to the compiler version recorded in the baseline and rejects
+compiler or SDK version drift.
+
+To refresh the baselines after reviewing a deliberate resource change, run
+the tests from `packages/contracts` and then the checker from the repository
+root:
+
+```bash
+cd packages/contracts
+set -o pipefail
+cargo test --workspace -- --nocapture 2>&1 | tee benchmark-output.log
+cd ../..
+pnpm check:contract-benchmarks \
+  --input packages/contracts/benchmark-output.log \
+  --baseline packages/contracts/benchmarks/baselines.json \
+  --output packages/contracts/benchmark-results.json \
+  --update
+```
+
+The benchmark results JSON and raw test log are uploaded as the
+`soroban-resource-benchmarks` CI artifact. Commit the updated baseline JSON
+alongside the change that motivated it.

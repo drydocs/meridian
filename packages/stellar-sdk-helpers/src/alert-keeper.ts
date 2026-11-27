@@ -23,7 +23,7 @@
 // (see #707's acceptance criteria, which lists paused/transfer/adapter/
 // migrate only).
 
-import { rpc } from "@stellar/stellar-sdk";
+import { hash, rpc } from "@stellar/stellar-sdk";
 import { withRaceTimeout, withRetry } from "@meridian/shared";
 import { APP_NETWORK } from "@meridian/shared";
 import {
@@ -44,13 +44,18 @@ import {
   type KeeperHeartbeatStore,
 } from "./keeper-heartbeat";
 
+export const ALERT_WEBHOOK_SIGNATURE_HEADER = "X-Meridian-Signature";
+export const ALERT_WEBHOOK_TIMESTAMP_HEADER = "X-Meridian-Timestamp";
+export const ALERT_WEBHOOK_DELIVERY_HEADER = "X-Meridian-Delivery";
+export const DEFAULT_ALERT_WEBHOOK_TOLERANCE_SECONDS = 300;
+
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_DELAY_MS = 1_000;
 const DEFAULT_RPC_TIMEOUT_MS = 10_000;
 
 /** Admin actions worth an immediate alert. See the file header for why
  *  `accept` is deliberately left out. */
-const ALERTABLE_ACTIONS: ReadonlySet<RpcAdminActionType> = new Set([
+export const ALERTABLE_ACTIONS: ReadonlySet<RpcAdminActionType> = new Set([
   "paused",
   "transfer",
   "adapter",
@@ -61,9 +66,178 @@ const ALERTABLE_ACTIONS: ReadonlySet<RpcAdminActionType> = new Set([
 export interface AlertKeeperConfig {
   network: StellarNetwork;
   webhookUrl: string;
+  webhookSecret?: string | undefined;
   maxAttempts: number;
   baseDelayMs: number;
   rpcTimeoutMs: number;
+}
+
+export interface VerifyAlertWebhookOptions {
+  toleranceSeconds?: number | undefined;
+  now?: number | undefined;
+}
+
+export interface VerifyAlertWebhookResult {
+  valid: boolean;
+  error?: string | undefined;
+}
+
+function safeCompare(a: string, b: string): boolean {
+  const digestA = hash(Buffer.from(a, "utf8"));
+  const digestB = hash(Buffer.from(b, "utf8"));
+  if (digestA.length !== digestB.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < digestA.length; i++) {
+    mismatch |= digestA[i]! ^ digestB[i]!;
+  }
+  return mismatch === 0;
+}
+
+// HMAC-SHA256 built on the SDK's `hash` instead of `node:crypto`: the web app
+// bundles this package, and a `node:crypto` import breaks the browser build.
+// The known-answer tests pin the output to a standard HMAC, including keys
+// longer than the 64 byte block size.
+function computeHmacSha256Hex(secret: string, message: string): string {
+  const blockSize = 64;
+  let key: Buffer = Buffer.from(secret, "utf8");
+  if (key.length > blockSize) {
+    key = Buffer.from(hash(key));
+  }
+  if (key.length < blockSize) {
+    key = Buffer.concat([key, Buffer.alloc(blockSize - key.length, 0)]);
+  }
+  const oKeyPad = Buffer.alloc(blockSize);
+  const iKeyPad = Buffer.alloc(blockSize);
+  for (let i = 0; i < blockSize; i++) {
+    oKeyPad[i] = key[i]! ^ 0x5c;
+    iKeyPad[i] = key[i]! ^ 0x36;
+  }
+  const msgBuf = Buffer.from(message, "utf8");
+  const innerHash = hash(Buffer.concat([iKeyPad, msgBuf]));
+  const outerHash = hash(Buffer.concat([oKeyPad, innerHash]));
+  return outerHash.toString("hex");
+}
+
+function generateDeliveryId(): string {
+  if (typeof globalThis !== "undefined" && globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
+ * Computes an HMAC-SHA256 signature for alert keeper webhook deliveries over
+ * `${timestamp}.${deliveryId}.${body}` using the shared secret. Returns `sha256=${digest}`.
+ */
+export function createAlertWebhookSignature(
+  timestamp: number | string,
+  deliveryId: string,
+  body: string,
+  secret: string
+): string {
+  const payload = `${timestamp}.${deliveryId}.${body}`;
+  const digest = computeHmacSha256Hex(secret, payload);
+  return `sha256=${digest}`;
+}
+
+/**
+ * Verifies an incoming webhook payload using the shared secret, enforcing HMAC-SHA256
+ * signature matching and replay protection within a tolerance window (default 300 seconds).
+ */
+export function verifyAlertWebhookSignature(
+  headers: Record<string, string | string[] | undefined>,
+  body: string,
+  secret: string,
+  options: VerifyAlertWebhookOptions = {}
+): VerifyAlertWebhookResult {
+  if (!secret) {
+    return { valid: false, error: "Missing webhook secret" };
+  }
+
+  const getHeader = (name: string): string | undefined => {
+    const target = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers)) {
+      if (key.toLowerCase() === target) {
+        return Array.isArray(value) ? value[0] : value;
+      }
+    }
+    return undefined;
+  };
+
+  const signatureHeader = getHeader(ALERT_WEBHOOK_SIGNATURE_HEADER);
+  if (!signatureHeader) {
+    return {
+      valid: false,
+      error: `Missing ${ALERT_WEBHOOK_SIGNATURE_HEADER} header`,
+    };
+  }
+
+  const timestampHeader = getHeader(ALERT_WEBHOOK_TIMESTAMP_HEADER);
+  if (!timestampHeader) {
+    return {
+      valid: false,
+      error: `Missing ${ALERT_WEBHOOK_TIMESTAMP_HEADER} header`,
+    };
+  }
+
+  const deliveryHeader = getHeader(ALERT_WEBHOOK_DELIVERY_HEADER);
+  if (!deliveryHeader) {
+    return {
+      valid: false,
+      error: `Missing ${ALERT_WEBHOOK_DELIVERY_HEADER} header`,
+    };
+  }
+
+  const parsedTimestamp = Number.parseInt(timestampHeader, 10);
+  if (!Number.isFinite(parsedTimestamp)) {
+    return {
+      valid: false,
+      error: `Invalid ${ALERT_WEBHOOK_TIMESTAMP_HEADER} header`,
+    };
+  }
+
+  const toleranceSeconds =
+    options.toleranceSeconds ?? DEFAULT_ALERT_WEBHOOK_TOLERANCE_SECONDS;
+  const now = options.now ?? Math.floor(Date.now() / 1000);
+  if (Math.abs(now - parsedTimestamp) > toleranceSeconds) {
+    return {
+      valid: false,
+      error: "Timestamp outside replay tolerance window",
+    };
+  }
+
+  const expectedSignature = createAlertWebhookSignature(
+    parsedTimestamp,
+    deliveryHeader,
+    body,
+    secret
+  );
+
+  const normalizedSignature = signatureHeader.startsWith("sha256=")
+    ? signatureHeader
+    : `sha256=${signatureHeader}`;
+
+  if (!safeCompare(normalizedSignature, expectedSignature)) {
+    return { valid: false, error: "Signature mismatch" };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Boolean helper for verifyAlertWebhookSignature.
+ */
+export function isAlertWebhookSignatureValid(
+  headers: Record<string, string | string[] | undefined>,
+  body: string,
+  secret: string,
+  options: VerifyAlertWebhookOptions = {}
+): boolean {
+  return verifyAlertWebhookSignature(headers, body, secret, options).valid;
 }
 
 /** Mirrors isMigrationKeeperConfigured: lets ops leave the alert webhook
@@ -83,9 +257,18 @@ export function loadAlertKeeperConfig(
     throw new Error("MERIDIAN_ALERT_WEBHOOK_URL is required");
   }
 
+  const webhookSecret = env.MERIDIAN_ALERT_WEBHOOK_SECRET?.trim();
+  const isDeployed = Boolean(env.VERCEL_ENV || env.NODE_ENV === "production");
+  if (!webhookSecret && isDeployed) {
+    throw new Error(
+      "MERIDIAN_ALERT_WEBHOOK_SECRET is required on deployed environments"
+    );
+  }
+
   return {
     network: APP_NETWORK,
     webhookUrl,
+    webhookSecret: webhookSecret || undefined,
     maxAttempts: parsePositiveInt(
       env.MERIDIAN_KEEPER_MAX_ATTEMPTS,
       DEFAULT_MAX_ATTEMPTS,
@@ -207,16 +390,39 @@ async function sendAlert(
     baseDelayMs: number;
     timeoutMs: number;
     fetchImpl: typeof fetch;
+    webhookSecret?: string | undefined;
   }
 ): Promise<void> {
+  // `loadAlertKeeperConfig` refuses to start on a deployed environment without
+  // a secret, so a missing one here means local development. The alert is sent
+  // unsigned, without the signature headers, so a local receiver still works.
+  const body = JSON.stringify({ text: message, content: message });
+  const signingHeaders: Record<string, string> = {};
+  if (options.webhookSecret) {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const deliveryId = generateDeliveryId();
+    signingHeaders[ALERT_WEBHOOK_SIGNATURE_HEADER] =
+      createAlertWebhookSignature(
+        timestamp,
+        deliveryId,
+        body,
+        options.webhookSecret
+      );
+    signingHeaders[ALERT_WEBHOOK_TIMESTAMP_HEADER] = timestamp;
+    signingHeaders[ALERT_WEBHOOK_DELIVERY_HEADER] = deliveryId;
+  }
+
   await withRetry(
     async () => {
       const response = await withRaceTimeout(
         () =>
           options.fetchImpl(webhookUrl, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: message, content: message }),
+            headers: {
+              "Content-Type": "application/json",
+              ...signingHeaders,
+            },
+            body,
             signal: AbortSignal.timeout(options.timeoutMs),
           }),
         options.timeoutMs,
@@ -364,6 +570,7 @@ async function processVaultAlerts(
             baseDelayMs: config.baseDelayMs,
             timeoutMs: config.rpcTimeoutMs,
             fetchImpl,
+            webhookSecret: config.webhookSecret,
           }
         );
         alertsSent.push({

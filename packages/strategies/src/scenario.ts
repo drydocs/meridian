@@ -1,12 +1,14 @@
 import { z } from "zod";
+import type { CostSchedule } from "./costs";
+import { FixedPointDecimal } from "./types";
 
 /**
  * Validated, declarative description of a backtest scenario.
  *
  * A scenario is the *single* input a run is reproduced from: given the same
- * scenario, the same window/assets/sources/capital/strategy config, a run is
- * deterministic. Nothing here is a live lookup or an ambient default — every
- * value that could change the outcome is written down explicitly.
+ * scenario, the same window/assets/sources/capital/costs/strategy config, a
+ * run is deterministic. Nothing here is a live lookup or an ambient default,
+ * and every value that could change the outcome is written down explicitly.
  *
  * Money and rate fields are fixed-point decimal *strings*, never JS `number`
  * (see #856). A `number` is IEEE-754 binary floating point: `0.1 + 0.2` is not
@@ -22,8 +24,11 @@ import { z } from "zod";
  * @meridian/strategies test` works without first building `@meridian/shared`.
  */
 
-/** Schema revision. Bump when the shape changes in a breaking way. */
-export const SCENARIO_SCHEMA_VERSION = 1;
+/**
+ * Schema revision. Version 2 adds the optional `costs` block; version 1 input
+ * remains readable and receives the zero-cost default during migration.
+ */
+export const SCENARIO_SCHEMA_VERSION = 2;
 
 /**
  * Fractional digits allowed in monetary/rate fields. Matches the vault's
@@ -37,7 +42,9 @@ const FIXED_POINT = /^-?\d+(?:\.\d{1,7})?$/;
 // Unsigned decimal string. Monetary amounts that can never be negative, such
 // as starting capital, use this so a leading "-" is rejected as malformed
 // rather than silently accepted.
-const NON_NEGATIVE_FIXED_POINT = /^\d+(?:\.\d{1,7})?$/;
+const NON_NEGATIVE_FIXED_POINT = new RegExp(
+  `^\\d+(?:\\.\\d{1,${SCENARIO_DECIMAL_PLACES}})?$`
+);
 // Any number of leading zeros is still zero: "00", "000" and "00.0" must be
 // treated the same as "0", or a zero starting capital slips through the
 // greater-than-zero check below.
@@ -210,6 +217,14 @@ export const PriceSourceSchema = z
     { message: `source.price must be one of: ${PRICE_SOURCES.join(", ")}` }
   );
 
+export const HedgeSourceSchema = z
+  .string()
+  .refine(
+    (value): value is PriceSource =>
+      (PRICE_SOURCES as readonly string[]).includes(value),
+    { message: `source.hedge must be one of: ${PRICE_SOURCES.join(", ")}` }
+  );
+
 export const RateSourceSchema = z
   .string()
   .refine(
@@ -218,10 +233,15 @@ export const RateSourceSchema = z
     { message: `source.rate must be one of: ${RATE_SOURCES.join(", ")}` }
   );
 
-/** Price and rate data-source selector. */
+/**
+ * Price, optional hedge price, and rate data-source selector. A declared
+ * `hedge` source reads its prices from the price rows whose `asset` is
+ * `hedge:<asset>` in the historical data given to `resolveScenarioSources`.
+ */
 export const ScenarioSourceSchema = z
   .object({
     price: PriceSourceSchema,
+    hedge: HedgeSourceSchema.optional(),
     rate: RateSourceSchema,
   })
   .strict();
@@ -246,18 +266,32 @@ export const StrategyConfigSchema = z
   .strict();
 
 /**
+ * Run-wide fee and network assumptions. Both fields use the same seven-place
+ * fixed-point scale as other scenario monetary values.
+ */
+export const ScenarioCostScheduleSchema = z
+  .object({
+    swapFeeRate: nonNegativeDecimal("costs.swapFeeRate"),
+    networkFee: nonNegativeDecimal("costs.networkFee"),
+  })
+  .strict()
+  .default({ swapFeeRate: "0", networkFee: "0" });
+
+/**
  * The full scenario schema. `.strict()` at every level means an unknown key is
  * a validation error rather than a silently dropped value, so the scenario
- * really is the only input that determines a run.
+ * really is the only input that determines a run. Version 1 scenarios migrate
+ * by retaining their version and receiving the zero-cost default.
  */
 export const ScenarioSchema = z
   .object({
     schemaVersion: z
-      .literal(SCENARIO_SCHEMA_VERSION)
+      .union([z.literal(1), z.literal(SCENARIO_SCHEMA_VERSION)])
       .default(SCENARIO_SCHEMA_VERSION),
     window: ScenarioWindowSchema,
     assets: ScenarioAssetsSchema,
     source: ScenarioSourceSchema,
+    costs: ScenarioCostScheduleSchema,
     startingCapital: nonNegativeDecimal("startingCapital").refine(
       (value) => !ZERO.test(value),
       { message: "startingCapital must be greater than zero" }
@@ -271,6 +305,14 @@ export const ScenarioSchema = z
 
 /** A fully validated, fully typed scenario. */
 export type Scenario = z.infer<typeof ScenarioSchema>;
+
+/** Returns the fixed-point costs for a scenario, defaulting to zero costs. */
+export function scenarioCostSchedule(scenario: Scenario): CostSchedule {
+  return {
+    swapFeeRate: FixedPointDecimal.fromString(scenario.costs.swapFeeRate),
+    networkFee: FixedPointDecimal.fromString(scenario.costs.networkFee),
+  };
+}
 
 /**
  * Thrown by {@link parseScenario} when the input is not a valid scenario. The

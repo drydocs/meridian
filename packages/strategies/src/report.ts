@@ -10,7 +10,11 @@ import { XorShift64 } from "./rng";
 
 // Version 2 added `generators`. A version 1 report carries no generator state,
 // so it cannot resume a run that draws from the seeded generators.
-export const REPORT_FORMAT_VERSION = 2 as const;
+// Version 3 added the tail and downside metrics to `riskMetrics` (#1434):
+// `valueAtRisk`, `conditionalValueAtRisk`, `downsideDeviation`, `sortinoRatio`
+// and `calmarRatio`. A version 2 report carries none of them, so it is rejected
+// rather than read back with metrics it never recorded.
+export const REPORT_FORMAT_VERSION = 3 as const;
 export type ReportFormatVersion = typeof REPORT_FORMAT_VERSION;
 
 // Risk metrics summarising the run.
@@ -24,6 +28,22 @@ export interface ReportRiskMetrics {
   readonly sharpeProxy: FixedPointDecimal;
   // Volatility expressed as standard deviation of per-step returns.
   readonly volatility: FixedPointDecimal;
+  // Value at risk as a loss magnitude at the run's confidence level: a positive
+  // value is a loss, a negative one a gain. See `valueAtRisk`.
+  readonly valueAtRisk: FixedPointDecimal;
+  // Conditional value at risk (expected shortfall): the mean loss of the
+  // returns at or below the VaR threshold, at the same confidence. Same sign as
+  // `valueAtRisk`, and never below it. See `conditionalValueAtRisk`.
+  readonly conditionalValueAtRisk: FixedPointDecimal;
+  // Per-step downside deviation below the minimum acceptable return. Always
+  // non-negative. See `downsideDeviation`.
+  readonly downsideDeviation: FixedPointDecimal;
+  // Per-step Sortino ratio, or null when the downside deviation is zero and
+  // the ratio has no denominator. See `sortinoRatio`.
+  readonly sortinoRatio: FixedPointDecimal | null;
+  // Calmar ratio, or null when the maximum drawdown is zero and the ratio has
+  // no denominator. See `calmarRatio`.
+  readonly calmarRatio: FixedPointDecimal | null;
 }
 
 // Counts of discrete events that happened during the run.
@@ -87,6 +107,12 @@ interface SerializedRiskMetrics {
   maxDrawdown: string;
   sharpeProxy: string;
   volatility: string;
+  valueAtRisk: string;
+  conditionalValueAtRisk: string;
+  downsideDeviation: string;
+  // null when the ratio has no denominator, as on `ReportRiskMetrics`.
+  sortinoRatio: string | null;
+  calmarRatio: string | null;
 }
 
 interface SerializedPortfolioState {
@@ -129,6 +155,16 @@ function deserializeFixed(s: string): FixedPointDecimal {
   return FixedPointDecimal.fromStroops(BigInt(s));
 }
 
+function serializeOptionalFixed(v: FixedPointDecimal | null): string | null {
+  return v === null ? null : serializeFixed(v);
+}
+
+// Only an explicit null reads as "no ratio". A missing field is a malformed
+// report, so it fails through `deserializeFixed` instead of passing as null.
+function deserializeOptionalFixed(s: string | null): FixedPointDecimal | null {
+  return s === null ? null : deserializeFixed(s);
+}
+
 function serializeStates(states: GeneratorStates): Record<string, string> {
   const wire: Record<string, string> = {};
   for (const [stream, state] of Object.entries(states)) {
@@ -166,6 +202,7 @@ function copyScenario(scenario: Scenario): Scenario {
     window: { ...scenario.window },
     assets: [...scenario.assets],
     source: { ...scenario.source },
+    costs: { ...scenario.costs },
     startingCapital: scenario.startingCapital,
     strategy: { ...scenario.strategy, params: { ...scenario.strategy.params } },
     seed: scenario.seed,
@@ -186,6 +223,13 @@ export function serializeReport(report: RunReport): SerializedRunReport {
       maxDrawdown: serializeFixed(report.riskMetrics.maxDrawdown),
       sharpeProxy: serializeFixed(report.riskMetrics.sharpeProxy),
       volatility: serializeFixed(report.riskMetrics.volatility),
+      valueAtRisk: serializeFixed(report.riskMetrics.valueAtRisk),
+      conditionalValueAtRisk: serializeFixed(
+        report.riskMetrics.conditionalValueAtRisk
+      ),
+      downsideDeviation: serializeFixed(report.riskMetrics.downsideDeviation),
+      sortinoRatio: serializeOptionalFixed(report.riskMetrics.sortinoRatio),
+      calmarRatio: serializeOptionalFixed(report.riskMetrics.calmarRatio),
     },
     eventCounts: { ...report.eventCounts },
     finalState: {
@@ -243,6 +287,13 @@ export function deserializeReport(raw: SerializedRunReport): RunReport {
       maxDrawdown: deserializeFixed(raw.riskMetrics.maxDrawdown),
       sharpeProxy: deserializeFixed(raw.riskMetrics.sharpeProxy),
       volatility: deserializeFixed(raw.riskMetrics.volatility),
+      valueAtRisk: deserializeFixed(raw.riskMetrics.valueAtRisk),
+      conditionalValueAtRisk: deserializeFixed(
+        raw.riskMetrics.conditionalValueAtRisk
+      ),
+      downsideDeviation: deserializeFixed(raw.riskMetrics.downsideDeviation),
+      sortinoRatio: deserializeOptionalFixed(raw.riskMetrics.sortinoRatio),
+      calmarRatio: deserializeOptionalFixed(raw.riskMetrics.calmarRatio),
     },
     eventCounts: { ...raw.eventCounts },
     finalState: {
@@ -505,8 +556,9 @@ export function mergeReports(
     : continuation.eventCounts;
 
   // For merged risk metrics we take the worst of the two drawdowns and the
-  // continuation's volatility / sharpeProxy, since the continuation reflects
-  // the most recent regime. Callers that need a mathematically combined
+  // continuation's volatility / sharpeProxy and tail and downside metrics
+  // (VaR, CVaR, downside deviation, Sortino, Calmar), since the continuation
+  // reflects the most recent regime. Callers that need a mathematically combined
   // metric should recompute from raw timeseries; this merge is best-effort.
   // `maxDrawdown` is a non-negative ratio (0 = no drawdown, 1 = total loss),
   // so the larger value is the more severe drawdown.
@@ -532,6 +584,11 @@ export function mergeReports(
       maxDrawdown,
       sharpeProxy: continuation.riskMetrics.sharpeProxy,
       volatility: continuation.riskMetrics.volatility,
+      valueAtRisk: continuation.riskMetrics.valueAtRisk,
+      conditionalValueAtRisk: continuation.riskMetrics.conditionalValueAtRisk,
+      downsideDeviation: continuation.riskMetrics.downsideDeviation,
+      sortinoRatio: continuation.riskMetrics.sortinoRatio,
+      calmarRatio: continuation.riskMetrics.calmarRatio,
     },
     eventCounts,
     finalState: continuation.finalState,

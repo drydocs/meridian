@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { getCachedVaults, setCachedVaults } from "./vault-cache";
+import {
+  getCachedVaults,
+  setCachedVaults,
+  getCachedVaultsStale,
+  getBreakerFailures,
+  incrementBreakerFailures,
+  clearBreakerFailures,
+  VAULT_SHADOW_TTL_SECONDS,
+  BREAKER_WINDOW_SECONDS,
+  vaultShadowKey,
+  vaultBreakerKey,
+} from "./vault-cache";
 import type { ApiVault } from "./vaults";
 
 const REST_URL = "https://vault-cache-test.upstash.io";
@@ -250,5 +261,241 @@ describe("vault-cache", () => {
     );
 
     await expect(setCachedVaults("mainnet", VAULTS)).resolves.toBeUndefined();
+  });
+
+  it("also writes the shadow key with the long-lived TTL on every set", async () => {
+    useCredentials();
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init: RequestInit) => {
+        calls.push(init.body as string);
+        return new Response(JSON.stringify({ result: "OK" }), { status: 200 });
+      })
+    );
+
+    await setCachedVaults("mainnet", VAULTS);
+
+    expect(calls).toHaveLength(2);
+    // First call: primary key with 60s TTL.
+    expect(JSON.parse(calls[0]!)[0]).toBe("SETEX");
+    expect(JSON.parse(calls[0]!)[1]).toBe("vault-cache:mainnet");
+    expect(JSON.parse(calls[0]!)[2]).toBe(60);
+    // Second call: shadow key with 1h TTL.
+    expect(JSON.parse(calls[1]!)[0]).toBe("SETEX");
+    expect(JSON.parse(calls[1]!)[1]).toBe(vaultShadowKey("mainnet"));
+    expect(JSON.parse(calls[1]!)[2]).toBe(VAULT_SHADOW_TTL_SECONDS);
+  });
+});
+
+describe("getCachedVaultsStale", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    clearCredentials();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearCredentials();
+  });
+
+  it("returns null when credentials are unset", async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    expect(await getCachedVaultsStale("mainnet")).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("returns null when the shadow key is absent", async () => {
+    useCredentials();
+    // GET returns null (miss), TTL returns -2 (key does not exist).
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const result = call++ === 0 ? null : -2;
+        return new Response(JSON.stringify({ result }), { status: 200 });
+      })
+    );
+    expect(await getCachedVaultsStale("mainnet")).toBeNull();
+  });
+
+  it("returns vaults and a computed age when the shadow key exists", async () => {
+    useCredentials();
+    const payload = JSON.stringify(VAULTS);
+    // Simulate TTL returning 100s remaining out of 3600s total → age = 3500s.
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const result = call++ === 0 ? payload : 100;
+        return new Response(JSON.stringify({ result }), { status: 200 });
+      })
+    );
+
+    const result = await getCachedVaultsStale("mainnet");
+    expect(result).not.toBeNull();
+    expect(result!.vaults).toEqual(VAULTS);
+    expect(result!.cacheAgeSeconds).toBe(VAULT_SHADOW_TTL_SECONDS - 100);
+  });
+
+  it("sets cacheAgeSeconds to null when TTL is not a number", async () => {
+    useCredentials();
+    const payload = JSON.stringify(VAULTS);
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const result = call++ === 0 ? payload : null;
+        return new Response(JSON.stringify({ result }), { status: 200 });
+      })
+    );
+
+    const result = await getCachedVaultsStale("mainnet");
+    expect(result!.cacheAgeSeconds).toBeNull();
+  });
+
+  it("reads the shadow key, not the primary cache key", async () => {
+    useCredentials();
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init: RequestInit) => {
+        bodies.push(init.body as string);
+        return new Response(JSON.stringify({ result: null }), { status: 200 });
+      })
+    );
+
+    await getCachedVaultsStale("mainnet");
+
+    const readKey = JSON.parse(bodies[0]!)[1] as string;
+    expect(readKey).toBe(vaultShadowKey("mainnet"));
+  });
+
+  it("returns null for a non-array payload", async () => {
+    useCredentials();
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const result = call++ === 0 ? JSON.stringify({ not: "array" }) : 100;
+        return new Response(JSON.stringify({ result }), { status: 200 });
+      })
+    );
+    expect(await getCachedVaultsStale("mainnet")).toBeNull();
+  });
+
+  it("returns null rather than throwing on a network error", async () => {
+    useCredentials();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("nope", { status: 500 }))
+    );
+    expect(await getCachedVaultsStale("mainnet")).toBeNull();
+  });
+});
+
+describe("circuit breaker", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    clearCredentials();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearCredentials();
+  });
+
+  it("getBreakerFailures returns 0 when credentials are unset", async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    expect(await getBreakerFailures("mainnet")).toBe(0);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("getBreakerFailures returns 0 when the key is absent", async () => {
+    useCredentials();
+    stubReply(null);
+    expect(await getBreakerFailures("mainnet")).toBe(0);
+  });
+
+  it("getBreakerFailures returns the stored count", async () => {
+    useCredentials();
+    stubReply("3");
+    expect(await getBreakerFailures("mainnet")).toBe(3);
+  });
+
+  it("getBreakerFailures returns 0 on store error rather than throwing", async () => {
+    useCredentials();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("nope", { status: 500 }))
+    );
+    expect(await getBreakerFailures("mainnet")).toBe(0);
+  });
+
+  it("incrementBreakerFailures sets the expiry atomically before the INCR", async () => {
+    useCredentials();
+    const bodies: string[] = [];
+    let count = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init: RequestInit) => {
+        bodies.push(init.body as string);
+        // INCR returns 1 (first call), EXPIRE returns 1.
+        return new Response(JSON.stringify({ result: ++count }), {
+          status: 200,
+        });
+      })
+    );
+
+    const result = await incrementBreakerFailures("mainnet");
+    expect(result).toBe(2);
+    expect(bodies).toHaveLength(2);
+    expect(JSON.parse(bodies[0]!)).toEqual([
+      "SET",
+      vaultBreakerKey("mainnet"),
+      "0",
+      "EX",
+      BREAKER_WINDOW_SECONDS,
+      "NX",
+    ]);
+    expect(JSON.parse(bodies[1]!)).toEqual([
+      "INCR",
+      vaultBreakerKey("mainnet"),
+    ]);
+  });
+
+  it("incrementBreakerFailures returns null on store error rather than throwing", async () => {
+    useCredentials();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("nope", { status: 500 }))
+    );
+    expect(await incrementBreakerFailures("mainnet")).toBeNull();
+  });
+
+  it("clearBreakerFailures sends DEL", async () => {
+    useCredentials();
+    const mockFetch = stubReply(1);
+    await clearBreakerFailures("mainnet");
+    const [, init] = mockFetch.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(JSON.parse(init.body as string)).toEqual([
+      "DEL",
+      vaultBreakerKey("mainnet"),
+    ]);
+  });
+
+  it("clearBreakerFailures resolves rather than throwing on error", async () => {
+    useCredentials();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("nope", { status: 500 }))
+    );
+    await expect(clearBreakerFailures("mainnet")).resolves.toBeUndefined();
   });
 });

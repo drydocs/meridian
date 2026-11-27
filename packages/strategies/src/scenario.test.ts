@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   SCENARIO_SCHEMA_VERSION,
+  SCENARIO_DECIMAL_PLACES,
   PRICE_SOURCES,
   RATE_SOURCES,
   ScenarioSchema,
@@ -8,8 +9,10 @@ import {
   formatScenarioError,
   parseScenario,
   safeParseScenario,
+  scenarioCostSchedule,
 } from "./scenario";
 import type { Scenario } from "./scenario";
+import { ZERO_COSTS } from "./costs";
 
 /**
  * Minimal valid scenario, deliberately omitting `schemaVersion` and
@@ -23,6 +26,7 @@ const VALID_INPUT = {
   },
   assets: ["USDC", "EURC"],
   source: { price: "horizon", rate: "blend" },
+  costs: { swapFeeRate: "0", networkFee: "0" },
   startingCapital: "10000",
   strategy: {
     id: "blend-loop",
@@ -53,6 +57,7 @@ describe("ScenarioSchema", () => {
       },
       assets: ["USDC", "EURC"],
       source: { price: "horizon", rate: "blend" },
+      costs: { swapFeeRate: "0", networkFee: "0" },
       startingCapital: "10000",
       strategy: {
         id: "blend-loop",
@@ -74,6 +79,53 @@ describe("ScenarioSchema", () => {
     expect(scenario.strategy.params).toEqual({});
   });
 
+  it("defaults missing costs to zero and accepts version 1 scenarios", () => {
+    // VALID_INPUT declares explicit zero costs, so drop the field to prove the
+    // default applies to a scenario that omits it.
+    const withoutCosts: Record<string, unknown> = { ...VALID_INPUT };
+    delete withoutCosts.costs;
+    const omitted = parseScenario(withoutCosts);
+    expect(omitted.costs).toEqual({ swapFeeRate: "0", networkFee: "0" });
+    expect(scenarioCostSchedule(omitted)).toEqual(ZERO_COSTS);
+
+    const versionOne = parseScenario({ ...withoutCosts, schemaVersion: 1 });
+    expect(versionOne.schemaVersion).toBe(1);
+    expect(scenarioCostSchedule(versionOne)).toEqual(ZERO_COSTS);
+
+    const versionOneExplicit = parseScenario({
+      ...VALID_INPUT,
+      schemaVersion: 1,
+    });
+    expect(scenarioCostSchedule(versionOneExplicit)).toEqual(ZERO_COSTS);
+  });
+
+  it("parses scenario costs as the existing fixed-point CostSchedule", () => {
+    const scenario = parseScenario({
+      ...VALID_INPUT,
+      costs: { swapFeeRate: "0.003", networkFee: "0.0000100" },
+    });
+
+    expect(scenarioCostSchedule(scenario).swapFeeRate.toString()).toBe("0.003");
+    expect(scenarioCostSchedule(scenario).networkFee.toString()).toBe(
+      "0.00001"
+    );
+  });
+
+  it("rejects invalid costs with field-qualified errors", () => {
+    const invalidSchedules = [
+      { swapFeeRate: 0.003, networkFee: "0" },
+      { swapFeeRate: "-0.1", networkFee: "0" },
+      { swapFeeRate: "0.00000001", networkFee: "0" },
+      { swapFeeRate: "0", networkFee: "-1" },
+      { swapFeeRate: "0", networkFee: "0", unexpected: "0" },
+    ];
+
+    for (const costs of invalidSchedules) {
+      expect(failureTextFor({ ...VALID_INPUT, costs })).toContain("costs");
+    }
+    expect(SCENARIO_DECIMAL_PLACES).toBe(7);
+  });
+
   it("accepts every declared price and rate source", () => {
     for (const price of PRICE_SOURCES) {
       for (const rate of RATE_SOURCES) {
@@ -84,6 +136,22 @@ describe("ScenarioSchema", () => {
         expect(result.success).toBe(true);
       }
     }
+  });
+
+  it("accepts an optional hedge source from PRICE_SOURCES and rejects unknown values", () => {
+    for (const hedge of PRICE_SOURCES) {
+      const scenario = parseScenario({
+        ...VALID_INPUT,
+        source: { price: "horizon", hedge, rate: "blend" },
+      });
+      expect(scenario.source.hedge).toBe(hedge);
+    }
+
+    const message = failureTextFor({
+      ...VALID_INPUT,
+      source: { price: "horizon", hedge: "unknown", rate: "blend" },
+    });
+    expect(message).toContain("source.hedge");
   });
 
   it("is deterministic: the same input always yields the same scenario", () => {

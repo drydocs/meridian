@@ -5,10 +5,15 @@ import {
   selectBestVault,
 } from "@meridian/stellar-sdk-helpers";
 import type { RouteResult } from "./types";
+import { deadlineResult, withUpstreamDeadline } from "./deadline";
 
 export async function handleGetVaults(): Promise<RouteResult> {
   try {
-    const { vaults, cached } = await fetchVaultsWithCache(APP_NETWORK.network);
+    const { vaults, cached, stale, cacheAgeSeconds } =
+      await withUpstreamDeadline(
+        () => fetchVaultsWithCache(APP_NETWORK.network),
+        "vault list"
+      );
     const best = selectBestVault(vaults, {
       defindexConfigured: isDefindexConfigured(),
     });
@@ -19,13 +24,13 @@ export async function handleGetVaults(): Promise<RouteResult> {
         recommendedVaultId: best?.id ?? null,
         updatedAt: new Date().toISOString(),
         cached,
+        ...(stale && { stale: true }),
+        ...(stale && cacheAgeSeconds !== undefined && { cacheAgeSeconds }),
       },
     };
   } catch (err) {
     return {
-      status: 500,
-      body: { error: "Failed to fetch vaults" },
-      error: err,
+      ...deadlineResult(err, "Failed to fetch vaults"),
     };
   }
 }
@@ -41,7 +46,10 @@ export async function handleGetVaultById(
   vaultId: string
 ): Promise<RouteResult> {
   try {
-    const vaults = await fetchAllVaults(APP_NETWORK.network);
+    const vaults = await withUpstreamDeadline(
+      () => fetchAllVaults(APP_NETWORK.network),
+      "vault read"
+    );
     const vault = vaults.find((v) => v.id === vaultId);
     if (!vault) {
       return { status: 404, body: { error: "vault not found", vaultId } };
@@ -49,9 +57,7 @@ export async function handleGetVaultById(
     return { status: 200, body: vault };
   } catch (err) {
     return {
-      status: 500,
-      body: { error: "Failed to fetch vault" },
-      error: err,
+      ...deadlineResult(err, "Failed to fetch vault"),
     };
   }
 }

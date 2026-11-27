@@ -1,15 +1,153 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
+import { Buffer } from "node:buffer";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { APP_NETWORK, DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import { DEFAULT_ALLOWED_ORIGIN, MAX_BODY_BYTES } from "@meridian/shared";
+import {
+  createRequestId,
+  responseBody,
+  REQUEST_ID_HEADER,
+  CONFIG_CACHE_CONTROL,
+  MAINNET_VAULT_CACHE_CONTROL,
+  TESTNET_VAULT_CACHE_CONTROL,
+  HISTORY_CACHE_CONTROL,
+  vaultReadCacheControl,
+} from "@meridian/api-core";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN;
 
+export { MAX_BODY_BYTES };
+
+export const PAYLOAD_TOO_LARGE_ERROR = {
+  error: "Payload too large",
+  code: "PAYLOAD_TOO_LARGE",
+} as const;
+
+export function sendPayloadTooLarge(
+  req: VercelRequest,
+  res: VercelResponse
+): boolean {
+  sendResponse(req, res, 413, PAYLOAD_TOO_LARGE_ERROR);
+  return true;
+}
+
+export interface ReadJsonBodyResult {
+  ok: boolean;
+  body?: unknown;
+}
+
+function contentLength(req: VercelRequest): number | undefined {
+  const raw = req.headers["content-length"];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) ? value : undefined;
+  }
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+function byteLength(value: unknown): number {
+  if (typeof value === "string") return Buffer.byteLength(value, "utf8");
+  if (value === undefined) return 0;
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8");
+  } catch {
+    return MAX_BODY_BYTES + 1;
+  }
+}
+
+/**
+ * Reads and parses a JSON request body with a hard 10 KB ceiling.
+ * Content-Length is used only as an early rejection hint; the bytes actually
+ * received are always counted and checked before JSON parsing.
+ */
+export async function readJsonBody(
+  req: VercelRequest,
+  res: VercelResponse
+): Promise<ReadJsonBodyResult> {
+  const declaredLength = contentLength(req);
+  if (declaredLength !== undefined && declaredLength > MAX_BODY_BYTES) {
+    sendPayloadTooLarge(req, res);
+    return { ok: false };
+  }
+
+  const iterable = req as VercelRequest & {
+    [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>;
+  };
+
+  if (typeof iterable[Symbol.asyncIterator] === "function") {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let payloadTooLarge = false;
+    const stream = iterable as unknown as AsyncIterable<Uint8Array | string>;
+
+    try {
+      for await (const chunk of stream) {
+        const bytes =
+          typeof chunk === "string"
+            ? Buffer.from(chunk, "utf8")
+            : Buffer.from(chunk);
+        total += bytes.byteLength;
+        if (total > MAX_BODY_BYTES) {
+          payloadTooLarge = true;
+          if (
+            typeof (req as { destroy?: (error?: Error) => void }).destroy ===
+            "function"
+          ) {
+            (req as { destroy: (error?: Error) => void }).destroy();
+          }
+          sendPayloadTooLarge(req, res);
+          return { ok: false };
+        }
+        chunks.push(bytes);
+      }
+    } catch {
+      if (payloadTooLarge) return { ok: false };
+      sendResponse(req, res, 400, { error: "Malformed JSON" });
+      return { ok: false };
+    }
+
+    if (total > 0) {
+      const raw = Buffer.concat(chunks).toString("utf8");
+      try {
+        return { ok: true, body: JSON.parse(raw) };
+      } catch {
+        sendResponse(req, res, 400, { error: "Malformed JSON" });
+        return { ok: false };
+      }
+    }
+  }
+
+  // Vercel may expose an already-parsed body without a readable stream. Check
+  // the actual serialized size rather than trusting req.headers blindly.
+  if (req.body !== undefined) {
+    if (byteLength(req.body) > MAX_BODY_BYTES) {
+      sendPayloadTooLarge(req, res);
+      return { ok: false };
+    }
+    if (typeof req.body === "string") {
+      try {
+        return { ok: true, body: JSON.parse(req.body) };
+      } catch {
+        sendResponse(req, res, 400, { error: "Malformed JSON" });
+        return { ok: false };
+      }
+    }
+    return { ok: true, body: req.body };
+  }
+
+  return { ok: true, body: undefined };
+}
+
 const LIMIT = 100;
 const WINDOW = "60 s";
 const WINDOW_MS = 60_000;
+const REQUEST_ID_PROPERTY = "__meridianRequestId";
 
 // Vercel's Upstash integration provisions credentials under either store-prefixed or standard names
 const UPSTASH_URL =
@@ -59,6 +197,30 @@ function applySecurityHeaders(res: VercelResponse): void {
   res.setHeader("Content-Security-Policy", "default-src 'none'");
 }
 
+function incomingRequestId(req: VercelRequest): unknown {
+  const value = req.headers[REQUEST_ID_HEADER.toLowerCase()];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export function getRequestId(req: VercelRequest): string {
+  const request = req as VercelRequest & { [REQUEST_ID_PROPERTY]?: string };
+  if (request[REQUEST_ID_PROPERTY]) return request[REQUEST_ID_PROPERTY];
+  const requestId = createRequestId(incomingRequestId(req));
+  request[REQUEST_ID_PROPERTY] = requestId;
+  return requestId;
+}
+
+export function sendResponse(
+  req: VercelRequest,
+  res: VercelResponse,
+  status: number,
+  body: unknown
+): VercelResponse {
+  const requestId = getRequestId(req);
+  res.setHeader(REQUEST_ID_HEADER, requestId);
+  return res.status(status).json(responseBody(status, body, requestId));
+}
+
 /**
  * Set CORS and baseline security headers, and handle preflight. Returns true
  * when the request was a preflight OPTIONS and has been fully handled — the
@@ -66,9 +228,10 @@ function applySecurityHeaders(res: VercelResponse): void {
  */
 export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
   applySecurityHeaders(res);
+  res.setHeader(REQUEST_ID_HEADER, getRequestId(req));
   res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Request-ID");
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return true;
@@ -87,34 +250,24 @@ export function requireGetMethod(
 ): boolean {
   if (req.method === "GET") return false;
   res.setHeader("Allow", "GET");
-  res.status(405).json({ error: "Method not allowed" });
+  sendResponse(req, res, 405, { error: "Method not allowed" });
   return true;
 }
 
-// Cache policy shared by both vault-read endpoints: the list in
-// v1/vaults/index.ts and the single-vault read in v1/vaults/[vaultId].ts.
-// Both must use the same policy — #1051 happened because the detail endpoint
-// cached unconditionally while the list did not, so on testnet the detail
-// panel served pre-deposit balances and APY for up to a minute while the list
-// beside it was already current. Mainnet APY/TVL move slowly, so a short
-// fresh window keeps DeFiLlama call volume low, and stale-while-revalidate
-// lets the edge keep serving the last good payload through a transient
-// DeFiLlama outage instead of failing the whole dashboard. Testnet reads hit
-// the chain on every call (fetchAllVaults bypasses its cache there) so
-// deposits/withdrawals show up immediately during testing; an HTTP cache
-// layered on top would defeat that, so testnet gets no-store.
-const MAINNET_VAULT_CACHE_CONTROL =
-  "public, s-maxage=60, stale-while-revalidate=300";
-const TESTNET_VAULT_CACHE_CONTROL = "no-store";
+export {
+  MAINNET_VAULT_CACHE_CONTROL,
+  TESTNET_VAULT_CACHE_CONTROL,
+  HISTORY_CACHE_CONTROL,
+  vaultReadCacheControl,
+};
 
 /**
- * Cache-Control for successful (200) vault-read responses: a short CDN cache
- * on mainnet, nothing at all on testnet so post-deposit reads stay fresh.
+ * Cache-Control for GET /api/v1/config responses. Returns a short cache policy
+ * when complete, or no-store if active adapter resolution degraded so transient
+ * RPC errors are not cached at the edge.
  */
-export function vaultReadCacheControl(): string {
-  return APP_NETWORK.network === "testnet"
-    ? TESTNET_VAULT_CACHE_CONTROL
-    : MAINNET_VAULT_CACHE_CONTROL;
+export function configCacheControl(degraded = false): string {
+  return degraded ? "no-store" : CONFIG_CACHE_CONTROL;
 }
 
 function clientIp(req: VercelRequest): string {
@@ -135,11 +288,14 @@ function clientIp(req: VercelRequest): string {
  * in-memory limiter: preview deployments have their own public URL, so they
  * serve real traffic to these routes just like production.
  */
-export function enforceStrictRateLimit(res: VercelResponse): boolean {
+export function enforceStrictRateLimit(
+  req: VercelRequest,
+  res: VercelResponse
+): boolean {
   const isLocalDev = process.env.VERCEL_ENV === undefined;
 
   if (!isLocalDev && !isDistributedRateLimitingConfigured()) {
-    res.status(503).json({
+    sendResponse(req, res, 503, {
       error:
         "Service Unavailable: Distributed rate limiting is required on deployed environments for this route.",
       code: "RATE_LIMIT_BACKEND_UNAVAILABLE",
@@ -152,12 +308,19 @@ export function enforceStrictRateLimit(res: VercelResponse): boolean {
 
 export interface RateLimitOptions {
   strict?: boolean;
+  /**
+   * Namespaces the rate-limit counter. Routes that pass a bucket spend their
+   * own budget per IP instead of sharing the default one, so noisy low-value
+   * traffic (for example CSP violation reports) cannot starve other routes.
+   */
+  bucket?: string;
 }
 
 /**
  * Check rate limit for the incoming request.
  * - If strict: true (fund-moving/keeper endpoints), returns 503 if Upstash is unconfigured on any deployment (only local dev without VERCEL_ENV falls back).
  * - For non-strict routes (read-only), falls back to the in-memory rate limiter.
+ * - Pass `bucket` to give a route its own counter instead of the shared per-IP one.
  * Writes a 429 or 503 response and returns false when blocked.
  */
 export async function checkRateLimit(
@@ -165,20 +328,28 @@ export async function checkRateLimit(
   res: VercelResponse,
   options: RateLimitOptions = {}
 ): Promise<boolean> {
-  const { strict = false } = options;
+  const { strict = false, bucket } = options;
 
-  if (strict && !enforceStrictRateLimit(res)) {
+  if (strict && !enforceStrictRateLimit(req, res)) {
     return false;
   }
 
   const ip = clientIp(req);
+  const key = bucket ? `${bucket}:${ip}` : ip;
 
   if (ratelimit) {
-    const { success } = await ratelimit.limit(ip);
+    const { success, limit, remaining, reset } = await ratelimit.limit(key);
+    res.setHeader("x-ratelimit-limit", String(limit));
+    res.setHeader("x-ratelimit-remaining", String(remaining));
+    res.setHeader(
+      "x-ratelimit-reset",
+      String(Math.max(1, Math.ceil((reset - Date.now()) / 1000)))
+    );
     if (!success) {
-      res
-        .status(429)
-        .json({ error: "Too many requests. Try again in a minute." });
+      res.setHeader("retry-after", "60");
+      sendResponse(req, res, 429, {
+        error: "Too many requests. Try again in a minute.",
+      });
       return false;
     }
     return true;
@@ -186,18 +357,34 @@ export async function checkRateLimit(
 
   // In-memory fallback
   const now = Date.now();
-  const entry = counts.get(ip);
+  const entry = counts.get(key);
   if (!entry || now > entry.resetAt) {
-    counts.set(ip, { n: 1, resetAt: now + WINDOW_MS });
+    counts.set(key, { n: 1, resetAt: now + WINDOW_MS });
+    res.setHeader("x-ratelimit-limit", String(LIMIT));
+    res.setHeader("x-ratelimit-remaining", String(LIMIT - 1));
+    res.setHeader("x-ratelimit-reset", "60");
     return true;
   }
   if (entry.n >= LIMIT) {
-    res
-      .status(429)
-      .json({ error: "Too many requests. Try again in a minute." });
+    res.setHeader("x-ratelimit-limit", String(LIMIT));
+    res.setHeader("x-ratelimit-remaining", "0");
+    res.setHeader(
+      "x-ratelimit-reset",
+      String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000)))
+    );
+    res.setHeader("retry-after", "60");
+    sendResponse(req, res, 429, {
+      error: "Too many requests. Try again in a minute.",
+    });
     return false;
   }
   entry.n++;
+  res.setHeader("x-ratelimit-limit", String(LIMIT));
+  res.setHeader("x-ratelimit-remaining", String(LIMIT - entry.n));
+  res.setHeader(
+    "x-ratelimit-reset",
+    String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000)))
+  );
   return true;
 }
 

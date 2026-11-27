@@ -4,6 +4,7 @@ import {
   WithdrawRequestSchema,
   TrustlineRequestSchema,
   SubmitRequestSchema,
+  QuoteRequestSchema,
   formatZodError,
 } from "./schemas";
 
@@ -72,7 +73,7 @@ describe("DepositRequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("defaults min_shares_out to 0 when omitted", () => {
+  it("leaves min_shares_out unset when omitted so the API can quote a floor", () => {
     const result = DepositRequestSchema.safeParse({
       walletAddress: VALID_ADDRESS,
       vaultId: "meridian-usdc",
@@ -81,7 +82,7 @@ describe("DepositRequestSchema", () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.min_shares_out).toBe("0");
+      expect(result.data.min_shares_out).toBeUndefined();
     }
   });
 
@@ -97,7 +98,7 @@ describe("DepositRequestSchema", () => {
 });
 
 describe("WithdrawRequestSchema", () => {
-  it("accepts a valid withdraw request", () => {
+  it("accepts a valid withdraw request and leaves min_usdc_out unset", () => {
     const result = WithdrawRequestSchema.safeParse({
       walletAddress: VALID_ADDRESS,
       vaultId: "meridian-usdc",
@@ -105,7 +106,7 @@ describe("WithdrawRequestSchema", () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.min_usdc_out).toBe("0");
+      expect(result.data.min_usdc_out).toBeUndefined();
     }
   });
 
@@ -175,7 +176,70 @@ describe("SubmitRequestSchema", () => {
   });
 });
 
+describe("QuoteRequestSchema", () => {
+  const base = { walletAddress: VALID_ADDRESS, vaultId: "meridian-usdc" };
+
+  it("accepts a deposit quote with an amount", () => {
+    expect(
+      QuoteRequestSchema.safeParse({ ...base, action: "deposit", amount: "10" })
+        .success
+    ).toBe(true);
+  });
+
+  it("accepts a withdrawal quote with shares", () => {
+    expect(
+      QuoteRequestSchema.safeParse({ ...base, action: "withdraw", shares: "5" })
+        .success
+    ).toBe(true);
+  });
+
+  it("requires an amount for a deposit quote", () => {
+    const result = QuoteRequestSchema.safeParse({ ...base, action: "deposit" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(formatZodError(result.error)).toContain(
+        "amount: amount is required for deposit quotes"
+      );
+    }
+  });
+
+  it("requires shares for a withdrawal quote", () => {
+    const result = QuoteRequestSchema.safeParse({
+      ...base,
+      action: "withdraw",
+      amount: "10",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(formatZodError(result.error)).toContain(
+        "shares: shares is required for withdrawal quotes"
+      );
+    }
+  });
+
+  it("rejects an unknown action and an over-precise amount", () => {
+    expect(
+      QuoteRequestSchema.safeParse({ ...base, action: "swap", amount: "1" })
+        .success
+    ).toBe(false);
+    expect(
+      QuoteRequestSchema.safeParse({
+        ...base,
+        action: "deposit",
+        amount: "1.12345678",
+      }).success
+    ).toBe(false);
+  });
+});
+
 describe("formatZodError", () => {
+  it("falls back to a generic message when no field has an error", () => {
+    const result = SubmitRequestSchema.safeParse("not an object");
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(formatZodError(result.error)).toBe("Invalid request");
+  });
+
   it("joins multiple field errors into a single semicolon-separated string", () => {
     const result = DepositRequestSchema.safeParse({});
     expect(result.success).toBe(false);

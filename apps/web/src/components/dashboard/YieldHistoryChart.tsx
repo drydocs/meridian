@@ -10,7 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { usePositionHistory } from "../../hooks/usePositionHistory";
-import { formatUsd } from "../../lib/format";
+import { formatDate, formatUsd } from "../../lib/format";
 import { PROTOCOL_LABEL } from "../../lib/protocolLabels";
 import { toChartData } from "../../lib/yieldHistory";
 
@@ -31,6 +31,7 @@ interface YieldHistoryChartProps {
 export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
   const { t, i18n } = useTranslation();
   const [days, setDays] = useState<number>(30);
+  const [showTable, setShowTable] = useState<boolean>(false);
   const { data, isLoading, isError, refetch } = usePositionHistory(
     publicKey,
     days
@@ -41,8 +42,8 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
   // A single point draws no line; wait for a second snapshot.
   const hasHistory = points.length >= 2;
 
-  const formatDate = (ms: number) =>
-    new Date(ms).toLocaleDateString(locale, { month: "short", day: "numeric" });
+  const formatTickDate = (ms: number) =>
+    formatDate(ms, i18n.language, { month: "short", day: "numeric" });
 
   return (
     <section
@@ -51,7 +52,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
     >
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
-          <p className="text-xs text-gray-500 mb-1">
+          <p className="text-xs text-gray-400 mb-1">
             {t("yieldHistory.title")}
           </p>
           {latest && (
@@ -60,7 +61,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
               className="text-base font-bold text-emerald-400 tabular-nums"
             >
               +{formatUsd(latest.earned, i18n.language)}
-              <span className="ml-2 text-xs font-normal text-gray-500">
+              <span className="ml-2 text-xs font-normal text-gray-400">
                 {t("yieldHistory.earned")}
               </span>
             </p>
@@ -77,10 +78,10 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
               type="button"
               aria-pressed={days === range.days}
               onClick={() => setDays(range.days)}
-              className={`rounded-md px-2 py-1 text-xs font-medium transition-colors duration-150 active:scale-95 ${
+              className={`rounded-md px-2 py-1 text-xs font-medium transition-colors duration-150 active:scale-95 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none ${
                 days === range.days
                   ? "bg-gray-800 text-paper"
-                  : "text-gray-500 hover:text-gray-300"
+                  : "text-gray-400 hover:text-gray-200"
               }`}
             >
               {t(range.labelKey)}
@@ -101,13 +102,13 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
           </p>
           <button
             onClick={() => void refetch()}
-            className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
+            className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
           >
             {t("common.retry")}
           </button>
         </div>
       ) : !hasHistory ? (
-        <p data-testid="yield-history-empty" className="text-sm text-gray-500">
+        <p data-testid="yield-history-empty" className="text-sm text-gray-400">
           {t("yieldHistory.empty")}
         </p>
       ) : (
@@ -128,7 +129,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
                 type="number"
                 scale="time"
                 domain={["dataMin", "dataMax"]}
-                tickFormatter={formatDate}
+                tickFormatter={formatTickDate}
                 tick={{ fill: "#6b7280", fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
@@ -143,7 +144,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
                 tickLine={false}
               />
               <Tooltip
-                labelFormatter={(ms) => formatDate(Number(ms))}
+                labelFormatter={(ms) => formatTickDate(Number(ms))}
                 formatter={(value, name) => [
                   formatUsd(Number(value), i18n.language),
                   PROTOCOL_LABEL[String(name)] ?? String(name),
@@ -174,23 +175,83 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
       )}
 
       {hasHistory && (
-        <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-          {protocols.map((protocol, i) => (
-            <li
-              key={protocol}
-              className="flex items-center gap-1.5 text-xs text-gray-400"
+        <>
+          <div className="mt-3 flex items-center justify-between">
+            <ul className="flex flex-wrap gap-x-4 gap-y-1">
+              {protocols.map((protocol, i) => (
+                <li
+                  key={protocol}
+                  className="flex items-center gap-1.5 text-xs text-gray-400"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="h-2 w-2 rounded-full"
+                    style={{
+                      background: SERIES_COLORS[i % SERIES_COLORS.length],
+                    }}
+                  />
+                  {PROTOCOL_LABEL[protocol] ?? protocol}
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              data-testid="yield-history-toggle-table"
+              onClick={() => setShowTable((v) => !v)}
+              aria-expanded={showTable}
+              aria-controls="yield-history-table"
+              className="text-xs text-gray-400 hover:text-gray-200 underline focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none rounded"
             >
-              <span
-                aria-hidden="true"
-                className="h-2 w-2 rounded-full"
-                style={{
-                  background: SERIES_COLORS[i % SERIES_COLORS.length],
-                }}
-              />
-              {PROTOCOL_LABEL[protocol] ?? protocol}
-            </li>
-          ))}
-        </ul>
+              {showTable
+                ? t("yieldHistory.hideTable", "Hide tabular data")
+                : t("yieldHistory.viewTable", "View data as table")}
+            </button>
+          </div>
+
+          <div
+            id="yield-history-table"
+            data-testid="yield-history-table"
+            className={showTable ? "mt-3 overflow-x-auto" : "sr-only"}
+          >
+            <table className="w-full text-left text-xs text-gray-300">
+              <caption className="sr-only">
+                {t("yieldHistory.tableCaption", "Yield history data points")}
+              </caption>
+              <thead className="border-b border-gray-800 text-gray-400">
+                <tr>
+                  <th scope="col" className="py-1.5 pr-3">
+                    {t("yieldHistory.date", "Date")}
+                  </th>
+                  {protocols.map((protocol) => (
+                    <th key={protocol} scope="col" className="py-1.5 pr-3">
+                      {PROTOCOL_LABEL[protocol] ?? protocol}
+                    </th>
+                  ))}
+                  <th scope="col" className="py-1.5">
+                    {t("yieldHistory.total", "Total")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800/50">
+                {points.map((pt) => (
+                  <tr key={pt.timestamp}>
+                    <td className="py-1 pr-3">
+                      {formatDate(pt.timestamp, i18n.language)}
+                    </td>
+                    {protocols.map((protocol) => (
+                      <td key={protocol} className="py-1 pr-3">
+                        {formatUsd(Number(pt[protocol] ?? 0), i18n.language)}
+                      </td>
+                    ))}
+                    <td className="py-1">
+                      {formatUsd(Number(pt.total ?? 0), i18n.language)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </section>
   );

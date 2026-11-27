@@ -40,6 +40,7 @@ import {
 } from "./keeper-retry";
 import {
   assertAdapterUnchanged,
+  assertVaultHealthy,
   expectString,
   isMigrationCooldownError,
   isStaleAdapterError,
@@ -57,6 +58,7 @@ import {
   SubmissionLease,
   type KeeperStateStore,
 } from "./keeper-state";
+import { runKeeperDoctor, type KeeperDoctorReport } from "./keeper-doctor";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_DELAY_MS = 1_000;
@@ -222,6 +224,9 @@ export interface MigrationKeeperResult {
   migrations: MigrationSuccess[];
   skipped: MigrationSkip[];
   failures: KeeperFailure[];
+  blocked?: boolean;
+  blockedReasons?: string[];
+  preflight?: KeeperDoctorReport;
 }
 
 type SimulateFn = typeof simulateView;
@@ -269,6 +274,10 @@ export interface MigrationKeeperDeps {
   // Cross-invocation submission tracking (#515). Defaults to whatever the
   // environment provides (Upstash Redis when configured); injected in tests.
   stateStore?: KeeperStateStore;
+  preflight?: () => Promise<KeeperDoctorReport>;
+  /** Runs the real doctor preflight. Callers opt in; it is never inferred. */
+  runPreflight?: boolean;
+  skipPreflight?: boolean;
   logger?: KeeperLogger;
   sleep?: (ms: number) => Promise<void>;
   deadlineAt?: number;
@@ -803,6 +812,11 @@ async function submitMigrationTransaction(
   // process died before the record was written), so the two guards are
   // complementary rather than redundant, see migration-keeper.md.
   if (!priorHash) {
+    await assertVaultHealthy(
+      server,
+      vaultContractId,
+      config.network.passphrase
+    );
     await assertAdapterUnchanged(
       server,
       vaultContractId,
@@ -840,6 +854,52 @@ export async function runMigrationKeeper(
   const startedAt = new Date().toISOString();
   const deadlineAt = deps.deadlineAt ?? Date.now() + FUNCTION_BUDGET_MS;
   const server = getRpcServer(config.network.rpcUrl, config.rpcTimeoutMs);
+
+  const shouldRunPreflight =
+    !deps.skipPreflight &&
+    (deps.preflight !== undefined || deps.runPreflight === true);
+  if (shouldRunPreflight) {
+    const preflight = deps.preflight
+      ? await deps.preflight()
+      : await runKeeperDoctor({
+          keeper: "migration",
+          network: config.network,
+          secretKey: config.secretKey,
+          strategyConfig: {
+            maxAttempts: config.maxAttempts,
+            baseDelayMs: config.baseDelayMs,
+            rpcTimeoutMs: config.rpcTimeoutMs,
+            minImprovementBps: config.minImprovementBps,
+            maxSlippageBps: config.maxSlippageBps,
+            submissionTtlMs: config.submissionTtlMs,
+            candidateAdapters: config.candidateAdapters,
+          },
+          rpcTimeoutMs: config.rpcTimeoutMs,
+          server,
+          ...(deps.stateStore && { stateStore: deps.stateStore }),
+          logger,
+        });
+    if (!preflight.ok) {
+      logger.warn("[migration-keeper] preflight failed; blocking run", {
+        network: config.network.network,
+        status: preflight.status,
+        blockedReasons: preflight.blockedReasons,
+      });
+      return {
+        network: config.network.network,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        discoveredVaults: 0,
+        migrations: [],
+        skipped: [],
+        failures: [],
+        blocked: true,
+        blockedReasons: preflight.blockedReasons,
+        preflight,
+      };
+    }
+  }
+
   // Shared, not per-run, state: this is the only thing that survives a
   // killed invocation, so it's what stops the next cron tick from sending a
   // second migrate_adapter while the first is still landing (#515).

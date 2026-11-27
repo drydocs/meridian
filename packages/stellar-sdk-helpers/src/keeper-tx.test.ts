@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { Keypair, rpc } from "@stellar/stellar-sdk";
 import {
   assertAdapterUnchanged,
+  assertVaultHealthy,
   DEFAULT_FEE_ESCALATION,
   expectString,
   isDefinitiveOnChainFailure,
@@ -8,6 +10,7 @@ import {
   isStaleAdapterError,
   isTransientKeeperError,
   keeperFeeForAttempt,
+  KeeperTransactionClient,
   KEEPER_BASE_FEE_STROOPS,
   KEEPER_MAX_FEE_STROOPS,
   MIGRATION_COOLDOWN_ERROR_TEXT,
@@ -22,6 +25,22 @@ import {
 } from "./keeper-tx";
 import * as txModule from "./tx";
 
+vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
+  return {
+    ...actual,
+    rpc: {
+      ...actual.rpc,
+      assembleTransaction: vi.fn(actual.rpc.assembleTransaction),
+      Api: {
+        ...actual.rpc.Api,
+        isSimulationError: vi.fn(actual.rpc.Api.isSimulationError),
+        isSimulationSuccess: vi.fn(actual.rpc.Api.isSimulationSuccess),
+      },
+    },
+  };
+});
+
 vi.mock("./tx", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./tx")>();
   return {
@@ -33,6 +52,45 @@ vi.mock("./tx", async (importOriginal) => {
 });
 
 describe("keeper-tx", () => {
+  describe("assertVaultHealthy", () => {
+    it("skips the health preflight when an older vault has no get_health method", async () => {
+      vi.mocked(txModule.simulateView).mockRejectedValueOnce(
+        new Error(
+          "HostError: Error(WasmVm, MissingValue): " +
+            "trying to invoke non-existent contract function get_health"
+        )
+      );
+      await expect(
+        assertVaultHealthy({} as never, "vault", "passphrase")
+      ).resolves.toBeUndefined();
+    });
+
+    it("does not skip the preflight when get_health traps", async () => {
+      const error = new Error("HostError: Error(WasmVm, InvalidAction)");
+      vi.mocked(txModule.simulateView).mockRejectedValueOnce(error);
+      await expect(
+        assertVaultHealthy({} as never, "vault", "passphrase")
+      ).rejects.toBe(error);
+    });
+
+    it("still blocks health preflight on RPC failures", async () => {
+      const error = new Error("RPC request timed out");
+      vi.mocked(txModule.simulateView).mockRejectedValueOnce(error);
+      await expect(
+        assertVaultHealthy({} as never, "vault", "passphrase")
+      ).rejects.toBe(error);
+    });
+
+    it("blocks health preflight when the view reports a counter mismatch", async () => {
+      vi.mocked(txModule.simulateView).mockResolvedValueOnce({
+        total_shares_mismatch: true,
+      });
+      await expect(
+        assertVaultHealthy({} as never, "vault", "passphrase")
+      ).rejects.toThrow("vault health check failed: total shares mismatch");
+    });
+  });
+
   describe("constants and simple helpers", () => {
     it("exports TX_VALIDITY_WINDOW_MS", () => {
       expect(TX_VALIDITY_WINDOW_MS).toBe(300_000);
@@ -333,6 +391,239 @@ describe("keeper-tx", () => {
           "priorHash123"
         )
       ).rejects.toThrow(SubmissionInFlightError);
+    });
+
+    describe("KeeperTransactionClient", () => {
+      const signer = Keypair.random();
+
+      function createClient(
+        overrides: Partial<
+          ConstructorParameters<typeof KeeperTransactionClient>[0]
+        > = {}
+      ) {
+        return new KeeperTransactionClient({
+          signer,
+          server: {} as never,
+          rpcTimeoutMs: 100,
+          confirmationTimeoutMs: 100,
+          retryPolicy: {
+            maxAttempts: 3,
+            baseDelayMs: 0,
+            sleep: async () => {},
+          },
+          deadlineAt: Date.now() + 10_000,
+          ...overrides,
+        });
+      }
+
+      it("rebuilds on retry and escalates fees up to the configured cap", async () => {
+        const fees: number[] = [];
+        const client = createClient({
+          feeEscalation: { baseFee: 10, maxFee: 25, multiplier: 2 },
+        });
+
+        const result = await client.submit(async (fee) => {
+          fees.push(fee);
+          throw new Error("txInsufficientFee");
+        });
+
+        expect(fees).toEqual([10, 20, 25]);
+        expect(result).toMatchObject({ status: "retryable", attempts: 3 });
+      });
+
+      it("retries timed-out builds and stops at the retry limit", async () => {
+        const buildTransaction = vi
+          .fn()
+          .mockRejectedValue(new Error("RPC request timed out"));
+        const result = await createClient({
+          retryPolicy: {
+            maxAttempts: 2,
+            baseDelayMs: 0,
+            sleep: async () => {},
+          },
+        }).submit(buildTransaction);
+
+        expect(buildTransaction).toHaveBeenCalledTimes(2);
+        expect(result).toMatchObject({ status: "retryable", attempts: 2 });
+      });
+
+      it("stops retrying when the deadline would be exceeded", async () => {
+        let now = 100;
+        const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+        try {
+          const buildTransaction = vi
+            .fn()
+            .mockRejectedValue(new Error("txInsufficientFee"));
+          const result = await createClient({
+            deadlineAt: 115,
+            retryPolicy: {
+              maxAttempts: 5,
+              baseDelayMs: 10,
+              sleep: async (ms) => {
+                now += ms;
+              },
+            },
+          }).submit(buildTransaction);
+
+          expect(buildTransaction).toHaveBeenCalledTimes(2);
+          expect(result).toMatchObject({ status: "retryable", attempts: 2 });
+        } finally {
+          nowSpy.mockRestore();
+        }
+      });
+
+      it("returns duplicate when the RPC confirms a duplicate submission", async () => {
+        const prepared = {
+          sign: vi.fn(),
+          hash: () => ({ toString: () => "duplicate-hash" }),
+        };
+        vi.mocked(rpc.assembleTransaction).mockReturnValue({
+          build: () => prepared,
+        } as never);
+        vi.mocked(rpc.Api.isSimulationError).mockReturnValue(false);
+        vi.mocked(rpc.Api.isSimulationSuccess).mockReturnValue(true);
+        vi.mocked(txModule.describeSendError).mockReturnValueOnce(
+          "txDuplicate"
+        );
+        vi.mocked(txModule.waitForTransaction).mockResolvedValueOnce({
+          ledger: 42,
+        } as never);
+        const client = createClient({
+          server: {
+            simulateTransaction: vi.fn().mockResolvedValue({}),
+            sendTransaction: vi.fn().mockResolvedValue({ status: "ERROR" }),
+          } as never,
+          retryPolicy: {
+            maxAttempts: 2,
+            baseDelayMs: 0,
+            sleep: async () => {},
+          },
+        });
+
+        const result = await client.submit(async () => ({}) as never);
+
+        expect(result).toEqual({
+          status: "duplicate",
+          hash: "duplicate-hash",
+          ledger: 42,
+          attempts: 2,
+        });
+      });
+      describe("configuration validation", () => {
+        it.each([
+          [
+            "maxAttempts",
+            { retryPolicy: { maxAttempts: 0, baseDelayMs: 0 } },
+            "retryPolicy.maxAttempts must be a positive integer",
+          ],
+          [
+            "baseDelayMs",
+            { retryPolicy: { maxAttempts: 1, baseDelayMs: -1 } },
+            "retryPolicy.baseDelayMs must be a non-negative number",
+          ],
+          [
+            "deadlineAt",
+            { deadlineAt: Number.NaN },
+            "deadlineAt must be a finite timestamp",
+          ],
+          [
+            "rpcTimeoutMs",
+            { rpcTimeoutMs: 0 },
+            "RPC and confirmation timeouts must be positive numbers",
+          ],
+          [
+            "confirmationTimeoutMs",
+            { confirmationTimeoutMs: -5 },
+            "RPC and confirmation timeouts must be positive numbers",
+          ],
+          [
+            "fee cap",
+            { feeEscalation: { maxFee: 0, multiplier: 2 } },
+            "feeEscalation must contain positive fees and a multiplier >= 1",
+          ],
+          [
+            "fee multiplier",
+            { feeEscalation: { maxFee: 100, multiplier: 0.5 } },
+            "feeEscalation must contain positive fees and a multiplier >= 1",
+          ],
+          [
+            "base fee",
+            { feeEscalation: { maxFee: 100, multiplier: 2, baseFee: 0 } },
+            "feeEscalation must contain positive fees and a multiplier >= 1",
+          ],
+        ])("rejects an invalid %s", (_name, overrides, message) => {
+          expect(() => createClient(overrides as never)).toThrow(message);
+        });
+
+        it("accepts a complete fee escalation config", () => {
+          expect(() =>
+            createClient({
+              feeEscalation: { baseFee: 10, maxFee: 100, multiplier: 2 },
+            })
+          ).not.toThrow();
+        });
+      });
+
+      it("rejects an invalid initialAttempt", async () => {
+        await expect(
+          createClient().submit(async () => ({}) as never, {
+            initialAttempt: -1,
+          })
+        ).rejects.toThrow("initialAttempt must be a non-negative integer");
+      });
+
+      it("returns terminal for an error that is not retryable", async () => {
+        const result = await createClient().submit(async () => {
+          throw new Error("Fatal permission error");
+        });
+
+        expect(result).toMatchObject({ status: "terminal", attempts: 1 });
+      });
+
+      it("reports a retryable deadline result when the deadline has passed", async () => {
+        const result = await createClient({
+          deadlineAt: Date.now() - 1,
+        }).submit(async () => ({}) as never);
+
+        expect(result).toMatchObject({ status: "retryable", attempts: 0 });
+      });
+
+      it("resolves a prior hash that has landed without rebuilding", async () => {
+        vi.mocked(txModule.waitForTransaction).mockResolvedValueOnce({
+          ledger: 7,
+        } as never);
+        const buildTransaction = vi.fn();
+        const onResolved = vi.fn();
+
+        const result = await createClient().submit(buildTransaction, {
+          priorHash: "prior-hash",
+          hooks: { onResolved },
+        });
+
+        expect(buildTransaction).not.toHaveBeenCalled();
+        expect(onResolved).toHaveBeenCalledWith("prior-hash");
+        expect(result).toEqual({
+          status: "landed",
+          hash: "prior-hash",
+          ledger: 7,
+          attempts: 1,
+        });
+      });
+
+      it("reports terminal when a prior hash failed on-chain", async () => {
+        vi.mocked(txModule.waitForTransaction).mockRejectedValueOnce(
+          new Error("Transaction prior-hash failed on-chain")
+        );
+        const onResolved = vi.fn();
+
+        const result = await createClient().submit(async () => ({}) as never, {
+          priorHash: "prior-hash",
+          hooks: { onResolved },
+        });
+
+        expect(onResolved).toHaveBeenCalledWith("prior-hash");
+        expect(result).toMatchObject({ status: "terminal", attempts: 1 });
+      });
     });
   });
 });
