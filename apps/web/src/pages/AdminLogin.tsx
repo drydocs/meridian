@@ -67,7 +67,7 @@ export function AdminLogin() {
       <main
         id="main-content"
         tabIndex={-1}
-        className="flex items-center justify-center min-h-screen bg-night outline-none"
+        className="flex items-center justify-center min-h-[100dvh] bg-night outline-none"
       >
         <div className="w-full max-w-md rounded-xl border border-gray-800 bg-deep p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-gray-800">
@@ -94,7 +94,7 @@ export function AdminLogin() {
       <main
         id="main-content"
         tabIndex={-1}
-        className="flex items-center justify-center min-h-screen bg-night outline-none"
+        className="flex items-center justify-center min-h-[100dvh] bg-night outline-none"
       >
         <div className="w-full max-w-md rounded-xl border border-gray-800 bg-deep p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-amber-500/10">
@@ -134,7 +134,7 @@ export function AdminLogin() {
       <main
         id="main-content"
         tabIndex={-1}
-        className="flex items-center justify-center min-h-screen bg-night outline-none"
+        className="flex items-center justify-center min-h-[100dvh] bg-night outline-none"
       >
         <div className="w-full max-w-md rounded-xl border border-gray-800 bg-deep p-8 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-red-500/10">
@@ -164,14 +164,14 @@ export function AdminLogin() {
 
   if (status === "allowed") {
     return (
-      <div className="min-h-screen bg-night text-paper">
+      <div className="min-h-[100dvh] bg-night text-paper">
         <AdminDashboard />
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-night text-gray-400">
+    <div className="flex items-center justify-center min-h-[100dvh] bg-night text-gray-400">
       {t("admin.loading")}
     </div>
   );

@@ -1,0 +1,65 @@
+{
+  "issue": "https://github.com/drydocs/meridian/issues/1428",
+  "url": "http://localhost:3000/app/",
+  "lighthouseVersion": "12.8.2",
+  "capturedAt": "2026-11-27T17:07:16.435Z",
+  "formFactor": "mobile",
+  "screenEmulation": {
+    "mobile": true,
+    "width": 390,
+    "height": 844,
+    "deviceScaleFactor": 3,
+    "disabled": false
+  },
+  "throttling": {
+    "rttMs": 150,
+    "throughputKbps": 1638.4,
+    "requestLatencyMs": 562.5,
+    "downloadThroughputKbps": 1474.5600000000002,
+    "uploadThroughputKbps": 675,
+    "cpuSlowdownMultiplier": 4
+  },
+  "scores": {
+    "performance": 0.94,
+    "accessibility": 0.98,
+    "best-practices": 0.96,
+    "seo": 1
+  },
+  "metrics": {
+    "first-contentful-paint": {
+      "score": 0.82,
+      "value": 2074.08,
+      "displayValue": "2.1┬ás"
+    },
+    "largest-contentful-paint": {
+      "score": 0.94,
+      "value": 2247.12,
+      "displayValue": "2.2┬ás"
+    },
+    "total-blocking-time": {
+      "score": 0.94,
+      "value": 160,
+      "displayValue": "160┬áms"
+    },
+    "cumulative-layout-shift": {
+      "score": 0.96,
+      "value": 0.07,
+      "displayValue": "0.073"
+    },
+    "speed-index": {
+      "score": 0.99,
+      "value": 2074.08,
+      "displayValue": "2.1┬ás"
+    },
+    "interactive": {
+      "score": 0.98,
+      "value": 2384.28,
+      "displayValue": "2.4┬ás"
+    },
+    "total-byte-weight": {
+      "score": 1,
+      "value": 166049,
+      "displayValue": "Total size was 162┬áKiB"
+    }
+  }
+}

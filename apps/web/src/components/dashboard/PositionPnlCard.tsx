@@ -75,7 +75,7 @@ export function PositionPnlCard({
     return (
       <div
         data-testid="position-pnl-unavailable"
-        className="mx-7 my-5 rounded-xl border border-amber-800/70 bg-amber-950/20 px-4 py-3.5 flex items-center justify-between gap-3"
+        className="mx-4 my-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-800/70 bg-amber-950/20 px-4 py-3.5 sm:mx-7"
       >
         <div>
           <p className="text-xs font-semibold text-amber-300 mb-0.5">
@@ -89,7 +89,7 @@ export function PositionPnlCard({
           <button
             type="button"
             onClick={onRetry}
-            className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
+            className="inline-flex min-h-11 shrink-0 items-center rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
           >
             {t("common.retry")}
           </button>
@@ -104,13 +104,13 @@ export function PositionPnlCard({
   return (
     <div
       data-testid="position-pnl-card"
-      className="mx-7 my-5 rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-3.5"
+      className="mx-4 my-5 rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-3.5 sm:mx-7"
     >
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
         {t("positionPnl.title")}
       </p>
       <dl className="space-y-2 text-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <dt className="text-gray-400">{t("positionPnl.principal")}</dt>
           <dd
             data-testid="pnl-principal"
@@ -120,7 +120,7 @@ export function PositionPnlCard({
           </dd>
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <dt className="text-gray-400">{t("positionPnl.grossYield")}</dt>
           <dd
             data-testid="pnl-gross-yield"
@@ -130,7 +130,7 @@ export function PositionPnlCard({
           </dd>
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <dt className="text-gray-400">
             {t("positionPnl.performanceFee", { percent: feePercent })}
           </dt>
@@ -144,7 +144,7 @@ export function PositionPnlCard({
           </dd>
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <dt className="text-gray-400">{t("positionPnl.netYield")}</dt>
           <dd
             data-testid="pnl-net-yield"

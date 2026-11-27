@@ -55,7 +55,7 @@ export function WithdrawTab({
       ) : (
         <>
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
               <span className="text-xs font-medium text-gray-400">
                 {t("vaultPanel.amount")}
               </span>
@@ -66,7 +66,7 @@ export function WithdrawTab({
                     formatMoneyInput(position!.shares.toFixed(7), i18n.language)
                   )
                 }
-                className="text-xs text-settled hover:text-emerald-400 rounded px-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded px-2 text-xs text-settled hover:text-emerald-400 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
                 {t("vaultPanel.max")}:{" "}
                 {formatNumber(position!.shares, i18n.language, {
@@ -109,7 +109,7 @@ export function WithdrawTab({
               type="button"
               data-testid="vault-withdraw-cancel"
               onClick={onCancel}
-              className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium py-2.5 transition-colors duration-150"
+              className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium min-h-11 py-2.5 transition-colors duration-150"
             >
               {t("common.cancel")}
             </button>

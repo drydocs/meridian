@@ -76,7 +76,7 @@ export function DepositTab({
   return (
     <div className="space-y-4">
       <div>
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <span className="text-xs font-medium text-gray-400">
             {t("vaultPanel.amount")}
           </span>
@@ -92,14 +92,14 @@ export function DepositTab({
                   data-testid="vault-balance-retry"
                   onClick={onRetryBalance}
                   aria-label={t("vaultPanel.retryBalance")}
-                  className="text-amber-300 hover:text-amber-200 underline font-medium"
+                  className="inline-flex min-h-11 items-center text-amber-300 hover:text-amber-200 underline font-medium"
                 >
                   {t("common.retry")}
                 </button>
               )}
             </div>
           ) : availableBalance !== undefined ? (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-gray-600">
                 {t("vaultPanel.balance")}:{" "}
                 {formatUsd(availableBalance, i18n.language)}
@@ -108,7 +108,7 @@ export function DepositTab({
                 type="button"
                 data-testid="vault-deposit-max"
                 onClick={handleMax}
-                className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-150"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-150"
               >
                 {t("vaultPanel.max")}
               </button>
@@ -150,7 +150,7 @@ export function DepositTab({
           type="button"
           data-testid="vault-deposit-cancel"
           onClick={onCancel}
-          className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium py-2.5 transition-colors duration-150"
+          className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium min-h-11 py-2.5 transition-colors duration-150"
         >
           {t("common.cancel")}
         </button>

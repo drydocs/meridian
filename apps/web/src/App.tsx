@@ -14,6 +14,7 @@ import { Toasts } from "./components/ui/Toasts";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useWalletStore } from "./store/wallet";
 import { useDocumentLanguage } from "./hooks/useDocumentLanguage";
+import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useTranslation } from "react-i18next";
 import { NotFound } from "./pages/NotFound";
 
@@ -67,6 +68,7 @@ function resolveRoute(pathname: string): AppRoute {
 
 function Dashboard() {
   const { t, i18n } = useTranslation();
+  const showWatermark = useMediaQuery("(min-width: 768px)");
   const [resetKey, setResetKey] = useState(0);
   const toggleLanguage = useCallback(() => {
     const newLang = i18n.language === "en" ? "fr" : "en";
@@ -75,45 +77,48 @@ function Dashboard() {
   }, [i18n]);
 
   return (
-    <div className="relative min-h-screen bg-night text-paper overflow-hidden">
-      <svg
-        aria-hidden="true"
-        viewBox="4 4 32 17"
-        fill="none"
-        className="pointer-events-none fixed left-[6vw] top-1/2 z-0 h-[170vh] w-auto max-w-none -translate-y-1/2 opacity-[0.055]"
-      >
-        <defs>
-          <linearGradient
-            id="app-bg-convergence"
-            x1="34"
-            y1="20"
-            x2="17"
-            y2="17"
-            gradientUnits="userSpaceOnUse"
-          >
-            <stop offset="0%" stopColor="var(--color-entry)" />
-            <stop offset="100%" stopColor="var(--color-settled)" />
-          </linearGradient>
-        </defs>
-        <path
-          d="M34 20 A14 14 0 0 0 6 20 A11 11 0 0 1 28 20 A8 8 0 0 0 12 20 A5 5 0 0 1 22 20"
-          stroke="url(#app-bg-convergence)"
-          strokeWidth="2.25"
-          strokeLinecap="butt"
-        />
-        <circle cx="17" cy="17.3" r="2.6" fill="url(#app-bg-convergence)" />
-      </svg>
+    <div className="dashboard-shell relative min-h-[100dvh] bg-night text-paper overflow-x-clip">
+      {showWatermark && (
+        <svg
+          aria-hidden="true"
+          data-testid="dashboard-watermark"
+          viewBox="4 4 32 17"
+          fill="none"
+          className="pointer-events-none fixed left-[6vw] top-1/2 z-0 h-[170vh] w-auto max-w-none -translate-y-1/2 opacity-[0.055]"
+        >
+          <defs>
+            <linearGradient
+              id="app-bg-convergence"
+              x1="34"
+              y1="20"
+              x2="17"
+              y2="17"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop offset="0%" stopColor="var(--color-entry)" />
+              <stop offset="100%" stopColor="var(--color-settled)" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M34 20 A14 14 0 0 0 6 20 A11 11 0 0 1 28 20 A8 8 0 0 0 12 20 A5 5 0 0 1 22 20"
+            stroke="url(#app-bg-convergence)"
+            strokeWidth="2.25"
+            strokeLinecap="butt"
+          />
+          <circle cx="17" cy="17.3" r="2.6" fill="url(#app-bg-convergence)" />
+        </svg>
+      )}
 
-      <header className="sticky top-0 z-50 border-b border-gray-800 bg-night/95 backdrop-blur-sm pb-4">
-        <div className="max-w-xl mx-auto px-6 h-20 flex items-end justify-between pb-4">
-          <span className="font-extrabold text-lg tracking-tight text-paper">
+      <header className="sticky top-0 z-50 border-b border-gray-800 bg-night pt-safe pb-2 sm:bg-night/95 sm:pb-4 sm:backdrop-blur-sm">
+        <div className="max-w-xl mx-auto px-safe sm:px-6 min-h-16 sm:min-h-20 flex flex-wrap items-center sm:items-end justify-between gap-2 sm:gap-3 pb-2 sm:pb-4">
+          <span className="font-extrabold text-base sm:text-lg tracking-tight text-paper">
             {t("header.title")}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             <WalletConnect />
             <button
               onClick={toggleLanguage}
-              className="text-sm border border-gray-700 rounded-lg px-3 py-1.5 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center text-xs sm:text-sm border border-gray-700 rounded-lg px-3 py-2 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
             >
               {i18n.language === "en" ? "FR" : "EN"}
             </button>
@@ -124,7 +129,7 @@ function Dashboard() {
       <main
         id="main-content"
         tabIndex={-1}
-        className="relative z-10 max-w-xl mx-auto px-6 py-10 outline-none"
+        className="relative z-10 max-w-xl mx-auto px-safe sm:px-6 pt-4 sm:pt-10 pb-safe sm:pb-10 outline-none"
       >
         <h1 className="sr-only">{t("header.title")}</h1>
         <ErrorBoundary showHome onReset={() => setResetKey((k) => k + 1)}>
@@ -210,7 +215,7 @@ export default function App() {
     route === "admin" ? (
       <Suspense
         fallback={
-          <div className="min-h-screen bg-night text-paper flex items-center justify-center">
+          <div className="min-h-[100dvh] bg-night text-paper flex items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
           </div>
         }
@@ -220,7 +225,7 @@ export default function App() {
     ) : route === "status" ? (
       <Suspense
         fallback={
-          <div className="min-h-screen bg-night text-paper flex items-center justify-center">
+          <div className="min-h-[100dvh] bg-night text-paper flex items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
           </div>
         }
@@ -244,7 +249,7 @@ export default function App() {
       <a
         href="#main-content"
         onClick={handleSkipToMain}
-        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-emerald-700 focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 font-medium text-sm"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:inline-flex focus:min-h-11 focus:items-center focus:px-4 focus:py-2 focus:bg-emerald-700 focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 font-medium text-sm"
       >
         {t("common.skipToContent")}
       </a>

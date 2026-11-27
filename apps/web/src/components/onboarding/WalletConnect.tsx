@@ -182,9 +182,9 @@ export function WalletConnect() {
 
   if (connected && publicKey) {
     return (
-      <div className="flex items-center gap-2 text-sm border border-gray-700 rounded-lg px-3 py-2 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150">
+      <div className="flex max-w-full flex-wrap items-center gap-1.5 text-xs border border-gray-700 rounded-lg px-2 py-2 text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 sm:gap-2 sm:px-3 sm:text-sm">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-        <span>{shortenAddress(publicKey)}</span>
+        <span className="min-w-0 truncate">{shortenAddress(publicKey)}</span>
         <button
           onClick={handleCopy}
           title={
@@ -193,7 +193,7 @@ export function WalletConnect() {
           aria-label={
             copied ? t("walletConnect.copied") : t("walletConnect.copyAddress")
           }
-          className="text-gray-400 hover:text-paper rounded p-0.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded text-gray-400 hover:text-paper transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
@@ -203,7 +203,7 @@ export function WalletConnect() {
         </span>
         <button
           onClick={handleDisconnect}
-          className="text-gray-400 hover:text-paper rounded px-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
+          className="inline-flex min-h-11 shrink-0 items-center rounded px-2 text-gray-400 hover:text-paper transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
         >
           {t("walletConnect.disconnect")}
         </button>
@@ -231,7 +231,7 @@ export function WalletConnect() {
         disabled={status === "connecting"}
         aria-haspopup="menu"
         aria-expanded={pickerOpen}
-        className="text-sm border border-gray-700 rounded-lg pl-4 pr-3 py-2 font-medium text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
+        className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-700 pl-3 pr-2 py-2 text-xs font-medium text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none sm:pl-4 sm:pr-3 sm:text-sm"
       >
         {status === "connecting"
           ? t("common.connecting")
@@ -244,7 +244,7 @@ export function WalletConnect() {
           type="button"
           data-testid="wallet-connect-cancel"
           onClick={cancelConnect}
-          className="ml-2 text-sm border border-gray-700 rounded-lg px-3 py-2 text-gray-400 hover:border-gray-600 hover:text-paper transition-colors duration-150"
+          className="ml-2 inline-flex min-h-11 items-center rounded-lg border border-gray-700 px-3 py-2 text-xs text-gray-400 hover:border-gray-600 hover:text-paper transition-colors duration-150 sm:text-sm"
         >
           {t("common.cancel")}
         </button>
@@ -254,16 +254,16 @@ export function WalletConnect() {
         <div
           data-testid="wallet-connect-timeout"
           role="status"
-          className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-amber-800/70 bg-amber-950/90 p-3 text-xs text-amber-200 shadow-xl z-20"
+          className="absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-1.5rem)] rounded-xl border border-amber-800/70 bg-amber-950/90 p-3 text-xs text-amber-200 shadow-xl z-20"
         >
           <p className="font-semibold mb-1">{t("walletConnect.timedOut")}</p>
           <p className="mb-2 leading-snug">{t("walletConnect.timedOutHint")}</p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               data-testid="wallet-connect-retry"
               onClick={retryConnect}
-              className="rounded-lg bg-amber-700/60 px-3 py-1.5 font-medium text-amber-100 hover:bg-amber-700 transition-colors duration-150"
+              className="inline-flex min-h-11 items-center rounded-lg bg-amber-700/60 px-3 py-1.5 font-medium text-amber-100 hover:bg-amber-700 transition-colors duration-150"
             >
               {t("common.retry")}
             </button>
@@ -271,7 +271,7 @@ export function WalletConnect() {
               type="button"
               data-testid="wallet-connect-dismiss"
               onClick={cancelConnect}
-              className="rounded-lg border border-amber-800/70 px-3 py-1.5 text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
+              className="inline-flex min-h-11 items-center rounded-lg border border-amber-800/70 px-3 py-1.5 text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
             >
               {t("common.cancel")}
             </button>
@@ -286,7 +286,7 @@ export function WalletConnect() {
           aria-label={t("walletConnect.chooseWallet")}
           onKeyDown={handleMenuKeyDown}
           data-testid="wallet-picker-menu"
-          className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-gray-800 bg-deep shadow-xl shadow-black/40 overflow-hidden z-10"
+          className="absolute right-0 top-full mt-2 w-56 max-w-[calc(100vw-1.5rem)] rounded-xl border border-gray-800 bg-deep shadow-xl shadow-black/40 overflow-hidden z-10"
         >
           {WALLETS.map((w) => {
             const installed = installedById[w.id];
@@ -298,7 +298,7 @@ export function WalletConnect() {
                 tabIndex={-1}
                 data-testid={`wallet-picker-option-${w.id}`}
                 onClick={() => handlePick(w)}
-                className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-gray-300 hover:bg-gray-800/60 hover:text-paper transition-colors duration-150"
+                className="flex min-h-11 w-full items-center justify-between px-4 py-2.5 text-sm text-gray-300 hover:bg-gray-800/60 hover:text-paper transition-colors duration-150"
               >
                 <span>{w.name}</span>
                 {installed === true && (

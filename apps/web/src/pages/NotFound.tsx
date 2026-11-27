@@ -11,7 +11,7 @@ export function NotFound() {
     <main
       id="main-content"
       tabIndex={-1}
-      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-night px-6 text-paper outline-none"
+      className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-night px-safe pb-safe pt-4 text-paper outline-none sm:px-6"
     >
       <div className="relative z-10 w-full max-w-md text-center">
         <p className="text-sm font-semibold uppercase tracking-widest text-gray-400">

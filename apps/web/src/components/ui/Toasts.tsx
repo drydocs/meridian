@@ -19,7 +19,7 @@ export function Toasts() {
 
   return (
     <div
-      className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-72"
+      className="fixed inset-x-safe top-safe z-50 flex flex-col gap-2 sm:inset-x-auto sm:right-4 sm:top-4 sm:w-80 sm:max-w-[calc(100vw-2rem)]"
       role="status"
       aria-live="polite"
       aria-relevant="additions"
@@ -38,15 +38,20 @@ export function Toasts() {
           onMouseLeave={() => resumeTimer(toast.id)}
           onFocus={() => pauseTimer(toast.id)}
           onBlur={() => resumeTimer(toast.id)}
-          className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-sm shadow-lg backdrop-blur-sm animate-in fade-in slide-in-from-right-4 duration-200 ${STYLES[toast.kind]}`}
+          className={`flex items-start gap-2 sm:items-center sm:gap-3 rounded-xl border px-3 py-3 sm:px-4 text-sm shadow-lg sm:backdrop-blur-sm animate-in fade-in slide-in-from-right-4 duration-200 ${STYLES[toast.kind]}`}
         >
-          <span className="font-bold shrink-0" aria-hidden="true">
+          <span
+            className="pt-0.5 sm:pt-0 font-bold shrink-0"
+            aria-hidden="true"
+          >
             {ICON[toast.kind]}
           </span>
-          <span className="flex-1 leading-snug">{toast.message}</span>
+          <span className="min-w-0 flex-1 break-words leading-snug">
+            {toast.message}
+          </span>
           <button
             onClick={() => dismiss(toast.id)}
-            className="shrink-0 opacity-50 hover:opacity-100 transition-opacity duration-100 text-xs"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg opacity-70 hover:opacity-100 transition-opacity duration-100 text-xs focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             aria-label={t("toasts.dismiss", { kind: toast.kind })}
           >
             <span aria-hidden="true">✕</span>

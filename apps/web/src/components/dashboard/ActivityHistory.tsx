@@ -39,7 +39,7 @@ export function ActivityHistory({ onRetry }: ActivityHistoryProps) {
       <div
         key={activity.id}
         data-testid="local-activity-item"
-        className="rounded-xl border border-gray-800 bg-night px-4 py-3"
+        className="rounded-xl border border-gray-800 bg-night px-3 py-3 sm:px-4"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -52,21 +52,21 @@ export function ActivityHistory({ onRetry }: ActivityHistoryProps) {
             </p>
           </div>
           <span
-            className={`rounded-lg border px-2 py-1 text-xs ${statusClass[activity.status]}`}
+            className={`shrink-0 rounded-lg border px-2 py-1 text-xs ${statusClass[activity.status]}`}
           >
             {t(`activity.status.${activity.status}`)}
           </span>
         </div>
-        <div className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="truncate text-gray-600">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs sm:gap-3">
+          <span className="min-w-0 truncate text-gray-600">
             {new Date(activity.timestamp).toLocaleString(i18n.language)}
           </span>
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-3">
             {activity.status === "failed" && (
               <button
                 type="button"
                 onClick={() => onRetry(activity)}
-                className="text-amber-400 hover:text-amber-300"
+                className="inline-flex min-h-11 items-center text-amber-400 hover:text-amber-300"
               >
                 {t("common.retry")}
               </button>
@@ -76,7 +76,7 @@ export function ActivityHistory({ onRetry }: ActivityHistoryProps) {
                 href={explorerUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-400 hover:text-blue-300"
+                className="inline-flex min-h-11 items-center text-blue-400 hover:text-blue-300"
               >
                 {t("activity.viewTx")}
               </a>
@@ -88,7 +88,7 @@ export function ActivityHistory({ onRetry }: ActivityHistoryProps) {
   }
 
   return (
-    <div className="px-7 pb-7 space-y-4">
+    <div className="px-4 pb-4 space-y-4 sm:px-7 sm:pb-7">
       {receipt && (
         <div
           data-testid="action-receipt"
@@ -102,7 +102,7 @@ export function ActivityHistory({ onRetry }: ActivityHistoryProps) {
               type="button"
               aria-label={t("activity.dismiss")}
               onClick={dismissReceipt}
-              className="text-xs text-gray-500 hover:text-gray-300"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-xs text-gray-500 hover:text-gray-300 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none rounded-lg"
             >
               ×
             </button>
