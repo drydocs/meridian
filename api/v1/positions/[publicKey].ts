@@ -14,7 +14,7 @@ import { logError } from "../../_lib/logger.js";
  * Returns the positions held by the given public key.
  * Documented in api/v1/openapi.yaml. When this handler's status codes or
  * response body shape change, update the schema and the contract tests
- * together (see apps/docs/contributing/api-schema.md).
+ * together (see api/v1/openapi.yaml and api/__tests__/handlers.test.ts).
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;

@@ -20,9 +20,10 @@ import { logError } from "../../_lib/logger.js";
 // /api/v1/tx/deposit, /api/v1/tx/withdraw, etc. to this one file with
 // req.query.action set accordingly.
 //
-// The OpenAPI document for these routes is api/v1/openapi.yaml; when adding
-// or changing an action here, update that schema and the contract tests
-// alongside it (see apps/docs/contributing/api-schema.md).
+// The OpenAPI document for these routes is apps/docs/architecture/api.md's
+// companion schema at api/v1/openapi.yaml. When adding or changing an action
+// here, update that schema and the contract tests in
+// api/__tests__/handlers.test.ts alongside it.
 const ACTIONS = {
   deposit: handleDepositRequest,
   withdraw: handleWithdrawRequest,
