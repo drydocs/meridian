@@ -273,6 +273,34 @@ describe.each([
 });
 
 describe("handleDepositRequest", () => {
+  it("returns 503 for a valid build in a Vercel preview without Upstash credentials", async () => {
+    const names = [
+      "UPSTASH_REDIS_REST_URL",
+      "UPSTASH_REDIS_REST_TOKEN",
+      "UPSTASH_REDIS_REST_KV_REST_API_URL",
+      "UPSTASH_REDIS_REST_KV_REST_API_TOKEN",
+      "NODE_ENV",
+      "VERCEL_ENV",
+      "VERCEL",
+    ] as const;
+    const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+    for (const name of names) delete process.env[name];
+    process.env.VERCEL_ENV = "preview";
+    process.env.NODE_ENV = "development";
+
+    try {
+      const result = await handleAddTrustlineRequest({ walletAddress: PUBKEY });
+      expect(result.status).toBe(503);
+      expect(buildAddTrustlineTx).not.toHaveBeenCalled();
+    } finally {
+      for (const name of names) {
+        const value = previous[name];
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
   it("isolates identical keyed builds between Mainnet and Testnet", async () => {
     const store = createInMemoryIdempotencyStore();
     const body = { walletAddress: PUBKEY };

@@ -36,7 +36,7 @@ import {
   type SubmissionClaimResult,
   type UnknownSubmissionRecord,
 } from "./idempotency";
-import { loadUpstashIdempotencyStore } from "./idempotency-upstash";
+import { loadIdempotencyStore } from "./idempotency-upstash";
 
 /**
  * Vault ContractError discriminants that the caller can correct (slippage,
@@ -191,7 +191,7 @@ async function runBuildIdempotently(
   execute: () => Promise<RouteResult>
 ): Promise<RouteResult> {
   let store: IdempotencyStore;
-  try { store = options.store ?? loadUpstashIdempotencyStore(process.env); }
+  try { store = options.store ?? loadIdempotencyStore(process.env); }
   catch (err) { return submissionUnavailable(err); }
   const requestHash = hashValidatedRequest(validatedRequest);
   const keyDigest = hashValidatedRequest(options.idempotencyKey?.trim() || requestHash);
@@ -472,7 +472,7 @@ export async function handleSubmitRequest(
   const key = `meridian:tx:${APP_NETWORK.network}:submit:${keyDigest}`;
   let store: IdempotencyStore;
   try {
-    store = options.store ?? loadUpstashIdempotencyStore(process.env);
+    store = options.store ?? loadIdempotencyStore(process.env);
   } catch (err) {
     return submissionUnavailable(err);
   }

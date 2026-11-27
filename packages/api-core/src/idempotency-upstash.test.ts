@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createUpstashIdempotencyStore,
+  loadIdempotencyStore,
   loadUpstashIdempotencyStore,
 } from "./idempotency-upstash";
 import type {
@@ -42,6 +43,66 @@ function fetchMock(result: unknown, options: { ok?: boolean; status?: number } =
 }
 
 describe("createUpstashIdempotencyStore", () => {
+  it("uses the same process-wide store when local credentials are absent", () => {
+    const first = loadIdempotencyStore({ NODE_ENV: "development" });
+    const second = loadIdempotencyStore({ NODE_ENV: "development" });
+    expect(first).toBe(second);
+  });
+
+  it.each([
+    ["Vercel preview", { VERCEL_ENV: "preview", NODE_ENV: "development" }],
+    ["production mode", { NODE_ENV: "production" }],
+    ["deployed Vercel", { VERCEL: "1", NODE_ENV: "development" }],
+    ["defined deployment environment", { DEPLOYMENT_ENV: "local", NODE_ENV: "development" }],
+  ])("requires Upstash credentials in %s", (_environment, env) => {
+    expect(() => loadIdempotencyStore(env)).toThrow(
+      "Upstash Redis REST URL and token are required"
+    );
+  });
+
+  it("uses Upstash when both REST credentials are supplied in local development", async () => {
+    const fetchImpl = fetchMock({ result: null });
+    const store = loadIdempotencyStore(
+      {
+        NODE_ENV: "development",
+        UPSTASH_REDIS_REST_URL: "https://redis.example",
+        UPSTASH_REDIS_REST_TOKEN: "secret",
+      },
+      { fetchImpl }
+    );
+
+    await store.get(KEY);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://redis.example",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer secret" }),
+      })
+    );
+  });
+
+  it.each([
+    ["URL only", { UPSTASH_REDIS_REST_URL: "https://redis.example" }],
+    ["token only", { UPSTASH_REDIS_REST_TOKEN: "secret" }],
+  ])("does not select Upstash with %s and falls back locally", (_credentials, credentials) => {
+    expect(
+      loadIdempotencyStore({ NODE_ENV: "development", ...credentials })
+    ).toBe(loadIdempotencyStore({ NODE_ENV: "development" }));
+  });
+
+  it.each([
+    ["URL only", { UPSTASH_REDIS_REST_URL: "https://redis.example" }],
+    ["token only", { UPSTASH_REDIS_REST_TOKEN: "secret" }],
+  ])("fails closed with %s credentials in a deployment", (_credentials, credentials) => {
+    expect(() =>
+      loadIdempotencyStore({
+        NODE_ENV: "development",
+        DEPLOYMENT_ENV: "production",
+        ...credentials,
+      })
+    ).toThrow("Upstash Redis REST URL and token are required");
+  });
+
   it("claims with one atomic SET NX PX command", async () => {
     const fetchImpl = fetchMock({ result: "OK" });
     const store = createUpstashIdempotencyStore({

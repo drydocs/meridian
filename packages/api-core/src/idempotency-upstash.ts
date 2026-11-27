@@ -1,13 +1,17 @@
 import { withRaceTimeout } from "@meridian/shared";
-import type {
-  CompletedIdempotencyRecord,
-  IdempotencyRecord,
-  IdempotencyStore,
-  ProcessingIdempotencyRecord,
-  StoredIdempotencyRecord,
+import {
+  createInMemoryIdempotencyStore,
+  type CompletedIdempotencyRecord,
+  type IdempotencyRecord,
+  type IdempotencyStore,
+  type ProcessingIdempotencyRecord,
+  type StoredIdempotencyRecord,
 } from "./idempotency";
 
 export const DEFAULT_IDEMPOTENCY_STORE_TIMEOUT_MS = 5_000;
+
+// Keep local requests in the same process on one store so retries can replay.
+const localIdempotencyStore = createInMemoryIdempotencyStore();
 
 const RENEW_IF_OWNER =
   "local value = redis.call('GET', KEYS[1]); if value == ARGV[1] then local record = cjson.decode(value); local renewed = cjson.decode(ARGV[3]); if record.state == 'processing' and record.ownerToken == ARGV[2] and renewed.state == 'processing' and renewed.ownerToken == ARGV[2] and renewed.requestHash == record.requestHash then redis.call('SET', KEYS[1], ARGV[3], 'PX', ARGV[4]); return 1 end end; return 0";
@@ -189,6 +193,27 @@ export function loadUpstashIdempotencyStore(
     ...(options.fetchImpl && { fetchImpl: options.fetchImpl }),
     ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
   });
+}
+
+/** Use process-local state only for genuine, non-production local development. */
+export function loadIdempotencyStore(
+  env: Record<string, string | undefined>,
+  options: { fetchImpl?: typeof fetch; timeoutMs?: number } = {}
+): IdempotencyStore {
+  const url = (
+    env.UPSTASH_REDIS_REST_URL ?? env.UPSTASH_REDIS_REST_KV_REST_API_URL
+  )?.trim();
+  const token = (
+    env.UPSTASH_REDIS_REST_TOKEN ?? env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN
+  )?.trim();
+  if (url && token) return loadUpstashIdempotencyStore(env, options);
+
+  const deployed =
+    env.VERCEL_ENV !== undefined ||
+    env.DEPLOYMENT_ENV !== undefined ||
+    Boolean(env.VERCEL);
+  if (!deployed && env.NODE_ENV !== "production") return localIdempotencyStore;
+  throw new Error("Upstash Redis REST URL and token are required");
 }
 
 function serialize(record: IdempotencyRecord): string {
