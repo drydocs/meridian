@@ -50,6 +50,13 @@ function parseAllowedOrigins(raw: string): string[] {
 export async function buildApp(
   options: BuildAppOptions = {}
 ): Promise<FastifyInstance> {
+  // Validate ALLOWED_ORIGIN at startup
+  const allowedOriginsRaw =
+    options.allowedOrigin ??
+    process.env.ALLOWED_ORIGIN ??
+    DEFAULT_ALLOWED_ORIGIN;
+  const allowedOrigins = parseAllowedOrigins(allowedOriginsRaw);
+
   const app = Fastify({
     logger: options.logger ?? false,
     bodyLimit: MAX_BODY_BYTES,
@@ -90,12 +97,6 @@ export async function buildApp(
 
   await app.register(cors, {
     origin: (origin, callback) => {
-      const allowedOriginsRaw =
-        options.allowedOrigin ??
-        process.env.ALLOWED_ORIGIN ??
-        DEFAULT_ALLOWED_ORIGIN;
-      const allowedOrigins = parseAllowedOrigins(allowedOriginsRaw);
-
       // Allow requests with no origin (e.g., curl, server-to-server)
       if (!origin) {
         callback(null, true);
