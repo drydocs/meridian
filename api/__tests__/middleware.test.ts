@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
 import {
   applyCors,
   checkRateLimit,
@@ -59,16 +60,52 @@ function fakeRes(): FakeRes & VercelResponse {
 // ---------------------------------------------------------------------------------
 
 beforeEach(() => resetRateLimitForTesting());
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
 
 // applyCors -----------------------------------------------------------------------
 
 describe("applyCors", () => {
   it("sets CORS headers on every request", () => {
     const res = fakeRes();
-    applyCors(fakeReq("GET"), res);
-    expect(res.headers["Access-Control-Allow-Origin"]).toBeDefined();
+    applyCors(fakeReq("GET", { origin: DEFAULT_ALLOWED_ORIGIN }), res);
+    expect(res.headers["Access-Control-Allow-Origin"]).toBe(
+      DEFAULT_ALLOWED_ORIGIN
+    );
+    expect(res.headers["Vary"]).toBe("Origin");
+    expect(res.headers["X-Request-ID"]).toBeDefined();
     expect(res.headers["Access-Control-Allow-Methods"]).toContain("POST");
+    expect(res.headers["Access-Control-Allow-Headers"]).toBe(
+      "Content-Type, X-Request-ID"
+    );
+  });
+
+  it("allows comma-separated origins and rejects an origin outside the list", () => {
+    vi.stubEnv(
+      "ALLOWED_ORIGIN",
+      "https://allowed.example, https://preview.example"
+    );
+    const allowed = fakeRes();
+    expect(
+      applyCors(fakeReq("GET", { origin: "https://preview.example" }), allowed)
+    ).toBe(false);
+    expect(allowed.headers["Access-Control-Allow-Origin"]).toBe(
+      "https://preview.example"
+    );
+
+    const rejected = fakeRes();
+    expect(
+      applyCors(
+        fakeReq("GET", { origin: "https://not-allowed.example" }),
+        rejected
+      )
+    ).toBe(true);
+    expect(rejected.statusCode).toBe(403);
+    expect(rejected.body).toEqual({ error: "Origin not allowed" });
+    expect(rejected.headers["Access-Control-Allow-Origin"]).toBeUndefined();
+    expect(rejected.headers["X-Request-ID"]).toBeDefined();
   });
 
   it("returns true and ends the response for OPTIONS preflight", () => {

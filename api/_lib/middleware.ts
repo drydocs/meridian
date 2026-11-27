@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import { requestId } from "@meridian/shared/logger";
 import {
   CONFIG_CACHE_CONTROL,
   MAINNET_VAULT_CACHE_CONTROL,
@@ -11,8 +12,6 @@ import {
 } from "@meridian/api-core";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
-
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN;
 
 const LIMIT = 100;
 const WINDOW = "60 s";
@@ -73,14 +72,42 @@ function applySecurityHeaders(res: VercelResponse): void {
  */
 export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
   applySecurityHeaders(res);
-  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Request-ID");
+
+  const allowedOrigins = (process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN)
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const requestOrigin = req.headers.origin;
+  const origin = Array.isArray(requestOrigin)
+    ? requestOrigin[0]
+    : requestOrigin;
+
+  if (origin && !allowedOrigins.includes(origin)) {
+    sendResponse(req, res, 403, { error: "Origin not allowed" });
+    return true;
+  }
+
+  res.setHeader("X-Request-ID", requestId(req));
+  if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return true;
   }
   return false;
+}
+
+function sendResponse(
+  req: VercelRequest,
+  res: VercelResponse,
+  status: number,
+  body: unknown
+): void {
+  res.setHeader("X-Request-ID", requestId(req));
+  res.status(status).json(body);
 }
 
 /**

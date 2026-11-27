@@ -1,9 +1,8 @@
 import Fastify, { type FastifyInstance } from "fastify";
-import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import type Redis from "ioredis";
-import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
 import { writeLog } from "@meridian/shared/logger";
+import { allowedOrigins, registerCors, REQUEST_ID_HEADER } from "./cors.js";
 import { vaultsRoute } from "./routes/vaults.js";
 import { positionsRoute } from "./routes/positions.js";
 import { txRoute } from "./routes/tx.js";
@@ -38,13 +37,7 @@ export async function buildApp(
     });
   }
 
-  await app.register(cors, {
-    origin:
-      options.allowedOrigin ??
-      process.env.ALLOWED_ORIGIN ??
-      DEFAULT_ALLOWED_ORIGIN,
-    methods: ["GET", "POST", "OPTIONS"],
-  });
+  await registerCors(app, allowedOrigins(options.allowedOrigin));
 
   if (options.enableRateLimit !== false) {
     await app.register(rateLimit, {
@@ -58,7 +51,7 @@ export async function buildApp(
     });
   }
 
-  app.addHook("onSend", (_req, reply, _payload, done) => {
+  app.addHook("onSend", (request, reply, _payload, done) => {
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("X-Frame-Options", "DENY");
     reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -67,6 +60,7 @@ export async function buildApp(
       "max-age=63072000; includeSubDomains; preload"
     );
     reply.header("Content-Security-Policy", "default-src 'none'");
+    reply.header(REQUEST_ID_HEADER, request.id);
     done();
   });
 

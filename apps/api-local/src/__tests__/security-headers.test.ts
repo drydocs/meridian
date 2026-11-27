@@ -36,6 +36,7 @@ describe("local Fastify security headers", () => {
     const res = await server.inject({ method: "GET", url: "/health" });
 
     expect(res.statusCode).toBe(200);
+    expect(res.headers["x-request-id"]).toBeTruthy();
     for (const [name, value] of Object.entries(VERCEL_SECURITY_HEADERS)) {
       expect(res.headers[name], name).toBe(value);
     }
@@ -79,6 +80,12 @@ describe("local Fastify security headers", () => {
       expect(
         (await preflight()).headers["access-control-allow-methods"]
       ).toContain("POST");
+    });
+
+    it("allows Content-Type and X-Request-ID headers", async () => {
+      expect((await preflight()).headers["access-control-allow-headers"]).toBe(
+        "Content-Type, X-Request-ID"
+      );
     });
 
     it("still carries the security headers", async () => {

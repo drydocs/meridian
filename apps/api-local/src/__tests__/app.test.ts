@@ -67,12 +67,21 @@ describe("buildApp", () => {
   });
 
   it("falls back to ALLOWED_ORIGIN when no origin is passed", async () => {
-    vi.stubEnv("ALLOWED_ORIGIN", "https://env.example");
+    vi.stubEnv(
+      "ALLOWED_ORIGIN",
+      "https://env.example, https://preview.example"
+    );
     const server = await build({ enableRateLimit: false });
 
     expect(await preflightOrigin(server, "https://env.example")).toBe(
       "https://env.example"
     );
+    expect(await preflightOrigin(server, "https://preview.example")).toBe(
+      "https://preview.example"
+    );
+    expect(
+      await preflightOrigin(server, "https://other.example")
+    ).toBeUndefined();
   });
 
   it("falls back to the default origin when ALLOWED_ORIGIN is unset", async () => {
