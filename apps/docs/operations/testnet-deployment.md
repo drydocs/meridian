@@ -15,6 +15,28 @@ Neither script requires manual `stellar contract invoke` steps. Read them before
 - Rust with the `wasm32v1-none` target: `rustup target add wasm32v1-none`. Note `stellar contract build` targets `wasm32v1-none`, not `wasm32-unknown-unknown`. If you've followed older Soroban tutorials, this is the one place that trips people up.
 - Repository dependencies installed with `pnpm install --frozen-lockfile`; the deployment script uses the checked-in TypeScript manifest writer after the on-chain transactions succeed.
 
+## Reproducible builds and hash verification
+
+Every deployment build goes through `scripts/verify-reproducible-build.ts` ([#1421](https://github.com/drydocs/meridian/issues/1421)). It builds every contract twice in separate, empty target directories and fails unless both builds produce the same SHA-256 for every released WASM. Only after they match is the first build staged into `packages/contracts/target/wasm32v1-none/release`, the directory the deploy scripts upload from. A hash manifest is written to `packages/contracts/target/reproducible-build.json` recording the Rust compiler, Soroban SDK, Stellar CLI and target versions alongside each hash; CI publishes it as the `reproducible-build-manifest` artifact.
+
+The toolchain is pinned in two places: `packages/contracts/rust-toolchain.toml` fixes the Rust version and `wasm32v1-none` target, and `packages/shared/deployed-contracts.json` pins `toolchain.stellarCli` and records the Rust and Soroban SDK versions used for the live deployments. `stellar contract build` is not byte-identical across operating systems, so use a Linux runner (CI) for artifacts that will be compared with, or deployed to, mainnet.
+
+To reproduce a build locally:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm verify:reproducible-build -- --build
+```
+
+To verify WASM that was already built elsewhere, pass its manifest instead of rebuilding:
+
+```bash
+pnpm verify:reproducible-build -- --no-build \
+  --manifest path/to/reproducible-build.json
+```
+
+`SKIP_BUILD=1` still requires that manifest (`REPRODUCIBLE_BUILD_MANIFEST`, default `packages/contracts/target/reproducible-build.json`). The deploy scripts hash the WASM already in `target/wasm32v1-none/release` and refuse to upload any artifact that is missing from the manifest or whose hash differs. A `SKIP_BUILD` run without a verified manifest aborts before any transaction.
+
 ## The `DEPLOYER` / `ADMIN` split
 
 Both scripts require a `DEPLOYER` secret key, funded via [Friendbot](https://friendbot.stellar.org/). `DEPLOYER` only pays transaction fees and signs the setup calls. It does **not** need to be kept around afterward, and can be thrown away once the script finishes.
@@ -211,7 +233,7 @@ There is no automatic migration or sweep of old positions into the new vault. Mo
 
 Verified against [#514](https://github.com/drydocs/meridian/issues/514)'s acceptance criteria before opening this PR: `migrate_adapter` is present in the deployed vault's function list (`stellar contract invoke ... -- --help`), `vault.get_adapter()` resolves to the Blend adapter above, and that adapter's `get_pool()`/`get_protocol()` resolve correctly. This is the same chain "Verifying the deployment" above walks through. Also confirmed the deployed vault's on-chain bytecode hash byte-for-byte against a from-source rebuild done on GitHub Actions itself (not a local machine; see the note below on why that distinction matters), matching what `.github/workflows/verify-contract-addresses.yml`'s "Verify On-Chain Bytecode" job independently rebuilds and checks.
 
-**A note on reproducible builds:** `stellar contract build`'s WASM output is not guaranteed byte-identical across different `stellar-cli`/Rust toolchain versions, even from identical source. A newer `stellar-cli` can apply a different (or newly-default) optimization pass and pull in different `soroban-sdk` transitive versions, changing the compiled bytecode. `.github/workflows/verify-contract-addresses.yml` always rebuilds with whatever `stellar-cli` version `cargo install --locked stellar-cli` resolves to _at CI run time_, not a pinned version. If your local `stellar-cli` has drifted behind that (check with `stellar --version` against the [latest release](https://github.com/stellar/stellar-cli/releases)), a contract you deploy locally can genuinely mismatch what CI rebuilds and compares it against, independent of whether your source is correct. If in doubt, verify the WASM you're about to deploy was built with a `stellar-cli` at least as new as CI's, or build it in a CI job of your own (e.g. a throwaway `workflow_dispatch` job that uploads the built `.wasm` as an artifact) and deploy that exact artifact instead of a locally-built one.
+**A note on reproducible builds:** see "Reproducible builds and hash verification" above for the current process. The underlying caveat still applies: `stellar contract build`'s WASM output is not guaranteed byte-identical across different `stellar-cli`/Rust toolchain versions or operating systems, even from identical source. A newer `stellar-cli` can apply a different (or newly-default) optimization pass and pull in different `soroban-sdk` transitive versions, changing the compiled bytecode. That is why the build manifest records both toolchain versions and CI builds twice at the pinned versions, rather than rebuilding with whatever happens to be installed at run time. If your local toolchain has drifted, `pnpm verify:reproducible-build -- --build` fails loudly instead of producing a silently different artifact.
 
 ### 2026-09-01: redeployed for `deposit()`'s `min_shares_out` and two-phase migration ([#604](https://github.com/drydocs/meridian/issues/604), [#606](https://github.com/drydocs/meridian/issues/606))
 

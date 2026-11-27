@@ -37,13 +37,19 @@
 #                          address instead of stranding its already-deployed
 #                          blend-adapter/mUSDC. Leave unset for a fresh
 #                          deploy: a random salt is generated and printed.
-#   SKIP_BUILD             Optional. Set (to any value) to skip `stellar
-#                          contract build` and use the WASM already present
-#                          in packages/contracts/target/wasm32v1-none/release
+#   SKIP_BUILD             Optional. Set (to any value) to skip the double
+#                          build and use the WASM already present in
+#                          packages/contracts/target/wasm32v1-none/release
 #                          as-is. For deploying a build already verified
 #                          elsewhere (e.g. downloaded from a genuine Linux CI
-#                          build) without this script's own build silently
-#                          overwriting it with a locally-built one first.
+#                          build) without rebuilding over it locally. Still
+#                          requires REPRODUCIBLE_BUILD_MANIFEST (default
+#                          packages/contracts/target/reproducible-build.json)
+#                          recording the SHA-256 of every artifact; every WASM
+#                          is checked against it and anything absent or
+#                          mismatched is refused. Without SKIP_BUILD, the WASM
+#                          is built twice in clean directories and only staged
+#                          for upload after both builds match (#1421).
 #
 # After sourcing, call deploy_vault_stack. It sets VAULT_ID, BLEND_ADAPTER_ID,
 # MUSDC_ID, and VAULT_INITIALIZED (1 if the vault itself was deployed this
@@ -155,15 +161,29 @@ deploy_vault_stack() {
     return 1
   fi
   cd "$repo_root/packages/contracts"
-  # SKIP_BUILD lets a caller drop in WASM already verified elsewhere (e.g. a
-  # genuine Linux CI build, downloaded to sidestep `stellar contract build`'s
-  # non-reproducibility across platforms) without this rebuilding over it
-  # locally. Unset by default: a normal run always builds from source here.
+  # #1421: a normal run builds every contract twice in clean target
+  # directories, refuses to continue unless both builds are byte-identical, and
+  # stages the verified artifacts for upload. SKIP_BUILD keeps a caller's
+  # externally verified WASM untouched, but still verifies it against the hash
+  # manifest that must have been published alongside it; an artifact that is
+  # missing from the manifest, or whose hash differs, is never uploaded.
+  local reproducible_manifest="${REPRODUCIBLE_BUILD_MANIFEST:-$repo_root/packages/contracts/target/reproducible-build.json}"
   if [ -z "${SKIP_BUILD:-}" ]; then
-    echo "Building contracts..."
-    stellar contract build
+    echo "Building contracts twice and verifying reproducible output..."
+    "$repo_root/node_modules/.bin/tsx" "$repo_root/scripts/verify-reproducible-build.ts" \
+      --build --manifest "$reproducible_manifest"
   else
-    echo "Skipping build (SKIP_BUILD set); using WASM already in target/wasm32v1-none/release."
+    echo "Skipping build (SKIP_BUILD set); verifying WASM against $reproducible_manifest..."
+    if [ ! -f "$reproducible_manifest" ]; then
+      echo "ERROR: SKIP_BUILD requires the reproducible build manifest that was" >&2
+      echo "published with the externally verified WASM. Set" >&2
+      echo "REPRODUCIBLE_BUILD_MANIFEST to its path (default:" >&2
+      echo "packages/contracts/target/reproducible-build.json); refusing to" >&2
+      echo "upload artifacts that cannot be checked against a verified manifest." >&2
+      return 1
+    fi
+    "$repo_root/node_modules/.bin/tsx" "$repo_root/scripts/verify-reproducible-build.ts" \
+      --no-build --manifest "$reproducible_manifest"
   fi
 
   # `stellar contract build` targets wasm32v1-none, not wasm32-unknown-unknown.

@@ -18,6 +18,7 @@
     "test:csp-hashes": "node scripts/check-csp-hashes.mjs",
     "test:security-headers": "node scripts/check-security-headers.mjs",
     "verify:contracts": "tsx scripts/verify-contract-addresses.ts",
+    "verify:reproducible-build": "tsx scripts/verify-reproducible-build.ts",
     "check:wasm-size": "tsx scripts/check-wasm-size.ts",
     "check:contract-benchmarks": "tsx scripts/check-contract-benchmarks.ts",
     "bundle:check": "pnpm --filter @meridian/web bundle:check",

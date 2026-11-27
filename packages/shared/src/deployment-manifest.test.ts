@@ -70,7 +70,12 @@ const deployment = {
 const manifest = {
   version: 2,
   note: "Deployment manifest",
-  toolchain: { stellarCli: "28.0.0", target: "wasm32v1-none" },
+  toolchain: {
+    stellarCli: "28.0.0",
+    rust: "1.100.0",
+    sorobanSdk: "22.0.11",
+    target: "wasm32v1-none",
+  },
   contracts: { testnet: deployment, mainnet: deployment },
 } satisfies DeploymentManifest;
 

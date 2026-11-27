@@ -75,7 +75,9 @@ jobs:
               - .github/workflows/ci.yml
               - "packages/contracts/**"
               - "scripts/check-wasm-size.ts"
+              - "scripts/verify-reproducible-build.ts"
               - "packages/shared/src/wasm-size-budget.ts"
+              - "packages/shared/src/reproducible-build.ts"
               - "scripts/deploy-*.sh"
               - "scripts/redeploy-*.sh"
               - "scripts/lib/**"
@@ -304,19 +306,29 @@ jobs:
         run: |
           set -o pipefail
           cargo test --workspace -- --nocapture 2>&1 | tee benchmark-output.log
-      - name: Build wasm
-        working-directory: packages/contracts
-        run: cargo build --target wasm32v1-none --release
-      # Compares each contract's release WASM with its budget in
-      # packages/contracts/wasm-size-budgets.json and, on PRs, with a build of
-      # the base commit (same command, separate target dir). Fails when a
-      # contract is over budget; the table also goes to the job summary.
       - uses: pnpm/action-setup@v6.1.1
       - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Builds every contract twice in clean target directories and fails unless
+      # both builds are byte-identical (#1421). Stages the first build for the
+      # size check below and publishes the hash manifest that records the
+      # compiler and Soroban SDK versions.
+      - name: Verify reproducible WASM builds
+        run: pnpm verify:reproducible-build -- --build
+      - name: Upload reproducible build manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproducible-build-manifest
+          path: packages/contracts/target/reproducible-build.json
+          if-no-files-found: warn
+      # Compares each contract's release WASM with its budget in
+      # packages/contracts/wasm-size-budgets.json and, on PRs, with a build of
+      # the base commit (same command, separate target dir). Fails when a
+      # contract is over budget; the table also goes to the job summary.
       - name: Check contract WASM size budgets
         env:
           WASM_SIZE_BASE_REF: ${{ github.event.pull_request.base.sha }}

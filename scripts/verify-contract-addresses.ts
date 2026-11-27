@@ -369,13 +369,18 @@ function builtContracts(
 
 function verifyBuiltBytecode(
   manifest: DeploymentManifest,
-  networks: DeploymentNetwork[]
+  networks: DeploymentNetwork[],
+  build: boolean
 ): void {
-  console.log("Building contracts from source...");
-  execFileSync("stellar", ["contract", "build"], {
-    cwd: CONTRACTS_DIR,
-    stdio: "inherit",
-  });
+  if (build) {
+    console.log("Building contracts from source...");
+    execFileSync("stellar", ["contract", "build"], {
+      cwd: CONTRACTS_DIR,
+      stdio: "inherit",
+    });
+  } else {
+    console.log("Using WASM already staged by the reproducible build check...");
+  }
 
   let failed = false;
   for (const network of networks) {
@@ -431,7 +436,11 @@ async function main(): Promise<void> {
   }
 
   if (decision.action === "build") {
-    verifyBuiltBytecode(manifest, decision.buildNetworks);
+    verifyBuiltBytecode(
+      manifest,
+      decision.buildNetworks,
+      !process.argv.includes("--no-build")
+    );
   } else {
     console.log("No source build required.");
   }
