@@ -1,4 +1,11 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setQueryClient } from "./lib/queryClient";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
@@ -76,12 +83,17 @@ function OfflineBanner({ online }: { online: boolean }) {
   );
 }
 
+type AppRoute = "admin" | "status" | "dashboard" | "notFound";
+
+// No router dependency for a few extra routes: the app has a handful of
+// pages, and pulling in react-router for a couple of static path splits
+// would be a heavier change than the admin dashboard itself (#615) needs.
+//
 // The public dashboard and status page stay under /app/*, which the existing
 // Vercel rewrite serves from /app/index.html. Admin is canonical at /admin;
 // the legacy /app/admin path is also recognized if Vercel's redirect is not
 // applied before the SPA loads.
-function isAdminRoute(): boolean {
-  const pathname = window.location.pathname;
+function isAdminRoute(pathname: string): boolean {
   return (
     pathname === "/admin" ||
     pathname.startsWith("/admin/") ||
@@ -90,20 +102,27 @@ function isAdminRoute(): boolean {
   );
 }
 
-function isStatusRoute(): boolean {
-  return window.location.pathname.startsWith("/app/status");
+function isStatusRoute(pathname: string): boolean {
+  return pathname.startsWith("/app/status");
 }
 
 // The SPA is served under /app/; only the dashboard root is a real page there.
 // Anything else (an unknown /app/* path or any other unmatched route) renders
 // the 404 page instead of silently falling back to the dashboard.
-function isDashboardRoute(): boolean {
-  const pathname = window.location.pathname;
+function isDashboardRoute(pathname: string): boolean {
   return pathname === "/app" || pathname === "/app/";
+}
+
+function resolveRoute(pathname: string): AppRoute {
+  if (isAdminRoute(pathname)) return "admin";
+  if (isStatusRoute(pathname)) return "status";
+  if (isDashboardRoute(pathname)) return "dashboard";
+  return "notFound";
 }
 
 function Dashboard({ online }: { online: boolean }) {
   const { t, i18n } = useTranslation();
+  const [resetKey, setResetKey] = useState(0);
   const toggleLanguage = useCallback(() => {
     const newLang = i18n.language === "en" ? "fr" : "en";
     i18n.changeLanguage(newLang);
@@ -164,8 +183,11 @@ function Dashboard({ online }: { online: boolean }) {
         tabIndex={-1}
         className="relative z-10 max-w-xl mx-auto px-6 py-10 outline-none"
       >
-        <ErrorBoundary>
-          <VaultPanel />
+        <h1 className="sr-only">{t("header.title")}</h1>
+        <ErrorBoundary showHome onReset={() => setResetKey((k) => k + 1)}>
+          <div key={resetKey}>
+            <VaultPanel />
+          </div>
         </ErrorBoundary>
       </main>
     </div>
@@ -176,6 +198,9 @@ export default function App() {
   const online = useConnectivity();
   const { t } = useTranslation();
   useDocumentLanguage();
+  const [pathname, setPathname] = useState(() => window.location.pathname);
+  const lastPathnameRef = useRef(pathname);
+
   useEffect(() => {
     const revalidate = () => void useWalletStore.getState().revalidate();
     revalidate();
@@ -187,36 +212,96 @@ export default function App() {
     return () => window.removeEventListener("focus", revalidate);
   }, []);
 
-  const page = isAdminRoute() ? (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-night text-paper flex items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-        </div>
+  useEffect(() => {
+    const handlePopState = () => setPathname(window.location.pathname);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const route = resolveRoute(pathname);
+
+  useEffect(() => {
+    document.title = t(`a11y.titles.${route}`);
+  }, [route, t]);
+
+  useEffect(() => {
+    // Compare with the last handled pathname instead of a "has mounted" flag,
+    // so React StrictMode's second effect run on first load does not move
+    // focus off the skip link.
+    if (lastPathnameRef.current === pathname) return;
+    lastPathnameRef.current = pathname;
+
+    const activeDialog = document.querySelector(
+      '[role="dialog"][aria-modal="true"]'
+    );
+    if (activeDialog && activeDialog.contains(document.activeElement)) {
+      return;
+    }
+
+    const target =
+      document.querySelector<HTMLElement>("#main-content h1, main h1, h1") ??
+      document.getElementById("main-content");
+    if (!target) return;
+
+    if (!target.hasAttribute("tabindex")) {
+      target.setAttribute("tabindex", "-1");
+    }
+    target.focus();
+  }, [pathname]);
+
+  const handleSkipToMain = useCallback(
+    (event: React.MouseEvent<HTMLAnchorElement>) => {
+      const main = document.getElementById("main-content");
+      if (!main) return;
+      event.preventDefault();
+      if (!main.hasAttribute("tabindex")) {
+        main.setAttribute("tabindex", "-1");
       }
-    >
-      <AdminLogin />
-    </Suspense>
-  ) : isStatusRoute() ? (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-night text-paper flex items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-        </div>
-      }
-    >
-      <StatusPage />
-    </Suspense>
-  ) : isDashboardRoute() ? (
-    <Dashboard online={online} />
-  ) : (
-    <NotFound />
+      main.focus();
+    },
+    []
+  );
+
+  const [pageResetKey, setPageResetKey] = useState(0);
+
+  const rawPage =
+    route === "admin" ? (
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-night text-paper flex items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+          </div>
+        }
+      >
+        <AdminLogin />
+      </Suspense>
+    ) : route === "status" ? (
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-night text-paper flex items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+          </div>
+        }
+      >
+        <StatusPage />
+      </Suspense>
+    ) : route === "dashboard" ? (
+      <Dashboard online={online} />
+    ) : (
+      <NotFound />
+    );
+
+  const page = (
+    <ErrorBoundary showHome onReset={() => setPageResetKey((k) => k + 1)}>
+      <div key={pageResetKey}>{rawPage}</div>
+    </ErrorBoundary>
   );
 
   return (
     <QueryClientProvider client={queryClient}>
       <a
         href="#main-content"
+        onClick={handleSkipToMain}
         className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-emerald-700 focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 font-medium text-sm"
       >
         {t("common.skipToContent")}

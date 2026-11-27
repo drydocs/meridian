@@ -6,7 +6,7 @@ const rootDir = path.resolve(__dirname, "..");
 
 // 1. Check Node.js version against pinned version (.node-version)
 const nodeVersionPath = path.join(rootDir, ".node-version");
-let expectedNodeMajor = 20;
+let expectedNodeMajor = 22;
 
 if (fs.existsSync(nodeVersionPath)) {
   const content = fs.readFileSync(nodeVersionPath, "utf8").trim();

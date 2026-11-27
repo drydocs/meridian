@@ -26,6 +26,7 @@ import {
 } from "./historical-loader";
 import type { AccrualConfig, ExecutionConfig } from "./backtest/runner";
 import type { DefiLlamaPool } from "@meridian/stellar-sdk-helpers";
+import { isRegimeScenario, scenarioPriceFeed } from "./regime-scenarios";
 
 /**
  * Thrown when a declared price or rate source does not contain data covering
@@ -116,6 +117,19 @@ export async function resolveScenarioSources(
   scenario: Scenario,
   options: ResolveScenarioSourcesOptions = {}
 ): Promise<ResolvedScenarioSources> {
+  if (
+    isRegimeScenario(scenario) &&
+    scenario.source.price === "horizon" &&
+    options.historicalData === undefined &&
+    options.defiLlamaPools === undefined &&
+    options.fetchDeFiLlamaPools === undefined
+  ) {
+    return {
+      prices: scenarioPriceFeed(scenario),
+      execution: { costSchedule: scenarioCostSchedule(scenario) },
+    };
+  }
+
   const windowStartMs = Date.parse(scenario.window.start);
   const windowEndMs = Date.parse(scenario.window.end);
   const stepMs =

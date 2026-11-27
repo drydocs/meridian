@@ -38,6 +38,12 @@
     "tvl": "TVL",
     "route": "Route",
     "noLiveRateData": "No live rate data.",
+    "emptyState": {
+      "noVaultsTitle": "No vaults available",
+      "noVaultsDescription": "There are currently no active vaults on this network. Please check back later.",
+      "failureTitle": "Failed to load vaults",
+      "failureDescription": "We couldn't retrieve the latest vault data. Check your network connection and try again."
+    },
     "yourPosition": "Your Position",
     "earned": "Earned",
     "connectUSDC": "Connect your wallet to deposit USDC and start earning yield automatically.",
@@ -182,6 +188,7 @@
     "depositsPaused": "Deposits are paused. Please try again later.",
     "insufficientShares": "You don't have enough shares for this withdrawal.",
     "withdrawalSlippage": "Withdrawal returned less than your minimum. Adjust slippage tolerance and retry.",
+    "adapterLiquidityInsufficient": "The underlying yield protocol doesn't have enough available liquidity for this withdrawal right now. Try a smaller amount or check back shortly.",
     "slippageExceeded": "Slippage tolerance exceeded. Adjust slippage tolerance and retry.",
     "missingUsdcTrustline": "Your wallet is missing the USDC trustline. Add it and try again.",
     "missingTrustline": "Your wallet is missing one or more required trustlines. Add them and try again.",
@@ -203,7 +210,9 @@
 
   "errorBoundary": {
     "title": "Something went wrong. Please reload the page.",
-    "reload": "Reload"
+    "reload": "Reload",
+    "retry": "Retry",
+    "home": "Home"
   },
 
   "status": {
@@ -245,6 +254,15 @@
       "pending": "Pending",
       "confirmed": "Confirmed",
       "failed": "Failed"
+    }
+  },
+
+  "a11y": {
+    "titles": {
+      "dashboard": "Dashboard — Meridian",
+      "status": "Protocol Status — Meridian",
+      "admin": "Admin Dashboard — Meridian",
+      "notFound": "Page not found — Meridian"
     }
   }
 }

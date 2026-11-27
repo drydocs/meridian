@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import { DEFAULT_ALLOWED_ORIGIN, MAX_BODY_BYTES } from "@meridian/shared";
 
 vi.mock("@meridian/shared/logger", () => ({ writeLog: vi.fn() }));
 
@@ -96,8 +96,12 @@ describe("buildApp", () => {
     expect(first.statusCode).toBe(200);
     expect(second.statusCode).toBe(429);
     expect(second.json()).toMatchObject({
-      error: "Too many requests. Try again in a minute.",
+      error: {
+        message: "Too many requests. Try again in a minute.",
+        requestId: expect.any(String),
+      },
     });
+    expect(second.headers["x-request-id"]).toBeDefined();
   });
 
   it("applies the default budget when none is configured", async () => {
@@ -107,5 +111,45 @@ describe("buildApp", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.headers["x-ratelimit-limit"]).toBe("100");
+  });
+});
+
+describe("request body limit", () => {
+  const post = (server: FastifyInstance, body: string, headers = {}) =>
+    server.inject({
+      method: "POST",
+      url: "/api/v1/tx/deposit",
+      headers: { "content-type": "application/json", ...headers },
+      body,
+    });
+
+  it("answers 413 PAYLOAD_TOO_LARGE in the error envelope for an oversized body", async () => {
+    const server = await build({ enableRateLimit: false });
+    const res = await post(server, " ".repeat(MAX_BODY_BYTES + 1));
+
+    expect(res.statusCode).toBe(413);
+    expect(res.json()).toMatchObject({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Payload too large",
+        requestId: expect.any(String),
+      },
+    });
+  });
+
+  it("checks the actual body when Content-Length understates it", async () => {
+    const server = await build({ enableRateLimit: false });
+    const res = await post(server, " ".repeat(MAX_BODY_BYTES + 1), {
+      "content-length": "1",
+    });
+
+    expect(res.statusCode).toBe(413);
+  });
+
+  it("does not reject a body exactly at the limit", async () => {
+    const server = await build({ enableRateLimit: false });
+    const res = await post(server, " ".repeat(MAX_BODY_BYTES));
+
+    expect(res.statusCode).not.toBe(413);
   });
 });

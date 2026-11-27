@@ -36,6 +36,15 @@ Also confirm before building: `CONTRACT_ADDRESSES.mainnet` and `KNOWN_POOLS.main
 
 ## Deployment sequence
 
+After deploying, verify `GET /api/v1/health/live` and monitor
+`GET /api/v1/health/ready`. Use readiness for traffic and uptime monitoring;
+liveness is for process restart decisions. Readiness reports Soroban RPC,
+Upstash Redis, position snapshot storage, and build metadata separately, and
+returns HTTP 503 if any required dependency is unhealthy. Confirm persistent
+Upstash credentials and a build commit SHA are present in the deployed
+environment. An empty snapshot registry is healthy. The existing
+`/api/v1/keepers/health` route continues to report keeper heartbeat freshness.
+
 `scripts/deploy-mainnet.sh` ([#717](https://github.com/drydocs/meridian/issues/717)) runs the sequence below itself, prompting for the typed `MAINNET` confirmation after validating every input and before it uploads or deploys anything. Run it with `DEPLOYER`, `ADMIN`, `ADMIN_KEY`, `TREASURY`, `USDC_ID`, and `BLEND_POOL_ID` set (`bash scripts/deploy-mainnet.sh`), or add a reviewed Blend pool address to its `ALLOWED_BLEND_POOL_IDS` allow-list first if none is there yet. Mirrors "Standing up a fresh environment" in the testnet doc, minus the testnet-only conveniences:
 
 1. Reserve the vault's contract address via `stellar contract id wasm` against mainnet's RPC/passphrase, sourced by `$ADMIN_ADDRESS`. Its salt is recorded and reused by step 4, so the vault lands at exactly this precomputed address.

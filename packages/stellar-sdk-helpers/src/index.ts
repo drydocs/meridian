@@ -5,6 +5,7 @@ export * from "./coordinator";
 export * from "./defilamma";
 export * from "./defindex";
 export * from "./horizon";
+export * from "./health-checks";
 export * from "./keeper-heartbeat";
 export * from "./keeper-retry";
 export * from "./keeper-state";
@@ -16,6 +17,7 @@ export * from "./position-snapshots";
 export * from "./positions";
 export * from "./rate-sources";
 export * from "./routing";
+export * from "./rpc-pool";
 export * from "./tx";
 export * from "./types";
 // `keeper-state` owns the concrete `SubmissionLease` class while `./types`

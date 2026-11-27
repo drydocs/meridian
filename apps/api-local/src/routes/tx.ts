@@ -11,7 +11,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
   app.post("/deposit", async (req, reply) => {
     const result = await handleDepositRequest(req.body);
     if (result.error) {
-      app.log.error({ err: result.error }, "[tx/deposit] build failed");
+      req.log.error({ err: result.error }, "[tx/deposit] build failed");
     }
     reply.code(result.status).send(result.body);
   });
@@ -19,7 +19,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
   app.post("/withdraw", async (req, reply) => {
     const result = await handleWithdrawRequest(req.body);
     if (result.error) {
-      app.log.error({ err: result.error }, "[tx/withdraw] build failed");
+      req.log.error({ err: result.error }, "[tx/withdraw] build failed");
     }
     reply.code(result.status).send(result.body);
   });
@@ -27,7 +27,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
   app.post("/add-trustline", async (req, reply) => {
     const result = await handleAddTrustlineRequest(req.body);
     if (result.error) {
-      app.log.error({ err: result.error }, "[tx/add-trustline] build failed");
+      req.log.error({ err: result.error }, "[tx/add-trustline] build failed");
     }
     reply.code(result.status).send(result.body);
   });
@@ -35,7 +35,7 @@ export const txRoute: FastifyPluginAsync = async (app) => {
   app.post("/submit", async (req, reply) => {
     const result = await handleSubmitRequest(req.body);
     if (result.error) {
-      app.log.error({ err: result.error }, "[tx/submit] failed");
+      req.log.error({ err: result.error }, "[tx/submit] failed");
     }
     reply.code(result.status).send(result.body);
   });
