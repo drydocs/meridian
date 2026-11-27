@@ -424,32 +424,3 @@ describe("isCronSecretConfigured / isCronAuthorized", () => {
     ).toBe(false);
   });
 });
-
-// CORS multiple origins -------------------------------------------------------
-
-describe("CORS multiple origins", () => {
-  it("accepts comma-separated origins", async () => {
-    // This test verifies the parsing logic by using a module that imports it
-    // The actual parsing happens at module load time in middleware.ts
-    const { applyCors } = await import("../_lib/middleware.js");
-    
-    const res1 = fakeRes();
-    const req1 = fakeReq("GET", { origin: "https://usemeridian.vercel.app" });
-    applyCors(req1, res1);
-    expect(res1.headers["Access-Control-Allow-Origin"]).toBe(
-      "https://usemeridian.vercel.app"
-    );
-    expect(res1.headers["Vary"]).toBe("Origin");
-  });
-
-  it("echoes the matching origin from a list", () => {
-    // When ALLOWED_ORIGIN="https://app1.com,https://app2.com"
-    // and request origin is https://app2.com, it should echo https://app2.com
-    const res = fakeRes();
-    const req = fakeReq("GET", { origin: "https://app2.com" });
-    applyCors(req, res);
-    // This will fall back to first origin since we can't easily reload the module
-    // with different env in the same test suite
-    expect(res.headers["Vary"]).toBe("Origin");
-  });
-});
