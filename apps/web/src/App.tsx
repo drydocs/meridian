@@ -71,10 +71,7 @@ function OfflineBanner({ online }: { online: boolean }) {
       aria-live="polite"
       className="sticky top-0 z-50 bg-amber-900 text-amber-100 text-sm text-center py-2 px-4"
     >
-      {t("status.offlineBanner", {
-        defaultValue:
-          "You are offline. Showing last known data until the connection returns.",
-      })}
+      {t("status.offlineBanner")}
     </div>
   );
 }

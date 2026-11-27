@@ -247,12 +247,12 @@ export function VaultPanel() {
               </p>
               {vaultsStale && (
                 <span className="inline-block mt-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-amber-400 bg-amber-950/40 border border-amber-800/70">
-                  {t("status.stale", { defaultValue: "Stale" })}
+                  {t("status.stale")}
                 </span>
               )}
               {vaultsUpdatedAt > 0 && (
                 <p className="text-[10px] text-gray-600 mt-0.5">
-                  {t("status.lastUpdated", { defaultValue: "Updated" })}{" "}
+                  {t("status.lastUpdated")}{" "}
                   {new Intl.DateTimeFormat(i18n.language, {
                     hour: "2-digit",
                     minute: "2-digit",
