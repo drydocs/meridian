@@ -255,5 +255,14 @@
       "confirmed": "Confirmed",
       "failed": "Failed"
     }
+  },
+
+  "a11y": {
+    "titles": {
+      "dashboard": "Dashboard — Meridian",
+      "status": "Protocol Status — Meridian",
+      "admin": "Admin Dashboard — Meridian",
+      "notFound": "Page not found — Meridian"
+    }
   }
 }

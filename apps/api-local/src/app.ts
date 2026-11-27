@@ -15,6 +15,7 @@ import { txRoute } from "./routes/tx.js";
 import { keepersRoute } from "./routes/keepers.js";
 import { adminRoute } from "./routes/admin.js";
 import { configRoute } from "./routes/config.js";
+import { healthRoute } from "./routes/health.js";
 
 export interface BuildAppOptions {
   logger?: boolean | object | undefined;
@@ -168,6 +169,7 @@ export async function buildApp(
   app.register(keepersRoute, { prefix: "/api/v1/keepers" });
   app.register(adminRoute, { prefix: "/api/v1/admin" });
   app.register(configRoute, { prefix: "/api/v1/config" });
+  app.register(healthRoute, { prefix: "/api/v1/health" });
 
   app.get("/health", async () => ({ status: "ok" }));
 

@@ -12,6 +12,7 @@ import {
   redactedErrorMessage,
   runAlertKeeper,
   runBlendAccrualKeeper,
+  runKeeperDoctor,
   resolvePositions,
   runMigrationKeeper,
   runPositionSnapshotKeeper,
@@ -65,7 +66,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     action !== "accrue" &&
     action !== "rebalance" &&
     action !== "alert" &&
-    action !== "snapshot"
+    action !== "snapshot" &&
+    action !== "doctor"
   ) {
     return sendResponse(req, res, 404, { error: "Unknown action" });
   }
@@ -99,6 +101,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (!isCronAuthorized(req)) {
     return sendResponse(req, res, 401, { error: "Unauthorized" });
+  }
+
+  if (action === "doctor") {
+    const rawKeeper = Array.isArray(req.query.keeper)
+      ? req.query.keeper[0]
+      : req.query.keeper;
+    const keeper = rawKeeper ?? "migration";
+    if (keeper !== "migration" && keeper !== "accrual") {
+      return res
+        .status(400)
+        .json({ error: "Invalid keeper; expected 'migration' or 'accrual'" });
+    }
+    try {
+      const report = await runKeeperDoctor({
+        keeper,
+        env: process.env,
+        logger: consoleLogger,
+      });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(report.ok ? 200 : 503).json(report);
+    } catch (err) {
+      console.error("[keeper-doctor] run failed:", err);
+      return res.status(500).json({ error: redactedErrorMessage(err) });
+    }
   }
 
   if (action === "accrue") {
@@ -206,9 +232,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const config = loadMigrationKeeperConfig(process.env);
-    const result = await runMigrationKeeper(config);
-    const status = result.failures.length > 0 ? 500 : 200;
-    if (result.failures.length === 0) {
+    const result = await runMigrationKeeper(config, { runPreflight: true });
+    // A run the preflight blocked did nothing, so it must not look like a
+    // success to the cron scheduler.
+    const status =
+      result.failures.length > 0 ? 500 : result.blocked ? 503 : 200;
+    if (result.failures.length === 0 && !result.blocked) {
       const store = loadKeeperHeartbeatStore(process.env, {
         logger: consoleLogger,
       });

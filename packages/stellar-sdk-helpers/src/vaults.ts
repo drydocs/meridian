@@ -13,7 +13,16 @@ import {
 } from "@meridian/shared";
 import { simulateView } from "./tx";
 import { getRpcServer, toBigInt } from "./internal";
-import { getCachedVaults, setCachedVaults } from "./vault-cache";
+import {
+  getCachedVaults,
+  getCachedVaultsStale,
+  setCachedVaults,
+  getBreakerFailures,
+  incrementBreakerFailures,
+  clearBreakerFailures,
+  openBreaker,
+  wasBreakerOpen,
+} from "./vault-cache";
 
 export interface ApiVault {
   id: string;
@@ -31,6 +40,10 @@ export interface ApiVault {
 // cache covers warm invocations. `vault-cache.ts` mirrors the same TTL in
 // Upstash so cold starts share results across serverless instances.
 const CACHE_TTL_MS = 60_000;
+
+/** Number of consecutive upstream failures before the circuit breaker opens. */
+const BREAKER_TRIP_THRESHOLD = 3;
+
 let vaultCache: { vaults: ApiVault[]; expiresAt: number } | null = null;
 
 /** Clears the in-memory vault cache. Exposed for tests only. */
@@ -46,6 +59,10 @@ export function isVaultCacheWarm(): boolean {
 export interface FetchVaultsResult {
   vaults: ApiVault[];
   cached: boolean;
+  /** True when the payload was served from a stale cache due to an upstream failure. */
+  stale?: boolean;
+  /** Age of the stale cache entry in seconds. Present only when stale is true. */
+  cacheAgeSeconds?: number;
 }
 
 /**
@@ -203,6 +220,13 @@ async function fetchTestnetVaults(): Promise<ApiVault[]> {
  * Fetches vaults for the given network, returning both the vaults and a boolean
  * indicating whether the result was served from cache (L1 in-process or L2 shared).
  * Mainnet results are cached for 60 s; testnet results are always fresh.
+ *
+ * When all upstream sources fail (DeFiLlama and RPC both down), serves the last
+ * known shared payload from the shadow cache with stale=true and cacheAgeSeconds.
+ *
+ * A short-lived circuit breaker trips after BREAKER_TRIP_THRESHOLD consecutive
+ * upstream failures, skipping live fetches for the breaker window and serving
+ * the stale cache immediately. The breaker clears after a successful probe.
  */
 export async function fetchVaultsWithCache(
   network: "mainnet" | "testnet" = APP_NETWORK.network
@@ -225,6 +249,27 @@ export async function fetchVaultsWithCache(
     return { vaults: shared, cached: true };
   }
 
+  // Circuit breaker: if the breaker is open, skip live fetches and serve
+  // the last known stale payload from the shadow cache immediately.
+  const breakerCount = await getBreakerFailures(network);
+  if (breakerCount >= BREAKER_TRIP_THRESHOLD) {
+    console.warn(
+      `[vaults] circuit breaker open (${breakerCount} failures); serving stale cache`
+    );
+    const staleResult = await getCachedVaultsStale(network);
+    if (staleResult && staleResult.vaults.length > 0) {
+      return {
+        vaults: staleResult.vaults,
+        cached: false,
+        stale: true,
+        ...(staleResult.cacheAgeSeconds !== null && {
+          cacheAgeSeconds: staleResult.cacheAgeSeconds,
+        }),
+      };
+    }
+    // No shadow cache available — fall through to live fetch as a last resort.
+  }
+
   const net = getNetworkConfig("mainnet");
   const server = getRpcServer(net.rpc, 10_000);
 
@@ -233,6 +278,8 @@ export async function fetchVaultsWithCache(
   );
 
   let meridianReadFailed = false;
+  let defiLlamaFailed = false;
+
   const [meridianVaultsRaw, poolsResult] = await Promise.all([
     Promise.all(
       meridianMetas.map((meta) =>
@@ -248,6 +295,7 @@ export async function fetchVaultsWithCache(
       )
     ),
     getStellarStablecoinPools().catch((err) => {
+      defiLlamaFailed = true;
       console.warn("[vaults] failed to fetch DeFiLlama pools:", err);
       return [] as DefiLlamaPool[];
     }),
@@ -290,6 +338,46 @@ export async function fetchVaultsWithCache(
 
   const vaults: ApiVault[] = [...meridianVaults, ...resolvedLlamaVaults];
 
+  // Determine whether the upstream fetch was a total failure: both sources
+  // failed and we have no live data at all.
+  const totalUpstreamFailure = meridianReadFailed && defiLlamaFailed;
+
+  if (totalUpstreamFailure) {
+    console.warn("[vaults] both upstream sources failed");
+    if (await wasBreakerOpen(network)) {
+      // The window expired and this probe failed too: reopen at once.
+      await openBreaker(network, BREAKER_TRIP_THRESHOLD);
+    } else {
+      const failures = await incrementBreakerFailures(network);
+      if (failures !== null && failures >= BREAKER_TRIP_THRESHOLD) {
+        await openBreaker(network, failures);
+      }
+    }
+
+    // Serve the last known stale payload from the shadow cache.
+    const staleResult = await getCachedVaultsStale(network);
+    if (staleResult && staleResult.vaults.length > 0) {
+      return {
+        vaults: staleResult.vaults,
+        cached: false,
+        stale: true,
+        ...(staleResult.cacheAgeSeconds !== null && {
+          cacheAgeSeconds: staleResult.cacheAgeSeconds,
+        }),
+      };
+    }
+
+    // Last resort: use whatever the in-process cache held.
+    if (vaultCache) {
+      return { vaults: vaultCache.vaults, cached: false, stale: true };
+    }
+
+    // Nothing to serve. Report the outage instead of a stale empty list.
+    throw new Error(
+      "Vault data unavailable: upstream failed and no cached copy exists"
+    );
+  }
+
   if (vaults.length > 0) {
     // A failed read must not cache an incomplete list or renew stale data;
     // leave both cache layers untouched so the next call retries.
@@ -297,6 +385,8 @@ export async function fetchVaultsWithCache(
       vaultCache = { vaults, expiresAt: now + CACHE_TTL_MS };
       // Best-effort shared write; failures must not block the response.
       await setCachedVaults(network, vaults);
+      // Successful probe: clear the circuit breaker.
+      await clearBreakerFailures(network);
     }
     return { vaults, cached: false };
   }

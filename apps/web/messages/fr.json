@@ -255,5 +255,14 @@
       "confirmed": "Confirmé",
       "failed": "Échec"
     }
+  },
+
+  "a11y": {
+    "titles": {
+      "dashboard": "Tableau de bord — Meridian",
+      "status": "Statut du protocole — Meridian",
+      "admin": "Tableau de bord admin — Meridian",
+      "notFound": "Page introuvable — Meridian"
+    }
   }
 }

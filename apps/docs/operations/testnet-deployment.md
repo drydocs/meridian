@@ -94,6 +94,18 @@ The adapter contract address is **not** hardcoded anywhere in the app. The front
 
 ## Verifying the deployment
 
+After deployment, check `GET /api/v1/health/live` for process liveness and
+`GET /api/v1/health/ready` for dependency readiness. Configure uptime monitors
+and traffic readiness probes to use the readiness endpoint; use liveness only
+for process restart decisions. Readiness reports Soroban RPC, Upstash Redis,
+the snapshot registry, and build metadata separately, and returns HTTP 503 if
+any required dependency is unhealthy. Deployed environments must have
+persistent Upstash credentials and a build commit SHA. An empty snapshot
+registry is healthy.
+
+The existing `/api/v1/keepers/health` route remains a separate report about
+keeper heartbeat freshness.
+
 ```bash
 stellar contract invoke --network testnet --source my-deployer \
   --id $VAULT_CONTRACT_ID -- get_total_assets

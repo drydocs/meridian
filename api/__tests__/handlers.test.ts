@@ -202,6 +202,23 @@ vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
       skipped: 0,
       failures: [],
     })),
+    runKeeperDoctor: vi.fn(async () => ({
+      keeper: "migration",
+      network: "testnet",
+      checkedAt: "2026-11-20T00:00:00.000Z",
+      status: "pass",
+      ok: true,
+      signerPublicKey:
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      checks: [
+        {
+          id: "signer_derivation",
+          status: "pass",
+          summary: "Derived signer public key from configured secret key",
+        },
+      ],
+      blockedReasons: [],
+    })),
   };
 });
 
@@ -231,6 +248,7 @@ import {
   MissingTrustlineError,
   getPositionHistory,
   runPositionSnapshotKeeper,
+  runKeeperDoctor,
   fetchAllVaults,
   fetchVaultsWithCache,
 } from "@meridian/stellar-sdk-helpers";
@@ -1651,5 +1669,141 @@ describe("GET /api/v1/admin/vault-state", () => {
     expect(res.statusCode).toBe(405);
     expect(res.headers["Allow"]).toBe("GET");
     expect(fetchCoordinatorState).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET/POST /api/v1/keepers/doctor", () => {
+  const prevCronSecret = process.env.CRON_SECRET;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetRateLimitForTesting();
+    process.env.CRON_SECRET = "test-cron-secret";
+  });
+
+  afterEach(() => {
+    if (prevCronSecret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = prevCronSecret;
+  });
+
+  it("requires cron bearer auth", async () => {
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({ query: { action: "doctor" }, method: "GET" }),
+      res
+    );
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("returns 200 with structured report when all checks pass", async () => {
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "doctor" },
+        method: "GET",
+        headers: { authorization: "Bearer test-cron-secret" },
+      }),
+      res
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["Cache-Control"]).toBe("no-store");
+    expect(res.body).toMatchObject({
+      keeper: "migration",
+      status: "pass",
+      ok: true,
+    });
+    expect(runKeeperDoctor).toHaveBeenCalledWith(
+      expect.objectContaining({ keeper: "migration" })
+    );
+  });
+
+  it("returns 503 with structured report when doctor checks fail", async () => {
+    vi.mocked(runKeeperDoctor).mockResolvedValueOnce({
+      keeper: "migration",
+      network: "testnet",
+      checkedAt: "2026-11-20T00:00:00.000Z",
+      status: "fail",
+      ok: false,
+      checks: [
+        {
+          id: "vault_admin_match",
+          status: "fail",
+          summary: "Signer does not match vault admin",
+          remediation: "Use the vault admin key.",
+        },
+      ],
+      blockedReasons: [
+        "vault_admin_match: Signer does not match vault admin (Use the vault admin key.)",
+      ],
+    });
+
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "doctor", keeper: "migration" },
+        method: "GET",
+        headers: { authorization: "Bearer test-cron-secret" },
+      }),
+      res
+    );
+
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toMatchObject({
+      ok: false,
+      status: "fail",
+    });
+  });
+
+  it("returns 400 for an invalid keeper query parameter", async () => {
+    const res = makeRes();
+    await keepersHandler(
+      fakeReq({
+        query: { action: "doctor", keeper: "unknown" },
+        method: "GET",
+        headers: { authorization: "Bearer test-cron-secret" },
+      }),
+      res
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(runKeeperDoctor).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 and records no heartbeat when rebalance returns blocked: true", async () => {
+    const prevKey = process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY;
+    process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY = "SKEY";
+    vi.mocked(runMigrationKeeper).mockResolvedValueOnce({
+      network: "testnet",
+      startedAt: "2026-11-20T00:00:00.000Z",
+      finishedAt: "2026-11-20T00:00:01.000Z",
+      discoveredVaults: 0,
+      migrations: [],
+      skipped: [],
+      failures: [],
+      blocked: true,
+      blockedReasons: ["vault_admin_match: mismatch"],
+    });
+
+    try {
+      const res = makeRes();
+      await keepersHandler(
+        fakeReq({
+          query: { action: "rebalance" },
+          method: "POST",
+          headers: { authorization: "Bearer test-cron-secret" },
+        }),
+        res
+      );
+
+      // A blocked run did nothing, so the scheduler must see a failure.
+      expect(res.statusCode).toBe(503);
+      expect(res.body).toMatchObject({ blocked: true });
+      expect(recordKeeperHeartbeat).not.toHaveBeenCalled();
+    } finally {
+      if (prevKey === undefined)
+        delete process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY;
+      else process.env.MERIDIAN_MIGRATION_KEEPER_SECRET_KEY = prevKey;
+    }
   });
 });
