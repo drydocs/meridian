@@ -338,3 +338,19 @@ jobs:
             packages/contracts/benchmark-results.json
             packages/contracts/benchmark-output.log
           if-no-files-found: warn
+      - name: Install Stellar CLI
+        env:
+          STELLAR_CLI_VERSION: v30.0.1
+          STELLAR_CLI_SHA256: 48c70074020e09af0a3ebbd2bf62d53c9aec47935e49a112d3cd90fb4e37658f
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          TARBALL="$(mktemp)"
+          curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/${STELLAR_CLI_VERSION}/stellar-cli-30.0.1-x86_64-unknown-linux-gnu.tar.gz" -o "$TARBALL"
+          echo "${STELLAR_CLI_SHA256}  ${TARBALL}" | sha256sum -c -
+          tar -xzf "$TARBALL" -C "$HOME/.local/bin"
+          rm -f "$TARBALL"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Verify generated TypeScript contract bindings are up to date
+        run: |
+          pnpm generate:bindings
+          git diff --exit-code -- packages/sdk/src/generated
