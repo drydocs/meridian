@@ -36,6 +36,8 @@ export function useSignAndSubmit() {
       }
       if (typeof wallet.getNetwork === "function") {
         const currentNetwork = await wallet.getNetwork();
+        // LOBSTR, xBull and Albedo cannot report their network (null), so only
+        // a reported, different network blocks signing.
         if (currentNetwork && currentNetwork !== APP_NETWORK.network) {
           throw new Error(
             t("walletConnect.networkMismatch", {

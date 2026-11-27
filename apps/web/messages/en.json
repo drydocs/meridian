@@ -22,7 +22,15 @@
     "timedOutHint": "The wallet window may be behind your browser. Check for it and try again.",
     "accountChanged": "Wallet account switched to {{address}}",
     "networkChanged": "Wallet network switched to {{network}}",
-    "networkMismatch": "Wallet network mismatch: wallet is on {{walletNetwork}}, but app requires {{appNetwork}}"
+    "networkMismatch": "Wallet network mismatch: wallet is on {{walletNetwork}}, but app requires {{appNetwork}}",
+    "networkUnknown": "Your wallet did not report its network. Make sure it is set to {{appNetwork}}.",
+    "unknownNetwork": "unknown",
+    "networkCheckFailed": "Could not check the wallet network. Please retry.",
+    "checkingNetwork": "Checking network...",
+    "networks": {
+      "mainnet": "Mainnet",
+      "testnet": "Testnet"
+    }
   },
 
   "vaultPanel": {

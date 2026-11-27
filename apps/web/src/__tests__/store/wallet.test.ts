@@ -45,6 +45,7 @@ beforeEach(() => {
     // Use APP_NETWORK.network so the reset matches the store's actual default
     // and doesn't mask regressions if the build network changes (#851).
     network: APP_NETWORK.network,
+    walletNetwork: null,
   });
   vi.clearAllMocks();
 });
