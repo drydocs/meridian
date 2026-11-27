@@ -45,6 +45,8 @@ test.describe("position load error", () => {
 
     await page.getByRole("button", { name: "Retry", exact: true }).click();
 
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+
     await expect(
       page.getByText(
         "Couldn't load your position. Deposits and withdrawals still work."
