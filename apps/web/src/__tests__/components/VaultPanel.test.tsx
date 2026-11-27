@@ -429,32 +429,6 @@ describe("VaultPanel — over-balance deposit guard (#1063)", () => {
       refetch: vi.fn(),
     });
 
-    describe("VaultPanel — network mismatch", () => {
-      it("keeps vault data visible and disables deposit and withdrawal signing actions", () => {
-        const otherNetwork =
-          APP_NETWORK.network === "mainnet" ? "testnet" : "mainnet";
-        useWalletStore.setState({ walletNetwork: otherNetwork });
-        mockPositions({ isError: false, data: [POSITION] });
-        render(<VaultPanel />);
-
-        expect(screen.getByText("vaultPanel.apy")).toBeDefined();
-        fireEvent.change(screen.getByPlaceholderText("0.00"), {
-          target: { value: "10" },
-        });
-        expect(
-          (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement).disabled
-        ).toBe(true);
-
-        fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
-        fireEvent.change(screen.getByPlaceholderText("0.00"), {
-          target: { value: "10" },
-        });
-        expect(
-          (screen.getByTestId("vault-withdraw-submit") as HTMLButtonElement)
-            .disabled
-        ).toBe(true);
-      });
-    });
     render(<VaultPanel />);
 
     const amountInput = screen.getByPlaceholderText("0.00");
@@ -501,6 +475,33 @@ describe("VaultPanel — over-balance deposit guard (#1063)", () => {
 
     // The presence of the error proves the balance prop was received.
     expect(screen.getByTestId("deposit-amount-error")).toBeDefined();
+  });
+});
+
+describe("VaultPanel — network mismatch", () => {
+  it("keeps vault data visible and disables deposit and withdrawal signing actions", () => {
+    const otherNetwork =
+      APP_NETWORK.network === "mainnet" ? "testnet" : "mainnet";
+    useWalletStore.setState({ walletNetwork: otherNetwork });
+    mockPositions({ isError: false, data: [POSITION] });
+    render(<VaultPanel />);
+
+    expect(screen.getByText("vaultPanel.apy")).toBeDefined();
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    expect(
+      (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement).disabled
+    ).toBe(true);
+
+    fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    expect(
+      (screen.getByTestId("vault-withdraw-submit") as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
   });
 });
 
