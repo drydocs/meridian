@@ -71,9 +71,10 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
       }
 
       const key = await adapter.connect({ signal: controller.signal });
+      let reportedNetwork: string | null = null;
       if (typeof adapter.getNetwork === "function") {
         try {
-          const reportedNetwork = await adapter.getNetwork();
+          reportedNetwork = await adapter.getNetwork();
           if (reportedNetwork === "mainnet" || reportedNetwork === "testnet") {
             useWalletStore.setState({ network: reportedNetwork });
           }
@@ -86,6 +87,12 @@ export function useWalletConnect(options: UseWalletConnectOptions = {}) {
       // (which dispatch off the persisted selection) go through.
       setSelectedWalletId(walletId);
       connect(key);
+      useWalletStore.setState({
+        walletNetwork:
+          reportedNetwork === "mainnet" || reportedNetwork === "testnet"
+            ? reportedNetwork
+            : null,
+      });
       setStatus("idle");
       push("success", t("walletConnect.walletConnected"));
     } catch (err) {

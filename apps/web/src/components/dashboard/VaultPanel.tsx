@@ -3,6 +3,7 @@ import { useVaults } from "../../hooks/useVaults";
 import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
+import { APP_NETWORK } from "@meridian/shared";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
 import { useRiskDisclosure } from "../../hooks/useRiskDisclosure";
 import { useUsdcBalance } from "../../hooks/useUsdcBalance";
@@ -41,7 +42,9 @@ export function VaultPanel() {
   } = useVaults();
   const vaults = data?.vaults;
   const { t, i18n } = useTranslation();
-  const { connected, publicKey } = useWalletStore();
+  const { connected, publicKey, walletNetwork } = useWalletStore();
+  const isNetworkBlocked =
+    connected && walletNetwork !== APP_NETWORK.network;
   const {
     balance: availableBalance,
     isError: balanceError,
@@ -425,6 +428,7 @@ export function VaultPanel() {
                 position={position}
                 hasPosition={!!hasPosition}
                 isDepositing={isDepositing}
+                isNetworkBlocked={isNetworkBlocked}
                 isSigning={isSigning}
                 onCancel={cancelPending}
                 onSubmit={handleDeposit}
@@ -441,6 +445,7 @@ export function VaultPanel() {
                 position={position}
                 hasPosition={!!hasPosition}
                 isWithdrawing={isWithdrawing}
+                isNetworkBlocked={isNetworkBlocked}
                 isSigning={isSigning}
                 onCancel={cancelPending}
                 onSubmit={handleWithdraw}

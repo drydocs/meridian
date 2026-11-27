@@ -36,15 +36,23 @@ export function useSignAndSubmit() {
       }
       if (typeof wallet.getNetwork === "function") {
         const currentNetwork = await wallet.getNetwork();
-        if (currentNetwork && currentNetwork !== APP_NETWORK.network) {
+        if (currentNetwork !== APP_NETWORK.network) {
           throw new Error(
             t("walletConnect.networkMismatch", {
-              walletNetwork: currentNetwork,
+              walletNetwork:
+                currentNetwork ?? t("walletConnect.unknownNetwork"),
               appNetwork: APP_NETWORK.network,
-              defaultValue: `Wallet network mismatch: wallet is on ${currentNetwork}, but app requires ${APP_NETWORK.network}`,
+              defaultValue: `Wallet network mismatch: wallet is on ${currentNetwork ?? "unknown"}, but app requires ${APP_NETWORK.network}`,
             })
           );
         }
+      } else {
+        throw new Error(
+          t("walletConnect.networkMismatch", {
+            walletNetwork: t("walletConnect.unknownNetwork"),
+            appNetwork: APP_NETWORK.network,
+          })
+        );
       }
       const signedXdr = await wallet.sign(xdr, passphrase, {
         signal: controller.signal,

@@ -16,6 +16,7 @@ import { useWalletStore } from "./store/wallet";
 import { useDocumentLanguage } from "./hooks/useDocumentLanguage";
 import { useTranslation } from "react-i18next";
 import { NotFound } from "./pages/NotFound";
+import { NetworkMismatchBanner } from "./components/ui/NetworkMismatchBanner";
 
 const AdminLogin = lazy(() =>
   import("./pages/AdminLogin").then((m) => ({ default: m.AdminLogin }))
@@ -248,6 +249,7 @@ export default function App() {
       >
         {t("common.skipToContent")}
       </a>
+      <NetworkMismatchBanner />
       {page}
       <Toasts />
     </QueryClientProvider>

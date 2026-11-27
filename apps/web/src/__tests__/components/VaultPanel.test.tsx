@@ -7,6 +7,7 @@ import { usePositions } from "../../hooks/usePositions";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletConnect } from "../../hooks/useWalletConnect";
 import { useUsdcBalance } from "../../hooks/useUsdcBalance";
+import { APP_NETWORK } from "@meridian/shared";
 
 const refetchPositions = vi.fn();
 const deposit = vi.fn(async () => true);
@@ -89,7 +90,8 @@ beforeEach(() => {
   useWalletStore.setState({
     publicKey: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
     connected: true,
-    network: "testnet",
+    network: APP_NETWORK.network,
+    walletNetwork: APP_NETWORK.network,
   });
   mockVaultsLoaded();
   mockPositions({ isError: false });
@@ -425,6 +427,33 @@ describe("VaultPanel — over-balance deposit guard (#1063)", () => {
     vi.mocked(useUsdcBalance).mockReturnValue({
       balance: 10,
       refetch: vi.fn(),
+    });
+
+    describe("VaultPanel — network mismatch", () => {
+      it("keeps vault data visible and disables deposit and withdrawal signing actions", () => {
+        const otherNetwork =
+          APP_NETWORK.network === "mainnet" ? "testnet" : "mainnet";
+        useWalletStore.setState({ walletNetwork: otherNetwork });
+        mockPositions({ isError: false, data: [POSITION] });
+        render(<VaultPanel />);
+
+        expect(screen.getByText("vaultPanel.apy")).toBeDefined();
+        fireEvent.change(screen.getByPlaceholderText("0.00"), {
+          target: { value: "10" },
+        });
+        expect(
+          (screen.getByTestId("vault-deposit-submit") as HTMLButtonElement).disabled
+        ).toBe(true);
+
+        fireEvent.click(screen.getByTestId("vault-tab-withdraw"));
+        fireEvent.change(screen.getByPlaceholderText("0.00"), {
+          target: { value: "10" },
+        });
+        expect(
+          (screen.getByTestId("vault-withdraw-submit") as HTMLButtonElement)
+            .disabled
+        ).toBe(true);
+      });
     });
     render(<VaultPanel />);
 

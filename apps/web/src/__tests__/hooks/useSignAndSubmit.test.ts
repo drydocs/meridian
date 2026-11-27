@@ -43,6 +43,7 @@ describe("useSignAndSubmit (#965)", () => {
       publicKey: KEY,
       connected: true,
       network: APP_NETWORK.network,
+      walletNetwork: APP_NETWORK.network,
     });
   });
 
@@ -109,6 +110,15 @@ describe("useSignAndSubmit (#965)", () => {
       await expect(result.current.signAndSubmit("XDR")).rejects.toThrow(
         /network mismatch/i
       );
+      expect(wallet.sign).not.toHaveBeenCalled();
+      expect(api.submitTx).not.toHaveBeenCalled();
+    });
+
+    it("blocks signing when the wallet network is unknown", async () => {
+      vi.mocked(wallet.getNetwork!).mockResolvedValue(null);
+      const { result } = renderHook(() => useSignAndSubmit());
+
+      await expect(result.current.signAndSubmit("XDR")).rejects.toThrow();
       expect(wallet.sign).not.toHaveBeenCalled();
       expect(api.submitTx).not.toHaveBeenCalled();
     });
