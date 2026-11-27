@@ -524,12 +524,11 @@ export abstract class VaultBase {
       );
     }
     return this.prepare(
-      this.contract().call(
-        "withdraw_assets",
-        addrScVal(owner),
-        i128(assets),
-        i128(maxSharesIn)
-      )
+      this.callVault("withdraw_assets", {
+        caller: owner,
+        assets,
+        max_shares_in: maxSharesIn,
+      })
     );
   }
 
