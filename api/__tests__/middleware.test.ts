@@ -140,6 +140,13 @@ afterEach(() => vi.useRealTimers());
 // applyCors -----------------------------------------------------------------------
 
 describe("applyCors", () => {
+  const savedAllowedOrigin = process.env.ALLOWED_ORIGIN;
+
+  afterEach(() => {
+    if (savedAllowedOrigin === undefined) delete process.env.ALLOWED_ORIGIN;
+    else process.env.ALLOWED_ORIGIN = savedAllowedOrigin;
+  });
+
   it("sets CORS headers on every request", () => {
     const res = fakeRes();
     applyCors(fakeReq("GET"), res);
@@ -149,6 +156,7 @@ describe("applyCors", () => {
       "X-Request-ID"
     );
     expect(res.headers["X-Request-ID"]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(res.headers["Vary"]).toBe("Origin");
   });
 
   it("returns true and ends the response for OPTIONS preflight", () => {
@@ -176,6 +184,37 @@ describe("applyCors", () => {
     );
     expect(res.headers["Strict-Transport-Security"]).toContain("max-age=");
     expect(res.headers["Content-Security-Policy"]).toBe("default-src 'none'");
+  });
+
+  it("echoes an allowed origin when it matches the request origin", () => {
+    const res = fakeRes();
+    const req = fakeReq("GET", {
+      origin: "https://usemeridian.vercel.app",
+    });
+    applyCors(req, res);
+    expect(res.headers["Access-Control-Allow-Origin"]).toBe(
+      "https://usemeridian.vercel.app"
+    );
+  });
+
+  it("returns 403 for a disallowed origin", () => {
+    const res = fakeRes();
+    const req = fakeReq("GET", { origin: "https://evil.com" });
+    const handled = applyCors(req, res);
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toMatchObject({
+      error: {
+        code: "ORIGIN_NOT_ALLOWED",
+        message: "Origin not allowed",
+      },
+    });
+  });
+
+  it("includes Vary: Origin header for proper caching", () => {
+    const res = fakeRes();
+    applyCors(fakeReq("GET"), res);
+    expect(res.headers["Vary"]).toBe("Origin");
   });
 });
 

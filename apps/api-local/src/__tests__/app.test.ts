@@ -153,3 +153,102 @@ describe("request body limit", () => {
     expect(res.statusCode).not.toBe(413);
   });
 });
+
+describe("CORS multiple origins", () => {
+  it("accepts comma-separated origins", async () => {
+    const server = await build({
+      enableRateLimit: false,
+      allowedOrigin: "https://app1.example,https://app2.example",
+    });
+
+    expect(await preflightOrigin(server, "https://app1.example")).toBe(
+      "https://app1.example"
+    );
+    expect(await preflightOrigin(server, "https://app2.example")).toBe(
+      "https://app2.example"
+    );
+  });
+
+  it("rejects a disallowed origin with CORS error", async () => {
+    const server = await build({
+      enableRateLimit: false,
+      allowedOrigin: "https://app1.example,https://app2.example",
+    });
+
+    const res = await server.inject({
+      method: "GET",
+      url: "/health",
+      headers: { origin: "https://evil.example" },
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({
+      message: "Not allowed by CORS",
+    });
+  });
+
+  it("allows requests with no origin header", async () => {
+    const server = await build({
+      enableRateLimit: false,
+      allowedOrigin: "https://app1.example",
+    });
+
+    const res = await server.inject({
+      method: "GET",
+      url: "/health",
+    });
+
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("includes Vary: Origin header", async () => {
+    const server = await build({
+      enableRateLimit: false,
+      allowedOrigin: "https://app1.example",
+    });
+
+    const res = await server.inject({
+      method: "GET",
+      url: "/health",
+      headers: { origin: "https://app1.example" },
+    });
+
+    expect(res.headers["vary"]).toBe("Origin");
+  });
+
+  it("throws when ALLOWED_ORIGIN contains a wildcard", async () => {
+    await expect(
+      build({
+        enableRateLimit: false,
+        allowedOrigin: "https://*.example.com",
+      })
+    ).rejects.toThrow(
+      'ALLOWED_ORIGIN contains wildcard "https://*.example.com". Wildcards are not permitted.'
+    );
+  });
+
+  it("throws when ALLOWED_ORIGIN is a single wildcard", async () => {
+    await expect(
+      build({
+        enableRateLimit: false,
+        allowedOrigin: "*",
+      })
+    ).rejects.toThrow(
+      'ALLOWED_ORIGIN contains wildcard "*". Wildcards are not permitted.'
+    );
+  });
+
+  it("parses and trims comma-separated origins correctly", async () => {
+    const server = await build({
+      enableRateLimit: false,
+      allowedOrigin: " https://app1.example , https://app2.example ",
+    });
+
+    expect(await preflightOrigin(server, "https://app1.example")).toBe(
+      "https://app1.example"
+    );
+    expect(await preflightOrigin(server, "https://app2.example")).toBe(
+      "https://app2.example"
+    );
+  });
+});

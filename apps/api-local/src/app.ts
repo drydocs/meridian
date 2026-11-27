@@ -26,9 +26,38 @@ export interface BuildAppOptions {
   allowedOrigin?: string | undefined;
 }
 
+/**
+ * Parse and validate ALLOWED_ORIGIN at startup.
+ * Accepts comma-separated origins and rejects wildcards.
+ */
+function parseAllowedOrigins(raw: string): string[] {
+  const origins = raw
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
+
+  // Reject wildcard origins
+  for (const origin of origins) {
+    if (origin === "*" || origin.includes("*")) {
+      throw new Error(
+        `ALLOWED_ORIGIN contains wildcard "${origin}". Wildcards are not permitted.`
+      );
+    }
+  }
+
+  return origins;
+}
+
 export async function buildApp(
   options: BuildAppOptions = {}
 ): Promise<FastifyInstance> {
+  // Validate ALLOWED_ORIGIN at startup
+  const allowedOriginsRaw =
+    options.allowedOrigin ??
+    process.env.ALLOWED_ORIGIN ??
+    DEFAULT_ALLOWED_ORIGIN;
+  const allowedOrigins = parseAllowedOrigins(allowedOriginsRaw);
+
   const app = Fastify({
     logger: options.logger ?? false,
     bodyLimit: MAX_BODY_BYTES,
@@ -68,10 +97,20 @@ export async function buildApp(
   }
 
   await app.register(cors, {
-    origin:
-      options.allowedOrigin ??
-      process.env.ALLOWED_ORIGIN ??
-      DEFAULT_ALLOWED_ORIGIN,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g., curl, server-to-server)
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      // Check if the request origin is in the allowed list
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"), false);
+      }
+    },
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", REQUEST_ID_HEADER],
   });
@@ -117,6 +156,10 @@ export async function buildApp(
       "max-age=63072000; includeSubDomains; preload"
     );
     reply.header("Content-Security-Policy", "default-src 'none'");
+    // Add Vary: Origin for CORS caching
+    if (!reply.hasHeader("Vary")) {
+      reply.header("Vary", "Origin");
+    }
     done();
   });
 

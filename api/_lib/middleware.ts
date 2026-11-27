@@ -16,7 +16,28 @@ import {
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN;
+// Parse and validate ALLOWED_ORIGIN at startup
+function parseAllowedOrigins(raw: string): string[] {
+  const origins = raw
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
+
+  // Reject wildcard origins
+  for (const origin of origins) {
+    if (origin === "*" || origin.includes("*")) {
+      throw new Error(
+        `ALLOWED_ORIGIN contains wildcard "${origin}". Wildcards are not permitted.`
+      );
+    }
+  }
+
+  return origins;
+}
+
+const ALLOWED_ORIGINS = parseAllowedOrigins(
+  process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN
+);
 
 export { MAX_BODY_BYTES };
 
@@ -229,9 +250,35 @@ export function sendResponse(
 export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
   applySecurityHeaders(res);
   res.setHeader(REQUEST_ID_HEADER, getRequestId(req));
-  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+
+  const requestOrigin = Array.isArray(req.headers.origin)
+    ? req.headers.origin[0]
+    : req.headers.origin;
+
+  // Check if the request origin is in the allowed list
+  if (requestOrigin && ALLOWED_ORIGINS.includes(requestOrigin)) {
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+  } else if (!requestOrigin) {
+    // No origin header (e.g., non-browser client): use first allowed origin
+    // ALLOWED_ORIGINS is guaranteed to have at least one entry due to DEFAULT_ALLOWED_ORIGIN
+    res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGINS[0]!);
+  } else {
+    // Disallowed origin: return 403
+    sendResponse(req, res, 403, {
+      error: {
+        code: "ORIGIN_NOT_ALLOWED",
+        message: "Origin not allowed",
+      },
+    });
+    return true;
+  }
+
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Request-ID");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    `Content-Type, ${REQUEST_ID_HEADER}`
+  );
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return true;
