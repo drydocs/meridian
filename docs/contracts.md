@@ -38,13 +38,15 @@ calculations to neutralise the first-depositor inflation attack: an attacker
 who donates USDC directly to the adapter recovers only a negligible fraction of
 the donation, making the skim unprofitable.
 
+A pending migration can be cancelled during its cooldown with `cancel_migration`. The call is admin-only, clears the migration snapshot, emits an admin event and fails with `NoPendingMigration` when nothing is pending. After a cancellation `migrate_adapter` rejects the call until a new `begin_migration` is made, and the cooldown itself is unchanged.
+
 For the full entry-point reference, error codes, and storage layout, see
 [`apps/docs/architecture/vault-contract.md`](../apps/docs/architecture/vault-contract.md),
 that page is the canonical, detailed reference.
 
 ## Contract immutability
 
-None of Meridian's contracts — vault or adapters — expose an
+Neither the vault nor the adapters expose an
 `update_current_contract_wasm` (or any other upgrade) entry point. This is a
 deliberate security property, not an omission: **once deployed, no one,
 including Meridian, can rewrite the contract logic.** For a savings product,

@@ -9,6 +9,7 @@ import {
 import {
   applyCors,
   checkRateLimit,
+  readJsonBody,
   sendResponse,
 } from "../../_lib/middleware.js";
 import { logError } from "../../_lib/logger.js";
@@ -53,7 +54,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return sendResponse(req, res, 404, { error: "Unknown action" });
   }
 
-  const result = await ACTIONS[action](req.body);
+  const parsed = await readJsonBody(req, res);
+  if (!parsed.ok) return;
+
+  const result = await ACTIONS[action](parsed.body);
   if (result.error) {
     logError("tx.failed", req, result.error, { action });
   }

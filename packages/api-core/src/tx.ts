@@ -40,6 +40,7 @@ const USER_FIXABLE_CONTRACT_ERRORS: Record<number, string> = {
   7: "Insufficient shares for this withdrawal.",
   15: "Withdrawal returned less USDC than your minimum. Adjust slippage and retry.",
   18: "Slippage tolerance exceeded. Adjust slippage and retry.",
+  41: "Insufficient liquidity in the underlying yield protocol for this withdrawal. Try a smaller amount or retry later.",
 };
 
 /**

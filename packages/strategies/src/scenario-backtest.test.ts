@@ -12,6 +12,13 @@ import {
   scenarioPriceFeed,
 } from "./regime-scenarios";
 import type { MarketRegime, RegimeScenarioOptions } from "./regime-scenarios";
+import {
+  DELTA_NEUTRAL_ID,
+  STRATEGY_VERSION_1,
+  resolveStrategy,
+} from "./registry";
+import { parseScenario } from "./scenario";
+import { resolveScenarioSources } from "./scenario-sources";
 import { FixedPointDecimal } from "./types";
 
 /**
@@ -208,5 +215,41 @@ describe("delta-neutral scenario backtests", () => {
     expect(strategy.totalPnl.toStroops()).not.toBe(
       result.finalValue.toStroops() - result.initialCash.toStroops()
     );
+  });
+
+  it("resolves and runs every regime through parseScenario, resolveScenarioSources, resolveStrategy, and runBacktest", async () => {
+    for (const regime of MARKET_REGIMES) {
+      const raw = buildRegimeScenario(regime);
+      expect(raw.strategy.id).toBe(DELTA_NEUTRAL_ID);
+      expect(raw.strategy.version).toBe(STRATEGY_VERSION_1);
+
+      const scenario = parseScenario(raw);
+      const sources = await resolveScenarioSources(scenario);
+      const resolved = resolveStrategy(
+        scenario.strategy.id,
+        scenario.strategy.version,
+        scenario.strategy.params,
+        { priceFeed: sources.prices }
+      );
+      const result = runBacktest({
+        clock: scenarioClock(scenario),
+        assets: [resolved.config.asset],
+        prices: sources.prices,
+        strategy: resolved.strategy as DeltaNeutralStrategy,
+        strategyConfig: resolved.config as DeltaNeutralConfig,
+        initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
+        ...(sources.accrual ? { accrual: sources.accrual } : {}),
+      });
+
+      const direct = runRegime(regime);
+      expect(result.strategyName).toBe(DELTA_NEUTRAL_ID);
+      expect(result.snapshots).toHaveLength(25);
+      expect(result.strategyEquity.toStroops()).toBe(
+        direct.result.strategyEquity.toStroops()
+      );
+      expect(serializeSnapshots(result.snapshots)).toBe(
+        serializeSnapshots(direct.result.snapshots)
+      );
+    }
   });
 });

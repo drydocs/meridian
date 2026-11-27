@@ -229,6 +229,10 @@ async function dispatchVercel(
       responseBody = data;
       return this as VercelResponse;
     },
+    send(data: unknown) {
+      responseBody = typeof data === "string" ? JSON.parse(data) : data;
+      return this as VercelResponse;
+    },
     setHeader(name: string, value: string) {
       headers[name.toLowerCase()] = String(value);
       return this as VercelResponse;

@@ -362,6 +362,43 @@ impl MeridianBlendAdapter {
             .unwrap_or(0)
     }
 
+    /// Returns the maximum USDC amount currently withdrawable from the Blend
+    /// pool for this adapter: the minimum of the adapter's live redeemable
+    /// collateral value and the Blend pool's unborrowed USDC token balance.
+    pub fn available_liquidity(env: Env) -> i128 {
+        let pool: Address = adapter_common::get_or_not_initialized::<_, ContractError>(
+            &env,
+            env.storage().instance().get(&POOL_KEY),
+        );
+        let usdc = get_usdc(&env);
+        let adapter = env.current_contract_address();
+
+        let client = BlendPoolClient::new(&env, &pool);
+        let reserve = client.get_reserve(&usdc);
+        let b_tokens = client
+            .get_positions(&adapter)
+            .collateral
+            .get(reserve.config.index)
+            .unwrap_or(0);
+        if b_tokens <= 0 {
+            return 0;
+        }
+
+        let position_usdc = match b_tokens_to_usdc(b_tokens, reserve.data.b_rate) {
+            Ok(amount) => amount,
+            Err(err) => panic_with_error!(&env, err),
+        };
+        if position_usdc <= 0 {
+            return 0;
+        }
+
+        let pool_balance = TokenClient::new(&env, &usdc).balance(&pool);
+        if pool_balance <= 0 {
+            return 0;
+        }
+        position_usdc.min(pool_balance)
+    }
+
     /// Returns the Blend pool this adapter supplies to.
     pub fn get_pool(env: Env) -> Address {
         adapter_common::get_or_not_initialized::<_, ContractError>(
@@ -1210,5 +1247,29 @@ mod tests {
         let recipient = Address::generate(&env);
         adapter.withdraw(&amount, &recipient);
         report_benchmark(&env, "blend_adapter.withdraw");
+    }
+
+    #[test]
+    fn available_liquidity_handles_full_partial_and_zero_pool_liquidity() {
+        let (env, vault, usdc_id, adapter, pool) = setup();
+        let amount = 100_0000000_i128;
+
+        // Empty adapter reports 0 available liquidity.
+        assert_eq!(adapter.available_liquidity(), 0);
+
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        adapter.deposit(&amount);
+
+        // Fully liquid: pool holds the entire deposited USDC.
+        assert_eq!(adapter.available_liquidity(), amount);
+
+        // Partially liquid: simulate borrowers drawing 65 USDC out of the pool.
+        let borrower = Address::generate(&env);
+        TokenClient::new(&env, &usdc_id).transfer(&pool.address, &borrower, &65_0000000_i128);
+        assert_eq!(adapter.available_liquidity(), 35_0000000_i128);
+
+        // Zero liquidity: remaining 35 USDC leaves the pool.
+        TokenClient::new(&env, &usdc_id).transfer(&pool.address, &borrower, &35_0000000_i128);
+        assert_eq!(adapter.available_liquidity(), 0);
     }
 }

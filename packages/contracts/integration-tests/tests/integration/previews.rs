@@ -126,6 +126,7 @@ fn preview_deposit_and_withdraw_return_typed_errors_on_edge_cases() {
             fee: 0,
             treasury_shares: 0,
             assets_out: 0,
+            available_liquidity: 0,
         }
     );
 

@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import type Redis from "ioredis";
-import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import { DEFAULT_ALLOWED_ORIGIN, MAX_BODY_BYTES } from "@meridian/shared";
 import {
   createRequestId,
   REQUEST_ID_HEADER,
@@ -15,6 +15,7 @@ import { txRoute } from "./routes/tx.js";
 import { keepersRoute } from "./routes/keepers.js";
 import { adminRoute } from "./routes/admin.js";
 import { configRoute } from "./routes/config.js";
+import { healthRoute } from "./routes/health.js";
 
 export interface BuildAppOptions {
   logger?: boolean | object | undefined;
@@ -30,10 +31,30 @@ export async function buildApp(
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: options.logger ?? false,
-    bodyLimit: 10 * 1024,
+    bodyLimit: MAX_BODY_BYTES,
     requestIdHeader: REQUEST_ID_HEADER,
     genReqId: (req) =>
       createRequestId(req.headers[REQUEST_ID_HEADER.toLowerCase()]),
+  });
+
+  // Match the deployed handlers: an oversized body is a 413 with a stable code.
+  app.setErrorHandler((error, _req, reply) => {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "FST_ERR_CTP_BODY_TOO_LARGE"
+    ) {
+      return reply.status(413).send({
+        error: "Payload too large",
+        code: "PAYLOAD_TOO_LARGE",
+      });
+    }
+    // Keep the status of errors raised by plugins, such as the rate limiter,
+    // which hands a plain object with a statusCode to the error handler.
+    const status = (error as { statusCode?: number } | null)?.statusCode;
+    if (typeof status === "number" && status >= 400) reply.status(status);
+    return reply.send(error);
   });
 
   if (options.logger) {
@@ -105,6 +126,7 @@ export async function buildApp(
   app.register(keepersRoute, { prefix: "/api/v1/keepers" });
   app.register(adminRoute, { prefix: "/api/v1/admin" });
   app.register(configRoute, { prefix: "/api/v1/config" });
+  app.register(healthRoute, { prefix: "/api/v1/health" });
 
   app.get("/health", async () => ({ status: "ok" }));
 

@@ -21,7 +21,8 @@
     "check:wasm-size": "tsx scripts/check-wasm-size.ts",
     "check:contract-benchmarks": "tsx scripts/check-contract-benchmarks.ts",
     "bundle:check": "pnpm --filter @meridian/web bundle:check",
-    "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts"
+    "write:deployment-manifest": "tsx scripts/write-deployment-manifest.ts",
+    "keeper:doctor": "tsx scripts/keeper-doctor.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.6.1"
@@ -40,7 +41,7 @@
     "@typescript-eslint/parser": "^8.70.0"
   },
   "engines": {
-    "node": "^20.0.0",
+    "node": "^22.0.0",
     "pnpm": "^9.0.0"
   },
   "packageManager": "pnpm@9.0.0",

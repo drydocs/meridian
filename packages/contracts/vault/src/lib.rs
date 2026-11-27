@@ -5,7 +5,7 @@ extern crate std;
 
 mod errors;
 pub mod pricing;
-mod storage;
+pub mod storage;
 
 pub use errors::ContractError;
 pub use storage::{
@@ -43,6 +43,8 @@ const ADAPTER_EVT: (Symbol, Symbol, u32) =
     (ADMIN_EVT, symbol_short!("adapter"), EVENT_SCHEMA_VERSION);
 const MIG_BEGIN_EVT: (Symbol, Symbol, u32) =
     (ADMIN_EVT, symbol_short!("mig_begin"), EVENT_SCHEMA_VERSION);
+const MIG_CANCEL_EVT: (Symbol, Symbol, u32) =
+    (ADMIN_EVT, symbol_short!("mig_canc"), EVENT_SCHEMA_VERSION);
 const MIGRATE_EVT: (Symbol, Symbol, u32) =
     (ADMIN_EVT, symbol_short!("migrate"), EVENT_SCHEMA_VERSION);
 const RESCUE_EVT: (Symbol, Symbol, u32) =
@@ -110,6 +112,10 @@ pub trait YieldAdapterInterface {
     /// `begin_migration` reject a target whose `get_usdc` is missing, fails,
     /// or names a different token.
     fn get_usdc(env: Env) -> Address;
+    /// Read-only view of the maximum USDC currently withdrawable from the
+    /// underlying protocol for this adapter (bounded by both the adapter's
+    /// redeemable position and the protocol's liquid reserve).
+    fn available_liquidity(env: Env) -> i128;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +169,10 @@ pub struct WithdrawPreview {
     pub treasury_shares: i128,
     /// USDC the caller receives, exactly what `withdraw` returns.
     pub assets_out: i128,
+    /// Maximum USDC currently liquid and withdrawable from the adapter.
+    /// When `available_liquidity < gross_assets`, `withdraw` will fail with
+    /// `ContractError::AdapterLiquidityInsufficient`.
+    pub available_liquidity: i128,
 }
 
 /// Snapshot of the vault's configuration and totals returned by
@@ -747,12 +757,29 @@ impl MeridianVault {
         let adapter_shares_to_burn =
             pricing::adapter_shares_for_shares(shares, total_shares, total_adapter_shares)?;
 
-        // Adapter redeems protocol shares, delivers USDC to vault, returns amount.
+        // Liquidity preflight: distinguish temporary adapter illiquidity from a
+        // dust withdrawal that legitimately rounds down to zero USDC.
         let adapter_client = AdapterClient::new(&env, &adapter_addr);
+        let total_assets = adapter_client.total_assets();
+        let expected_gross = pricing::assets_for_adapter_shares(
+            adapter_shares_to_burn,
+            total_assets,
+            total_adapter_shares,
+        )?;
+        let available_liquidity = adapter_client.available_liquidity().max(0);
+        if expected_gross > 0 && available_liquidity < expected_gross {
+            return Err(ContractError::AdapterLiquidityInsufficient);
+        }
+
+        // Adapter redeems protocol shares, delivers USDC to vault, returns amount.
         let usdc_out =
             adapter_client.withdraw(&adapter_shares_to_burn, &env.current_contract_address());
 
         if usdc_out <= 0 {
+            let remaining_liquidity = adapter_client.available_liquidity().max(0);
+            if expected_gross > 0 && remaining_liquidity < expected_gross {
+                return Err(ContractError::AdapterLiquidityInsufficient);
+            }
             return Err(ContractError::WithdrawalTooSmall);
         }
 
@@ -1345,6 +1372,15 @@ impl MeridianVault {
         Ok(shares)
     }
 
+    /// Returns the maximum USDC amount currently withdrawable from the active
+    /// yield adapter without triggering `AdapterLiquidityInsufficient`.
+    pub fn available_liquidity(env: Env) -> Result<i128, ContractError> {
+        let adapter = Self::adapter(&env)?;
+        let client = AdapterClient::new(&env, &adapter);
+        client.refresh();
+        Ok(client.available_liquidity().max(0))
+    }
+
     /// What `withdraw(holder, shares, _)` would do right now: gross redemption,
     /// performance fee on the holder's own cost basis (including basis moved
     /// by mUSDC transfers), treasury shares minted and the net payout. Returns
@@ -1364,16 +1400,24 @@ impl MeridianVault {
             return Err(ContractError::ZeroAmount);
         }
         if shares == 0 {
+            let available_liquidity = match Self::adapter(&env) {
+                Ok(adapter) => AdapterClient::new(&env, &adapter)
+                    .available_liquidity()
+                    .max(0),
+                Err(_) => 0,
+            };
             return Ok(WithdrawPreview {
                 gross_assets: 0,
                 fee: 0,
                 treasury_shares: 0,
                 assets_out: 0,
+                available_liquidity,
             });
         }
         let musdc = Self::musdc(&env)?;
         let adapter = Self::adapter(&env)?;
-        AdapterClient::new(&env, &adapter).refresh();
+        let adapter_client = AdapterClient::new(&env, &adapter);
+        adapter_client.refresh();
 
         let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
         let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
@@ -1385,7 +1429,8 @@ impl MeridianVault {
             return Err(ContractError::InsufficientShares);
         }
 
-        let total_assets = AdapterClient::new(&env, &adapter).total_assets();
+        let total_assets = adapter_client.total_assets();
+        let available_liquidity = adapter_client.available_liquidity().max(0);
         let adapter_shares =
             pricing::adapter_shares_for_shares(shares, total_shares, total_adapter_shares)?;
         let gross =
@@ -1416,6 +1461,7 @@ impl MeridianVault {
             fee: outcome.fee,
             treasury_shares: outcome.treasury_shares,
             assets_out: outcome.net_usdc_out,
+            available_liquidity,
         })
     }
 
@@ -1705,6 +1751,32 @@ impl MeridianVault {
             MIG_BEGIN_EVT,
             (new_adapter, snapshot_ledger + MIN_LEDGER_GAP),
         );
+
+        Ok(())
+    }
+
+    /// Cancels a pending migration during its cooldown. Admin only.
+    ///
+    /// Clears the snapshot recorded by `begin_migration`, so
+    /// `migrate_adapter` rejects the cancelled target with
+    /// `MigrationNotInitialized` until a new `begin_migration` is made. The
+    /// cooldown for a later migration is unchanged. Returns
+    /// `NoPendingMigration` when no migration is pending. Publishes an
+    /// admin `mig_canc` event carrying the cancelled target adapter.
+    pub fn cancel_migration(env: Env) -> Result<(), ContractError> {
+        Self::require_admin(&env)?;
+        Self::extend_instance(&env);
+
+        let active: i128 = env.storage().instance().get(&MIG_ACTIVE).unwrap_or(0);
+        let snapshot: Option<MigrationSnapshot> = env.storage().instance().get(&MIG_SNAP);
+        let snapshot = match (active, snapshot) {
+            (a, Some(snapshot)) if a != 0 => snapshot,
+            _ => return Err(ContractError::NoPendingMigration),
+        };
+
+        env.storage().instance().remove(&MIG_SNAP);
+        env.storage().instance().remove(&MIG_ACTIVE);
+        env.events().publish(MIG_CANCEL_EVT, snapshot.adapter);
 
         Ok(())
     }
@@ -2562,6 +2634,29 @@ mod tests {
             env.storage().instance().get(&MA_SH).unwrap_or(0)
         }
 
+        /// Optional liquidity cap for testing partially liquid and
+        /// zero-liquidity adapters without draining the adapter's reported
+        /// `total_assets()`. Passing a negative value clears the cap.
+        pub fn set_liquidity_cap(env: Env, cap: i128) {
+            if cap < 0 {
+                env.storage().instance().remove(&symbol_short!("MA_LIQ"));
+            } else {
+                env.storage().instance().set(&symbol_short!("MA_LIQ"), &cap);
+            }
+        }
+
+        pub fn available_liquidity(env: Env) -> i128 {
+            let total = Self::total_assets(env.clone());
+            match env
+                .storage()
+                .instance()
+                .get::<_, i128>(&symbol_short!("MA_LIQ"))
+            {
+                Some(cap) => total.min(cap).max(0),
+                None => total.max(0),
+            }
+        }
+
         pub fn refresh(env: Env) {
             // A real adapter's refresh()/accrue() extends its own instance
             // TTL (#704); begin_migration()'s single refresh() call at the
@@ -2641,6 +2736,10 @@ mod tests {
                 env.storage().instance().get(&LA_SH).unwrap_or(0)
             }
 
+            pub fn available_liquidity(env: Env) -> i128 {
+                Self::total_assets(env).max(0)
+            }
+
             pub fn refresh(env: Env) {
                 // See MockAdapter::refresh() above.
                 env.storage()
@@ -2686,6 +2785,10 @@ mod tests {
 
             pub fn total_shares(env: Env) -> i128 {
                 env.storage().instance().get(&CM_SH).unwrap_or(0)
+            }
+
+            pub fn available_liquidity(env: Env) -> i128 {
+                Self::total_assets(env).max(0)
             }
 
             pub fn total_assets(env: Env) -> i128 {
@@ -2832,6 +2935,10 @@ mod tests {
                 env.storage().instance().get(&ZS_SH).unwrap_or(0)
             }
 
+            pub fn available_liquidity(env: Env) -> i128 {
+                Self::total_assets(env).max(0)
+            }
+
             pub fn refresh(env: Env) {
                 // See MockAdapter::refresh() above.
                 env.storage()
@@ -2914,6 +3021,10 @@ mod tests {
 
             pub fn total_shares(env: Env) -> i128 {
                 env.storage().instance().get(&MM_SH).unwrap_or(0)
+            }
+
+            pub fn available_liquidity(env: Env) -> i128 {
+                Self::total_assets(env).max(0)
             }
 
             pub fn refresh(env: Env) {
@@ -3010,6 +3121,10 @@ mod tests {
 
             pub fn total_shares(env: Env) -> i128 {
                 env.storage().instance().get(&CM_SH).unwrap_or(0)
+            }
+
+            pub fn available_liquidity(env: Env) -> i128 {
+                Self::total_assets(env).max(0)
             }
 
             pub fn refresh(env: Env) {
@@ -4638,6 +4753,99 @@ mod tests {
     }
 
     #[test]
+    fn cancel_migration_clears_the_pending_migration() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0);
+        let new_adapter_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter_id).initialize(&usdc);
+
+        vault.begin_migration(&new_adapter_id);
+        assert_eq!(vault.try_cancel_migration(), Ok(Ok(())));
+
+        let event = find_admin_event(&env, &vault.address, symbol_short!("mig_canc"))
+            .expect("mig_canc event not found");
+        let cancelled: Address = soroban_sdk::TryIntoVal::try_into_val(&event.2, &env).unwrap();
+        assert_eq!(cancelled, new_adapter_id);
+        assert_eq!(
+            vault.try_get_migration_snapshot(),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+    }
+
+    #[test]
+    fn cancel_migration_requires_admin_authorization() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter_id).initialize(&usdc);
+        vault.begin_migration(&new_adapter_id);
+        env.set_auths(&[]);
+
+        assert_eq!(
+            vault.try_cancel_migration(),
+            Err(Err(soroban_sdk::InvokeError::Abort))
+        );
+        assert_eq!(vault.get_migration_snapshot().adapter, new_adapter_id);
+    }
+
+    #[test]
+    fn cancel_migration_fails_when_nothing_is_pending() {
+        let (_env, _admin, _user, _usdc, _musdc, _adapter, vault) = setup();
+
+        assert_eq!(
+            vault.try_cancel_migration(),
+            Err(Ok(ContractError::NoPendingMigration))
+        );
+    }
+
+    #[test]
+    fn cancel_migration_cannot_be_repeated() {
+        let (env, _admin, _user, usdc, _musdc, _adapter, vault) = setup();
+        let new_adapter_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter_id).initialize(&usdc);
+        vault.begin_migration(&new_adapter_id);
+        vault.cancel_migration();
+
+        assert_eq!(
+            vault.try_cancel_migration(),
+            Err(Ok(ContractError::NoPendingMigration))
+        );
+    }
+
+    #[test]
+    fn migrate_adapter_is_rejected_after_cancellation() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0);
+        let new_adapter_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter_id).initialize(&usdc);
+        vault.begin_migration(&new_adapter_id);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += MIN_LEDGER_GAP);
+        vault.cancel_migration();
+
+        assert_eq!(
+            vault.try_migrate_adapter(&new_adapter_id, &0),
+            Err(Ok(ContractError::MigrationNotInitialized))
+        );
+        assert_eq!(vault.get_total_assets(), 100_0000000_i128);
+    }
+
+    #[test]
+    fn migration_can_be_restarted_after_cancellation() {
+        let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128, &0);
+        let new_adapter_id = env.register(MockAdapter, ());
+        MockAdapterClient::new(&env, &new_adapter_id).initialize(&usdc);
+        vault.begin_migration(&new_adapter_id);
+        vault.cancel_migration();
+
+        vault.begin_migration(&new_adapter_id);
+        env.ledger()
+            .with_mut(|li| li.sequence_number += MIN_LEDGER_GAP);
+        assert_eq!(vault.try_migrate_adapter(&new_adapter_id, &0), Ok(Ok(())));
+        assert_eq!(vault.get_adapter(), new_adapter_id);
+    }
+
+    #[test]
     fn begin_migration_records_snapshot_and_getter_returns_it() {
         let (env, _admin, user, usdc, _musdc, _adapter, vault) = setup();
         vault.deposit(&user, &100_0000000_i128, &0);
@@ -5867,6 +6075,10 @@ mod tests {
                 env.storage().instance().get(&CR_SH).unwrap_or(0)
             }
 
+            pub fn available_liquidity(env: Env) -> i128 {
+                Self::total_assets(env).max(0)
+            }
+
             pub fn refresh(env: Env) {
                 // See MockAdapter::refresh() above.
                 env.storage()
@@ -6323,7 +6535,8 @@ mod tests {
                 gross_assets: 0,
                 fee: 0,
                 treasury_shares: 0,
-                assets_out: 0
+                assets_out: 0,
+                available_liquidity: 0,
             }
         );
         assert_eq!(
@@ -6739,6 +6952,10 @@ mod tests {
 
             pub fn total_shares(env: Env) -> i128 {
                 env.storage().instance().get(&RA_SH).unwrap_or(0)
+            }
+
+            pub fn available_liquidity(env: Env) -> i128 {
+                Self::total_assets(env).max(0)
             }
 
             pub fn refresh(env: Env) {
@@ -7763,5 +7980,73 @@ mod tests {
             vault.try_withdraw_assets(&user, &50_0000000_i128, &i128::MAX),
             Err(Err(soroban_sdk::InvokeError::Abort))
         );
+    }
+
+    #[test]
+    fn withdraw_and_preview_with_fully_liquid_adapter() {
+        let (_env, _treasury, user, _usdc_id, _musdc_id, _adapter_id, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0);
+
+        let shares = vault.get_position(&user);
+        let preview = vault.preview_withdraw(&user, &shares);
+        assert_eq!(preview.gross_assets, amount);
+        assert_eq!(preview.available_liquidity, amount);
+        assert_eq!(vault.available_liquidity(), amount);
+
+        let received = vault.withdraw(&user, &shares, &0);
+        assert_eq!(received, preview.assets_out);
+    }
+
+    #[test]
+    fn withdraw_and_preview_with_partially_liquid_adapter() {
+        let (env, _treasury, user, _usdc_id, _musdc_id, adapter_id, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0);
+
+        let partial_liquidity = 40_0000000_i128;
+        MockAdapterClient::new(&env, &adapter_id).set_liquidity_cap(&partial_liquidity);
+
+        let full_shares = vault.get_position(&user);
+        let preview = vault.preview_withdraw(&user, &full_shares);
+        assert_eq!(preview.gross_assets, amount);
+        assert_eq!(preview.available_liquidity, partial_liquidity);
+        assert_eq!(vault.available_liquidity(), partial_liquidity);
+
+        // Requesting more than available liquidity fails with the typed error,
+        // never WithdrawalTooSmall.
+        let oversized_shares = full_shares * 6 / 10;
+        assert_eq!(
+            vault.try_withdraw(&user, &oversized_shares, &0),
+            Err(Ok(ContractError::AdapterLiquidityInsufficient))
+        );
+
+        // Requesting within available liquidity succeeds unchanged.
+        let within_shares = full_shares * 3 / 10;
+        let received = vault.withdraw(&user, &within_shares, &0);
+        assert_eq!(received, 30_0000000_i128);
+    }
+
+    #[test]
+    fn withdraw_and_preview_with_zero_liquidity_adapter() {
+        let (env, _treasury, user, _usdc_id, _musdc_id, adapter_id, vault) = setup();
+        let amount = 100_0000000_i128;
+        vault.deposit(&user, &amount, &0);
+
+        MockAdapterClient::new(&env, &adapter_id).set_liquidity_cap(&0);
+
+        let shares = vault.get_position(&user);
+        let preview = vault.preview_withdraw(&user, &shares);
+        assert_eq!(preview.gross_assets, amount);
+        assert_eq!(preview.available_liquidity, 0);
+        assert_eq!(vault.available_liquidity(), 0);
+
+        // Zero liquidity must return AdapterLiquidityInsufficient, not WithdrawalTooSmall.
+        assert_eq!(
+            vault.try_withdraw(&user, &shares, &0),
+            Err(Ok(ContractError::AdapterLiquidityInsufficient))
+        );
+        // Holder's shares remain untouched after the failed preflight.
+        assert_eq!(vault.get_position(&user), shares);
     }
 }
