@@ -325,46 +325,41 @@ export async function runPositionSnapshotKeeper(options: {
       logger,
       throttle
     );
-    if (wrote) {
-      result.recorded += 1;
-    } else {
-      result.skipped += 1;
-    }
+    if (wrote) result.recorded += 1;
+    else result.skipped += 1;
   };
 
-  let lastHandled: string | null = null;
-  for (let i = 0; i < batch.length; i++) {
-    const publicKey = batch[i]!;
+  for (const publicKey of batch) {
     if (clock() >= deadlineAt) {
       result.deadlineReached = true;
       result.hasMore = true;
       break;
     }
-    result.processed += 1;
-    lastHandled = publicKey;
     try {
       await withRaceTimeout(
         processWallet(publicKey),
         perWalletTimeoutMs,
-        `snapshot ${publicKey}`
+        `position snapshot timed out for ${publicKey}`
       );
     } catch (err) {
       result.failures.push({ publicKey, error: errorMessage(err) });
     }
+    result.processed += 1;
+    result.nextCursor = publicKey;
   }
 
-  if (result.deadlineReached) {
-    result.nextCursor = lastHandled;
-  } else if (trackedTotal > batch.length) {
-    result.hasMore = true;
-    result.nextCursor = lastHandled;
+  if (!result.deadlineReached && result.processed >= batch.length) {
+    result.hasMore = ordered.length > SNAPSHOT_MAX_TRACKED_PER_RUN;
+    result.nextCursor = result.hasMore ? result.nextCursor : null;
   }
 
-  if (result.failures.length > 0) {
-    logger.warn("[position-snapshots] run completed with failures", {
-      network,
-      failures: result.failures.length,
-    });
-  }
+  logger.info("[position-snapshots] run complete", {
+    network,
+    processed: result.processed,
+    recorded: result.recorded,
+    skipped: result.skipped,
+    failures: result.failures.length,
+    deadlineReached: result.deadlineReached,
+  });
   return result;
 }
