@@ -2,6 +2,7 @@ import { SimulationClock } from "./clock";
 import type { DeltaNeutralConfig } from "./delta-neutral";
 import { BacktestPriceFeed } from "./feeds";
 import { generateGbmPath } from "./gbm";
+import { DELTA_NEUTRAL_ID, STRATEGY_VERSION_1 } from "./registry";
 import {
   durationToMilliseconds,
   millisecondsToDuration,
@@ -17,25 +18,36 @@ import { KNOWN_ASSETS } from "./config";
  * Synthetic market regimes for scenario backtests (#932).
  *
  * A regime is a validated {@link Scenario}. Its window, asset, capital, strategy
- * identity and seed are the scenario's own fields, and the market parameters the
- * price path is generated from ride in `strategy.params`, which the schema
- * declares as fixed-point decimal strings. A run is reproducible from the
- * scenario alone, with no float in the path.
+ * identity (`delta-neutral` at {@link STRATEGY_VERSION_1}) and seed are the
+ * scenario's own fields. `strategy.params` carries both the standard
+ * delta-neutral parameters (`asset`, `targetLeverage`, `rebalanceBandBps`,
+ * `fundingRatePerSecond`) and the `market.*` regime parameters
+ * (`market.regime`, `market.startPrice`, `market.drift`, `market.volatility`,
+ * `market.fundingRatePerSecond`, `market.neutralityBandBps`,
+ * `market.targetLeverage`), all as fixed-point decimal strings. A run is
+ * reproducible from the scenario alone and resolves through
+ * `parseScenario` -> `resolveScenarioSources` -> `resolveStrategy` -> `runBacktest`.
  *
  * `source.price` is recorded as `horizon` because the schema's source field
- * selects a data origin and has no synthetic option. These scenarios read from
- * no source, their prices come from {@link scenarioPriceFeed}.
+ * selects a data origin and has no synthetic option. When resolved without
+ * `historicalData`, `resolveScenarioSources` detects the regime parameters and
+ * builds the price feed from {@link scenarioPriceFeed}.
  */
 
 /** The market regimes #932 covers. */
 export const MARKET_REGIMES = ["trending", "ranging", "high-funding"] as const;
 export type MarketRegime = (typeof MARKET_REGIMES)[number];
 
+/** Returns true if `value` is one of the supported {@link MARKET_REGIMES}. */
+export function isMarketRegime(value: string): value is MarketRegime {
+  return (MARKET_REGIMES as readonly string[]).includes(value);
+}
+
 /**
  * Market parameters carried in `strategy.params`, namespaced to keep them clear
  * of a strategy's own knobs.
  */
-const PARAM = {
+export const REGIME_PARAM_KEYS = {
   regime: "market.regime",
   startPrice: "market.startPrice",
   drift: "market.drift",
@@ -44,6 +56,16 @@ const PARAM = {
   neutralityBandBps: "market.neutralityBandBps",
   targetLeverage: "market.targetLeverage",
 } as const;
+
+const PARAM = REGIME_PARAM_KEYS;
+
+/** Returns true when `scenario` carries synthetic regime parameters. */
+export function isRegimeScenario(scenario: Scenario): boolean {
+  return Object.prototype.hasOwnProperty.call(
+    scenario.strategy.params,
+    REGIME_PARAM_KEYS.regime
+  );
+}
 
 interface RegimeParameters {
   readonly startPrice: string;
@@ -131,29 +153,37 @@ export function buildRegimeScenario(
   const startMs = options.startMs ?? DEFAULT_REGIME_START_MS;
   const market = { ...REGIME_PARAMETERS[regime], ...options.market };
 
+  const asset = options.asset ?? DEFAULT_REGIME_ASSET;
+  const neutralityBandBps = String(
+    options.neutralityBandBps ?? DEFAULT_REGIME_NEUTRALITY_BAND_BPS
+  );
+  const targetLeverage =
+    options.targetLeverage ?? DEFAULT_REGIME_TARGET_LEVERAGE;
+
   return parseScenario({
     window: {
       start: toIsoInstant(startMs),
       end: toIsoInstant(startMs + steps * stepMs),
       step: millisecondsToDuration(stepMs),
     },
-    assets: [options.asset ?? DEFAULT_REGIME_ASSET],
+    assets: [asset],
     source: { price: "horizon", rate: "blend" },
     startingCapital: options.capital ?? DEFAULT_REGIME_CAPITAL,
     strategy: {
-      id: "delta-neutral",
-      version: "1",
+      id: DELTA_NEUTRAL_ID,
+      version: STRATEGY_VERSION_1,
       params: {
+        asset,
+        targetLeverage,
+        rebalanceBandBps: neutralityBandBps,
+        fundingRatePerSecond: market.fundingRatePerSecond,
         [PARAM.regime]: regime,
         [PARAM.startPrice]: market.startPrice,
         [PARAM.drift]: market.drift,
         [PARAM.volatility]: market.volatility,
         [PARAM.fundingRatePerSecond]: market.fundingRatePerSecond,
-        [PARAM.neutralityBandBps]: String(
-          options.neutralityBandBps ?? DEFAULT_REGIME_NEUTRALITY_BAND_BPS
-        ),
-        [PARAM.targetLeverage]:
-          options.targetLeverage ?? DEFAULT_REGIME_TARGET_LEVERAGE,
+        [PARAM.neutralityBandBps]: neutralityBandBps,
+        [PARAM.targetLeverage]: targetLeverage,
       },
     },
     seed: options.seed ?? "932",
@@ -233,7 +263,8 @@ export function scenarioFundingRate(scenario: Scenario): FundingRate {
 /** The delta-neutral configuration the scenario describes, priced by `prices`. */
 export function scenarioDeltaNeutralConfig(
   scenario: Scenario,
-  prices: PriceFeed
+  prices: PriceFeed,
+  hedgeFeed?: PriceFeed
 ): DeltaNeutralConfig {
   return {
     id: `${scenario.strategy.id}:${param(scenario, PARAM.regime)}`,
@@ -244,5 +275,6 @@ export function scenarioDeltaNeutralConfig(
     rebalanceBandBps: Number(param(scenario, PARAM.neutralityBandBps)),
     fundingRate: scenarioFundingRate(scenario),
     priceFeed: prices,
+    ...(hedgeFeed ? { hedgeFeed } : {}),
   };
 }

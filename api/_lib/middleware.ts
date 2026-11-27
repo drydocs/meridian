@@ -1,8 +1,12 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
+import { Buffer } from "node:buffer";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import { DEFAULT_ALLOWED_ORIGIN, MAX_BODY_BYTES } from "@meridian/shared";
 import {
+  createRequestId,
+  responseBody,
+  REQUEST_ID_HEADER,
   CONFIG_CACHE_CONTROL,
   MAINNET_VAULT_CACHE_CONTROL,
   TESTNET_VAULT_CACHE_CONTROL,
@@ -35,9 +39,136 @@ const ALLOWED_ORIGINS = parseAllowedOrigins(
   process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN
 );
 
+export { MAX_BODY_BYTES };
+
+export const PAYLOAD_TOO_LARGE_ERROR = {
+  error: "Payload too large",
+  code: "PAYLOAD_TOO_LARGE",
+} as const;
+
+export function sendPayloadTooLarge(
+  req: VercelRequest,
+  res: VercelResponse
+): boolean {
+  sendResponse(req, res, 413, PAYLOAD_TOO_LARGE_ERROR);
+  return true;
+}
+
+export interface ReadJsonBodyResult {
+  ok: boolean;
+  body?: unknown;
+}
+
+function contentLength(req: VercelRequest): number | undefined {
+  const raw = req.headers["content-length"];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) ? value : undefined;
+  }
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+function byteLength(value: unknown): number {
+  if (typeof value === "string") return Buffer.byteLength(value, "utf8");
+  if (value === undefined) return 0;
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8");
+  } catch {
+    return MAX_BODY_BYTES + 1;
+  }
+}
+
+/**
+ * Reads and parses a JSON request body with a hard 10 KB ceiling.
+ * Content-Length is used only as an early rejection hint; the bytes actually
+ * received are always counted and checked before JSON parsing.
+ */
+export async function readJsonBody(
+  req: VercelRequest,
+  res: VercelResponse
+): Promise<ReadJsonBodyResult> {
+  const declaredLength = contentLength(req);
+  if (declaredLength !== undefined && declaredLength > MAX_BODY_BYTES) {
+    sendPayloadTooLarge(req, res);
+    return { ok: false };
+  }
+
+  const iterable = req as VercelRequest & {
+    [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>;
+  };
+
+  if (typeof iterable[Symbol.asyncIterator] === "function") {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let payloadTooLarge = false;
+    const stream = iterable as unknown as AsyncIterable<Uint8Array | string>;
+
+    try {
+      for await (const chunk of stream) {
+        const bytes =
+          typeof chunk === "string"
+            ? Buffer.from(chunk, "utf8")
+            : Buffer.from(chunk);
+        total += bytes.byteLength;
+        if (total > MAX_BODY_BYTES) {
+          payloadTooLarge = true;
+          if (
+            typeof (req as { destroy?: (error?: Error) => void }).destroy ===
+            "function"
+          ) {
+            (req as { destroy: (error?: Error) => void }).destroy();
+          }
+          sendPayloadTooLarge(req, res);
+          return { ok: false };
+        }
+        chunks.push(bytes);
+      }
+    } catch {
+      if (payloadTooLarge) return { ok: false };
+      sendResponse(req, res, 400, { error: "Malformed JSON" });
+      return { ok: false };
+    }
+
+    if (total > 0) {
+      const raw = Buffer.concat(chunks).toString("utf8");
+      try {
+        return { ok: true, body: JSON.parse(raw) };
+      } catch {
+        sendResponse(req, res, 400, { error: "Malformed JSON" });
+        return { ok: false };
+      }
+    }
+  }
+
+  // Vercel may expose an already-parsed body without a readable stream. Check
+  // the actual serialized size rather than trusting req.headers blindly.
+  if (req.body !== undefined) {
+    if (byteLength(req.body) > MAX_BODY_BYTES) {
+      sendPayloadTooLarge(req, res);
+      return { ok: false };
+    }
+    if (typeof req.body === "string") {
+      try {
+        return { ok: true, body: JSON.parse(req.body) };
+      } catch {
+        sendResponse(req, res, 400, { error: "Malformed JSON" });
+        return { ok: false };
+      }
+    }
+    return { ok: true, body: req.body };
+  }
+
+  return { ok: true, body: undefined };
+}
+
 const LIMIT = 100;
 const WINDOW = "60 s";
 const WINDOW_MS = 60_000;
+const REQUEST_ID_PROPERTY = "__meridianRequestId";
 
 // Vercel's Upstash integration provisions credentials under either store-prefixed or standard names
 const UPSTASH_URL =
@@ -87,6 +218,30 @@ function applySecurityHeaders(res: VercelResponse): void {
   res.setHeader("Content-Security-Policy", "default-src 'none'");
 }
 
+function incomingRequestId(req: VercelRequest): unknown {
+  const value = req.headers[REQUEST_ID_HEADER.toLowerCase()];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export function getRequestId(req: VercelRequest): string {
+  const request = req as VercelRequest & { [REQUEST_ID_PROPERTY]?: string };
+  if (request[REQUEST_ID_PROPERTY]) return request[REQUEST_ID_PROPERTY];
+  const requestId = createRequestId(incomingRequestId(req));
+  request[REQUEST_ID_PROPERTY] = requestId;
+  return requestId;
+}
+
+export function sendResponse(
+  req: VercelRequest,
+  res: VercelResponse,
+  status: number,
+  body: unknown
+): VercelResponse {
+  const requestId = getRequestId(req);
+  res.setHeader(REQUEST_ID_HEADER, requestId);
+  return res.status(status).json(responseBody(status, body, requestId));
+}
+
 /**
  * Set CORS and baseline security headers, and handle preflight. Returns true
  * when the request was a preflight OPTIONS and has been fully handled — the
@@ -94,21 +249,27 @@ function applySecurityHeaders(res: VercelResponse): void {
  */
 export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
   applySecurityHeaders(res);
+  res.setHeader(REQUEST_ID_HEADER, getRequestId(req));
 
   const requestOrigin = Array.isArray(req.headers.origin)
     ? req.headers.origin[0]
     : req.headers.origin;
 
   // Check if the request origin is in the allowed list
-  const allowedOrigin =
-    requestOrigin && ALLOWED_ORIGINS.includes(requestOrigin)
-      ? requestOrigin
-      : ALLOWED_ORIGINS[0];
+  if (requestOrigin && ALLOWED_ORIGINS.includes(requestOrigin)) {
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+  } else if (!requestOrigin) {
+    // No origin header (e.g., non-browser client): use first allowed origin
+    res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGINS[0]);
+  } else {
+    // Disallowed origin: return 403
+    sendResponse(req, res, 403, { error: "Origin not allowed" });
+    return true;
+  }
 
-  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", `Content-Type, ${REQUEST_ID_HEADER}`);
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return true;
@@ -127,7 +288,7 @@ export function requireGetMethod(
 ): boolean {
   if (req.method === "GET") return false;
   res.setHeader("Allow", "GET");
-  res.status(405).json({ error: "Method not allowed" });
+  sendResponse(req, res, 405, { error: "Method not allowed" });
   return true;
 }
 
@@ -165,11 +326,14 @@ function clientIp(req: VercelRequest): string {
  * in-memory limiter: preview deployments have their own public URL, so they
  * serve real traffic to these routes just like production.
  */
-export function enforceStrictRateLimit(res: VercelResponse): boolean {
+export function enforceStrictRateLimit(
+  req: VercelRequest,
+  res: VercelResponse
+): boolean {
   const isLocalDev = process.env.VERCEL_ENV === undefined;
 
   if (!isLocalDev && !isDistributedRateLimitingConfigured()) {
-    res.status(503).json({
+    sendResponse(req, res, 503, {
       error:
         "Service Unavailable: Distributed rate limiting is required on deployed environments for this route.",
       code: "RATE_LIMIT_BACKEND_UNAVAILABLE",
@@ -204,7 +368,7 @@ export async function checkRateLimit(
 ): Promise<boolean> {
   const { strict = false, bucket } = options;
 
-  if (strict && !enforceStrictRateLimit(res)) {
+  if (strict && !enforceStrictRateLimit(req, res)) {
     return false;
   }
 
@@ -221,9 +385,9 @@ export async function checkRateLimit(
     );
     if (!success) {
       res.setHeader("retry-after", "60");
-      res
-        .status(429)
-        .json({ error: "Too many requests. Try again in a minute." });
+      sendResponse(req, res, 429, {
+        error: "Too many requests. Try again in a minute.",
+      });
       return false;
     }
     return true;
@@ -247,9 +411,9 @@ export async function checkRateLimit(
       String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000)))
     );
     res.setHeader("retry-after", "60");
-    res
-      .status(429)
-      .json({ error: "Too many requests. Try again in a minute." });
+    sendResponse(req, res, 429, {
+      error: "Too many requests. Try again in a minute.",
+    });
     return false;
   }
   entry.n++;

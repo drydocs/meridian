@@ -14,10 +14,10 @@ const KNOWN_VAULT_IDS = new Set(
 );
 
 export const vaultsRoute: FastifyPluginAsync = async (app) => {
-  app.get("/", async (_req, reply) => {
+  app.get("/", async (req, reply) => {
     const result = await handleGetVaults();
     if (result.error) {
-      app.log.error(result.error, "[vaults] failed to fetch vaults");
+      req.log.error(result.error, "[vaults] failed to fetch vaults");
     }
     if (result.status === 200) {
       reply.header("Cache-Control", vaultReadCacheControl());
@@ -31,7 +31,7 @@ export const vaultsRoute: FastifyPluginAsync = async (app) => {
       return reply.code(404).send({ error: "vault not found", vaultId });
     const result = await handleGetVaultById(vaultId);
     if (result.error) {
-      app.log.error(result.error, "[vaults] failed to fetch vault by id");
+      req.log.error(result.error, "[vaults] failed to fetch vault by id");
     }
     if (result.status === 200) {
       reply.header("Cache-Control", vaultReadCacheControl());

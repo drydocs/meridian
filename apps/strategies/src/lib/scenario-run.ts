@@ -1,27 +1,21 @@
 import {
-  FixedPointDecimal,
   InvalidClockConfigError,
   KNOWN_ASSET_SYMBOLS,
-  MissingSourceDataError,
   ScenarioValidationError,
   buildRegimeScenario,
+  executeScenario,
   generateGbmPath,
   parseScenario,
-  resolveScenarioSources,
-  resolveStrategy,
-  runBacktest,
   scenarioClock,
   seedToBigInt,
-  isStrategyParamsError,
-  isUnknownStrategyError,
 } from "@meridian/strategies";
 import type {
   AssetSymbol,
   BacktestResult,
   HistoricalRow,
   MarketRegime,
-  ResolvedStrategy,
   Scenario,
+  ScenarioExecutionError,
   SimulationClock,
 } from "@meridian/strategies";
 
@@ -48,32 +42,7 @@ export interface ScenarioRun {
   readonly result: BacktestResult;
 }
 
-export type ScenarioRunError =
-  | {
-      readonly kind: "validation";
-      readonly message: string;
-      /** Field-qualified messages keyed by dot-joined path (`window.end`). */
-      readonly fields: Readonly<Record<string, string>>;
-    }
-  | {
-      readonly kind: "unknown-strategy";
-      readonly message: string;
-      readonly strategyId: string;
-      readonly strategyVersion: string;
-      readonly available: readonly string[];
-    }
-  | {
-      readonly kind: "strategy-params";
-      readonly message: string;
-      readonly param: string;
-    }
-  | {
-      readonly kind: "source";
-      readonly message: string;
-      readonly asset: string;
-      readonly source: string;
-    }
-  | { readonly kind: "execution"; readonly message: string };
+export type ScenarioRunError = ScenarioExecutionError;
 
 export type ScenarioRunOutcome =
   | { readonly ok: true; readonly run: ScenarioRun }
@@ -185,36 +154,9 @@ function isAssetSymbol(value: string): value is AssetSymbol {
   return KNOWN_ASSETS.includes(value);
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function execute<TConfig>(
-  resolved: ResolvedStrategy<TConfig>,
-  scenario: Scenario,
-  assets: readonly AssetSymbol[],
-  clock: SimulationClock,
-  sources: Awaited<ReturnType<typeof resolveScenarioSources>>
-): BacktestResult {
-  // The scenario schema has no cost schedule yet, so execution runs at the
-  // runner's zero-cost default until the cost-schedule work adds one.
-  return runBacktest({
-    clock,
-    assets,
-    prices: sources.prices,
-    strategy: resolved.strategy,
-    strategyConfig: resolved.config,
-    initialCash: FixedPointDecimal.fromString(scenario.startingCapital),
-    ...(sources.accrual ? { accrual: sources.accrual } : {}),
-  });
-}
-
 /**
- * Validates, resolves and runs one scenario against the synthetic market.
- *
- * This is the app's only run-assembly path, so an engine-level scenario
- * execution facade can replace its body without touching the views. Every
- * failure is returned as a typed {@link ScenarioRunError} instead of thrown.
+ * Validates, resolves and runs one scenario against the synthetic market by
+ * delegating end-to-end execution to {@link executeScenario}.
  */
 export async function runScenario(
   input: unknown,
@@ -274,72 +216,23 @@ export async function runScenario(
     };
   }
 
-  try {
-    const sources = await resolveScenarioSources(scenario, {
-      historicalData: syntheticHistory(scenario, assets, clock, market),
-      // An explicit empty pool list keeps the resolver off the network.
-      defiLlamaPools: [],
-    });
+  const outcome = await executeScenario(scenario, {
+    clock,
+    historicalData: syntheticHistory(scenario, assets, clock, market),
+    // An explicit empty pool list keeps the resolver off the network.
+    defiLlamaPools: [],
+  });
 
-    const resolved = resolveStrategy(
-      scenario.strategy.id,
-      scenario.strategy.version,
-      scenario.strategy.params,
-      { priceFeed: sources.prices }
-    );
-
-    // Every registered strategy trades a single `asset`, and the runner only
-    // prices the scenario's assets, so an asset outside them would never fill.
-    if (!(assets as readonly string[]).includes(resolved.config.asset)) {
-      return {
-        ok: false,
-        error: {
-          kind: "strategy-params",
-          param: "asset",
-          message: `Invalid param 'asset' for strategy '${scenario.strategy.id}': '${resolved.config.asset}' is not one of the scenario assets (${assets.join(", ")})`,
-        },
-      };
-    }
-
-    const result = execute(resolved, scenario, assets, clock, sources);
-    return { ok: true, run: { scenario, market, result } };
-  } catch (error) {
-    if (isUnknownStrategyError(error)) {
-      return {
-        ok: false,
-        error: {
-          kind: "unknown-strategy",
-          message: error.message,
-          strategyId: error.strategyId,
-          strategyVersion: error.strategyVersion,
-          available: error.available,
-        },
-      };
-    }
-    if (isStrategyParamsError(error)) {
-      return {
-        ok: false,
-        error: {
-          kind: "strategy-params",
-          message: error.message,
-          param: error.param,
-        },
-      };
-    }
-    if (error instanceof MissingSourceDataError) {
-      return {
-        ok: false,
-        error: {
-          kind: "source",
-          message: error.message,
-          asset: error.asset,
-          source: error.source,
-        },
-      };
-    }
-    return {
-      ok: false,
-      error: { kind: "execution", message: errorMessage(error) },
-    };
+  if (!outcome.ok) {
+    return { ok: false, error: outcome.error };
   }
+
+  return {
+    ok: true,
+    run: {
+      scenario: outcome.value.scenario,
+      market,
+      result: outcome.value.result,
+    },
+  };
 }

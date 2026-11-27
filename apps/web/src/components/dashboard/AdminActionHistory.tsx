@@ -1,6 +1,7 @@
 import { useAdminHistory } from "../../hooks/useAdminHistory";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
+import { getTransactionExplorerUrl } from "../../lib/explorer";
 
 const ACTION_BADGE: Record<string, { labelKey: string; className: string }> = {
   set_admin: {
@@ -27,11 +28,6 @@ const ACTION_BADGE: Record<string, { labelKey: string; className: string }> = {
     labelKey: "adminHistory.actions.acceptAdmin",
     className: "bg-entry/15 text-blue-400 border-entry/30",
   },
-};
-
-const EXPLORER_BASE: Record<string, string> = {
-  testnet: "https://stellar.expert/explorer/testnet/tx",
-  mainnet: "https://stellar.expert/explorer/public/tx",
 };
 
 function formatTimestamp(iso: string, t: TFunction, locale: string): string {
@@ -112,8 +108,10 @@ export function AdminActionHistory({
                   known?.className ??
                   "bg-gray-500/15 text-gray-400 border-gray-500/30",
               };
-              const explorerUrl =
-                EXPLORER_BASE[network] + "/" + action.transactionHash;
+              const explorerUrl = getTransactionExplorerUrl(
+                network,
+                action.transactionHash
+              );
 
               return (
                 <div

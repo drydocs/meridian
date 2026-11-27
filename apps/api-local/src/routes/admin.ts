@@ -6,10 +6,10 @@ import {
 } from "@meridian/api-core";
 
 export const adminRoute: FastifyPluginAsync = async (app) => {
-  app.get("/vault-state", async (_req, reply) => {
+  app.get("/vault-state", async (req, reply) => {
     const result = await handleGetVaultState();
     if (result.error) {
-      app.log.error(result.error, "[admin] failed to read vault state");
+      req.log.error(result.error, "[admin] failed to read vault state");
     }
     reply.header("Cache-Control", "no-store");
     return reply.code(result.status).send(result.body);
@@ -21,7 +21,7 @@ export const adminRoute: FastifyPluginAsync = async (app) => {
 
     const result = await handleGetAdminHistory(vaultId);
     if (result.error) {
-      app.log.error(result.error, "[admin] failed to read admin history");
+      req.log.error(result.error, "[admin] failed to read admin history");
     }
     if (result.status === 200) {
       reply.header("Cache-Control", HISTORY_CACHE_CONTROL);

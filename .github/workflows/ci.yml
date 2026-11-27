@@ -26,6 +26,7 @@ jobs:
       test: ${{ steps.filter.outputs.test }}
       e2e: ${{ steps.filter.outputs.e2e }}
       contracts: ${{ steps.filter.outputs.contracts }}
+      strategies: ${{ steps.filter.outputs.strategies }}
       docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v7
@@ -78,6 +79,12 @@ jobs:
               - "scripts/deploy-*.sh"
               - "scripts/redeploy-*.sh"
               - "scripts/lib/**"
+              - "!**/*.md"
+            strategies:
+              - *workspace
+              - "packages/strategies/**"
+              - "packages/shared/**"
+              - "packages/stellar-sdk-helpers/**"
               - "!**/*.md"
 
   lint-typecheck:
@@ -139,7 +146,7 @@ jobs:
       - uses: pnpm/action-setup@v6.1.1
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: taiki-e/install-action@v2
@@ -169,6 +176,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm coverage
+      - name: Run strategies example smoke test
+        if: needs.changes.outputs.strategies == 'true'
+        run: |
+          pnpm exec turbo run build --filter=@meridian/strategies...
+          # pnpm prints a `> package script` banner before the script output, so
+          # keep only the JSON object the example writes.
+          summary="$(pnpm --filter @meridian/strategies example | sed -n '/^{/,$p')"
+          printf '%s\n' "$summary"
+          node -e '
+            const s = JSON.parse(process.argv[1]);
+            const required = ["strategy", "seed", "assets", "ticks", "initialCash", "finalValue", "strategyEquity", "pnl", "totalFees", "totalInterest", "totalFunding"];
+            for (const key of required) {
+              if (!(key in s)) throw new Error(`Missing summary field: ${key}`);
+            }
+            if (s.strategy !== "target-weight@1.0.0") throw new Error(`Unexpected strategy: ${s.strategy}`);
+            if (typeof s.ticks !== "number" || s.ticks <= 0) throw new Error(`Invalid ticks: ${s.ticks}`);
+            if (!/^-?\d+(\.\d+)?$/.test(s.finalValue)) throw new Error(`Malformed finalValue: ${s.finalValue}`);
+          ' "$summary"
 
   commitlint:
     name: Commit Messages
@@ -240,6 +265,7 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.100.0
           targets: wasm32v1-none
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
@@ -269,6 +295,11 @@ jobs:
           --workspace
           --summary-only
           --fail-under-lines 97.5
+      - name: Run Soroban resource benchmarks
+        working-directory: packages/contracts
+        run: |
+          set -o pipefail
+          cargo test --workspace -- --nocapture 2>&1 | tee benchmark-output.log
       - name: Build wasm
         working-directory: packages/contracts
         run: cargo build --target wasm32v1-none --release
@@ -279,10 +310,25 @@ jobs:
       - uses: pnpm/action-setup@v6.1.1
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Check contract WASM size budgets
         env:
           WASM_SIZE_BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: pnpm check:wasm-size
+      - name: Gate Soroban resource benchmarks
+        run: >
+          pnpm check:contract-benchmarks
+          --input packages/contracts/benchmark-output.log
+          --baseline packages/contracts/benchmarks/baselines.json
+          --output packages/contracts/benchmark-results.json
+      - name: Upload Soroban benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soroban-resource-benchmarks
+          path: |
+            packages/contracts/benchmark-results.json
+            packages/contracts/benchmark-output.log
+          if-no-files-found: warn
