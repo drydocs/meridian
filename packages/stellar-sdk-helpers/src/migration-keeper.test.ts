@@ -115,10 +115,15 @@ vi.mock("./rate-sources", () => ({
 import {
   discoverMigrationVaults,
   loadMigrationKeeperConfig,
-  runMigrationKeeper,
+  runMigrationKeeper as runMigrationKeeperRaw,
   type DiscoveredVault,
   type MigrationKeeperConfig,
 } from "./migration-keeper";
+
+// Preflight is covered by keeper-doctor.test.ts; these unit tests exercise
+// post-preflight migration logic and explicitly opt out of preflight.
+const runMigrationKeeper: typeof runMigrationKeeperRaw = (config, deps = {}) =>
+  runMigrationKeeperRaw(config, { skipPreflight: true, ...deps });
 import type { KeeperLogger } from "./keeper-retry";
 import {
   createInMemoryKeeperStateStore,
