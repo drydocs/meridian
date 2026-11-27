@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-
 vi.mock("@meridian/stellar-sdk-helpers", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@meridian/stellar-sdk-helpers")>();

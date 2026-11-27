@@ -23,6 +23,7 @@ export {
   convertAssetsToShares,
   convertSharesToAssets,
 } from "./vault-base.js";
+export { VaultClient, VaultClientError } from "./vault-client.js";
 export {
   ErrorCode,
   MeridianError,
@@ -56,4 +57,3 @@ export type {
   RetryEvent,
   SanitizedError,
 } from "./instrumentation.js";
-

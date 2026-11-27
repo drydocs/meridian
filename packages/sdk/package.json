@@ -30,7 +30,7 @@
     "lint": "eslint src",
     "build": "tsup",
     "test": "vitest run --coverage",
-    "test:instrumented": "vitest run --include '**/*.instrumented.test.ts'",
+    "test:instrumented": "vitest run 'src/**/*.instrumented.test.ts'",
     "test:coverage": "vitest run --coverage --reporter=html --reporter=text",
     "coverage": "vitest run --coverage --passWithNoTests",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
