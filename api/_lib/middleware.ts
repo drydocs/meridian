@@ -260,10 +260,16 @@ export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
     res.setHeader("Access-Control-Allow-Origin", requestOrigin);
   } else if (!requestOrigin) {
     // No origin header (e.g., non-browser client): use first allowed origin
-    res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGINS[0]);
+    // ALLOWED_ORIGINS is guaranteed to have at least one entry due to DEFAULT_ALLOWED_ORIGIN
+    res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGINS[0]!);
   } else {
     // Disallowed origin: return 403
-    sendResponse(req, res, 403, { error: "Origin not allowed" });
+    sendResponse(req, res, 403, {
+      error: {
+        code: "ORIGIN_NOT_ALLOWED",
+        message: "Origin not allowed",
+      },
+    });
     return true;
   }
 
