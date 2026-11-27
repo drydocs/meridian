@@ -34,14 +34,10 @@ export function NetworkMismatchBanner() {
           {walletNetwork
             ? t("walletConnect.networkMismatch", {
                 walletNetwork: t(`walletConnect.networks.${walletNetwork}`),
-                appNetwork: t(
-                  `walletConnect.networks.${APP_NETWORK.network}`
-                ),
+                appNetwork: t(`walletConnect.networks.${APP_NETWORK.network}`),
               })
             : t("walletConnect.networkUnknown", {
-                appNetwork: t(
-                  `walletConnect.networks.${APP_NETWORK.network}`
-                ),
+                appNetwork: t(`walletConnect.networks.${APP_NETWORK.network}`),
               })}
         </p>
         <button
@@ -50,9 +46,7 @@ export function NetworkMismatchBanner() {
           disabled={isRetrying}
           className="shrink-0 rounded-lg border border-amber-700 px-3 py-1.5 text-xs font-medium text-amber-100 hover:border-amber-500 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none"
         >
-          {isRetrying
-            ? t("walletConnect.checkingNetwork")
-            : t("common.retry")}
+          {isRetrying ? t("walletConnect.checkingNetwork") : t("common.retry")}
         </button>
       </div>
     </div>

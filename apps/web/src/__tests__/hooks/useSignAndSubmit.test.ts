@@ -44,6 +44,7 @@ describe("useSignAndSubmit (#965)", () => {
       connected: true,
       network: APP_NETWORK.network,
       walletNetwork: APP_NETWORK.network,
+      walletNetwork: APP_NETWORK.network,
     });
   });
 
