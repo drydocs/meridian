@@ -1,6 +1,6 @@
 /**
  * @meridian/sdk: TypeScript client for Meridian vaults, keepers and the
- * Blend adapter.
+ * Blend adapter. This entry point re-exports the public SDK APIs.
  */
 
 /** Semver version of this package. Kept in sync with package.json by a test. */
@@ -48,6 +48,16 @@ export type {
   BlendReserveInfo,
   BlendPosition,
 } from "./blend-adapter.js";
+export { KeeperTransactionClient } from "@meridian/stellar-sdk-helpers";
+export type {
+  KeeperRpcServer,
+  KeeperSubmissionHooks,
+  KeeperTransactionClientConfig,
+  KeeperTransactionFeePolicy,
+  KeeperTransactionResult,
+  KeeperTransactionRetryPolicy,
+  KeeperTransactionSubmitOptions,
+} from "@meridian/stellar-sdk-helpers";
 export { redact, redactString, REDACTED } from "./instrumentation.js";
 export type {
   InstrumentationHooks,
