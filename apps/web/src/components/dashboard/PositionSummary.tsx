@@ -15,7 +15,6 @@ function formatLastUpdated(timestamp: number, locale: string): string {
   }).format(new Date(timestamp));
 }
 
-
 export function PositionSummary({
   position,
   lastUpdated,
@@ -45,12 +44,12 @@ export function PositionSummary({
         <div className="mt-2 flex items-center justify-end gap-2 text-xs text-gray-500">
           {isStale && (
             <span className="rounded-full border border-amber-700 bg-amber-900/40 px-2 py-0.5 text-amber-300">
-              {t("status.stale", { defaultValue: "Stale" })}
+              {t("status.stale")}
             </span>
           )}
           {lastUpdated !== undefined && (
             <span>
-              {t("status.lastUpdated", { defaultValue: "Updated" })}{" "}
+              {t("status.lastUpdated")}{" "}
               {formatLastUpdated(lastUpdated, i18n.language)}
             </span>
           )}
