@@ -12,7 +12,28 @@ import {
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN;
+// Parse and validate ALLOWED_ORIGIN at startup
+function parseAllowedOrigins(raw: string): string[] {
+  const origins = raw
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
+
+  // Reject wildcard origins
+  for (const origin of origins) {
+    if (origin === "*" || origin.includes("*")) {
+      throw new Error(
+        `ALLOWED_ORIGIN contains wildcard "${origin}". Wildcards are not permitted.`
+      );
+    }
+  }
+
+  return origins;
+}
+
+const ALLOWED_ORIGINS = parseAllowedOrigins(
+  process.env.ALLOWED_ORIGIN ?? DEFAULT_ALLOWED_ORIGIN
+);
 
 const LIMIT = 100;
 const WINDOW = "60 s";
@@ -73,7 +94,19 @@ function applySecurityHeaders(res: VercelResponse): void {
  */
 export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
   applySecurityHeaders(res);
-  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+
+  const requestOrigin = Array.isArray(req.headers.origin)
+    ? req.headers.origin[0]
+    : req.headers.origin;
+
+  // Check if the request origin is in the allowed list
+  const allowedOrigin =
+    requestOrigin && ALLOWED_ORIGINS.includes(requestOrigin)
+      ? requestOrigin
+      : ALLOWED_ORIGINS[0];
+
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") {
