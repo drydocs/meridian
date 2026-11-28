@@ -38,43 +38,6 @@ export interface VaultState {
   paused: boolean;
 }
 
-/**
- * Error raised for non-OK HTTP responses. `status` lets callers distinguish
- * client errors (4xx, never retried) from server or network failures.
- */
-export class ApiError extends Error {
-  readonly status: number | null;
-
-  constructor(message: string, status: number | null) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
-
-/** True when the error represents a client error that must not be retried. */
-export function isClientError(error: unknown): boolean {
-  return (
-    error instanceof ApiError &&
-    error.status !== null &&
-    error.status >= 400 &&
-    error.status < 500
-  );
-}
-
-/**
- * True when the failure looks like connectivity loss: either a fetch-level
- * TypeError (no HTTP response) or a timeout/abort.
- */
-export function isNetworkError(error: unknown): boolean {
-  if (error instanceof ApiError) return error.status === null;
-  if (error instanceof TypeError) return true;
-  if (error instanceof DOMException) {
-    return error.name === "TimeoutError" || error.name === "AbortError";
-  }
-  return false;
-}
-
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 export class ApiRequestError extends Error {
@@ -85,6 +48,25 @@ export class ApiRequestError extends Error {
     super(message);
     this.name = "ApiRequestError";
   }
+}
+
+/** True when an HTTP client error should fail immediately without retrying. */
+export function isClientError(error: unknown): boolean {
+  if (!(error instanceof ApiRequestError)) return false;
+  const status = error.context.status;
+  return status !== null && status >= 400 && status < 500;
+}
+
+/** True when an API failure indicates that the request could not reach a server. */
+export function isNetworkError(error: unknown): boolean {
+  if (error instanceof ApiRequestError) {
+    return error.context.status === null;
+  }
+  if (error instanceof TypeError) return true;
+  if (typeof DOMException !== "undefined" && error instanceof DOMException) {
+    return error.name === "TimeoutError" || error.name === "AbortError";
+  }
+  return false;
 }
 
 function apiPath(path: string): string {

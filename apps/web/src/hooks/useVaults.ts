@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, type ApiVault } from "../lib/api";
+import { api, isClientError, type ApiVault } from "../lib/api";
 
 export interface VaultsResult {
   vaults: ApiVault[];
@@ -19,6 +19,6 @@ export function useVaults() {
       };
     },
     staleTime: 5 * 60_000,
-    retry: 1,
+    retry: (failureCount, error) => !isClientError(error) && failureCount < 1,
   });
 }

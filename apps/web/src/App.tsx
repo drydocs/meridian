@@ -6,8 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { setQueryClient } from "./lib/queryClient";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient, setQueryClient } from "./lib/queryClient";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
 import { WalletConnect } from "./components/onboarding/WalletConnect";
 import { Toasts } from "./components/ui/Toasts";
@@ -16,7 +16,7 @@ import { useWalletStore } from "./store/wallet";
 import { useDocumentLanguage } from "./hooks/useDocumentLanguage";
 import { useTranslation } from "react-i18next";
 import { NotFound } from "./pages/NotFound";
-import { isClientError } from "./lib/api";
+import { useConnectivity } from "./hooks/useConnectivity";
 
 const AdminLogin = lazy(() =>
   import("./pages/AdminLogin").then((m) => ({ default: m.AdminLogin }))
@@ -26,48 +26,8 @@ const StatusPage = lazy(() =>
   import("./pages/StatusPage").then((m) => ({ default: m.StatusPage }))
 );
 
-// Retry only transient failures. 4xx responses are client errors and will not
-// succeed on retry, so they fail immediately. Retries use bounded exponential
-// backoff (capped at 30s) and are limited to 3 attempts.
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: (failureCount, error) => {
-        if (isClientError(error)) return false;
-        return failureCount < 3;
-      },
-      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 30_000),
-      // Refetch stale queries automatically when the network comes back.
-      refetchOnReconnect: true,
-    },
-  },
-});
+const queryClient = createQueryClient();
 setQueryClient(queryClient);
-
-// Tracks browser connectivity. Starts from navigator.onLine and updates on
-// the browser online/offline events. When the connection returns, the query
-// client is told to refetch so cached data is refreshed without a reload.
-function useConnectivity(): boolean {
-  const [online, setOnline] = useState<boolean>(() =>
-    typeof navigator === "undefined" ? true : navigator.onLine,
-  );
-
-  useEffect(() => {
-    const handleOnline = () => {
-      setOnline(true);
-      void queryClient.refetchQueries({ type: "active" });
-    };
-    const handleOffline = () => setOnline(false);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
-
-  return online;
-}
 
 function OfflineBanner({ online }: { online: boolean }) {
   const { t } = useTranslation();
@@ -195,7 +155,7 @@ function Dashboard({ online }: { online: boolean }) {
 }
 
 export default function App() {
-  const online = useConnectivity();
+  const online = useConnectivity(queryClient);
   const { t } = useTranslation();
   useDocumentLanguage();
   const [pathname, setPathname] = useState(() => window.location.pathname);

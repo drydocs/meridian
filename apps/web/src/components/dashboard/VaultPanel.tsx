@@ -32,6 +32,34 @@ const YieldHistoryChart = lazy(() =>
 
 type Tab = "deposit" | "withdraw";
 
+function DataFreshness({
+  updatedAt,
+  isStale,
+}: {
+  updatedAt: number;
+  isStale: boolean;
+}) {
+  const { t, i18n } = useTranslation();
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-gray-600">
+      {isStale && (
+        <span className="rounded border border-amber-800/70 bg-amber-950/40 px-1.5 py-0.5 font-semibold text-amber-400">
+          {t("status.stale")}
+        </span>
+      )}
+      {updatedAt > 0 && (
+        <span>
+          {t("status.lastUpdated")} {" "}
+          {new Intl.DateTimeFormat(i18n.language, {
+            hour: "2-digit",
+            minute: "2-digit",
+          }).format(new Date(updatedAt))}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function VaultPanel() {
   const {
     data,
@@ -61,6 +89,8 @@ export function VaultPanel() {
   } = useWalletConnect();
   const {
     data: positions = [],
+    dataUpdatedAt: positionsUpdatedAt,
+    isStale: positionsStale,
     isError: positionsError,
     refetch: refetchPositions,
   } = usePositions(publicKey);
@@ -230,6 +260,10 @@ export function VaultPanel() {
                 </span>
                 <span className="text-xl font-bold text-emerald-600">%</span>
               </div>
+              <DataFreshness
+                updatedAt={vaultsUpdatedAt}
+                isStale={vaultsStale}
+              />
             </div>
             <div className="pb-1 sm:text-center">
               <p className="text-xs text-gray-400 mb-1.5">
@@ -245,7 +279,7 @@ export function VaultPanel() {
               )}
               {vaultsUpdatedAt > 0 && (
                 <p className="text-[10px] text-gray-600 mt-0.5">
-                  {t("status.lastUpdated")}{" "}
+                  {t("status.lastUpdated")} {" "}
                   {new Intl.DateTimeFormat(i18n.language, {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -271,7 +305,11 @@ export function VaultPanel() {
 
       {/* Position summary */}
       {connected && hasPosition && position && (
-        <PositionSummary position={position} />
+        <PositionSummary
+          position={position}
+          lastUpdated={positionsUpdatedAt}
+          isStale={positionsStale}
+        />
       )}
 
       {/* Position PnL & yield breakdown */}
