@@ -515,6 +515,22 @@ describe("createDefindexRateSource", () => {
     expect(rate).not.toBeNull();
   });
 
+  it("does not write a snapshot in read-only mode", async () => {
+    const store = createInMemoryRateSnapshotStore();
+    const key = `migration-keeper:defindex-rate:testnet:${DEFINDEX_VAULT}`;
+    simulateViewMock.mockResolvedValueOnce([10_000_000n]);
+    const rateSource = createDefindexRateSource({
+      network: NETWORK,
+      store,
+      readOnly: true,
+      now: () => 0,
+    });
+
+    await rateSource(defindexQuery());
+
+    await expect(store.get(key)).resolves.toBeNull();
+  });
+
   it("treats a share-price move extrapolated from the minimum sample interval as an untrustworthy blowout rather than a real rate", async () => {
     // A 1% move over the shortest usable (10-minute) window compounds to an
     // astronomical annualized figure ((1.01)^52560 - 1), not a real yield:

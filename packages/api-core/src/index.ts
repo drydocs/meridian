@@ -9,3 +9,4 @@ export * from "./config";
 export * from "./cache";
 export * from "./error-envelope";
 export * from "./health";
+export * from "./keeper-plan";

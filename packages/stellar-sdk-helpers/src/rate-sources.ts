@@ -258,6 +258,10 @@ export interface DefindexRateSourceOptions {
   network: StellarNetwork;
   store: RateSnapshotStore;
   now?: () => number;
+  // Dry-run planning reads the prior sample but must not write a new one, so
+  // an endpoint that runs more often than MIN_SAMPLE_INTERVAL_MS cannot slide
+  // the anchor forward and starve the real keeper of a usable gap.
+  readOnly?: boolean;
 }
 
 /**
@@ -322,6 +326,7 @@ export function createDefindexRateSource(
     // forward indefinitely, so the gap would never reach
     // MIN_SAMPLE_INTERVAL_MS if this is ever called more often than that.
     if (
+      !options.readOnly &&
       priceStroops !== null &&
       priceStroops > 0n &&
       (elapsedMs === null || elapsedMs >= MIN_SAMPLE_INTERVAL_MS)
@@ -365,6 +370,8 @@ export interface DefaultRateSourceOptions {
   // rather than reading process.env deep inside library code.
   env?: Record<string, string | undefined>;
   logger?: KeeperLogger;
+  // Read-only planning mode: never advance a DeFindex snapshot anchor.
+  readOnly?: boolean;
 }
 
 // UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN: the same variables
@@ -421,6 +428,7 @@ export function createDefaultRateSource(
     network,
     store: snapshotStore,
     ...(options.now !== undefined && { now: options.now }),
+    ...(options.readOnly !== undefined && { readOnly: options.readOnly }),
   });
 
   const registry: Record<string, RateSourceFn> = {
