@@ -92,7 +92,7 @@ export function RiskDisclosureModal({
       ref={dialogRef}
       tabIndex={-1}
       onKeyDown={handleKeyDown}
-      className="fixed inset-0 z-50 flex items-center outline-none justify-center bg-black/80 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center outline-none justify-center bg-black/80 p-4 sm:backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="risk-disclosure-title"
@@ -100,7 +100,7 @@ export function RiskDisclosureModal({
     >
       <section
         data-testid="risk-disclosure"
-        className="relative w-full max-w-md rounded-2xl border border-gray-800 bg-deep p-6 space-y-4 shadow-2xl shadow-black/60"
+        className="relative max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-800 bg-deep p-5 space-y-4 shadow-2xl shadow-black/60 sm:p-6"
       >
         <button
           type="button"
@@ -108,7 +108,7 @@ export function RiskDisclosureModal({
           onClick={onCancel}
           aria-label={t("riskDisclosure.cancel")}
           title={t("riskDisclosure.cancel")}
-          className="absolute right-4 top-4 text-gray-400 hover:text-paper rounded-lg p-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
+          className="absolute right-3 top-3 inline-flex h-11 w-11 items-center justify-center rounded-lg text-gray-400 hover:text-paper transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none sm:right-4 sm:top-4"
         >
           <X size={18} />
         </button>
@@ -128,7 +128,7 @@ export function RiskDisclosureModal({
           <li>{t("riskDisclosure.smartContractRisk")}</li>
           <li>{t("riskDisclosure.adapterRisk")}</li>
         </ul>
-        <label className="flex items-start gap-2 text-sm text-gray-300">
+        <label className="flex min-h-11 items-start gap-2 text-sm text-gray-300">
           <input
             type="checkbox"
             data-testid="risk-disclosure-acknowledgement"

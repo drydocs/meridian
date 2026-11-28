@@ -59,21 +59,21 @@ class ErrorBoundaryBase extends Component<
           <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
             <button
               onClick={this.handleReset}
-              className="rounded-lg border border-red-800/70 px-4 py-1.5 text-xs font-medium text-red-300 hover:border-red-700 hover:text-red-200 transition-colors duration-150"
+              className="inline-flex min-h-11 items-center rounded-lg border border-red-800/70 px-4 py-1.5 text-xs font-medium text-red-300 hover:border-red-700 hover:text-red-200 transition-colors duration-150"
             >
               {t("errorBoundary.retry")}
             </button>
             {showHome && (
               <button
                 onClick={this.handleHome}
-                className="rounded-lg border border-gray-700 px-4 py-1.5 text-xs font-medium text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150"
+                className="inline-flex min-h-11 items-center rounded-lg border border-gray-700 px-4 py-1.5 text-xs font-medium text-gray-300 hover:border-gray-600 hover:text-paper transition-colors duration-150"
               >
                 {t("errorBoundary.home")}
               </button>
             )}
             <button
               onClick={() => window.location.reload()}
-              className="rounded-lg border border-red-800/70 px-4 py-1.5 text-xs font-medium text-red-300 hover:border-red-700 hover:text-red-200 transition-colors duration-150"
+              className="inline-flex min-h-11 items-center rounded-lg border border-red-800/70 px-4 py-1.5 text-xs font-medium text-red-300 hover:border-red-700 hover:text-red-200 transition-colors duration-150"
             >
               {t("errorBoundary.reload")}
             </button>

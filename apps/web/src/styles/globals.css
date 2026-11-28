@@ -17,3 +17,39 @@ html,
 body {
   overflow-x: hidden;
 }
+
+/* #1428: mobile-first safe-area spacing. Phones with notches and gesture bars
+   report zero insets on desktop, so max() keeps the original spacing there. */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+@utility pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+@utility px-safe {
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+}
+
+@utility top-safe {
+  top: max(0.75rem, env(safe-area-inset-top));
+}
+
+@utility inset-x-safe {
+  left: max(0.75rem, env(safe-area-inset-left));
+  right: max(0.75rem, env(safe-area-inset-right));
+}
+
+/* #1428: every button on the dashboard is a 44x44 CSS pixel touch target on
+   phones, matching the WCAG 2.5.5 target size. Desktop keeps its denser
+   controls. */
+@media (max-width: 767px) {
+  .dashboard-shell button,
+  .dashboard-shell [role="tab"],
+  .dashboard-shell [role="menuitem"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

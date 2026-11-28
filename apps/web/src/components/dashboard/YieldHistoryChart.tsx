@@ -48,9 +48,9 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
   return (
     <section
       aria-label={t("yieldHistory.title")}
-      className="mx-7 my-5 rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-3.5"
+      className="mx-4 my-5 rounded-xl border border-gray-800 bg-gray-900/50 px-3 py-3.5 sm:mx-7 sm:px-4"
     >
-      <div className="flex items-start justify-between gap-3 mb-3">
+      <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
         <div>
           <p className="text-xs text-gray-400 mb-1">
             {t("yieldHistory.title")}
@@ -70,7 +70,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
         <div
           role="group"
           aria-label={t("yieldHistory.rangeLabel")}
-          className="flex gap-1 shrink-0"
+          className="flex shrink-0 gap-1"
         >
           {RANGES.map((range) => (
             <button
@@ -78,7 +78,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
               type="button"
               aria-pressed={days === range.days}
               onClick={() => setDays(range.days)}
-              className={`rounded-md px-2 py-1 text-xs font-medium transition-colors duration-150 active:scale-95 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none ${
+              className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-2 py-1 text-xs font-medium transition-colors duration-150 active:scale-95 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none ${
                 days === range.days
                   ? "bg-gray-800 text-paper"
                   : "text-gray-400 hover:text-gray-200"
@@ -96,13 +96,13 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
           className="h-40 w-full bg-gray-800 rounded animate-pulse"
         />
       ) : isError ? (
-        <div className="rounded-xl border border-amber-800/70 bg-amber-950/20 px-4 py-3.5 flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-800/70 bg-amber-950/20 px-4 py-3.5">
           <p className="text-sm text-amber-400">
             {t("yieldHistory.loadError")}
           </p>
           <button
             onClick={() => void refetch()}
-            className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
+            className="inline-flex min-h-11 shrink-0 items-center rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
           >
             {t("common.retry")}
           </button>
@@ -176,7 +176,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
 
       {hasHistory && (
         <>
-          <div className="mt-3 flex items-center justify-between">
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <ul className="flex flex-wrap gap-x-4 gap-y-1">
               {protocols.map((protocol, i) => (
                 <li
@@ -200,7 +200,7 @@ export function YieldHistoryChart({ publicKey }: YieldHistoryChartProps) {
               onClick={() => setShowTable((v) => !v)}
               aria-expanded={showTable}
               aria-controls="yield-history-table"
-              className="text-xs text-gray-400 hover:text-gray-200 underline focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none rounded"
+              className="inline-flex min-h-11 items-center self-start text-xs text-gray-400 underline hover:text-gray-200 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none rounded"
             >
               {showTable
                 ? t("yieldHistory.hideTable", "Hide tabular data")

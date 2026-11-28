@@ -185,9 +185,9 @@ export function VaultPanel() {
   return (
     <div className="rounded-2xl border border-gray-800 bg-deep overflow-hidden shadow-xl shadow-black/40">
       {/* Hero — identity + stats */}
-      <div className="px-7 pt-7 pb-6">
+      <div className="px-4 pt-5 pb-5 sm:px-7 sm:pt-7 sm:pb-6">
         {/* Identity row */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-5 sm:mb-8">
           <div className="text-right">
             <p className="text-xs text-gray-400 mb-0.5">
               {t("vaultPanel.network")}
@@ -223,17 +223,19 @@ export function VaultPanel() {
                 {t("vaultPanel.apy")}
               </p>
               <div className="flex items-baseline gap-0.5">
-                <span className="text-5xl font-black text-emerald-400 tabular-nums tracking-tight">
+                <span className="text-4xl font-black text-emerald-400 tabular-nums tracking-tight sm:text-5xl">
                   {formatApy(bestVault.apy, i18n.language)}
                 </span>
-                <span className="text-xl font-bold text-emerald-600">%</span>
+                <span className="text-lg font-bold text-emerald-600 sm:text-xl">
+                  %
+                </span>
               </div>
             </div>
             <div className="pb-1 sm:text-center">
               <p className="text-xs text-gray-400 mb-1.5">
                 {t("vaultPanel.tvl")}
               </p>
-              <p className="text-lg font-bold text-paper">
+              <p className="text-base font-bold text-paper sm:text-lg">
                 {formatCompactUsd(bestVault.tvl, i18n.language)}
               </p>
             </div>
@@ -241,7 +243,7 @@ export function VaultPanel() {
               <p className="text-xs text-gray-400 mb-1.5">
                 {t("vaultPanel.route")}
               </p>
-              <p className="text-lg font-bold text-paper">
+              <p className="text-base font-bold text-paper sm:text-lg">
                 {PROTOCOL_LABEL[bestVault.protocol] ?? bestVault.protocol}
               </p>
             </div>
@@ -267,7 +269,7 @@ export function VaultPanel() {
       {connected && hasPosition && position && (
         <Suspense
           fallback={
-            <div className="mx-7 my-5 h-48 rounded-xl border border-gray-800 bg-gray-900/50 animate-pulse" />
+            <div className="mx-4 my-5 h-48 rounded-xl border border-gray-800 bg-gray-900/50 animate-pulse sm:mx-7" />
           }
         >
           <YieldHistoryChart publicKey={publicKey} />
@@ -277,13 +279,13 @@ export function VaultPanel() {
       {/* Position load error — deposit/withdraw stay usable, only the
           position summary is affected. */}
       {connected && positionsError && (
-        <div className="mx-7 my-5 rounded-xl border border-amber-800/70 bg-amber-950/20 px-4 py-3.5 flex items-center justify-between gap-3">
+        <div className="mx-4 my-5 rounded-xl border border-amber-800/70 bg-amber-950/20 px-4 py-3.5 flex flex-wrap items-center justify-between gap-3 sm:mx-7">
           <p className="text-sm text-amber-400">
             {t("vaultPanel.positionsError")}
           </p>
           <button
             onClick={() => void refetchPositions()}
-            className="shrink-0 rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
+            className="inline-flex min-h-11 shrink-0 items-center rounded-lg border border-amber-800/70 px-3 py-1.5 text-xs font-medium text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
           >
             {t("common.retry")}
           </button>
@@ -329,7 +331,7 @@ export function VaultPanel() {
       )}
 
       {/* Action area */}
-      <div className="px-7 py-6">
+      <div className="px-4 py-5 sm:px-7 sm:py-6">
         {!connected ? (
           <div className="space-y-4">
             {showRiskDisclosure && (
@@ -368,7 +370,7 @@ export function VaultPanel() {
                     type="button"
                     data-testid="vault-connect-cancel"
                     onClick={cancelConnect}
-                    className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium py-2.5 transition-colors duration-150"
+                    className="w-full rounded-xl border border-gray-700 text-gray-400 hover:border-gray-600 hover:text-paper text-sm font-medium min-h-11 py-2.5 transition-colors duration-150"
                   >
                     {t("common.cancel")}
                   </button>
@@ -390,7 +392,7 @@ export function VaultPanel() {
                         type="button"
                         data-testid="vault-connect-retry"
                         onClick={retryConnect}
-                        className="rounded-lg bg-amber-700/60 px-3 py-1.5 font-medium text-amber-100 hover:bg-amber-700 transition-colors duration-150"
+                        className="inline-flex min-h-11 items-center rounded-lg bg-amber-700/60 px-3 py-1.5 font-medium text-amber-100 hover:bg-amber-700 transition-colors duration-150"
                       >
                         {t("common.retry")}
                       </button>
@@ -398,7 +400,7 @@ export function VaultPanel() {
                         type="button"
                         data-testid="vault-connect-dismiss"
                         onClick={cancelConnect}
-                        className="rounded-lg border border-amber-800/70 px-3 py-1.5 text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
+                        className="inline-flex min-h-11 items-center rounded-lg border border-amber-800/70 px-3 py-1.5 text-amber-300 hover:border-amber-700 hover:text-amber-200 transition-colors duration-150"
                       >
                         {t("common.cancel")}
                       </button>

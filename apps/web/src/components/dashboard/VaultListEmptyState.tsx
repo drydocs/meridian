@@ -28,7 +28,7 @@ export function VaultListEmptyState({
       <div
         data-testid="vault-empty-failure"
         role="alert"
-        className={`rounded-2xl border border-rose-800/60 bg-rose-950/20 px-6 py-8 text-center text-paper ${className}`}
+        className={`rounded-2xl border border-rose-800/60 bg-rose-950/20 px-4 py-6 text-center text-paper sm:px-6 sm:py-8 ${className}`}
       >
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-rose-900/40 text-rose-300">
           <svg
@@ -61,7 +61,7 @@ export function VaultListEmptyState({
               type="button"
               onClick={onRetry}
               data-testid="vault-empty-retry-button"
-              className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 transition-colors duration-150"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 transition-colors duration-150"
             >
               <svg
                 className="h-4 w-4"
@@ -88,7 +88,7 @@ export function VaultListEmptyState({
   return (
     <div
       data-testid="vault-empty-none"
-      className={`rounded-2xl border border-gray-800 bg-night-surface/60 px-6 py-8 text-center text-paper ${className}`}
+      className={`rounded-2xl border border-gray-800 bg-night-surface/60 px-4 py-6 text-center text-paper sm:px-6 sm:py-8 ${className}`}
     >
       <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-800/80 text-gray-400">
         <svg
