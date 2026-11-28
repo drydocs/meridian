@@ -14,6 +14,8 @@ name: Verify Contract Addresses
 # Enforcement is configured separately: after this workflow is merged, a repo
 # admin must add "Verify On-Chain Bytecode" to main's required status checks
 # (see #1067). A failing job alone does not enable branch protection.
+permissions: {}
+
 on:
   pull_request: {}
   workflow_dispatch: {}
@@ -35,7 +37,7 @@ jobs:
     continue-on-error: false
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The planning step diffs this PR against its base commit to decide
           # whether a recorded address changed, so it needs full history.
@@ -43,7 +45,7 @@ jobs:
       - name: Detect verification changes
         if: github.event_name == 'pull_request'
         id: changes
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
         with:
           filters: |
             verification:
@@ -59,9 +61,9 @@ jobs:
       - name: No verification changes
         if: github.event_name == 'pull_request' && steps.changes.outputs.verification == 'false'
         run: echo "No contract address or verification changes; verification is not needed."
-      - uses: pnpm/action-setup@v6.1.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.verification == 'true'
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.verification == 'true'
         with:
           node-version-file: .node-version
@@ -98,29 +100,23 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         if: steps.plan.outputs.needs_build == 'true'
         with:
+          toolchain: stable
           targets: wasm32v1-none
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: steps.plan.outputs.needs_build == 'true'
         with:
           workspaces: packages/contracts
-      - name: Cache Stellar CLI binary
-        if: steps.plan.outputs.needs_build == 'true'
-        id: cache-stellar-cli
-        uses: actions/cache@v6
-        with:
-          path: ~/.cargo/bin/stellar
-          key: stellar-cli-${{ runner.os }}-${{ steps.stellar-cli-version.outputs.version }}
       - name: Install Stellar CLI build dependencies
         # stellar-cli pulls in libdbus-sys and hidapi (hardware wallet
         # support) transitively, which need the dbus-1 and libudev system
         # libraries at build time; not preinstalled on ubuntu-latest runners.
-        if: steps.plan.outputs.needs_build == 'true' && steps.cache-stellar-cli.outputs.cache-hit != 'true'
+        if: steps.plan.outputs.needs_build == 'true'
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev libudev-dev pkg-config
       - name: Install Stellar CLI
-        if: steps.plan.outputs.needs_build == 'true' && steps.cache-stellar-cli.outputs.cache-hit != 'true'
+        if: steps.plan.outputs.needs_build == 'true'
         run: cargo install --locked stellar-cli --version "${{ steps.stellar-cli-version.outputs.version }}"
       - name: Verify deployment bytecode matches source
         # Only runs when the plan found a new deployment (or for a manual full

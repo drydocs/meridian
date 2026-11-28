@@ -10,6 +10,8 @@ name: Keepers Schedule
 # (github.event.schedule), so a tick where several crons coincide (every
 # hour, on the hour) still calls each matching endpoint exactly once, not
 # one call doing double duty.
+permissions: {}
+
 on:
   schedule:
     - cron: "*/5 * * * *" # admin-event alert keeper
@@ -23,6 +25,7 @@ concurrency:
 
 jobs:
   trigger-keepers:
+    permissions: {}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
