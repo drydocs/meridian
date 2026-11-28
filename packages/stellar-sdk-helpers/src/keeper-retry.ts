@@ -79,6 +79,24 @@ export interface RetryConfig {
   deadlineAt?: number;
 }
 
+// Base error type for keeper failures. Declared before any subclass so the
+// class is initialised when subclasses reference it at module load.
+export class KeeperError extends Error {
+  readonly cause: unknown;
+
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = "KeeperError";
+    this.cause = cause;
+  }
+}
+
+// Resumable cursor over an ordered list of items. Wraps to the start once the
+// end is reached so coverage stays fair across runs.
+export interface KeeperCursor {
+  offset: number;
+}
+
 export interface RetryOptions {
   maxAttempts?: number;
   baseDelayMs?: number;
@@ -114,16 +132,6 @@ export interface KeeperFailure {
   attempts: number;
   transient: boolean;
   error: string;
-}
-
-export class KeeperError extends Error {
-  readonly cause: unknown;
-
-  constructor(message: string, cause?: unknown) {
-    super(message);
-    this.name = "KeeperError";
-    this.cause = cause;
-  }
 }
 
 export class KeeperRetryError extends KeeperError {
