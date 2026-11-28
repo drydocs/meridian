@@ -43,6 +43,11 @@ import { logError } from "../../_lib/logger.js";
 // tracked wallet and writes the resulting series. They all keep the same
 // rate-limit backstop. That auth split is preserved exactly as it was when
 // these were separate files.
+//
+// The OpenAPI document for these routes is api/v1/openapi.yaml and is
+// exercised by api/__tests__/handlers.test.ts. When changing a status code
+// or response body shape here, update the schema and the contract test in the
+// same change.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { action } = req.query;
 

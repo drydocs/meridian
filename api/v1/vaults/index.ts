@@ -10,6 +10,15 @@ import {
 import { logError } from "../../_lib/logger.js";
 import { createStrongETag, ifNoneMatchMatches } from "../../_lib/etag.js";
 
+/**
+ * GET /api/v1/vaults
+ *
+ * Contract is documented in the OpenAPI schema at api/v1/openapi.yaml
+ * (the single source of truth for /api/v1 responses) and exercised by
+ * api/__tests__/handlers.test.ts. The schema is validated in CI. When changing
+ * the response shape or status codes, update the schema and the contract test
+ * in the same change.
+ */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   if (requireGetMethod(req, res)) return;

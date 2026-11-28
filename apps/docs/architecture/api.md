@@ -6,6 +6,7 @@ Meridian has two API implementations that share the same interface:
 | --------------------------- | ----------------- | ----------------- |
 | Vercel serverless functions | Production        | `api/v1/`         |
 | Fastify server              | Local development | `apps/api-local/` |
+Contract tests in `api/__tests__/handlers.test.ts` assert that the `/api/v1` handlers return the status codes and required response keys their route documentation describes. The `/api/v1` endpoints are documented below. A published OpenAPI schema and CI validation for it are not part of this change.
 
 ## Request IDs and errors
 
@@ -35,8 +36,7 @@ backward-compatible access.
 The codes, their causes and the recommended client action for each are listed in the [API Error Reference](./api-errors.md).
 
 ## Endpoints
-
-The machine-readable OpenAPI specification lives at [`docs/openapi.yaml`](https://github.com/drydocs/meridian/blob/main/docs/openapi.yaml).
+This page is the reference for the `/api/v1` endpoints in this change. No OpenAPI document is published with this change.
 
 ### `GET /api/v1/config`
 

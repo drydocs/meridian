@@ -16,6 +16,10 @@ import { logError } from "../../_lib/logger.js";
 // req.query.resource set accordingly. Both are public read-only endpoints
 // (same data as the public /api/v1/vaults and /api/v1/positions routes,
 // just reshaped for the admin dashboard), so they share one auth model.
+//
+// Contract: described by the OpenAPI schema at api/v1/openapi.yaml and
+// exercised by api/__tests__/handlers.test.ts. When changing the response
+// shape or status codes, update the schema and the contract tests together.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   try {
