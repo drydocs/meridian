@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+# Dependency audit: run `cargo audit` from packages/contracts (see CONTRIBUTING.md).
 members = ["vault", "blend-adapter", "defindex-adapter", "adapter-common", "musdc-token", "integration-tests"]
 
 [profile.release]
