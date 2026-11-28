@@ -8,6 +8,7 @@ export * from "./horizon";
 export * from "./health-checks";
 export * from "./keeper-doctor";
 export * from "./keeper-heartbeat";
+export * from "./keeper-plan";
 export * from "./keeper-retry";
 export * from "./keeper-state";
 export * from "./keeper-tx";

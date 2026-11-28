@@ -167,7 +167,7 @@ interface CandidateRate {
   rate: number;
 }
 
-interface FindBestCandidateResult {
+export interface FindBestCandidateResult {
   best: BestCandidate | null;
   currentRate: number | null;
   candidateRates: Map<string, CandidateRate>;
@@ -383,6 +383,50 @@ export function loadMigrationKeeperConfig(
   };
 }
 
+export type MigrationPlanConfig = Pick<
+  MigrationKeeperConfig,
+  | "network"
+  | "maxAttempts"
+  | "baseDelayMs"
+  | "rpcTimeoutMs"
+  | "minImprovementBps"
+  | "candidateAdapters"
+>;
+
+/**
+ * Planning config deliberately has no secretKey: the dry-run endpoint must
+ * work when MERIDIAN_MIGRATION_KEEPER_SECRET_KEY is unset, and it never signs
+ * or submits anything.
+ */
+export function loadMigrationPlanConfig(
+  env: Record<string, string | undefined>
+): MigrationPlanConfig {
+  return {
+    network: APP_NETWORK,
+    maxAttempts: parsePositiveInt(
+      env.MERIDIAN_KEEPER_MAX_ATTEMPTS,
+      DEFAULT_MAX_ATTEMPTS,
+      "MERIDIAN_KEEPER_MAX_ATTEMPTS"
+    ),
+    baseDelayMs: parsePositiveInt(
+      env.MERIDIAN_KEEPER_RETRY_BASE_DELAY_MS,
+      DEFAULT_BASE_DELAY_MS,
+      "MERIDIAN_KEEPER_RETRY_BASE_DELAY_MS"
+    ),
+    rpcTimeoutMs: parsePositiveInt(
+      env.MERIDIAN_KEEPER_RPC_TIMEOUT_MS,
+      DEFAULT_RPC_TIMEOUT_MS,
+      "MERIDIAN_KEEPER_RPC_TIMEOUT_MS"
+    ),
+    minImprovementBps: parseNonNegativeInt(
+      env.MERIDIAN_MIGRATION_MIN_IMPROVEMENT_BPS,
+      DEFAULT_MIN_IMPROVEMENT_BPS,
+      "MERIDIAN_MIGRATION_MIN_IMPROVEMENT_BPS"
+    ),
+    candidateAdapters: parseCandidateAdapters(env),
+  };
+}
+
 export async function discoverMigrationVaults(
   options: DiscoverVaultsOptions = {}
 ): Promise<{ vaults: DiscoveredVault[]; failures: KeeperFailure[] }> {
@@ -542,7 +586,7 @@ export async function discoverMigrationVaults(
   return { vaults, failures };
 }
 
-interface BestCandidate {
+export interface BestCandidate {
   protocol: string;
   adapterId: string;
   improvementBps: number;
@@ -554,7 +598,7 @@ interface BestCandidate {
 // adapter that failed, not the vault's current one, and preserves the
 // underlying attempts/transient classification so retryOutcome() still
 // reports it correctly one level up.
-class CandidateEvaluationError extends Error {
+export class CandidateEvaluationError extends Error {
   readonly attempts: number;
   readonly transient: boolean;
 
@@ -571,9 +615,12 @@ class CandidateEvaluationError extends Error {
   }
 }
 
-async function findBestCandidate(
+export async function findBestCandidate(
   vault: DiscoveredVault,
-  config: MigrationKeeperConfig,
+  config: Pick<
+    MigrationKeeperConfig,
+    "maxAttempts" | "baseDelayMs" | "minImprovementBps" | "candidateAdapters"
+  >,
   rateSource: RateSourceFn,
   resolveCandidatePool: (adapterId: string) => Promise<string>,
   logger: KeeperLogger,
