@@ -69,9 +69,12 @@ if [ "$NETWORK" = "mainnet" ]; then
   fi
 fi
 
-echo "Building blend-adapter for $NETWORK..."
-cd "$(dirname "$0")/../packages/contracts"
-stellar contract build
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+echo "Building blend-adapter for $NETWORK (twice, verifying reproducibility)..."
+cd "$REPO_ROOT/packages/contracts"
+# #1421: build every contract twice in clean directories, fail unless both
+# builds match, and stage only the verified artifacts for upload.
+"$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/verify-reproducible-build.ts" --build
 
 # `stellar contract build` targets wasm32v1-none, not wasm32-unknown-unknown.
 WASM_ADAPTER="target/wasm32v1-none/release/meridian_blend_adapter.wasm"

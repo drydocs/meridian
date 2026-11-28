@@ -358,6 +358,20 @@ pnpm check:wasm-size -- --build --base-ref main  # plus the delta from main
 
 **Updating a budget.** When a contract grows on purpose, raise its number in `wasm-size-budgets.json` in the same PR and say in the PR description what grew and why; reviewers treat the budget change as an explicit sign-off on the larger binary. For a new contract, add an entry. Budgets are set to roughly the current size plus 10%, rounded up to a whole KiB, so routine changes don't need an update but significant growth gets a deliberate review.
 
+#### Reproducible contract builds
+
+Contract CI builds every contract twice in clean target directories and fails unless both builds produce the same SHA-256 for every released WASM ([#1421](https://github.com/drydocs/meridian/issues/1421)). The verified build is staged into `packages/contracts/target/wasm32v1-none/release`, and a hash manifest recording the Rust compiler, Soroban SDK, Stellar CLI and target versions is written to `packages/contracts/target/reproducible-build.json` and published as the `reproducible-build-manifest` artifact. The Rust toolchain is pinned in `packages/contracts/rust-toolchain.toml`; the Stellar CLI pin and the Rust/Soroban SDK versions used for live deployments are recorded in `packages/shared/deployed-contracts.json` under `toolchain`.
+
+To run the same check locally:
+
+```bash
+pnpm verify:reproducible-build -- --build
+# verify WASM built elsewhere against its published manifest:
+pnpm verify:reproducible-build -- --no-build --manifest path/to/reproducible-build.json
+```
+
+The deploy scripts run this before uploading. `SKIP_BUILD=1` does not skip verification: it requires `REPRODUCIBLE_BUILD_MANIFEST` (default `packages/contracts/target/reproducible-build.json`) and refuses any WASM that is missing from it or whose hash differs. WASM is not byte-identical across operating systems, so use Linux (CI) for mainnet artifacts.
+
 ---
 
 ## Pull Request Process

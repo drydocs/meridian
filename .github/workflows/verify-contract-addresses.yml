@@ -101,6 +101,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         if: steps.plan.outputs.needs_build == 'true'
         with:
+          toolchain: 1.100.0
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
         if: steps.plan.outputs.needs_build == 'true'
@@ -122,11 +123,26 @@ jobs:
       - name: Install Stellar CLI
         if: steps.plan.outputs.needs_build == 'true' && steps.cache-stellar-cli.outputs.cache-hit != 'true'
         run: cargo install --locked stellar-cli --version "${{ steps.stellar-cli-version.outputs.version }}"
+      - name: Verify reproducible builds
+        # Builds every contract twice in clean target directories and fails
+        # unless both builds are byte-identical (#1421). The verified first
+        # build is staged for the comparison below, and the hash manifest is
+        # published as a workflow artifact.
+        if: steps.plan.outputs.needs_build == 'true'
+        run: pnpm verify:reproducible-build -- --build
+      - name: Upload reproducible build manifest
+        if: steps.plan.outputs.needs_build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproducible-build-manifest
+          path: packages/contracts/target/reproducible-build.json
+          if-no-files-found: warn
       - name: Verify deployment bytecode matches source
         # Only runs when the plan found a new deployment (or for a manual full
         # audit). The live-state step above already checked the on-chain hashes
-        # against the manifest; this reproduces those hashes from source.
+        # against the manifest; this compares those hashes with the WASM the
+        # reproducible build just verified, without rebuilding over it.
         if: steps.plan.outputs.needs_build == 'true'
         env:
           VERIFY_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: pnpm verify:contracts -- --verify-bytecode
+        run: pnpm verify:contracts -- --verify-bytecode --no-build

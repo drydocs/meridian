@@ -177,6 +177,8 @@ export const deploymentManifestSchema = z
     toolchain: z
       .object({
         stellarCli: z.string().min(1),
+        rust: z.string().min(1),
+        sorobanSdk: z.string().min(1),
         target: z.literal("wasm32v1-none"),
       })
       .strict(),
