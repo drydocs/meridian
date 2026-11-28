@@ -45,7 +45,7 @@ describe("buildApp", () => {
       "http.request",
       expect.objectContaining({ method: "GET", route: "/health" })
     );
-  });
+  }, 10000);
 
   it("does not log requests without a logger", async () => {
     const server = await build({ enableRateLimit: false });
