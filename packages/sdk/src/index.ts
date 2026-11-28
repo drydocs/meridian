@@ -24,6 +24,7 @@ export {
   convertSharesToAssets,
   calculatePerformanceFee,
 } from "./vault-base.js";
+export { VaultClient, VaultClientError } from "./vault-client.js";
 export {
   ErrorCode,
   MeridianError,
