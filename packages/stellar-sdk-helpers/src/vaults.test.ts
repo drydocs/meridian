@@ -18,6 +18,12 @@ vi.mock("./internal", async (importOriginal) => {
 vi.mock("./vault-cache", () => ({
   getCachedVaults: vi.fn(),
   setCachedVaults: vi.fn(),
+  getCachedVaultsStale: vi.fn(),
+  getBreakerFailures: vi.fn(),
+  incrementBreakerFailures: vi.fn(),
+  clearBreakerFailures: vi.fn(),
+  openBreaker: vi.fn(),
+  wasBreakerOpen: vi.fn(),
 }));
 
 import { simulateView } from "./tx";
@@ -28,12 +34,27 @@ import {
   clearVaultCache,
   isVaultCacheWarm,
 } from "./vaults";
-import { getCachedVaults, setCachedVaults } from "./vault-cache";
+import {
+  getCachedVaults,
+  setCachedVaults,
+  getCachedVaultsStale,
+  getBreakerFailures,
+  incrementBreakerFailures,
+  clearBreakerFailures,
+  openBreaker,
+  wasBreakerOpen,
+} from "./vault-cache";
 import { KNOWN_POOLS } from "./known-pools";
 
 beforeEach(() => {
   vi.mocked(getCachedVaults).mockReset().mockResolvedValue(null);
   vi.mocked(setCachedVaults).mockReset().mockResolvedValue(undefined);
+  vi.mocked(getCachedVaultsStale).mockReset().mockResolvedValue(null);
+  vi.mocked(getBreakerFailures).mockReset().mockResolvedValue(0);
+  vi.mocked(incrementBreakerFailures).mockReset().mockResolvedValue(1);
+  vi.mocked(clearBreakerFailures).mockReset().mockResolvedValue(undefined);
+  vi.mocked(openBreaker).mockReset().mockResolvedValue(undefined);
+  vi.mocked(wasBreakerOpen).mockReset().mockResolvedValue(false);
 });
 
 // Mainnet DeFiLlama pool UUID mapping to blend-usdc-fixed in KNOWN_POOLS.mainnet.
@@ -521,6 +542,185 @@ describe("fetchAllVaults (mainnet)", () => {
       KNOWN_POOLS.mainnet["meridian-usdc"] = origMeridian!;
     }
   });
+
+  // -------------------------------------------------------------------------
+  // Stale serving and circuit breaker (acceptance criteria)
+  // -------------------------------------------------------------------------
+
+  it("serves the last shared payload with stale=true during a total upstream outage", async () => {
+    // Arrange: a valid payload is in the shadow cache (simulates a prior cold start).
+    const shadow = [
+      {
+        id: "blend-usdc-fixed",
+        protocol: "blend" as const,
+        asset: "USDC",
+        name: "Blend USDC",
+        label: "Blend",
+        apy: 5,
+        tvl: 1_000_000,
+        userBalance: 0,
+        riskLevel: "safe" as const,
+      },
+    ];
+    vi.mocked(getCachedVaultsStale).mockResolvedValue({
+      vaults: shadow,
+      cacheAgeSeconds: 120,
+    });
+
+    // Both DeFiLlama and RPC fail.
+    vi.mocked(simulateView).mockRejectedValue(new Error("RPC down"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("DeFiLlama network error");
+      })
+    );
+
+    const result = await fetchVaultsWithCache("mainnet");
+
+    expect(result.stale).toBe(true);
+    expect(result.cacheAgeSeconds).toBe(120);
+    expect(result.vaults).toEqual(shadow);
+    expect(result.cached).toBe(false);
+  });
+
+  it("includes cacheAgeSeconds in the stale response", async () => {
+    vi.mocked(getCachedVaultsStale).mockResolvedValue({
+      vaults: [
+        {
+          id: "blend-usdc-fixed",
+          protocol: "blend",
+          asset: "USDC",
+          name: "Blend USDC",
+          label: "Blend",
+          apy: 5,
+          tvl: 1_000_000,
+          userBalance: 0,
+          riskLevel: "safe",
+        },
+      ],
+      cacheAgeSeconds: 300,
+    });
+    vi.mocked(simulateView).mockRejectedValue(new Error("RPC down"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("DeFiLlama network error");
+      })
+    );
+
+    const result = await fetchVaultsWithCache("mainnet");
+    expect(result.stale).toBe(true);
+    expect(result.cacheAgeSeconds).toBe(300);
+  });
+
+  it("increments the circuit breaker counter on each total upstream failure", async () => {
+    vi.mocked(getCachedVaultsStale).mockResolvedValue(null);
+    vi.mocked(simulateView).mockRejectedValue(new Error("RPC down"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("DeFiLlama network error");
+      })
+    );
+
+    await fetchVaultsWithCache("mainnet").catch(() => undefined);
+    await fetchVaultsWithCache("mainnet").catch(() => undefined);
+
+    expect(incrementBreakerFailures).toHaveBeenCalledTimes(2);
+  });
+
+  it("trips the breaker after threshold failures and serves stale without hitting upstream", async () => {
+    const shadow = [
+      {
+        id: "blend-usdc-fixed",
+        protocol: "blend" as const,
+        asset: "USDC",
+        name: "Blend USDC",
+        label: "Blend",
+        apy: 5,
+        tvl: 1_000_000,
+        userBalance: 0,
+        riskLevel: "safe" as const,
+      },
+    ];
+    // Breaker is already tripped (count >= threshold).
+    vi.mocked(getBreakerFailures).mockResolvedValue(3);
+    vi.mocked(getCachedVaultsStale).mockResolvedValue({
+      vaults: shadow,
+      cacheAgeSeconds: 90,
+    });
+
+    const mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await fetchVaultsWithCache("mainnet");
+
+    expect(result.stale).toBe(true);
+    expect(result.vaults).toEqual(shadow);
+    // With the breaker open, we must not have called DeFiLlama or RPC.
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(simulateView).not.toHaveBeenCalled();
+  });
+
+  it("clears the circuit breaker after a successful upstream probe", async () => {
+    mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
+    stubPools([llamaPool()]);
+
+    await fetchAllVaults("mainnet");
+
+    expect(clearBreakerFailures).toHaveBeenCalledOnce();
+  });
+
+  it("does not mark the response stale when upstream succeeds", async () => {
+    mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
+    stubPools([llamaPool()]);
+
+    const result = await fetchVaultsWithCache("mainnet");
+    expect(result.stale).toBeUndefined();
+    expect(result.cacheAgeSeconds).toBeUndefined();
+  });
+
+  it("does not overwrite good cache entries with partial results on total outage", async () => {
+    // Prime a good in-process cache.
+    mockAdapterDiscovery({ totalAssets: 10_000_000_000n, protocol: "none" });
+    stubPools([llamaPool()]);
+    await fetchAllVaults("mainnet");
+    const setCalls = vi.mocked(setCachedVaults).mock.calls.length;
+
+    // Expire the in-process cache by clearing it, keeping the shared mock at null.
+    clearVaultCache();
+
+    // Both sources fail.
+    vi.mocked(simulateView).mockRejectedValue(new Error("RPC down"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("DeFiLlama network error");
+      })
+    );
+    vi.mocked(getCachedVaultsStale).mockResolvedValue({
+      vaults: [
+        {
+          id: "blend-usdc-fixed",
+          protocol: "blend",
+          asset: "USDC",
+          name: "Blend USDC",
+          label: "Blend",
+          apy: 5,
+          tvl: 1_000_000,
+          userBalance: 0,
+          riskLevel: "safe",
+        },
+      ],
+      cacheAgeSeconds: 70,
+    });
+
+    await fetchVaultsWithCache("mainnet");
+
+    // setCachedVaults must not have been called again (no partial write).
+    expect(vi.mocked(setCachedVaults).mock.calls.length).toBe(setCalls);
+  });
 });
 
 describe("fetchAllVaults (testnet)", () => {
@@ -644,5 +844,58 @@ describe("fetchAllVaults (testnet)", () => {
     } finally {
       delete KNOWN_POOLS.testnet[dummyPoolId];
     }
+  });
+
+  it("throws instead of returning an empty stale list when nothing is cached", async () => {
+    vi.mocked(getCachedVaultsStale).mockResolvedValue(null);
+    vi.mocked(simulateView).mockRejectedValue(new Error("RPC down"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("DeFiLlama network error");
+      })
+    );
+    clearVaultCache();
+
+    await expect(fetchVaultsWithCache("mainnet")).rejects.toThrow(
+      "Vault data unavailable"
+    );
+  });
+
+  it("opens the breaker when the failure count reaches the threshold", async () => {
+    vi.mocked(incrementBreakerFailures).mockResolvedValue(3);
+    vi.mocked(simulateView).mockRejectedValue(new Error("RPC down"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("DeFiLlama network error");
+      })
+    );
+    vi.mocked(getCachedVaultsStale).mockResolvedValue({
+      vaults: [],
+      cacheAgeSeconds: 1,
+    });
+    clearVaultCache();
+
+    await fetchVaultsWithCache("mainnet").catch(() => undefined);
+
+    expect(openBreaker).toHaveBeenCalledWith("mainnet", 3);
+  });
+
+  it("reopens the breaker immediately when a probe fails after the window", async () => {
+    vi.mocked(wasBreakerOpen).mockResolvedValue(true);
+    vi.mocked(simulateView).mockRejectedValue(new Error("RPC down"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("DeFiLlama network error");
+      })
+    );
+    clearVaultCache();
+
+    await fetchVaultsWithCache("mainnet").catch(() => undefined);
+
+    expect(openBreaker).toHaveBeenCalledWith("mainnet", 3);
+    expect(incrementBreakerFailures).not.toHaveBeenCalled();
   });
 });

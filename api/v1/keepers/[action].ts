@@ -12,6 +12,7 @@ import {
   redactedErrorMessage,
   runAlertKeeper,
   runBlendAccrualKeeper,
+  runKeeperDoctor,
   resolvePositions,
   runMigrationKeeper,
   runPositionSnapshotKeeper,
@@ -23,6 +24,7 @@ import {
   checkRateLimit,
   isCronAuthorized,
   isCronSecretConfigured,
+  sendResponse,
 } from "../../_lib/middleware.js";
 import { logError } from "../../_lib/logger.js";
 
@@ -50,28 +52,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!(await checkRateLimit(req, res, { route: "read" }))) return;
     } catch (err) {
       logError("keepers.health.rate_limit_failed", req, err);
-      return res
-        .status(503)
-        .json({ error: "Rate limiter unavailable; refusing to run" });
+      return sendResponse(req, res, 503, {
+        error: "Rate limiter unavailable; refusing to run",
+      });
     }
     const result = await handleGetKeeperHealth();
     if (result.error) logError("keepers.health.failed", req, result.error);
     res.setHeader("Cache-Control", "no-store");
-    return res.status(result.status).json(result.body);
+    return sendResponse(req, res, result.status, result.body);
   }
 
   if (
     action !== "accrue" &&
     action !== "rebalance" &&
     action !== "alert" &&
-    action !== "snapshot"
+    action !== "snapshot" &&
+    action !== "doctor"
   ) {
-    return res.status(404).json({ error: "Unknown action" });
+    return sendResponse(req, res, 404, { error: "Unknown action" });
   }
 
   if (req.method !== "GET" && req.method !== "POST") {
     res.setHeader("Allow", "GET, POST");
-    return res.status(405).json({ error: "Method not allowed" });
+    return sendResponse(req, res, 405, { error: "Method not allowed" });
   }
 
   // No applyCors: cron-invoked, never browser-facing. But these actions sign
@@ -86,16 +89,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!(await checkRateLimit(req, res, { route: "keeper" }))) return;
   } catch (err) {
     logError("keepers.rate_limit_failed", req, err, { action });
-    return res
-      .status(503)
-      .json({ error: "Rate limiter unavailable; refusing to run" });
+    return sendResponse(req, res, 503, {
+      error: "Rate limiter unavailable; refusing to run",
+    });
   }
 
   if (!isCronSecretConfigured()) {
-    return res.status(503).json({ error: "CRON_SECRET is not configured" });
+    return sendResponse(req, res, 503, {
+      error: "CRON_SECRET is not configured",
+    });
   }
   if (!isCronAuthorized(req)) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return sendResponse(req, res, 401, { error: "Unauthorized" });
+  }
+
+  if (action === "doctor") {
+    const rawKeeper = Array.isArray(req.query.keeper)
+      ? req.query.keeper[0]
+      : req.query.keeper;
+    const keeper = rawKeeper ?? "migration";
+    if (keeper !== "migration" && keeper !== "accrual") {
+      return res
+        .status(400)
+        .json({ error: "Invalid keeper; expected 'migration' or 'accrual'" });
+    }
+    try {
+      const report = await runKeeperDoctor({
+        keeper,
+        env: process.env,
+        logger: consoleLogger,
+      });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(report.ok ? 200 : 503).json(report);
+    } catch (err) {
+      console.error("[keeper-doctor] run failed:", err);
+      return res.status(500).json({ error: redactedErrorMessage(err) });
+    }
   }
 
   if (action === "accrue") {
@@ -114,10 +143,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           consoleLogger
         );
       }
-      return res.status(status).json(result);
+      return sendResponse(req, res, status, result);
     } catch (err) {
       logError("accrual_keeper.failed", req, err);
-      return res.status(500).json({ error: redactedErrorMessage(err) });
+      return sendResponse(req, res, 500, { error: redactedErrorMessage(err) });
     }
   }
 
@@ -148,10 +177,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logger: consoleLogger,
       });
       const status = result.failures.length > 0 ? 500 : 200;
-      return res.status(status).json(result);
+      return sendResponse(req, res, status, result);
     } catch (err) {
       logError("snapshot_keeper.failed", req, err);
-      return res.status(500).json({ error: redactedErrorMessage(err) });
+      return sendResponse(req, res, 500, { error: redactedErrorMessage(err) });
     }
   }
 
@@ -161,7 +190,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // on, and every 5-minute cron tick throwing/500ing for an
     // intentionally-not-yet-configured feature is noise, not a signal.
     if (!isAlertKeeperConfigured(process.env)) {
-      return res.status(200).json({
+      return sendResponse(req, res, 200, {
         status: "disabled",
         message: "MERIDIAN_ALERT_WEBHOOK_URL is not configured",
       });
@@ -178,10 +207,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
       const result = await runAlertKeeper(config, { cursorStore });
       const status = result.failures.length > 0 ? 500 : 200;
-      return res.status(status).json(result);
+      return sendResponse(req, res, status, result);
     } catch (err) {
       logError("alert_keeper.failed", req, err);
-      return res.status(500).json({ error: redactedErrorMessage(err) });
+      return sendResponse(req, res, 500, { error: redactedErrorMessage(err) });
     }
   }
 
@@ -195,7 +224,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // a 500, a permanent, noisy false alarm for a deliberately-unset key, not
   // an actual failure.
   if (!isMigrationKeeperConfigured(process.env)) {
-    return res.status(200).json({
+    return sendResponse(req, res, 200, {
       status: "disabled",
       message: "MERIDIAN_MIGRATION_KEEPER_SECRET_KEY is not configured",
     });
@@ -203,9 +232,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const config = loadMigrationKeeperConfig(process.env);
-    const result = await runMigrationKeeper(config);
-    const status = result.failures.length > 0 ? 500 : 200;
-    if (result.failures.length === 0) {
+    const result = await runMigrationKeeper(config, { runPreflight: true });
+    // A run the preflight blocked did nothing, so it must not look like a
+    // success to the cron scheduler.
+    const status =
+      result.failures.length > 0 ? 500 : result.blocked ? 503 : 200;
+    if (result.failures.length === 0 && !result.blocked) {
       const store = loadKeeperHeartbeatStore(process.env, {
         logger: consoleLogger,
       });
@@ -216,9 +248,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         consoleLogger
       );
     }
-    return res.status(status).json(result);
+    return sendResponse(req, res, status, result);
   } catch (err) {
     logError("migration_keeper.failed", req, err);
-    return res.status(500).json({ error: redactedErrorMessage(err) });
+    return sendResponse(req, res, 500, { error: redactedErrorMessage(err) });
   }
 }

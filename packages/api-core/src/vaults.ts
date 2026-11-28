@@ -9,10 +9,11 @@ import { deadlineResult, withUpstreamDeadline } from "./deadline";
 
 export async function handleGetVaults(): Promise<RouteResult> {
   try {
-    const { vaults, cached } = await withUpstreamDeadline(
-      () => fetchVaultsWithCache(APP_NETWORK.network),
-      "vault list"
-    );
+    const { vaults, cached, stale, cacheAgeSeconds } =
+      await withUpstreamDeadline(
+        () => fetchVaultsWithCache(APP_NETWORK.network),
+        "vault list"
+      );
     const best = selectBestVault(vaults, {
       defindexConfigured: isDefindexConfigured(),
     });
@@ -23,6 +24,8 @@ export async function handleGetVaults(): Promise<RouteResult> {
         recommendedVaultId: best?.id ?? null,
         updatedAt: new Date().toISOString(),
         cached,
+        ...(stale && { stale: true }),
+        ...(stale && cacheAgeSeconds !== undefined && { cacheAgeSeconds }),
       },
     };
   } catch (err) {

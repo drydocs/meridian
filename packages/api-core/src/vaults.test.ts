@@ -56,6 +56,42 @@ describe("handleGetVaults", () => {
     });
   });
 
+  it("returns stale and cacheAgeSeconds when fetchVaultsWithCache reports stale data", async () => {
+    vi.mocked(fetchVaultsWithCache).mockResolvedValueOnce({
+      vaults: [
+        {
+          id: "blend-usdc-fixed",
+          protocol: "blend",
+          asset: "USDC",
+          name: "Blend USDC",
+          label: "Blend",
+          apy: 5,
+          tvl: 1000,
+          userBalance: 0,
+          riskLevel: "safe",
+        },
+      ],
+      cached: false,
+      stale: true,
+      cacheAgeSeconds: 180,
+    });
+    const result = await handleGetVaults();
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      stale: true,
+      cacheAgeSeconds: 180,
+    });
+  });
+
+  it("omits stale fields when upstream succeeds", async () => {
+    const result = await handleGetVaults();
+    expect(result.status).toBe(200);
+    expect((result.body as Record<string, unknown>).stale).toBeUndefined();
+    expect(
+      (result.body as Record<string, unknown>).cacheAgeSeconds
+    ).toBeUndefined();
+  });
+
   it("returns 500 when the vault fetch fails", async () => {
     const err = new Error("fetch failed");
     vi.mocked(fetchVaultsWithCache).mockRejectedValueOnce(err);

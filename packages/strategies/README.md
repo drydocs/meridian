@@ -41,6 +41,21 @@ This is accounting and yield simulation only. A venue ID is a label, not a
 protocol adapter or live connection; the model contains no venue addresses,
 signing, or transaction submission.
 
+## Delta-neutral supply and borrow carry
+
+`DeltaNeutralConfig` (and the `delta-neutral` registry params) accept optional
+non-negative annualized `supplyRate` and `borrowRate` inputs (365-day year,
+defaulting to `0`):
+
+- **Supply interest** accrues each step on the long spot leg's opening quote
+  notional (`spotQuantity × lastPrice`).
+- **Borrow interest** accrues each step on the borrowed portion of each
+  leveraged leg (`max(0, longNotional − longMargin) + max(0, shortNotional − shortMargin)`).
+- The net spread is accrued in fixed-point stroops with a carried
+  fractional-stroop remainder, exposed as `carryPnl` on the strategy and
+  `DeltaNeutralSnapshot`, and included in `totalPnl` and `equity`.
+- Omitting both rates or setting them to `0` leaves results unchanged.
+
 ## Fixed-point math
 
 Monetary values use `Decimal`, a fixed-point type backed by `bigint` that stores
@@ -97,6 +112,19 @@ To regenerate it after an intentional change, run
 `UPDATE_GOLDEN=true pnpm --filter @meridian/strategies test` and review the diff
 before committing. The suite refuses to regenerate under `CI`, so a stale
 fixture can never be blessed by a pipeline run.
+
+## Running the example
+
+A minimal simulation-only strategy and matching scenario live in [`examples/`](./examples):
+
+- [`examples/target-weight-strategy.ts`](./examples/target-weight-strategy.ts): implements `Strategy<TargetWeightConfig>` and a matching `StrategyDefinition`.
+- [`examples/target-weight.scenario.json`](./examples/target-weight.scenario.json): deterministic synthetic scenario.
+- [`scripts/run-example.ts`](./scripts/run-example.ts): parses the scenario, resolves the strategy, runs the backtest, and prints a deterministic JSON summary.
+
+```bash
+pnpm --filter @meridian/strategies build
+pnpm --filter @meridian/strategies example
+```
 
 ## Installation
 

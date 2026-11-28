@@ -66,3 +66,63 @@ describe("isDefindexConfigured", () => {
     expect(isDefindexConfigured()).toBe(true);
   });
 });
+
+describe("Soroban RPC URL configuration", () => {
+  const savedMainnet = process.env.SOROBAN_RPC_URLS_MAINNET;
+  const savedTestnet = process.env.SOROBAN_RPC_URLS_TESTNET;
+
+  afterEach(() => {
+    if (savedMainnet === undefined) delete process.env.SOROBAN_RPC_URLS_MAINNET;
+    else process.env.SOROBAN_RPC_URLS_MAINNET = savedMainnet;
+    if (savedTestnet === undefined) delete process.env.SOROBAN_RPC_URLS_TESTNET;
+    else process.env.SOROBAN_RPC_URLS_TESTNET = savedTestnet;
+    vi.resetModules();
+  });
+
+  it("parses comma-separated RPC URLs with trimming and deduplication", async () => {
+    const { parseRpcUrls } = await import("./constants");
+    expect(
+      parseRpcUrls(
+        " https://rpc1.example , https://rpc2.example, , https://rpc1.example ",
+        ["https://fallback.example"]
+      )
+    ).toEqual(["https://rpc1.example", "https://rpc2.example"]);
+  });
+
+  it("falls back to defaults when env value is empty or unset", async () => {
+    const { parseRpcUrls, getNetworkRpcUrls, DEFAULT_STELLAR_RPC_URLS } =
+      await import("./constants");
+    expect(parseRpcUrls("   ,  ", ["https://fallback.example"])).toEqual([
+      "https://fallback.example",
+    ]);
+    expect(getNetworkRpcUrls("mainnet", {})).toEqual([
+      ...DEFAULT_STELLAR_RPC_URLS.mainnet,
+    ]);
+    expect(getNetworkRpcUrls("testnet", {})).toEqual([
+      ...DEFAULT_STELLAR_RPC_URLS.testnet,
+    ]);
+  });
+
+  it("populates STELLAR_NETWORKS rpcUrls and primary rpcUrl from env", async () => {
+    process.env.SOROBAN_RPC_URLS_MAINNET =
+      "https://primary-mainnet.example, https://secondary-mainnet.example";
+    process.env.SOROBAN_RPC_URLS_TESTNET =
+      "https://primary-testnet.example,https://secondary-testnet.example";
+    vi.resetModules();
+    const { STELLAR_NETWORKS } = await import("./constants");
+    expect(STELLAR_NETWORKS.mainnet.rpcUrl).toBe(
+      "https://primary-mainnet.example"
+    );
+    expect(STELLAR_NETWORKS.mainnet.rpcUrls).toEqual([
+      "https://primary-mainnet.example",
+      "https://secondary-mainnet.example",
+    ]);
+    expect(STELLAR_NETWORKS.testnet.rpcUrl).toBe(
+      "https://primary-testnet.example"
+    );
+    expect(STELLAR_NETWORKS.testnet.rpcUrls).toEqual([
+      "https://primary-testnet.example",
+      "https://secondary-testnet.example",
+    ]);
+  });
+});

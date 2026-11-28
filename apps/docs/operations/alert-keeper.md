@@ -20,7 +20,7 @@ same staleness budget as a TVL/APY cache.
 
 ## Alert Destination
 
-Set `MERIDIAN_ALERT_WEBHOOK_URL` to a Slack or Discord incoming-webhook URL.
+Set `MERIDIAN_ALERT_WEBHOOK_URL` to a Slack or Discord incoming-webhook URL, or an internal alert receiver service.
 Every alert POSTs a JSON body containing both `text` (Slack's field) and
 `content` (Discord's field), so the same configuration works against either
 service without picking a payload shape up front; whichever field a service
@@ -122,16 +122,75 @@ and a lost success response, can redeliver an identical payload. Receiver
 handlers should therefore be idempotent, for example by deduplicating on the
 exact message text or on the vault, action, and ledger it contains.
 
-## Planned Signed Delivery
+## Signed Delivery
 
-Alerts are currently unsigned. [#1342](https://github.com/drydocs/meridian/issues/1342)
-plans to add `X-Meridian-Signature`, `X-Meridian-Timestamp`, and
-`X-Meridian-Delivery` headers, with an HMAC-SHA256 signature over the
-timestamp, delivery ID, and raw request body. Receivers should not require
-these headers until that work lands, or they will reject every current alert.
-Once deployed, verify the signature against the raw body before acting on the
-payload, reject timestamps outside the documented replay window, and track the
-delivery ID so a replayed request is not acknowledged twice.
+### Webhook Signatures and Replay Protection
+
+Signing applies to receivers you operate. Slack and Discord incoming webhooks cannot verify these headers, so alerts sent to them carry the headers but nothing checks them.
+
+To ensure alerts cannot be forged by an entity learning the webhook URL, every outgoing webhook request is signed with HMAC-SHA256 using a shared secret (`MERIDIAN_ALERT_WEBHOOK_SECRET`) and includes replay protection headers:
+
+- `X-Meridian-Signature`: Hex-encoded HMAC-SHA256 digest formatted as `sha256=<hex_digest>`.
+- `X-Meridian-Timestamp`: Unix epoch timestamp (in seconds) when the alert was dispatched.
+- `X-Meridian-Delivery`: Unique UUID identifying this specific delivery attempt.
+
+The signature is computed over `${timestamp}.${deliveryId}.${body}`:
+
+```ts
+const payload = `${timestamp}.${deliveryId}.${body}`;
+const signature =
+  "sha256=" + crypto.createHmac("sha256", secret).update(payload).digest("hex");
+```
+
+### Fail-Closed Behavior on Deployed Environments
+
+On deployed environments (`VERCEL_ENV` set, e.g. `production` or `preview`, or `NODE_ENV === "production"`), `loadAlertKeeperConfig` strictly requires `MERIDIAN_ALERT_WEBHOOK_SECRET` when `MERIDIAN_ALERT_WEBHOOK_URL` is set. If the secret is omitted, the keeper fails closed and refuses to dispatch unsigned alert payloads.
+
+### Local Development Without a Secret
+
+When `MERIDIAN_ALERT_WEBHOOK_SECRET` is unset outside a deployed environment, alerts are sent unsigned, without the three `X-Meridian-*` headers, so a local receiver keeps working. A deployed environment refuses to start the keeper without the secret.
+
+### Receiver Verification Algorithm
+
+A receiving service should verify the authenticity and freshness of each request before processing:
+
+1. Extract `X-Meridian-Signature`, `X-Meridian-Timestamp`, and `X-Meridian-Delivery` headers. Reject the request with HTTP 400 if any header is missing.
+2. Parse `X-Meridian-Timestamp` as an integer. Reject if the absolute time difference `|now - timestamp|` exceeds the tolerance window (default: 300 seconds / 5 minutes) to protect against replay attacks.
+3. Compute the expected signature over `${timestamp}.${deliveryId}.${rawBody}` using the shared secret.
+4. Compare the expected signature against `X-Meridian-Signature` using a constant-time comparison (such as `crypto.timingSafeEqual`) to prevent timing attacks.
+5. Reject a delivery ID you have already seen within the tolerance window. The signature and timestamp alone let a captured request replay freely until the window closes, so the receiver must remember recent `X-Meridian-Delivery` values and refuse repeats. A retry of a failed delivery uses a new delivery ID, so keep handlers idempotent as described above.
+
+The `@meridian/stellar-sdk-helpers` package provides reference verification helpers:
+
+```ts
+import {
+  verifyAlertWebhookSignature,
+  isAlertWebhookSignatureValid,
+} from "@meridian/stellar-sdk-helpers";
+
+// In your webhook receiver handler (e.g. Express / Fastify):
+const result = verifyAlertWebhookSignature(
+  req.headers,
+  rawBody,
+  webhookSecret,
+  {
+    toleranceSeconds: 300, // 5-minute replay window
+  }
+);
+
+if (!result.valid) {
+  return res.status(401).send({ error: result.error });
+}
+```
+
+### Key Rotation Procedure
+
+To rotate the webhook shared secret (`MERIDIAN_ALERT_WEBHOOK_SECRET`) without dropping alerts:
+
+1. **Dual-secret support on receiver**: Update the receiver service to accept signatures computed with either the current secret or a new secret (or verify against new secret first and fallback to current secret).
+2. **Update environment secret**: Set `MERIDIAN_ALERT_WEBHOOK_SECRET` in the keeper's deployment environment (e.g. Vercel Project Settings > Environment Variables) to the new secret.
+3. **Trigger verification run**: Trigger the alert keeper endpoint or await the next 5-minute cron interval, confirming in receiver logs that alerts are received with signatures valid under the new secret.
+4. **Decommission old secret**: Remove the old secret from the receiver service configuration.
 
 ## Which Events Alert
 

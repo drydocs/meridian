@@ -14,7 +14,7 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
       refresh: refresh === "true" || refresh === "1",
     });
     if (result.error) {
-      app.log.error(result.error, "[positions] read failed");
+      req.log.error(result.error, "[positions] read failed");
     }
     if (result.etag) reply.header("ETag", result.etag);
     reply.header("Cache-Control", "no-store");
@@ -26,11 +26,22 @@ export const positionsRoute: FastifyPluginAsync = async (app) => {
 
   app.get("/:publicKey/history", async (req, reply) => {
     const { publicKey } = req.params as { publicKey: string };
-    const { days } = req.query as { days?: string };
+    const { days, resolution, limit, cursor } = req.query as {
+      days?: string;
+      resolution?: string;
+      limit?: string;
+      cursor?: string;
+    };
 
-    const result = await handleGetPositionHistory(publicKey, days);
+    const result = await handleGetPositionHistory(
+      publicKey,
+      days,
+      resolution,
+      limit,
+      cursor
+    );
     if (result.error) {
-      app.log.error(result.error, "[positions] history read failed");
+      req.log.error(result.error, "[positions] history read failed");
     }
     reply.header("Cache-Control", "no-store");
     reply.code(result.status).send(result.body);

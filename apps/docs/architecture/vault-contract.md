@@ -144,6 +144,10 @@ The target is also validated before it is accepted ([#1270](https://github.com/d
 
 Phase 1 of a two-phase migration ([#567](https://github.com/drydocs/meridian/issues/567)). Snapshots `new_adapter`'s `total_assets()` and the current ledger sequence into instance storage (`MIG_SNAP`, `MIG_ACTIVE`). `migrate_adapter` refuses to run against `new_adapter` until at least `MIN_LEDGER_GAP` ledgers (17,280, ~1 day as of [#557](https://github.com/drydocs/meridian/issues/557); previously 12, ~1 minute) have elapsed since this call, so a transiently-manipulated valuation at submission time can't slip through: an observer would have to sustain the manipulation across the whole cooldown instead of only at the moment `migrate_adapter` executes. The longer gap also makes this a timelock as well as a valuation-stability check. It gives observers or automated monitoring a real window to notice and react to a `begin_migration` call before `migrate_adapter` can move funds. Fails with `SameAdapter` if `new_adapter` is the vault's current adapter, or `MigrationSnapshotAssetsInvalid` if `new_adapter.total_assets()` is negative. A negative snapshot would make `migrate_adapter`'s stability check's tolerance-scaled floor negative too, so it would pass regardless of how much the target is drained during the cooldown. Can be called repeatedly, for the same or a different adapter; each call overwrites the previous snapshot. The target is validated first ([#1270](https://github.com/drydocs/meridian/issues/1270)): `begin_migration` fails with `AdapterUsdcMismatch` or `AdapterVaultMismatch` under the same rules as `set_adapter`, and a rejected target writes no snapshot. It deliberately does not reject a target that holds a position, so a funded target can be re-snapshotted after a partial attempt.
 
+### `cancel_migration()` (admin only)
+
+Cancels a pending migration during its cooldown. It clears the snapshot recorded by `begin_migration` (`MIG_SNAP`, `MIG_ACTIVE`), so `migrate_adapter` rejects the cancelled target with `MigrationNotInitialized` until a new `begin_migration` is made. The cooldown for a later migration is unchanged. Fails with `NoPendingMigration` when no migration is pending, including after it was already cancelled or executed. Publishes an admin `mig_canc` event carrying the cancelled target adapter.
+
 ### `get_migration_snapshot() -> Result<MigrationSnapshot, ContractError>`
 
 Returns the snapshot recorded by `begin_migration` (`{ adapter, total_assets, ledger_seq }`), or fails with `MigrationNotInitialized` if none is active. Off-chain callers (the migration keeper) use this to tell whether a cooldown is already in progress for a given candidate before deciding whether to call `begin_migration` or `migrate_adapter`.
@@ -160,6 +164,10 @@ Refreshes and reads the old adapter's `total_assets()` as the pre-migration valu
 
 **The invariant's real strength also depends on how honestly the new adapter's `total_assets()` reflects what it actually holds.** `BlendAdapter::total_assets()` self-reports based on the amount `deposit()` was called with, not an independent on-chain measurement, so migrating into a `BlendAdapter` target mainly gets protection from the old-adapter-side check (independently measured before and after extraction), not from anything verifying the new `BlendAdapter` actually supplied the funds to its pool rather than just returning success.
 
+### `rescue_token(token, to, amount) -> Result<(), ContractError>` (admin only)
+
+Transfers `amount` of an unrelated token that was sent to the vault address by mistake to `to`. It rejects the vault's USDC, the mUSDC share token and the active adapter with `ProtectedToken`, a non-positive `amount` with `ZeroAmount`, and an amount larger than the vault's balance of `token` with `InsufficientBalance`. It never changes shares, assets, principal, entry times or adapter accounting, and runs under the reentrancy lock. A successful rescue emits the `rescue` admin event.
+
 ### `set_paused(paused: bool)` (admin only)
 
 Emergency switch. While paused, new deposits are rejected. Withdrawals remain open so a pause can never trap user funds.
@@ -167,6 +175,16 @@ Emergency switch. While paused, new deposits are rejected. Withdrawals remain op
 ### `is_paused() -> bool`
 
 Returns whether deposits are currently paused.
+
+### `set_total_deposit_cap(cap: i128) -> Result<(), ContractError>` (admin only)
+
+Sets the maximum total asset amount (in USDC stroops, the same units as `get_total_assets()`) the vault will accept across all deposits. Setting `0` leaves the vault uncapped (the default). Rejecting any negative cap value with `ZeroAmount`. Emits an admin event with topic `("admin", "cap")` and data `cap`.
+
+When a positive cap is set, any `deposit` that would cause resulting total assets (`total_assets + amount`) to exceed `cap` fails with `DepositCapExceeded`. A deposit that reaches the cap exactly (`total_assets + amount == cap`) succeeds.
+
+### `get_total_deposit_cap() -> i128`
+
+Returns the current total deposit cap in USDC stroops, or `0` if deposits are uncapped.
 
 ### `transfer_admin(new_admin)` (admin only)
 
@@ -217,7 +235,10 @@ All topic segments are `Symbol` values unless shown as `u32(1)`. Soroban encodes
 | `accept`    | `(admin, accept, u32(1))`    | `new_admin: Address`                                                                  |
 | `adapter`   | `(admin, adapter, u32(1))`   | `new_adapter: Address`                                                                |
 | `mig_begin` | `(admin, mig_begin, u32(1))` | `(new_adapter: Address, earliest_ledger: u32)`                                        |
+| `mig_canc`  | `(admin, mig_canc, u32(1))`  | `cancelled_adapter: Address`                                                          |
 | `migrate`   | `(admin, migrate, u32(1))`   | `(old_adapter: Address, new_adapter: Address)`                                        |
+| `cap`       | `(admin, cap, u32(1))`       | `cap: i128`                                                                           |
+| `rescue`    | `(admin, rescue, u32(1))`    | `(token: Address, to: Address, amount: i128)`                                         |
 
 ### Event schema compatibility
 
@@ -330,7 +351,7 @@ USDC on Stellar uses 7 decimal places. 1 USDC = `10_000_000` stroops. All contra
 
 Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is deliberate, so a pause can never trap user funds.
 
-`deposit`, `withdraw`, `withdraw_assets`, `set_adapter`, `begin_migration`, `migrate_adapter` and `on_transfer` run under a reentrancy lock ([#1264](https://github.com/drydocs/meridian/issues/1264)). Each of them makes external calls (to the adapter, to USDC or mUSDC), or is reached from one, and so could be called back into while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or the migration state is not final. While the lock is held, a second guarded call returns `ReentrancyDetected` and changes nothing. The lock is released on both success and failure. This is defense in depth: the Soroban host already refuses to re-enter a contract that is on the call stack, and the lock keeps the vault safe if that ever changes. `deposit` also writes the caller's position records, and `TOTAL_SH` at the pre-deposit quote (the most the deposit can mint), before its external calls, then reconciles `TOTAL_SH` and `ADPT_SH` from the adapter's post-deposit reads before the mUSDC mint; `withdraw` and `migrate_adapter` cannot write ahead, because what they write depends on what those calls return.
+`deposit`, `withdraw`, `withdraw_assets`, `rescue_token`, `set_adapter`, `begin_migration`, `migrate_adapter` and `on_transfer` run under a reentrancy lock ([#1264](https://github.com/drydocs/meridian/issues/1264)). Each of them makes external calls (to the adapter, to USDC or mUSDC), or is reached from one, and so could be called back into while `TOTAL_SH`, `ADPT_SH`, `ADAPTER` or the migration state is not final. While the lock is held, a second guarded call returns `ReentrancyDetected` and changes nothing. The lock is released on both success and failure. This is defense in depth: the Soroban host already refuses to re-enter a contract that is on the call stack, and the lock keeps the vault safe if that ever changes. `deposit` also writes the caller's position records, and `TOTAL_SH` at the pre-deposit quote (the most the deposit can mint), before its external calls, then reconciles `TOTAL_SH` and `ADPT_SH` from the adapter's post-deposit reads before the mUSDC mint; `withdraw` and `migrate_adapter` cannot write ahead, because what they write depends on what those calls return.
 
 ## Error codes
 
@@ -363,7 +384,7 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `AdapterCreditedNothing`         | 23   | `deposit` or `migrate_adapter` received zero or negative shares from the adapter.                                                                                                                 |
 | `DivisionByZero`                 | 24   | An internal division attempted to divide by zero.                                                                                                                                                 |
 | `MigrationBaselineInvalid`       | 25   | `migrate_adapter` read a zero or negative asset baseline from the old adapter while the vault held adapter shares.                                                                                |
-| `ReentrancyDetected`             | 26   | `deposit`, `withdraw`, `withdraw_assets`, `set_adapter`, `begin_migration`, `migrate_adapter` or `on_transfer` was called while another guarded call was still running.                           |
+| `ReentrancyDetected`             | 26   | `deposit`, `withdraw`, `withdraw_assets`, `rescue_token`, `set_adapter`, `begin_migration`, `migrate_adapter` or `on_transfer` was called while another guarded call was still running.           |
 | `AdapterUsdcMismatch`            | 27   | `set_adapter`, `begin_migration`, or constructor wiring was given a target whose `get_usdc()` differs from the vault's USDC, is missing, or fails.                                                |
 | `AdapterVaultMismatch`           | 28   | `set_adapter`, `begin_migration`, or constructor wiring was given a target whose `get_vault()` is not this vault, is missing, or fails.                                                           |
 | `AdapterResidualPosition`        | 29   | `set_adapter` was given a target that already holds a position (nonzero `total_shares()` or `total_assets()`).                                                                                    |
@@ -375,6 +396,11 @@ Deposits, but never withdrawals, can be paused via `set_paused(true)`. This is d
 | `InvalidAdapterAddress`          | 35   | Constructor initialization rejected a zero or vault-self adapter address.                                                                                                                         |
 | `InvalidTreasuryAddress`         | 36   | Constructor initialization rejected a zero or vault-self treasury address.                                                                                                                        |
 | `MusdcAdminMismatch`             | 37   | Constructor initialization found that mUSDC is not administered by this vault.                                                                                                                    |
+| `ProtectedToken`                 | 38   | `rescue_token` was called for the vault's USDC, the mUSDC share token or the active adapter.                                                                                                      |
+| `InsufficientBalance`            | 39   | `rescue_token` was asked for more of the token than the vault holds.                                                                                                                              |
+| `DepositCapExceeded`             | 40   | `deposit` would take the vault's total assets above the cap set with `set_total_deposit_cap`.                                                                                                     |
+| `AdapterLiquidityInsufficient`   | 41   | The active adapter's available USDC liquidity is below the gross USDC needed for the requested withdrawal. Distinct from `WithdrawalTooSmall`.                                                    |
+| `NoPendingMigration`             | 42   | `cancel_migration` was called while no migration is pending.                                                                                                                                      |
 
 ## Contract storage
 

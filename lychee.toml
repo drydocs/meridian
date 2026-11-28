@@ -11,7 +11,8 @@ include_fragments = "anchor-only"
 # Root-relative links in `apps/docs` resolve against the docs source root.
 root_dir = "apps/docs"
 
-max_retries = 2
+max_retries = 4
+retry_wait_time = 5
 timeout = 20
 accept = ["200..=299", "429"]
 
@@ -26,6 +27,9 @@ exclude = [
   '^https://(www\.)?(twitter|x)\.com',
   # Stellar testnet faucet: returns 400 without a real funded address.
   '^https://friendbot\.stellar\.org',
+  # xBull's site closes TLS connections from CI runners (fatal alert), which
+  # fails the external link check on every run.
+  '^https://xbull\.app',
   # Local development URLs referenced in guides.
   '^https?://localhost',
   '^https?://127\.0\.0\.1',
