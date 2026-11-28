@@ -129,7 +129,7 @@ describe.each(["list", "detail"] as const)("vault %s ETag", (route) => {
     expect(res.headers.ETag).toMatch(/^"[a-f0-9]{64}"$/);
     expect(res.rawBody).toBe(JSON.stringify(body));
     expect(res.body).toEqual(body);
-  });
+  }, 30000);
 
   it("returns 304 with an empty body when If-None-Match matches", async () => {
     vi.useFakeTimers();

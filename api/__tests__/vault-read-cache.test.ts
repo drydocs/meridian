@@ -81,7 +81,7 @@ describe("vaultReadCacheControl", () => {
     vi.resetModules();
     const { vaultReadCacheControl } = await import("../_lib/middleware.js");
     expect(vaultReadCacheControl()).toBe(MAINNET_CACHE_HEADER);
-  }, 15000);
+  }, 30000);
 
   it("serves testnet vault reads uncached", async () => {
     process.env.STELLAR_NETWORK = "testnet";

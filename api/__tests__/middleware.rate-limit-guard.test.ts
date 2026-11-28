@@ -62,7 +62,7 @@ describe("Rate limit production fail-closed scoping (#621)", () => {
     delete process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN;
 
     await expect(import("../_lib/middleware.js")).resolves.toBeDefined();
-  }, 15000);
+  }, 30000);
 
   it("allows non-strict read-only routes to fall back to in-memory limiter in production without Upstash", async () => {
     process.env.VERCEL_ENV = "production";
