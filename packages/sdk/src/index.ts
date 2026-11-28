@@ -67,3 +67,7 @@ export type {
   RetryEvent,
   SanitizedError,
 } from "./instrumentation.js";
+export * as vaultBindings from "./generated/vault.js";
+export * as musdcBindings from "./generated/musdc.js";
+export * as blendAdapterBindings from "./generated/blend-adapter.js";
+export * as defindexAdapterBindings from "./generated/defindex-adapter.js";
