@@ -1,0 +1,46 @@
+name: Contracts Fuzz
+
+on:
+  schedule:
+    # Nightly, 03:00 UTC. The matrix's six targets each get a bounded budget.
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: contracts-fuzz
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: cargo-fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - fuzz_deposit
+          - fuzz_withdraw
+          - fuzz_on_transfer
+          - fuzz_set_adapter
+          - fuzz_begin_migration
+          - fuzz_migrate_adapter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/contracts
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Run bounded fuzz session
+        working-directory: packages/contracts
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=300
+      - name: Upload crashes (if any)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.target }}
+          path: packages/contracts/fuzz/artifacts/${{ matrix.target }}
+          if-no-files-found: ignore
+          retention-days: 30

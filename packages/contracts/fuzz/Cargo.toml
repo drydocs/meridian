@@ -1,0 +1,63 @@
+[package]
+name = "meridian-contracts-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# Separate workspace: cargo-fuzz injects a nightly-only [profile.dev] sanitizer
+# that would propagate to the real contracts workspace members otherwise.
+[workspace]
+members = []
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# Rely on a stable libfuzzer-sys that targets the installed nightly; pinning
+# is left to Cargo.lock so bumping is one `cargo update -p libfuzzer-sys`.
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+meridian-vault = { path = "../vault", features = ["testutils"] }
+soroban-sdk = { version = "22.0.0", features = ["testutils", "alloc"] }
+
+[[bin]]
+name = "fuzz_deposit"
+path = "fuzz_targets/fuzz_deposit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_withdraw"
+path = "fuzz_targets/fuzz_withdraw.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_on_transfer"
+path = "fuzz_targets/fuzz_on_transfer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_set_adapter"
+path = "fuzz_targets/fuzz_set_adapter.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_begin_migration"
+path = "fuzz_targets/fuzz_begin_migration.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_migrate_adapter"
+path = "fuzz_targets/fuzz_migrate_adapter.rs"
+test = false
+doc = false
+bench = false
