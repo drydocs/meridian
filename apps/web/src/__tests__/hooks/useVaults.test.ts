@@ -3,12 +3,17 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 import { useVaults } from "../../hooks/useVaults";
+import { ApiRequestError } from "../../lib/api";
 
-vi.mock("../../lib/api", () => ({
-  api: {
-    getVaults: vi.fn(),
-  },
-}));
+vi.mock("../../lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/api")>();
+  return {
+    ...actual,
+    api: {
+      getVaults: vi.fn(),
+    },
+  };
+});
 
 import { api } from "../../lib/api";
 
@@ -110,9 +115,16 @@ describe("useVaults", () => {
     expect(getVaults).toHaveBeenCalledTimes(2);
   });
 
-  it("recovers when the retry succeeds", async () => {
+  it("retries a 5xx API error and recovers when the retry succeeds", async () => {
     getVaults
-      .mockRejectedValueOnce(new Error("blip"))
+      .mockRejectedValueOnce(
+        new ApiRequestError("server unavailable", {
+          method: "GET",
+          path: "/api/v1/vaults",
+          status: 503,
+          category: "http_server_error",
+        })
+      )
       .mockResolvedValueOnce(response());
     const { result } = setup();
 
@@ -120,6 +132,22 @@ describe("useVaults", () => {
 
     expect(result.current.data?.vaults).toEqual(VAULTS);
     expect(getVaults).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry 4xx API errors", async () => {
+    getVaults.mockRejectedValueOnce(
+      new ApiRequestError("invalid request", {
+        method: "GET",
+        path: "/api/v1/vaults",
+        status: 404,
+        category: "http_client_error",
+      })
+    );
+    const { result } = setup();
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(getVaults).toHaveBeenCalledTimes(1);
   });
 
   it("caches under the vaults query key with a 5 minute stale time", async () => {
@@ -135,5 +163,11 @@ describe("useVaults", () => {
     const query = client.getQueryCache().find({ queryKey: ["vaults"] });
     expect(query?.isStale()).toBe(false);
     expect(query?.observers[0]?.options.staleTime).toBe(5 * 60_000);
+
+    query?.setState({
+      ...query.state,
+      dataUpdatedAt: Date.now() - 5 * 60_000 - 1,
+    });
+    expect(query?.isStale()).toBe(true);
   });
 });

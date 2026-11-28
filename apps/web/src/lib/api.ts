@@ -50,6 +50,25 @@ export class ApiRequestError extends Error {
   }
 }
 
+/** True when an HTTP client error should fail immediately without retrying. */
+export function isClientError(error: unknown): boolean {
+  if (!(error instanceof ApiRequestError)) return false;
+  const status = error.context.status;
+  return status !== null && status >= 400 && status < 500;
+}
+
+/** True when an API failure indicates that the request could not reach a server. */
+export function isNetworkError(error: unknown): boolean {
+  if (error instanceof ApiRequestError) {
+    return error.context.status === null;
+  }
+  if (error instanceof TypeError) return true;
+  if (typeof DOMException !== "undefined" && error instanceof DOMException) {
+    return error.name === "TimeoutError" || error.name === "AbortError";
+  }
+  return false;
+}
+
 function apiPath(path: string): string {
   try {
     return scrubSensitiveText(

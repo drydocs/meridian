@@ -216,6 +216,9 @@
   },
 
   "status": {
+    "stale": "Données obsolètes",
+    "lastUpdated": "Mis à jour",
+    "offlineBanner": "Vous êtes hors ligne. Certaines données peuvent être obsolètes.",
     "title": "État du contrat",
     "subtitle": "Vérifiez ce qui est réellement déployé et en contrôle de ce coffre, sans lire le code source ni interroger le RPC directement.",
     "network": "Réseau",

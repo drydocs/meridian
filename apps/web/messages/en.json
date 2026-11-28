@@ -216,6 +216,9 @@
   },
 
   "status": {
+    "stale": "Stale",
+    "lastUpdated": "Updated",
+    "offlineBanner": "You are offline. Some data may be out of date.",
     "title": "Contract Status",
     "subtitle": "Verify what's actually deployed and in control of this vault, without reading source or querying RPC directly.",
     "network": "Network",

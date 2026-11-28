@@ -6,8 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { setQueryClient } from "./lib/queryClient";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient, setQueryClient } from "./lib/queryClient";
 import { VaultPanel } from "./components/dashboard/VaultPanel";
 import { WalletConnect } from "./components/onboarding/WalletConnect";
 import { Toasts } from "./components/ui/Toasts";
@@ -16,6 +16,7 @@ import { useWalletStore } from "./store/wallet";
 import { useDocumentLanguage } from "./hooks/useDocumentLanguage";
 import { useTranslation } from "react-i18next";
 import { NotFound } from "./pages/NotFound";
+import { useConnectivity } from "./hooks/useConnectivity";
 
 const AdminLogin = lazy(() =>
   import("./pages/AdminLogin").then((m) => ({ default: m.AdminLogin }))
@@ -25,8 +26,22 @@ const StatusPage = lazy(() =>
   import("./pages/StatusPage").then((m) => ({ default: m.StatusPage }))
 );
 
-const queryClient = new QueryClient();
+const queryClient = createQueryClient();
 setQueryClient(queryClient);
+
+function OfflineBanner({ online }: { online: boolean }) {
+  const { t } = useTranslation();
+  if (online) return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="sticky top-0 z-50 bg-amber-900 text-amber-100 text-sm text-center py-2 px-4"
+    >
+      {t("status.offlineBanner")}
+    </div>
+  );
+}
 
 type AppRoute = "admin" | "status" | "dashboard" | "notFound";
 
@@ -65,7 +80,7 @@ function resolveRoute(pathname: string): AppRoute {
   return "notFound";
 }
 
-function Dashboard() {
+function Dashboard({ online }: { online: boolean }) {
   const { t, i18n } = useTranslation();
   const [resetKey, setResetKey] = useState(0);
   const toggleLanguage = useCallback(() => {
@@ -121,6 +136,8 @@ function Dashboard() {
         </div>
       </header>
 
+      <OfflineBanner online={online} />
+
       <main
         id="main-content"
         tabIndex={-1}
@@ -138,6 +155,7 @@ function Dashboard() {
 }
 
 export default function App() {
+  const online = useConnectivity(queryClient);
   const { t } = useTranslation();
   useDocumentLanguage();
   const [pathname, setPathname] = useState(() => window.location.pathname);
@@ -228,7 +246,7 @@ export default function App() {
         <StatusPage />
       </Suspense>
     ) : route === "dashboard" ? (
-      <Dashboard />
+      <Dashboard online={online} />
     ) : (
       <NotFound />
     );

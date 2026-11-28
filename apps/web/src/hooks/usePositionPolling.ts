@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWalletStore } from "../store/wallet";
-import { api, type ApiPosition } from "../lib/api";
+import { api, isClientError, type ApiPosition } from "../lib/api";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "react-i18next";
 
@@ -80,7 +80,14 @@ export function usePositionPolling() {
       return data.positions;
     },
     enabled: isPollingPositions && !!publicKey,
-    retry: false,
+    // Polling already re-runs on a fixed 3s cadence, so transient failures are
+    // handled by the refetchInterval failure counter. Do not retry 4xx
+    // responses; allow a bounded number of retries for 5xx/network errors.
+    retry: (failureCount, error) => {
+      if (isClientError(error)) return false;
+      return failureCount < 2;
+    },
+    retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 8_000),
 
     refetchInterval: (query) => {
       const targets = pollTargetsRef.current;

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, type ApiPosition } from "../lib/api";
+import { api, isClientError, type ApiPosition } from "../lib/api";
 
 export function usePositions(publicKey: string | null) {
   return useQuery<ApiPosition[], Error>({
@@ -11,6 +11,6 @@ export function usePositions(publicKey: string | null) {
     },
     enabled: !!publicKey,
     staleTime: 30_000, // 30s: positions change on every deposit/withdraw
-    retry: 1,
+    retry: (failureCount, error) => !isClientError(error) && failureCount < 1,
   });
 }
