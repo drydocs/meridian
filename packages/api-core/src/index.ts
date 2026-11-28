@@ -7,5 +7,6 @@ export * from "./admin";
 export * from "./admin-history";
 export * from "./config";
 export * from "./cache";
+export * from "./rate-limit";
 export * from "./error-envelope";
 export * from "./health";

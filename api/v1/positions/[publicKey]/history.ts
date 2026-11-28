@@ -14,7 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return sendResponse(req, res, 405, { error: "Method not allowed" });
   }
   try {
-    if (!(await checkRateLimit(req, res))) return;
+    if (!(await checkRateLimit(req, res, { route: "read" }))) return;
   } catch (err) {
     logError("positions.history.rate_limit_failed", req, err);
     return sendResponse(req, res, 503, {

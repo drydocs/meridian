@@ -39,7 +39,9 @@ function isAction(value: unknown): value is Action {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   try {
-    if (!(await checkRateLimit(req, res, { strict: true }))) return;
+    const rateLimitRoute =
+      req.query.action === "submit" ? "tx-submit" : "tx-build";
+    if (!(await checkRateLimit(req, res, { route: rateLimitRoute }))) return;
   } catch (err) {
     logError("tx.rate_limit_failed", req, err);
     return sendResponse(req, res, 503, {

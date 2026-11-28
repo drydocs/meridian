@@ -318,6 +318,7 @@ function expectErrorResponse(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetRateLimitForTesting();
   resetPositionReadCacheForTesting();
   vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
   vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");

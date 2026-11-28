@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.4.1",
-    "@fastify/rate-limit": "^11.2.1",
     "@meridian/api-core": "workspace:*",
     "@meridian/shared": "workspace:*",
     "@meridian/stellar-sdk-helpers": "workspace:*",

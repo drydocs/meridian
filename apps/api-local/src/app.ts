@@ -1,7 +1,11 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
-import rateLimit from "@fastify/rate-limit";
 import type Redis from "ioredis";
+import { DEFAULT_ALLOWED_ORIGIN } from "@meridian/shared";
+import {
+  InMemoryRateLimitStore,
+  RedisRateLimitStore,
+  type RedisRateLimitClient,
 import { DEFAULT_ALLOWED_ORIGIN, MAX_BODY_BYTES } from "@meridian/shared";
 import {
   createRequestId,
@@ -9,6 +13,7 @@ import {
   responseBody,
 } from "@meridian/api-core";
 import { writeLog } from "@meridian/shared/logger";
+import { registerRateLimit } from "./rate-limit.js";
 import { vaultsRoute } from "./routes/vaults.js";
 import { positionsRoute } from "./routes/positions.js";
 import { txRoute } from "./routes/tx.js";
@@ -21,9 +26,16 @@ export interface BuildAppOptions {
   logger?: boolean | object | undefined;
   redisClient?: Redis | undefined;
   enableRateLimit?: boolean | undefined;
-  rateLimitMax?: number | undefined;
-  rateLimitTimeWindow?: string | undefined;
   allowedOrigin?: string | undefined;
+}
+
+// ioredis takes eval(script, numKeys, ...keysAndArgs); the store speaks the
+// Upstash shape eval(script, keys, args), so both clients run the same script.
+function rateLimitClient(redis: Redis): RedisRateLimitClient {
+  return {
+    eval: (script, keys, args) =>
+      redis.eval(script, keys.length, ...keys, ...args),
+  };
 }
 
 export async function buildApp(
@@ -77,15 +89,12 @@ export async function buildApp(
   });
 
   if (options.enableRateLimit !== false) {
-    await app.register(rateLimit, {
-      max: options.rateLimitMax ?? 100,
-      timeWindow: options.rateLimitTimeWindow ?? "1 minute",
-      ...(options.redisClient ? { redis: options.redisClient } : {}),
-      errorResponseBuilder: () => ({
-        statusCode: 429,
-        error: "Too many requests. Try again in a minute.",
-      }),
-    });
+    registerRateLimit(
+      app,
+      options.redisClient
+        ? new RedisRateLimitStore(rateLimitClient(options.redisClient))
+        : new InMemoryRateLimitStore()
+    );
   }
 
   // Every response carries the request ID, and error bodies use the shared
