@@ -9,17 +9,31 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-describe("PositionSummary freshness", () => {
-  it("shows localized freshness labels for stale cached positions", () => {
+const POSITION = {
+  vaultId: "meridian-usdc",
+  shares: 50,
+  deposited: 100,
+  earned: 5,
+  entryTime: 1_700_000_000,
+};
+
+describe("PositionSummary", () => {
+  it("shows the deposited amount formatted as currency", () => {
+    render(<PositionSummary position={POSITION} />);
+
+    expect(screen.getByText("$100.00")).toBeTruthy();
+  });
+
+  it("shows the earned amount formatted as currency with a plus sign", () => {
+    render(<PositionSummary position={POSITION} />);
+
+    expect(screen.getByText("+$5.00")).toBeTruthy();
+  });
+
+  it("shows freshness labels for stale cached positions", () => {
     render(
       <PositionSummary
-        position={{
-          vaultId: "meridian-usdc",
-          shares: 100,
-          deposited: 100,
-          earned: 1.5,
-          entryTime: 1_700_000_000,
-        }}
+        position={POSITION}
         lastUpdated={Date.UTC(2026, 0, 1, 12, 30)}
         isStale
       />
