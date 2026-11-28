@@ -4,11 +4,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 import { usePositions } from "../../hooks/usePositions";
 
-vi.mock("../../lib/api", () => ({
-  api: {
-    getPositions: vi.fn(),
-  },
-}));
+vi.mock("../../lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/api")>();
+  return {
+    ...actual,
+    api: {
+      getPositions: vi.fn(),
+    },
+  };
+});
 
 import { api } from "../../lib/api";
 
