@@ -4,5 +4,6 @@ export type { SupportedStablecoin, ProtocolId } from "@meridian/shared";
 export interface WalletState {
   publicKey: string | null;
   network: "testnet" | "mainnet";
+  walletNetwork: "testnet" | "mainnet" | null;
   connected: boolean;
 }

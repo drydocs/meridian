@@ -15,6 +15,7 @@ interface WithdrawTabProps {
   position: ApiPosition | undefined;
   hasPosition: boolean;
   isWithdrawing: boolean;
+  isNetworkBlocked?: boolean;
   // True only while the wallet signature is pending; gates the cancel control.
   isSigning?: boolean;
   onCancel?: () => void;
@@ -29,6 +30,7 @@ export function WithdrawTab({
   position,
   hasPosition,
   isWithdrawing,
+  isNetworkBlocked = false,
   isSigning,
   onCancel,
   onSubmit,
@@ -98,7 +100,11 @@ export function WithdrawTab({
             data-testid="vault-withdraw-submit"
             onClick={onSubmit}
             disabled={
-              !amount || !bestVault || isWithdrawing || amountError !== null
+              !amount ||
+              !bestVault ||
+              isWithdrawing ||
+              amountError !== null ||
+              isNetworkBlocked
             }
             className="w-full rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-500 text-white text-sm font-semibold py-3.5 transition-all duration-150 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
           >

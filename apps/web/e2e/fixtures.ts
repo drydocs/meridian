@@ -33,18 +33,24 @@ export const FAKE_VAULTS = {
   cached: false,
 };
 
+// Mirrors APP_NETWORK in packages/shared/src/constants.ts: testnet only when
+// STELLAR_NETWORK=testnet, otherwise mainnet. Keeps NetworkMismatchBanner
+// hidden in tests that aren't about networks.
+export const DEFAULT_E2E_NETWORK =
+  process.env.STELLAR_NETWORK === "testnet" ? "testnet" : "mainnet";
+export const MISMATCHED_E2E_NETWORK =
+  DEFAULT_E2E_NETWORK === "testnet" ? "mainnet" : "testnet";
+
 export interface MockWalletOptions {
   installed?: boolean;
   authorized?: boolean;
   address?: string;
   /**
-   * "decline" (default) rejects every sign request, simulating the user
-   * closing the Freighter popup — exercises the full build-transaction flow
-   * against the real API and the app's error handling, without needing a
-   * real signature or on-chain submission. "approve" resolves with a fake
-   * signed XDR, which will still fail once posted to /tx/submit against the
-   * real network, but lets a test assert the app got that far.
+   * Network the wallet reports. Defaults to the app's network. Pass
+   * MISMATCHED_E2E_NETWORK to trigger the mismatch banner, or null to
+   * simulate a wallet whose network can't be determined.
    */
+  network?: string | null;
   signBehavior?: "approve" | "decline";
 }
 
@@ -59,6 +65,8 @@ export const test = base.extend<Fixtures>({
       const authorized = opts.authorized ?? true;
       const address = opts.address ?? TEST_ADDRESS;
       const signBehavior = opts.signBehavior ?? "decline";
+      const network =
+        opts.network === undefined ? DEFAULT_E2E_NETWORK : opts.network;
 
       await page.addInitScript(
         (init: {
@@ -66,6 +74,7 @@ export const test = base.extend<Fixtures>({
           authorized: boolean;
           address: string;
           signBehavior: "approve" | "decline";
+          network: string | null;
         }) => {
           const w = window as unknown as {
             __E2E_MOCK_WALLET__?: unknown;
@@ -76,6 +85,7 @@ export const test = base.extend<Fixtures>({
             installed: init.installed,
             authorized: init.authorized,
             address: init.address,
+            network: init.network ?? undefined,
             sign: async (xdr: string) => {
               w.__E2E_SIGNED_XDRS__!.push(xdr);
               if (init.signBehavior === "decline") {
@@ -85,7 +95,7 @@ export const test = base.extend<Fixtures>({
             },
           };
         },
-        { installed, authorized, address, signBehavior }
+        { installed, authorized, address, signBehavior, network }
       );
     });
   },

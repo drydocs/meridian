@@ -15,6 +15,7 @@ interface WalletStore extends WalletState {
   connect: (publicKey: string) => void;
   disconnect: () => void;
   revalidate: (signal?: AbortSignal) => Promise<void>;
+  refreshNetwork: () => Promise<void>;
 }
 
 export const useWalletStore = create<WalletStore>()(
@@ -26,10 +27,50 @@ export const useWalletStore = create<WalletStore>()(
       // mainnet transactions with the testnet passphrase on the mainnet build
       // (#851). The migration below clears any stale persisted value.
       network: APP_NETWORK.network,
+      walletNetwork: null,
       connected: false,
 
-      connect: (publicKey) => set({ publicKey, connected: true }),
-      disconnect: () => set({ publicKey: null, connected: false }),
+      connect: (publicKey) =>
+        set({ publicKey, connected: true, walletNetwork: null }),
+      disconnect: () =>
+        set({ publicKey: null, connected: false, walletNetwork: null }),
+
+      refreshNetwork: async () => {
+        const key = get().publicKey;
+        if (!key) {
+          set({ walletNetwork: null });
+          return;
+        }
+
+        set({ walletNetwork: null });
+        const reportedNetwork =
+          typeof wallet.getNetwork === "function"
+            ? await wallet.getNetwork()
+            : null;
+        if (get().publicKey !== key) return;
+
+        const walletNetwork =
+          reportedNetwork === "mainnet" || reportedNetwork === "testnet"
+            ? reportedNetwork
+            : null;
+        set({ walletNetwork });
+
+        if (walletNetwork && walletNetwork !== get().network) {
+          set({ network: walletNetwork });
+          const fallback = `Wallet network switched to ${walletNetwork}`;
+          const message =
+            (i18n.isInitialized
+              ? i18n.t("walletConnect.networkChanged", {
+                  network: walletNetwork,
+                  defaultValue: fallback,
+                })
+              : null) || fallback;
+          useToastStore.getState().push("info", message);
+          queryClient.invalidateQueries({ queryKey: ["positions"] });
+          queryClient.invalidateQueries({ queryKey: ["vaults"] });
+          queryClient.invalidateQueries({ queryKey: ["vault-state"] });
+        }
+      },
 
       // Re-check the persisted key against the wallet. Clears stale state when
       // the extension is gone or the user revoked site access between sessions,
@@ -97,30 +138,11 @@ export const useWalletStore = create<WalletStore>()(
           }
         }
 
-        // Reconcile passive network if supported
+        // Reconcile passive network if supported. Unknown reports stay unknown
+        // so signing remains disabled instead of assuming the app network.
         if (typeof wallet.getNetwork === "function") {
           try {
-            const reportedNetwork = await wallet.getNetwork();
-            if (
-              get().publicKey === activeKey &&
-              (reportedNetwork === "mainnet" ||
-                reportedNetwork === "testnet") &&
-              reportedNetwork !== get().network
-            ) {
-              set({ network: reportedNetwork });
-              const fallback = `Wallet network switched to ${reportedNetwork}`;
-              const message =
-                (i18n.isInitialized
-                  ? i18n.t("walletConnect.networkChanged", {
-                      network: reportedNetwork,
-                      defaultValue: fallback,
-                    })
-                  : null) || fallback;
-              useToastStore.getState().push("info", message);
-              queryClient.invalidateQueries({ queryKey: ["positions"] });
-              queryClient.invalidateQueries({ queryKey: ["vaults"] });
-              queryClient.invalidateQueries({ queryKey: ["vault-state"] });
-            }
+            if (get().publicKey === activeKey) await get().refreshNetwork();
           } catch {
             // Passive queries must not break revalidation
           }

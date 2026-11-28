@@ -22,7 +22,15 @@
     "timedOutHint": "La fenêtre du portefeuille est peut-être derrière votre navigateur. Vérifiez-la et réessayez.",
     "accountChanged": "Compte de portefeuille changé pour {{address}}",
     "networkChanged": "Réseau de portefeuille changé pour {{network}}",
-    "networkMismatch": "Incompatibilité de réseau: le portefeuille est sur {{walletNetwork}}, mais l'application requiert {{appNetwork}}"
+    "networkMismatch": "Incompatibilité de réseau : le portefeuille est sur {{walletNetwork}}, mais l'application requiert {{appNetwork}}",
+    "networkUnknown": "Le réseau du portefeuille n'a pas pu être détecté. L'application requiert {{appNetwork}}.",
+    "unknownNetwork": "inconnu",
+    "networkCheckFailed": "Impossible de vérifier le réseau du portefeuille. Veuillez réessayer.",
+    "checkingNetwork": "Vérification du réseau...",
+    "networks": {
+      "mainnet": "Mainnet",
+      "testnet": "Testnet"
+    }
   },
 
   "vaultPanel": {
