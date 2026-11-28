@@ -1,0 +1,2 @@
+# Add advisory exceptions under [advisories] only with an owner and expiry date.
+[advisories]

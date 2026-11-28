@@ -443,6 +443,20 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all
 ```
 
+### Dependency audit and license checks
+
+CI runs `pnpm audit --audit-level high` for JavaScript and `cargo audit` for Rust on every pull request. Both fail on high or critical advisories. The license gate checks JavaScript and Rust dependency licenses against [`scripts/license-allowlist.json`](scripts/license-allowlist.json).
+
+Run the checks locally:
+
+```bash
+pnpm audit:js
+pnpm license:check
+(cd packages/contracts && cargo audit)
+```
+
+Add a license to the allowlist only when it is compatible with the project's MIT license. Exceptions require an owner and an expiry date in `scripts/license-allowlist.json`. Advisory exceptions require an owner and an expiry date in `packages/contracts/.cargo/audit.toml`. Do not add secrets to the allowlist or workflow.
+
 ### Adding a new API error code
 
 When introducing a new error code or status mapping in `packages/api-core`:
