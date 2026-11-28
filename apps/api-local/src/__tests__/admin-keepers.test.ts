@@ -10,6 +10,7 @@ vi.mock("@meridian/api-core", async (importOriginal) => {
     handleGetAdminHistory: vi.fn(),
     handleGetVaultState: vi.fn(),
     handleGetKeeperHealth: vi.fn(),
+    handleGetKeeperPlan: vi.fn(),
   };
 });
 
@@ -17,6 +18,7 @@ import {
   handleGetAdminHistory,
   handleGetVaultState,
   handleGetKeeperHealth,
+  handleGetKeeperPlan,
 } from "@meridian/api-core";
 
 function buildApp() {
@@ -26,8 +28,6 @@ function buildApp() {
   return app;
 }
 
-// Fastify's first ready() is slow on a cold, loaded machine; pay that cost in
-// a hook with a generous timeout rather than in the first test's 5s budget.
 beforeAll(async () => {
   await buildApp().ready();
 }, 60_000);
@@ -250,5 +250,75 @@ describe("GET /api/v1/keepers/health", () => {
     });
     expect(post.statusCode).toBe(404);
     expect(handleGetKeeperHealth).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/v1/keepers/plan", () => {
+  it("returns 200 with the migration keeper plan", async () => {
+    const app = buildApp();
+    const body = {
+      network: "testnet",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      finishedAt: "2026-01-01T00:00:01.000Z",
+      configured: true,
+      candidateAdapters: [],
+      discoveredVaults: [],
+      vaults: [],
+      skipped: [],
+      failures: [],
+    };
+    vi.mocked(handleGetKeeperPlan).mockResolvedValue({ status: 200, body });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/v1/keepers/plan",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual(body);
+    expect(handleGetKeeperPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 500 and logs when building keeper plan fails", async () => {
+    const app = buildApp();
+    const logError = vi.spyOn(app.log, "error");
+    const err = new Error("store unreachable");
+    vi.mocked(handleGetKeeperPlan).mockResolvedValue({
+      status: 500,
+      body: { error: "Failed to build keeper plan" },
+      error: err,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/v1/keepers/plan",
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toEqual({ error: "Failed to build keeper plan" });
+    expect(logError).toHaveBeenCalledWith(
+      err,
+      "[keepers] failed to build keeper plan"
+    );
+  });
+
+  it("does not log an error on success", async () => {
+    const app = buildApp();
+    const logError = vi.spyOn(app.log, "error");
+    vi.mocked(handleGetKeeperPlan).mockResolvedValue({
+      status: 200,
+      body: { vaults: [] },
+    });
+
+    await app.inject({ method: "GET", url: "/api/v1/keepers/plan" });
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-GET methods", async () => {
+    const app = buildApp();
+    const post = await app.inject({
+      method: "POST",
+      url: "/api/v1/keepers/plan",
+    });
+    expect(post.statusCode).toBe(404);
+    expect(handleGetKeeperPlan).not.toHaveBeenCalled();
   });
 });
